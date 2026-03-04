@@ -11,3 +11,6 @@ __pycache__/
 
 # Environment variables
 .env
+
+# Watchlist configs (personal data)
+configs/watchlist/

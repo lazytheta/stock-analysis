@@ -7,6 +7,7 @@ All calculations use Excel formulas. Run recalc.py after generating.
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter as cl
+from dcf_calculator import compute_wacc
 
 
 def _calc_ic(cfg, idx):
@@ -412,16 +413,7 @@ def build_dcf_model(cfg, output_path):
     # SECTION 5: DYNAMIC SCENARIO ANALYSIS (Formula-Based)
     # ================================================================
     # Pre-compute WACC for reverse DCF / sensitivity (Python-side)
-    eq_val = cfg['equity_market_value']
-    debt_val = cfg['debt_market_value']
-    eq_wt = eq_val / (eq_val + debt_val)
-    debt_wt = debt_val / (eq_val + debt_val)
-    wu_beta = sum(ub * wt for _, ub, wt in cfg['sector_betas'])
-    de_ratio = debt_val / eq_val if eq_val > 0 else 0
-    lev_beta = wu_beta * (1 + (1 - cfg['tax_rate']) * de_ratio)
-    ke = cfg['risk_free_rate'] + lev_beta * cfg['erp']
-    kd = (cfg['risk_free_rate'] + cfg['credit_spread']) * (1 - cfg['tax_rate'])
-    cfg['_wacc'] = eq_wt * ke + debt_wt * kd
+    cfg['_wacc'] = compute_wacc(cfg)
 
     def _run_dcf_scenario(cfg, growth_rates, margins):
         """Run a full DCF with given growth/margin assumptions. Returns share price."""
