@@ -1,0 +1,7 @@
+# Output Excel files (generated, not tracked)
+output/*.xlsx
+
+# Python
+__pycache__/
+*.pyc
+.DS_Store
