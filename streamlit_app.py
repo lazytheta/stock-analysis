@@ -8,6 +8,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import io
+import logging
 import os
 import sys
 import contextlib
@@ -16,8 +17,10 @@ import time
 from datetime import date, datetime, timedelta
 import re
 
+logger = logging.getLogger(__name__)
+
 from dcf_calculator import compute_wacc, compute_intrinsic_value, compute_reverse_dcf
-from config_store import save_config, load_config, list_watchlist, remove_from_watchlist, load_user_prefs, save_user_prefs
+from config_store import save_config, load_config, list_watchlist, remove_from_watchlist, load_user_prefs, save_user_prefs, load_credential, save_credential, delete_credential
 from gather_data import (
     get_cik,
     fetch_company_submissions,
@@ -39,7 +42,7 @@ from gather_data import (
     MARGIN_OF_SAFETY_DEFAULT,
     fetch_fundamentals,
 )
-from tastytrade_api import fetch_portfolio_data, fetch_current_prices, fetch_account_balances, fetch_net_liq_history, fetch_sp500_yearly_returns, fetch_benchmark_returns, fetch_ticker_profiles, fetch_yearly_transfers, fetch_portfolio_greeks, fetch_margin_interest, fetch_margin_for_position, fetch_margin_requirements, fetch_beta_weighted_delta, fetch_greeks_and_bwd, fetch_option_chain
+from tastytrade_api import fetch_portfolio_data, fetch_current_prices, fetch_account_balances, fetch_net_liq_history, fetch_sp500_yearly_returns, fetch_benchmark_returns, fetch_ticker_profiles, fetch_yearly_transfers, fetch_portfolio_greeks, fetch_margin_interest, fetch_margin_for_position, fetch_margin_requirements, fetch_beta_weighted_delta, fetch_greeks_and_bwd, fetch_option_chain, fetch_earnings_dates
 import plotly.graph_objects as go
 
 # ── Page config ──
@@ -48,6 +51,30 @@ st.set_page_config(
     page_icon="\U0001f4ca",
     layout="wide",
 )
+
+# ── Authentication gate ──
+from auth import render_login_page, logout
+
+if "supabase_client" not in st.session_state:
+    render_login_page()
+    st.stop()
+
+# Validate session still active
+_sb_client = st.session_state["supabase_client"]
+try:
+    _sb_client.auth.get_user()
+except Exception:
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.rerun()
+
+
+def _get_tt_token():
+    """Get per-user Tastytrade refresh token from session or DB."""
+    if "tt_refresh_token" not in st.session_state:
+        st.session_state["tt_refresh_token"] = load_credential(_sb_client, "tastytrade_refresh_token")
+    return st.session_state.get("tt_refresh_token")
+
 
 # ── Theme ──
 if 'dark_mode' not in st.session_state:
@@ -545,6 +572,18 @@ st.markdown(f"""
         color: var(--text) !important;
         -webkit-text-fill-color: var(--text) !important;
     }}
+    /* Text area */
+    .stTextArea textarea {{
+        background-color: var(--card) !important;
+        color: var(--text) !important;
+        -webkit-text-fill-color: var(--text) !important;
+        border: 1px solid var(--border-medium) !important;
+    }}
+    .stTextArea [data-baseweb="textarea"],
+    .stTextArea [data-baseweb="textarea"] > div {{
+        background-color: var(--card) !important;
+    }}
+
     /* Catch-all for any remaining white inputs */
     [data-baseweb="input"],
     [data-baseweb="input"] > div,
@@ -1282,19 +1321,21 @@ def _build_excel_bytes(cfg):
             os.remove(tmp_path)
 
 
-def _best_put_pick(ticker_sym, price, intrinsic_val, prefs=None):
+def _best_put_pick(ticker_sym, price, intrinsic_val, prefs=None, refresh_token=None):
     """Find the best put option for a ticker given user wheel prefs.
 
     Returns dict with strike, bid, ann_roc, delta, dte, dcf_mos or None.
     """
     if prefs is None:
-        prefs = load_user_prefs()
+        prefs = load_user_prefs(_sb_client)
     try:
         chain = fetch_option_chain(
             ticker_sym, option_type='Put', fallback_price=price,
             min_dte=prefs['dte_min'], max_dte=prefs['dte_max'],
+            refresh_token=refresh_token,
         )
-    except Exception:
+    except Exception as e:
+        logger.warning("Best put chain fetch failed for %s: %s", ticker_sym, e)
         return None
     if not chain['expirations']:
         return None
@@ -1302,10 +1343,9 @@ def _best_put_pick(ticker_sym, price, intrinsic_val, prefs=None):
     if ch_price <= 0:
         return None
 
-    best = None
-    best_sc = -999
+    # Collect all eligible rows first for normalization
+    candidates = []
     dlo, dhi = prefs['delta_min'], prefs['delta_max']
-    d_ideal = (dlo + dhi) / 2
 
     for exp in chain['expirations']:
         dte = exp['dte']
@@ -1322,16 +1362,32 @@ def _best_put_pick(ticker_sym, price, intrinsic_val, prefs=None):
             ann_roc = (bid / strike) * (365 / dte) * 100 if strike > 0 else 0
             breakeven = strike - bid
             dcf_mos = ((intrinsic_val - breakeven) / intrinsic_val * 100) if intrinsic_val > 0 else 0
-            roc_pts = min(ann_roc, 60)
-            mos_pts = max(min(dcf_mos, 40), -10) if intrinsic_val > 0 else 0
-            delta_pts = max(0, 1 - abs(ad - d_ideal) / 0.15) * 20
-            sc = (roc_pts * 0.4) + (mos_pts * 0.4) + delta_pts
-            if sc > best_sc:
-                best_sc = sc
-                best = {
-                    'strike': strike, 'bid': bid, 'ann_roc': ann_roc,
-                    'delta': s['delta'], 'dte': dte, 'dcf_mos': dcf_mos,
-                }
+            prem_day = bid / dte
+            candidates.append({
+                'strike': strike, 'bid': bid, 'ann_roc': ann_roc,
+                'delta': s['delta'], 'dte': dte, 'dcf_mos': dcf_mos,
+                'prem_day': prem_day,
+            })
+
+    if not candidates:
+        return None
+
+    # Normalize and score: ann_roc * 0.4 + dcf_mos * 0.3 + (1-|delta|) * 0.2 + prem/day * 0.1
+    max_roc = max((c['ann_roc'] for c in candidates), default=1) or 1
+    max_mos = max((c['dcf_mos'] for c in candidates), default=1) or 1
+    max_ppd = max((c['prem_day'] for c in candidates), default=1) or 1
+
+    best = None
+    best_sc = -999
+    for c in candidates:
+        roc_n = min(c['ann_roc'], 60) / min(max_roc, 60) if max_roc > 0 else 0
+        mos_n = max(min(c['dcf_mos'], 40), 0) / min(max_mos, 40) if intrinsic_val > 0 and max_mos > 0 else 0
+        delta_n = 1 - abs(c['delta'])
+        ppd_n = c['prem_day'] / max_ppd if max_ppd > 0 else 0
+        sc = roc_n * 0.4 + mos_n * 0.3 + delta_n * 0.2 + ppd_n * 0.1
+        if sc > best_sc:
+            best_sc = sc
+            best = c
     return best
 
 
@@ -1378,14 +1434,14 @@ def _watchlist_overview():
                 terminal_growth=TERMINAL_GROWTH_DEFAULT,
                 n_peers=6,
             )
-            save_config(ticker_clean, wl_cfg)
+            save_config(_sb_client, ticker_clean, wl_cfg)
             st.success(f"{ticker_clean} added to watchlist")
             st.rerun()
         except Exception as e:
             st.error(f"Could not analyse {ticker_clean}: {e}")
 
     # ── Overview table ──
-    watchlist = list_watchlist()
+    watchlist = list_watchlist(_sb_client)
     if not watchlist:
         st.info("Your watchlist is empty. Add a ticker above or use 'Add to Watchlist' on the DCF page.")
         return
@@ -1395,15 +1451,42 @@ def _watchlist_overview():
         prices = fetch_current_prices(list(tickers_tuple))
         return {t: (p["price"] if p else 0.0) for t, p in prices.items()}
 
-    wl_tickers = [item['ticker'] for item in watchlist if load_config(item['ticker']) is not None]
+    # Load all configs once (avoid redundant load_config calls)
+    @st.cache_data(ttl=10, show_spinner=False)
+    def _load_all_configs(user_id, tickers_tuple):
+        cfgs = {}
+        for t in tickers_tuple:
+            c = load_config(_sb_client, t)
+            if c is not None:
+                cfgs[t] = c
+        return cfgs
+
+    _wl_configs = _load_all_configs(st.session_state["user"]["id"], tuple(item['ticker'] for item in watchlist))
+    wl_tickers = list(_wl_configs.keys())
     batch_prices = _fetch_prices_batch(tuple(wl_tickers)) if wl_tickers else {}
 
+    @st.cache_data(ttl=86400, show_spinner=False)
+    def _cached_fundamentals(t):
+        try:
+            return fetch_fundamentals(t, n_years=2)
+        except Exception as e:
+            logger.debug("Fundamentals fetch failed for %s: %s", t, e)
+            return {}
+
+    # Pre-fetch fundamentals in parallel (cached 24h, only slow on first load)
+    from concurrent.futures import ThreadPoolExecutor
+    _fund_map = {}
+    with ThreadPoolExecutor(max_workers=6) as _fund_exec:
+        _fund_futures = {t: _fund_exec.submit(_cached_fundamentals, t) for t in wl_tickers}
+    for t, f in _fund_futures.items():
+        try:
+            _fund_map[t] = f.result(timeout=10)
+        except Exception as e:
+            logger.debug("Fundamentals parallel fetch failed for %s: %s", t, e)
+            _fund_map[t] = {}
+
     rows = []
-    for item in watchlist:
-        t = item['ticker']
-        cfg_wl = load_config(t)
-        if cfg_wl is None:
-            continue
+    for t, cfg_wl in _wl_configs.items():
         try:
             live_price = batch_prices.get(t, 0.0)
             if live_price > 0:
@@ -1414,21 +1497,20 @@ def _watchlist_overview():
             sh = cfg_wl.get('shares_outstanding', 0)
             eps = ni[-1] / sh if ni and sh else 0
             pe = live_price / eps if eps > 0 else None
-            # FCF Yield — from fundamentals
+            # FCF Yield — from fundamentals (cached 24h)
             fcf_yield_val = None
-            try:
-                _fund = fetch_fundamentals(t, n_years=2)
-                _fcf_vals = [v for v in _fund.get('fcf', []) if v is not None]
-                _sh_vals = [v for v in _fund.get('shares', []) if v and v > 0]
-                if _fcf_vals and _sh_vals and live_price > 0:
-                    fcf_yield_val = (_fcf_vals[-1] * 1e6 / _sh_vals[-1]) / live_price
-            except Exception:
-                pass
-        except Exception:
+            _fund = _fund_map.get(t, {})
+            _fcf_vals = [v for v in _fund.get('fcf', []) if v is not None]
+            _sh_vals = [v for v in _fund.get('shares', []) if v and v > 0]
+            if _fcf_vals and _sh_vals and live_price > 0:
+                fcf_yield_val = (_fcf_vals[-1] * 1e6 / _sh_vals[-1]) / live_price
+        except Exception as e:
+            logger.warning("Watchlist row build failed for %s: %s", t, e)
             continue
         rows.append({
             'ticker': t,
             'company': cfg_wl.get('company', t),
+            'notes': cfg_wl.get('notes', ''),
             'price': live_price,
             'intrinsic': val['intrinsic_value'],
             'buy_price': val['buy_price'],
@@ -1440,13 +1522,13 @@ def _watchlist_overview():
     rows.sort(key=lambda r: r['upside'], reverse=True)
 
     # Fetch best put picks for all tickers (cached, parallel)
-    _wl_prefs = load_user_prefs()
+    _wl_prefs = load_user_prefs(_sb_client)
 
-    @st.cache_data(ttl=120, show_spinner=False)
-    def _cached_best_put(t, price, intrinsic, prefs_tuple):
+    @st.cache_data(ttl=600, show_spinner=False)
+    def _cached_best_put(t, price_rounded, intrinsic_rounded, prefs_tuple, _tt_token=None):
         prefs = {'delta_min': prefs_tuple[0], 'delta_max': prefs_tuple[1],
                  'dte_min': prefs_tuple[2], 'dte_max': prefs_tuple[3]}
-        return _best_put_pick(t, price, intrinsic, prefs)
+        return _best_put_pick(t, price_rounded, intrinsic_rounded, prefs, refresh_token=_tt_token)
 
     _prefs_t = (_wl_prefs['delta_min'], _wl_prefs['delta_max'],
                 _wl_prefs['dte_min'], _wl_prefs['dte_max'])
@@ -1456,17 +1538,25 @@ def _watchlist_overview():
     with ThreadPoolExecutor(max_workers=4) as _bp_exec:
         for _r in rows:
             _bp_futures[_r['ticker']] = _bp_exec.submit(
-                _cached_best_put, _r['ticker'], _r['price'], _r['intrinsic'], _prefs_t)
+                _cached_best_put, _r['ticker'], round(_r['price'], 0), round(_r['intrinsic'], 0), _prefs_t, _get_tt_token())
     _bp_map = {}
     for _t, _f in _bp_futures.items():
         try:
             _bp_map[_t] = _f.result(timeout=15)
-        except Exception:
+        except Exception as e:
+            logger.debug("Best put fetch failed for %s: %s", _t, e)
             _bp_map[_t] = None
 
+    # Fetch earnings dates (cached 5 min)
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def _cached_earnings(tickers_tuple, _tt_token=None):
+        return fetch_earnings_dates(list(tickers_tuple), refresh_token=_tt_token)
+
+    _earnings_map = _cached_earnings(tuple(wl_tickers), _get_tt_token()) if wl_tickers else {}
+
     # Header
-    hdr = st.columns([0.4, 1.2, 1.8, 0.9, 0.9, 0.9, 0.8, 0.8, 0.8, 1.6, 0.3])
-    _wl_hdr = ["", "Ticker", "Company", "Price", "Intrinsic", "Buy Price", "Upside", "P/E", "FCF Yield", "Best Put", ""]
+    hdr = st.columns([0.3, 1.0, 1.6, 0.8, 0.8, 0.8, 0.7, 0.6, 0.7, 0.7, 2.2, 0.3])
+    _wl_hdr = ["", "Ticker", "Company", "Price", "Intrinsic", "Buy Price", "Upside", "P/E", "FCF Yield", "Earnings", "Best Put", ""]
     for col, label in zip(hdr, _wl_hdr):
         if label:
             col.markdown(f"**{label}**")
@@ -1475,7 +1565,7 @@ def _watchlist_overview():
     for row in rows:
         t = row['ticker']
         up_color = "green" if row['upside'] > 0 else "red"
-        cols = st.columns([0.4, 1.2, 1.8, 0.9, 0.9, 0.9, 0.8, 0.8, 0.8, 1.6, 0.3], vertical_alignment="center")
+        cols = st.columns([0.3, 1.0, 1.6, 0.8, 0.8, 0.8, 0.7, 0.6, 0.7, 0.7, 2.2, 0.3], vertical_alignment="center")
         with cols[0]:
             if st.button("", key=f"wl_edit_{t}", icon=":material/edit:"):
                 st.query_params["edit"] = t
@@ -1485,30 +1575,73 @@ def _watchlist_overview():
             f'<img src="{logo_url}" style="width:24px;height:24px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:6px" onerror="this.style.display=\'none\'"><strong>{t}</strong>',
             unsafe_allow_html=True,
         )
-        cols[2].markdown(row['company'])
+        # Company name + note preview
+        _note = row.get('notes', '')
+        if _note:
+            _note_preview = _note[:50].replace('\n', ' ') + ('...' if len(_note) > 50 else '')
+            cols[2].markdown(
+                f'{row["company"]}<br><span style="font-size:0.78rem;color:{T["text_muted"]}">{_note_preview}</span>',
+                unsafe_allow_html=True,
+            )
+        else:
+            cols[2].markdown(row['company'])
         cols[3].markdown(f"${row['price']:.2f}")
         cols[4].markdown(f"${row['intrinsic']:.2f}")
         cols[5].markdown(f"${row['buy_price']:.2f}")
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
         cols[7].markdown(f"{row['pe']:.1f}x" if row['pe'] else "—")
         cols[8].markdown(f"{row['fcf_yield']:.1%}" if row['fcf_yield'] else "—")
+        # Earnings column
+        _earn = _earnings_map.get(t)
+        if _earn and _earn.get('date'):
+            _days_to_earn = (_earn['date'] - date.today()).days
+            if _days_to_earn >= 0:
+                # Future earnings
+                _earn_est = " (est)" if _earn.get('estimated') else ""
+                if _days_to_earn <= 7:
+                    _earn_col = T['red']
+                elif _days_to_earn <= 14:
+                    _earn_col = T['text_muted']
+                else:
+                    _earn_col = T['text']
+                cols[9].markdown(
+                    f'<span style="color:{_earn_col}">{_earn["date"].strftime("%b %d")}{_earn_est}</span>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                # Past earnings — estimate next as ~90 days later
+                _next_est = _earn['date'] + timedelta(days=91)
+                cols[9].markdown(
+                    f'<span style="color:{T["text_muted"]};font-size:0.85rem">~{_next_est.strftime("%b %d")}</span>',
+                    unsafe_allow_html=True,
+                )
+        else:
+            cols[9].markdown("—")
         _bp = _bp_map.get(t)
         if _bp:
-            _bp_roc_col = T['accent'] if _bp['ann_roc'] >= 15 else T['text']
-            cols[9].markdown(
-                f'<span style="font-variant-numeric:tabular-nums;white-space:nowrap;font-size:0.92rem">'
-                f'<span style="display:inline-block;width:48px">${_bp["strike"]:.0f}</span>'
-                f'· {_bp["dte"]}d'
-                f' · <span style="color:{_bp_roc_col}">{_bp["ann_roc"]:.0f}%</span>'
-                f' · Δ{abs(_bp["delta"]):.2f}'
-                f'</span>',
+            _bp_roc_col = T['accent'] if _bp['ann_roc'] >= 15 else T['red']
+            cols[10].markdown(
+                f'<div style="font-variant-numeric:tabular-nums;line-height:1.45;margin-top:-0.45rem">'
+                f'<div>'
+                f'<span style="font-size:0.93rem;font-weight:600">${_bp["strike"]:.0f}</span>'
+                f'<span style="font-size:0.82rem;color:{T["text_muted"]};margin-left:6px">Premium</span>'
+                f'<span style="font-size:0.93rem;font-weight:600;margin-left:3px">${_bp["bid"]:.2f}</span>'
+                f'</div>'
+                f'<div>'
+                f'<span style="font-size:0.8rem;color:{T["text_muted"]}">'
+                f'{_bp["dte"]}d'
+                f' &middot; <span style="color:{_bp_roc_col}">{_bp["ann_roc"]:.0f}%</span> ROC'
+                f' &middot; &Delta;{abs(_bp["delta"]):.2f}'
+                f'</span>'
+                f'</div>'
+                f'</div>',
                 unsafe_allow_html=True,
             )
         else:
-            cols[9].markdown("—")
-        with cols[10]:
+            cols[10].markdown("—")
+        with cols[11]:
             if st.button("", key=f"wl_rm_row_{t}", icon=":material/close:"):
-                remove_from_watchlist(t)
+                remove_from_watchlist(_sb_client, t)
                 st.rerun()
 
     st.markdown("")
@@ -1516,7 +1649,7 @@ def _watchlist_overview():
 
 def _dcf_editor(ticker):
     """Full DCF editor page for a single ticker."""
-    cfg = load_config(ticker)
+    cfg = load_config(_sb_client, ticker)
     if cfg is None:
         st.error(f"No config found for {ticker}")
         if st.button("\u2190 Watchlist", key="editor_back_err"):
@@ -1535,7 +1668,8 @@ def _dcf_editor(ticker):
         try:
             p, _, _ = fetch_stock_price(t)
             return p
-        except Exception:
+        except Exception as e:
+            logger.debug("Stock price fetch failed for %s: %s", t, e)
             return 0.0
 
     live_price = _price(ticker)
@@ -1571,13 +1705,34 @@ def _dcf_editor(ticker):
         unsafe_allow_html=True,
     )
 
+    # ── Earnings warning (hero card) ──
+    @st.cache_data(ttl=300, show_spinner=False)
+    def _cached_earnings_single(t, _tt_token=None):
+        return fetch_earnings_dates([t], refresh_token=_tt_token)
+
+    _earn_data = _cached_earnings_single(ticker, _get_tt_token()).get(ticker)
+    _days_to_earn = None
+    if _earn_data and _earn_data.get('date') and _earn_data['date'] >= date.today():
+        _days_to_earn = (_earn_data['date'] - date.today()).days
+        if _days_to_earn <= 14:
+            _earn_color = T['red'] if _days_to_earn <= 7 else T['text_muted']
+            _earn_label = "Earnings" if not _earn_data.get('estimated') else "Earnings (est)"
+            _earn_time = " BMO" if _earn_data.get('time') == 'bmo' else (" AMC" if _earn_data.get('time') == 'amc' else "")
+            st.markdown(
+                f'<div style="text-align:center;margin:-8px 0 12px">'
+                f'<span class="stat-pill" style="color:{_earn_color};border-color:{_earn_color}">'
+                f'{_earn_label}: {_earn_data["date"].strftime("%b %d")}{_earn_time} ({_days_to_earn}d)</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
     # Projections data (needed inside and after expander)
     base_year = cfg.get('base_year', 2025)
     growth = list(cfg.get('revenue_growth', []))
     margins = list(cfg.get('op_margins', []))
 
     # ── Tabs: DCF / Reverse DCF / Peer Comparison ──
-    _tab_dcf, _tab_rdcf, _tab_peers, _tab_fundamentals, _tab_chain = st.tabs(["DCF", "Reverse DCF", "Peer Comparison", "Fundamentals", "Recommended Option"])
+    _tab_dcf, _tab_rdcf, _tab_peers, _tab_fundamentals, _tab_chain, _tab_notes = st.tabs(["DCF", "Reverse DCF", "Peer Comparison", "Fundamentals", "Recommended Option", "Notes"])
 
     with _tab_dcf:
         st.markdown("#### Discounting Cash Flows")
@@ -2306,7 +2461,7 @@ def _dcf_editor(ticker):
                                key="ed_peer_select", label_visibility="collapsed")
         if set(_kept) != set(_peer_tickers):
             cfg['peers'] = [p for p in peers if p.get("ticker") in _kept]
-            save_config(ticker, cfg)
+            save_config(_sb_client, ticker, cfg)
             st.rerun()
 
         with st.form("add_peer_form"):
@@ -2327,7 +2482,7 @@ def _dcf_editor(ticker):
                 if _new_peers:
                     peers.extend(_new_peers)
                     cfg['peers'] = peers
-                    save_config(ticker, cfg)
+                    save_config(_sb_client, ticker, cfg)
                     st.session_state.pop("ed_peer_select", None)
                     st.rerun()
                 else:
@@ -3147,7 +3302,13 @@ def _dcf_editor(ticker):
     # ── Chain Tab — Option Chain with Wheel Metrics ──
     with _tab_chain:
         # Load persisted user wheel preferences
-        _uprefs = load_user_prefs()
+        _uprefs = load_user_prefs(_sb_client)
+
+        # One-time migration: reset stale 0-20 DTE range to proper defaults
+        if _uprefs.get('dte_min') == 0 and _uprefs.get('dte_max') == 20:
+            _uprefs['dte_min'] = 25
+            _uprefs['dte_max'] = 45
+            save_user_prefs(_sb_client, _uprefs)
 
         # Preference sliders
         _sl1, _sl2 = st.columns(2)
@@ -3165,7 +3326,7 @@ def _dcf_editor(ticker):
         # Persist if changed
         if (_delta_range[0] != _uprefs['delta_min'] or _delta_range[1] != _uprefs['delta_max']
                 or _dte_range[0] != _uprefs['dte_min'] or _dte_range[1] != _uprefs['dte_max']):
-            save_user_prefs({
+            save_user_prefs(_sb_client, {
                 'delta_min': _delta_range[0], 'delta_max': _delta_range[1],
                 'dte_min': _dte_range[0], 'dte_max': _dte_range[1],
             })
@@ -3183,13 +3344,42 @@ def _dcf_editor(ticker):
         _opt_type = "Call" if _chain_strategy == "Write Call" else "Put"
         _opt_label = "Put" if _opt_type == "Put" else "Call"
 
+        # Cost basis input for Write Call — don't sell below cost
+        _call_cost_basis = 0.0
+        if _chain_strategy == "Write Call":
+            # Try to auto-fill from portfolio data (prefer wheel basis over broker cost)
+            _default_cb = cfg.get('call_cost_basis', 0.0)
+            if _default_cb == 0.0 and 'portfolio_data' in st.session_state:
+                _pf = st.session_state.portfolio_data.get(ticker, {})
+                _pf_shares = _pf.get('shares_held', 0)
+                _pf_wheels = _pf.get('wheels', [])
+                if _pf_wheels and _pf_shares > 0:
+                    _w = _pf_wheels[-1]
+                    _w_eq_cost = sum(t['net_value'] for t in _w['trades'] if t['instrument_type'] == 'Equity')
+                    _w_opt_pl = sum(t['net_value'] for t in _w['trades'] if 'Option' in t['instrument_type'])
+                    _default_cb = max((_w_eq_cost + _w_opt_pl) / _pf_shares, 0.0)
+                else:
+                    _default_cb = max(_pf.get('cost_per_share', 0.0), 0.0)
+            _call_cost_basis = st.number_input(
+                "Cost basis (min. strike)", value=_default_cb, min_value=0.0,
+                step=1.0, format="%.2f", key="call_cost_basis",
+                help="Strikes below your cost basis are excluded from recommendations.",
+            )
+            # Persist if changed
+            if _call_cost_basis != cfg.get('call_cost_basis', 0.0):
+                cfg['call_cost_basis'] = _call_cost_basis
+                save_config(_sb_client, ticker, cfg)
+
         # Cached data fetch — use user DTE range
         @st.cache_data(ttl=60, show_spinner="Loading option chain...")
-        def _cached_chain(t, opt_type, fb_price, dte_lo, dte_hi):
+        def _cached_chain(t, opt_type, fb_price, dte_lo, dte_hi, n_strikes=8, _tt_token=None):
             return fetch_option_chain(t, option_type=opt_type, fallback_price=fb_price,
-                                      min_dte=dte_lo, max_dte=dte_hi)
+                                      min_dte=dte_lo, max_dte=dte_hi, num_strikes=n_strikes,
+                                      refresh_token=_tt_token)
 
-        _chain_data = _cached_chain(ticker, _opt_type, live_price, _usr_dte_lo, _usr_dte_hi)
+        _num_strikes = 15 if _opt_type == 'Call' else 8
+
+        _chain_data = _cached_chain(ticker, _opt_type, live_price, _usr_dte_lo, _usr_dte_hi, _num_strikes, _get_tt_token())
         _ch_price = _chain_data['underlying_price']
         _ch_exps = _chain_data['expirations']
 
@@ -3242,40 +3432,70 @@ def _dcf_editor(ticker):
                     _rows_by_exp[_ei].append(_row)
 
             # ── Recommendation engine ──
-            def _wheel_score(r, delta_lo, delta_hi):
-                """Score a strike within a delta band. Higher = better."""
-                _ad = abs(r['delta'])
-                if _ad < delta_lo or _ad > delta_hi:
-                    return None
-                _roc_pts = min(r['ann_roc'], 60)
-                _mos_pts = max(min(r['dcf_mos'], 40), -10) if _dcf_intrinsic > 0 else 0
-                _delta_ideal = (delta_lo + delta_hi) / 2
-                _delta_pts = max(0, 1 - abs(_ad - _delta_ideal) / 0.15) * 20
-                return (_roc_pts * 0.4) + (_mos_pts * 0.4) + _delta_pts
+            # Filter to user's delta range + cost-basis constraint
+            _eligible = []
+            for _r in _all_rows:
+                if _opt_type == 'Call' and _call_cost_basis > 0 and _r['strike'] < _call_cost_basis:
+                    continue
+                _ad = abs(_r['delta'])
+                if _ad < _usr_dlo or _ad > _usr_dhi:
+                    continue
+                _eligible.append(_r)
 
-            # Derive conservative/aggressive bands from user range
-            _usr_mid = (_usr_dlo + _usr_dhi) / 2
-            _usr_span = _usr_dhi - _usr_dlo
-            _cons_lo = max(0.05, _usr_dlo - _usr_span * 0.6)
-            _cons_hi = _usr_mid
-            _aggr_lo = _usr_mid
-            _aggr_hi = min(0.60, _usr_dhi + _usr_span * 0.6)
+            # Group eligible rows by expiration date
+            _by_exp = {}
+            for _r in _eligible:
+                _by_exp.setdefault(_r['exp_date'], []).append(_r)
 
             _picks = {}
-            for _label, _dlo, _dhi in [
-                ('recommended', _usr_dlo, _usr_dhi),
-                ('conservative', _cons_lo, _cons_hi),
-                ('aggressive', _aggr_lo, _aggr_hi),
-            ]:
-                _best = None
-                _best_sc = -999
-                for _r in _all_rows:
-                    _sc = _wheel_score(_r, _dlo, _dhi)
-                    if _sc is not None and _sc > _best_sc:
-                        _best_sc = _sc
-                        _best = _r
-                if _best:
-                    _picks[_label] = _best
+            if _eligible and _by_exp:
+                # Sort expirations by DTE
+                _exp_dates_sorted = sorted(_by_exp.keys(), key=lambda e: _by_exp[e][0]['dte'])
+                _longest_exp = _exp_dates_sorted[-1]
+                _shortest_exp = _exp_dates_sorted[0]
+
+                # Conservative: longest DTE, lowest abs(delta)
+                _cons_candidates = sorted(_by_exp[_longest_exp], key=lambda r: abs(r['delta']))
+                _picks['conservative'] = _cons_candidates[0]
+
+                # Aggressive: shortest DTE, highest abs(delta)
+                _aggr_candidates = sorted(_by_exp[_shortest_exp], key=lambda r: abs(r['delta']), reverse=True)
+                _picks['aggressive'] = _aggr_candidates[0]
+
+                # Fallback: if same expiration (narrow DTE range), differentiate by delta
+                if _longest_exp == _shortest_exp:
+                    _all_sorted_delta = sorted(_by_exp[_longest_exp], key=lambda r: abs(r['delta']))
+                    _picks['conservative'] = _all_sorted_delta[0]
+                    _picks['aggressive'] = _all_sorted_delta[-1]
+
+                # Recommended: best scored option (excluding cons/aggr picks)
+                # Normalize components to 0-1 scale
+                _max_roc = max((r['ann_roc'] for r in _eligible), default=1) or 1
+                _max_mos = max((r['dcf_mos'] for r in _eligible), default=1) or 1
+                _max_ppd = max((r['prem_day'] for r in _eligible), default=1) or 1
+
+                def _rec_score(r):
+                    _roc_n = min(r['ann_roc'], 60) / min(_max_roc, 60) if _max_roc > 0 else 0
+                    _mos_n = max(min(r['dcf_mos'], 40), 0) / min(_max_mos, 40) if _dcf_intrinsic > 0 and _max_mos > 0 else 0
+                    _delta_n = 1 - abs(r['delta'])
+                    _ppd_n = r['prem_day'] / _max_ppd if _max_ppd > 0 else 0
+                    return _roc_n * 0.4 + _mos_n * 0.3 + _delta_n * 0.2 + _ppd_n * 0.1
+
+                _cons_pick = _picks.get('conservative')
+                _aggr_pick = _picks.get('aggressive')
+                _best_rec = None
+                _best_rec_sc = -999
+                for _r in _eligible:
+                    if _r is _cons_pick or _r is _aggr_pick:
+                        continue
+                    _sc = _rec_score(_r)
+                    if _sc > _best_rec_sc:
+                        _best_rec_sc = _sc
+                        _best_rec = _r
+                # If no different option exists, allow same as one of them
+                if _best_rec is None:
+                    _best_rec = max(_eligible, key=_rec_score)
+                _picks['recommended'] = _best_rec
 
             if not _picks:
                 st.info("No suitable strikes found for recommendations.")
@@ -3292,6 +3512,13 @@ def _dcf_editor(ticker):
                         f'<span style="{_pill}color:{T["accent"] if r["dcf_mos"] > 10 else (T["red"] if r["dcf_mos"] < 0 else T["text"])}">'
                         f'DCF MoS <b>{r["dcf_mos"]:.1f}%</b></span>'
                     ) if _dcf_intrinsic > 0 else ''
+                    # Earnings warning: show if earnings fall within this option's DTE
+                    _earn_pill = ''
+                    if _days_to_earn is not None and _days_to_earn <= r['dte']:
+                        _earn_pill = (
+                            f'<span style="{_pill}color:{T["red"]};border-color:{T["red"]}">'
+                            f'Earnings in <b>{_days_to_earn}d</b></span>'
+                        )
                     return (
                         f'<div style="display:flex;flex-wrap:wrap;margin-top:8px">'
                         f'<span style="{_pill}color:{T["text"]}">Premium <b>${r["bid"]:.2f}</b></span>'
@@ -3302,6 +3529,7 @@ def _dcf_editor(ticker):
                         f'<span style="{_pill}color:{T["text"]}">Buffer <b>{r["dist"]:.1f}%</b></span>'
                         f'<span style="{_pill}color:{T["text"]}">Breakeven <b>${r["breakeven"]:.2f}</b></span>'
                         f'{_mos_pill}'
+                        f'{_earn_pill}'
                         f'</div>'
                     )
 
@@ -3388,7 +3616,7 @@ def _dcf_editor(ticker):
                         f'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:0.85rem">'
                         f'<thead><tr style="border-bottom:2px solid {T["border_medium"]}">'
                     )
-                    for _col in ["Strike", "Bid", "Premium", "Delta", "DTE", "$/Day", "Ann. ROC", "Breakeven", "Distance", "DCF MoS"]:
+                    for _col in ["Strike", "Bid", "Premium", "Delta", "$/Day", "Ann. ROC", "Breakeven", "Distance", "DCF MoS"]:
                         _ct_hdr += f'<th style="{_th}">{_col}</th>'
                     _ct_hdr += '</tr></thead><tbody>'
 
@@ -3407,7 +3635,6 @@ def _dcf_editor(ticker):
                         _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">${_r["bid"]:.2f}</td>'
                         _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">${_r["mid"]:.2f}</td>'
                         _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">{_r["delta"]:.2f}</td>'
-                        _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">{_dte}</td>'
                         _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">${_r["prem_day"]:.2f}</td>'
                         _ct_body += f'<td style="{_td}{_row_fw}color:{_roc_color}">{_r["ann_roc"]:.1f}%%</td>'
                         _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">${_r["breakeven"]:.2f}</td>'
@@ -3417,6 +3644,19 @@ def _dcf_editor(ticker):
 
                     _ct_html = _ct_hdr + _ct_body + '</tbody></table></div>'
                     st.markdown(_ct_html, unsafe_allow_html=True)
+
+    with _tab_notes:
+        _notes_val = cfg.get('notes', '')
+        _new_notes = st.text_area(
+            "Investment notes",
+            value=_notes_val,
+            height=300,
+            key="ed_notes",
+            placeholder="Investment thesis, key risks, catalysts, reminders...",
+        )
+        if _new_notes != _notes_val:
+            cfg['notes'] = _new_notes
+            save_config(_sb_client, ticker, cfg)
 
     with _tab_dcf:
         # ── Valuation Bridge (inside DCF tab) ──
@@ -3547,7 +3787,7 @@ def _dcf_editor(ticker):
     btn1, btn2, btn3 = st.columns(3)
     with btn1:
         if st.button("Save", key="ed_save", use_container_width=True, type="primary"):
-            save_config(ticker, cfg)
+            save_config(_sb_client, ticker, cfg)
             st.success(f"{ticker} saved")
             st.rerun()
     with btn2:
@@ -3569,7 +3809,7 @@ def _dcf_editor(ticker):
         )
     with btn3:
         if st.button("Remove from Watchlist", key="ed_remove", use_container_width=True, type="primary"):
-            remove_from_watchlist(ticker)
+            remove_from_watchlist(_sb_client, ticker)
             del st.query_params["edit"]
             st.rerun()
 
@@ -3769,7 +4009,7 @@ with st.sidebar:
     st.toggle("Dark mode", key="dark_mode")
     page = st.radio(
         "Navigate",
-        ["Portfolio", "Watchlist", "Wheel Cost Basis", "Results"],
+        ["Portfolio", "Watchlist", "Wheel Cost Basis", "Results", "Settings"],
         label_visibility="collapsed",
         key="nav_page",
     )
@@ -3796,6 +4036,17 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
 
+    # User info + sign out at bottom of sidebar
+    _user_info = st.session_state.get("user", {})
+    st.markdown("---")
+    st.markdown(
+        f'<small style="color: {T["text_muted"]}">{_user_info.get("email", "")}</small>',
+        unsafe_allow_html=True,
+    )
+    if st.button("Sign Out", use_container_width=True, type="primary"):
+        logout()
+        st.rerun()
+
 
 # ══════════════════════════════════════════════════════
 #  SHARED DATA LOADING FOR PORTFOLIO PAGES
@@ -3815,7 +4066,7 @@ def _load_portfolio_data():
     if "portfolio_data" not in st.session_state:
         with st.spinner("Fetching transactions from Tastytrade..."):
             try:
-                cost_basis, acct = fetch_portfolio_data()
+                cost_basis, acct = fetch_portfolio_data(refresh_token=_get_tt_token())
                 st.session_state.portfolio_data = cost_basis
                 st.session_state.portfolio_account = acct
                 st.session_state.portfolio_fetched_at = time.time()
@@ -3977,6 +4228,10 @@ if page == "Watchlist":
 
 elif page == "Portfolio":
 
+    if not _get_tt_token():
+        st.warning("Connect your Tastytrade account in Settings first.")
+        st.stop()
+
     st.markdown(
         "<style>.block-container { max-width: 1200px; margin: auto; }</style>",
         unsafe_allow_html=True,
@@ -3997,18 +4252,19 @@ elif page == "Portfolio":
 
     # ── Margin / Buying Power (with integrated simulator) ──
     @st.cache_data(ttl=60, show_spinner=False)
-    def _cached_account_balances():
-        return fetch_account_balances()
+    def _cached_account_balances(_tt_token=None):
+        return fetch_account_balances(refresh_token=_tt_token)
 
     @st.cache_data(ttl=120, show_spinner=False)
-    def _cached_margin_requirements():
-        return fetch_margin_requirements()
+    def _cached_margin_requirements(_tt_token=None):
+        return fetch_margin_requirements(refresh_token=_tt_token)
 
     def _margin_overview():
         st.markdown("")
         try:
-            bal = _cached_account_balances()
-        except Exception:
+            bal = _cached_account_balances(_get_tt_token())
+        except Exception as e:
+            logger.warning("Account balances fetch failed: %s", e)
             bal = None
 
         if not bal:
@@ -4036,7 +4292,7 @@ elif page == "Portfolio":
                     # Fetch margin requirement for holding assigned shares
                     _amk = f"_assign_margin_{ticker.upper()}_{shares}"
                     if _amk not in st.session_state:
-                        _amr = fetch_margin_for_position(ticker, shares)
+                        _amr = fetch_margin_for_position(ticker, shares, refresh_token=_get_tt_token())
                         st.session_state[_amk] = _amr
                     _amr = st.session_state[_amk]
                     margin = abs(_amr["change_in_margin"]) if _amr else exposure * 0.50
@@ -4051,7 +4307,7 @@ elif page == "Portfolio":
                     exposure = cur_price * shares
                     _amk = f"_assign_margin_{ticker.upper()}_{shares}"
                     if _amk not in st.session_state:
-                        _amr = fetch_margin_for_position(ticker, shares)
+                        _amr = fetch_margin_for_position(ticker, shares, refresh_token=_get_tt_token())
                         st.session_state[_amk] = _amr
                     _amr = st.session_state[_amk]
                     margin = abs(_amr["change_in_margin"]) if _amr else exposure * 0.50
@@ -4070,13 +4326,19 @@ elif page == "Portfolio":
 
         for i in range(st.session_state["sim_rows"]):
             ticker = st.session_state.get(f"sim_tick_{i}", "")
-            shares = st.session_state.get(f"sim_sh_{i}", 100)
-            price = st.session_state.get(f"sim_pr_{i}", 0.0)
+            try:
+                shares = int(st.session_state.get(f"sim_sh_{i}", "100"))
+            except (ValueError, TypeError):
+                shares = 0
+            try:
+                price = float(st.session_state.get(f"sim_pr_{i}", "0"))
+            except (ValueError, TypeError):
+                price = 0.0
             if ticker and price > 0 and shares > 0:
                 cost = price * shares
                 _margin_key = f"_sim_margin_{ticker.upper()}_{shares}"
                 if _margin_key not in st.session_state:
-                    _mr = fetch_margin_for_position(ticker, shares)
+                    _mr = fetch_margin_for_position(ticker, shares, refresh_token=_get_tt_token())
                     st.session_state[_margin_key] = _mr
                 _mr = st.session_state[_margin_key]
                 margin = abs(_mr["change_in_margin"]) if _mr else cost * 0.50
@@ -4172,31 +4434,24 @@ elif page == "Portfolio":
         # ── Simulator inputs (below the overview bar) ──
         st.markdown(f'<p style="font-weight:600;margin-top:24px;margin-bottom:4px;font-size:0.9rem;color:{T["text_muted"]};text-transform:uppercase;letter-spacing:0.03em">Simulate Positions</p>', unsafe_allow_html=True)
 
-        h1, h2, h3 = st.columns([1, 1, 1], gap="small")
-        h1.markdown(f'<span style="font-size:0.8rem;color:{T["text_muted"]}">Ticker</span>', unsafe_allow_html=True)
-        h2.markdown(f'<span style="font-size:0.8rem;color:{T["text_muted"]}">Shares</span>', unsafe_allow_html=True)
-        h3.markdown(f'<span style="font-size:0.8rem;color:{T["text_muted"]}">Price</span>', unsafe_allow_html=True)
-
         for i in range(st.session_state["sim_rows"]):
-            c1, c2, c3 = st.columns([1, 1, 1], gap="small")
+            c1, c2, c3 = st.columns([1.2, 0.8, 0.8], gap="small")
             with c1:
                 ticker = st.text_input("Ticker", placeholder="AAPL", key=f"sim_tick_{i}", label_visibility="collapsed")
             with c2:
-                shares = st.number_input("Shares", min_value=0, value=100, step=10, key=f"sim_sh_{i}", label_visibility="collapsed")
-
+                shares = st.text_input("Shares", value="100", placeholder="100", key=f"sim_sh_{i}", label_visibility="collapsed")
             # Auto-fetch price when ticker is entered and price not yet set
             price_key = f"sim_pr_{i}"
-            if ticker and st.session_state.get(price_key, 0.0) == 0.0:
+            if ticker and st.session_state.get(price_key, "0") in ("0", "0.00", ""):
                 try:
                     _sp = fetch_current_prices([ticker.upper()])
                     _spd = _sp.get(ticker.upper())
                     if _spd and _spd["price"]:
-                        st.session_state[price_key] = float(_spd["price"])
-                except Exception:
-                    pass
-
+                        st.session_state[price_key] = f"{float(_spd['price']):.2f}"
+                except Exception as e:
+                    logger.debug("Sim price fetch failed for %s: %s", ticker, e)
             with c3:
-                price = st.number_input("Price", min_value=0.0, step=0.01, format="%.2f", key=price_key, label_visibility="collapsed")
+                price = st.text_input("Price", value="0.00", key=price_key, label_visibility="collapsed")
 
         _, btn_add, btn_reset, _ = st.columns([1, 1, 1, 1])
         with btn_add:
@@ -4221,8 +4476,9 @@ elif page == "Portfolio":
         # Fetch fresh prices + account balances
         prices = fetch_current_prices(held_tickers)
         try:
-            balances = fetch_account_balances()
-        except Exception:
+            balances = fetch_account_balances(refresh_token=_get_tt_token())
+        except Exception as e:
+            logger.warning("Account balances fetch failed: %s", e)
             balances = None
 
         for ticker, data in held.items():
@@ -4368,8 +4624,9 @@ elif page == "Portfolio":
 
         # ── Per-position margin requirements ──
         try:
-            _margin_reqs = _cached_margin_requirements()
-        except Exception:
+            _margin_reqs = _cached_margin_requirements(_get_tt_token())
+        except Exception as e:
+            logger.debug("Margin requirements fetch failed: %s", e)
             _margin_reqs = {}
 
         for row in rows:
@@ -4487,12 +4744,14 @@ elif page == "Portfolio":
     _portfolio_cards()
 
     # ── Chain Quick-Links — jump to option chain for watchlist tickers ──
-    _wl_tickers_set = {item['ticker'] for item in list_watchlist()}
+    _wl_tickers_set = {item['ticker'] for item in list_watchlist(_sb_client)}
     _chain_link_tickers = [t for t in held_tickers if t in _wl_tickers_set]
     if _chain_link_tickers:
         _ql_cols = st.columns(min(len(_chain_link_tickers) * 2, 8))
         _col_idx = 0
         for _ql_t in _chain_link_tickers[:4]:
+            _pf_data = cost_basis.get(_ql_t, {})
+            _has_shares = _pf_data.get("shares_held", 0) > 0
             if _col_idx < len(_ql_cols):
                 with _ql_cols[_col_idx]:
                     if st.button(f"{_ql_t} Sell Put", key=f"ql_put_{_ql_t}", use_container_width=True):
@@ -4501,7 +4760,7 @@ elif page == "Portfolio":
                         st.session_state["nav_page"] = "Watchlist"
                         st.rerun()
                 _col_idx += 1
-            if _col_idx < len(_ql_cols):
+            if _has_shares and _col_idx < len(_ql_cols):
                 with _ql_cols[_col_idx]:
                     if st.button(f"{_ql_t} Write Call", key=f"ql_call_{_ql_t}", use_container_width=True):
                         st.query_params["edit"] = _ql_t
@@ -4523,19 +4782,21 @@ elif page == "Portfolio":
         # Combined greeks+BWD uses one DXLink streamer (avoids concurrent
         # websocket conflicts); margin interest runs in parallel (no streamer).
         executor = ThreadPoolExecutor(max_workers=2)
-        f_combo = executor.submit(fetch_greeks_and_bwd)
-        f_mi = executor.submit(fetch_margin_interest)
+        f_combo = executor.submit(fetch_greeks_and_bwd, refresh_token=_get_tt_token())
+        f_mi = executor.submit(fetch_margin_interest, refresh_token=_get_tt_token())
         try:
             gk, bwd = f_combo.result(timeout=30)
-        except Exception:
+        except Exception as e:
+            logger.warning("Greeks/BWD fetch failed: %s", e)
             gk, bwd = None, None
         try:
             mi = f_mi.result(timeout=10)
-        except Exception:
+        except Exception as e:
+            logger.debug("Margin interest fetch failed: %s", e)
             mi = None
         executor.shutdown(wait=False, cancel_futures=True)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Risk dashboard data fetch failed: %s", e)
 
     cash = st.session_state.get("_margin_cash", 0.0)
     debt = abs(cash) if cash < 0 else 0.0
@@ -4652,7 +4913,7 @@ elif page == "Portfolio":
 
     # ── Portfolio Exposure (loads independently via fragment) ──
     @st.cache_data(ttl=86400, show_spinner=False)
-    def _cached_ticker_profiles(tickers_tuple):
+    def _cached_ticker_profiles(tickers_tuple, _v=2):
         return fetch_ticker_profiles(list(tickers_tuple))
 
     @st.fragment
@@ -4660,7 +4921,7 @@ elif page == "Portfolio":
         st.markdown("<h4 style='text-align:center'>Portfolio Allocation</h4>", unsafe_allow_html=True)
         try:
             with st.spinner("Loading sector & country data..."):
-                profiles = _cached_ticker_profiles(tuple(held_tickers))
+                profiles = _cached_ticker_profiles(tuple(held_tickers), _v=2)
             total_mv = sum(d["market_value"] for d in held.values())
 
             if total_mv > 0:
@@ -4720,12 +4981,12 @@ elif page == "Portfolio":
                 with tab_sector:
                     labels = [s[0] for s in sector_sorted]
                     values = [s[1] for s in sector_sorted]
-                    st.plotly_chart(_donut_chart(labels, values), use_container_width=True)
+                    st.plotly_chart(_donut_chart(labels, values), use_container_width=True, key="donut_sector")
 
                 with tab_country:
                     labels = [c[0] for c in country_sorted]
                     values = [c[1] for c in country_sorted]
-                    st.plotly_chart(_donut_chart(labels, values), use_container_width=True)
+                    st.plotly_chart(_donut_chart(labels, values), use_container_width=True, key="donut_country")
 
         except Exception as e:
             st.warning(f"Could not load portfolio exposure: {e}")
@@ -4740,35 +5001,23 @@ elif page == "Portfolio":
 
 elif page == "Wheel Cost Basis":
 
+    if not _get_tt_token():
+        st.warning("Connect your Tastytrade account in Settings first.")
+        st.stop()
+
     st.markdown("")
     cost_basis = _load_portfolio_data()
 
-    # ── Helper: parse strike + expiration from OCC symbol ──
-    def _parse_option(symbol):
-        """Extract strike, expiration, and type from OCC option symbol like MSFT  250321C00420000."""
-        if not symbol:
-            return None, None, None
-        m = re.match(r'^(.+?)\s*(\d{6})([CP])(\d{8})$', symbol.strip())
-        if not m:
-            return None, None, None
-        date_str, cp, strike_raw = m.group(2), m.group(3), m.group(4)
-        strike = int(strike_raw) / 1000
-        try:
-            exp = datetime.strptime(date_str, "%y%m%d")
-            return strike, exp.strftime("%d-%m-%Y"), cp
-        except ValueError:
-            return strike, None, cp
-
     def _is_put(t):
         """Check if trade is put via OCC symbol, fallback to description."""
-        _, _, cp = _parse_option(t.get("symbol"))
+        _, _, cp = _parse_option_symbol(t.get("symbol"))
         if cp:
             return cp == "P"
         return "Put" in (t.get("description") or "")
 
     def _is_call(t):
         """Check if trade is call via OCC symbol, fallback to description."""
-        _, _, cp = _parse_option(t.get("symbol"))
+        _, _, cp = _parse_option_symbol(t.get("symbol"))
         if cp:
             return cp == "C"
         return "Call" in (t.get("description") or "")
@@ -4811,7 +5060,7 @@ elif page == "Wheel Cost Basis":
                     label_raw = "Sell Shares"
 
             # Option info: strike + expiration
-            strike, exp, _cp = _parse_option(t.get("symbol"))
+            strike, exp, _cp = _parse_option_symbol(t.get("symbol"))
             if strike is not None:
                 label_str = f'{label_raw} @ {strike:,.2f}'
                 date_str = f'{trade_date} &nbsp; exp {exp}' if exp else trade_date
@@ -5045,6 +5294,10 @@ elif page == "Wheel Cost Basis":
 
 elif page == "Results":
 
+    if not _get_tt_token():
+        st.warning("Connect your Tastytrade account in Settings first.")
+        st.stop()
+
     st.markdown("")
     cost_basis = _load_portfolio_data()
 
@@ -5074,14 +5327,16 @@ elif page == "Results":
     if "net_liq_all" not in st.session_state:
         try:
             with st.spinner("Loading full net liq history..."):
-                st.session_state["net_liq_all"] = fetch_net_liq_history("all")
-        except Exception:
+                st.session_state["net_liq_all"] = fetch_net_liq_history("all", refresh_token=_get_tt_token())
+        except Exception as e:
+            logger.warning("Net liq history fetch failed: %s", e)
             st.session_state["net_liq_all"] = None
     if "yearly_transfers" not in st.session_state:
         try:
             with st.spinner("Loading cash transfer history..."):
-                st.session_state["yearly_transfers"] = fetch_yearly_transfers()
-        except Exception:
+                st.session_state["yearly_transfers"] = fetch_yearly_transfers(refresh_token=_get_tt_token())
+        except Exception as e:
+            logger.warning("Yearly transfers fetch failed: %s", e)
             st.session_state["yearly_transfers"] = {}
 
     nl_all_early = st.session_state.get("net_liq_all")
@@ -5173,8 +5428,9 @@ elif page == "Results":
       if cache_key not in st.session_state:
           try:
               with st.spinner("Loading net liq history..."):
-                  st.session_state[cache_key] = fetch_net_liq_history(api_time_back)
-          except Exception:
+                  st.session_state[cache_key] = fetch_net_liq_history(api_time_back, refresh_token=_get_tt_token())
+          except Exception as e:
+              logger.warning("Net liq history fetch failed (%s): %s", api_time_back, e)
               st.session_state[cache_key] = None
 
       net_liq_data = st.session_state[cache_key]
@@ -5270,7 +5526,8 @@ elif page == "Results":
             try:
                 with st.spinner("Loading benchmark data..."):
                     st.session_state["benchmark_returns"] = fetch_benchmark_returns()
-            except Exception:
+            except Exception as e:
+                logger.warning("Benchmark returns fetch failed: %s", e)
                 st.session_state["benchmark_returns"] = {}
 
         nl_all = st.session_state.get("net_liq_all")
@@ -5607,3 +5864,62 @@ elif page == "Results":
         cards_html += '</div>'
 
         st.markdown(cards_html, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════
+#  SETTINGS PAGE — Per-user configuration
+# ══════════════════════════════════════════════════════
+
+elif page == "Settings":
+
+    st.markdown(
+        "<style>.block-container { max-width: 700px; margin: auto; }</style>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("## Settings")
+
+    # ── Tastytrade connection ──
+    st.markdown("### Tastytrade")
+    _existing_token = _get_tt_token()
+    if _existing_token:
+        st.success("Tastytrade account connected.")
+        if st.button("Disconnect Tastytrade", type="primary"):
+            delete_credential(_sb_client, "tastytrade_refresh_token")
+            st.session_state.pop("tt_refresh_token", None)
+            # Clear cached portfolio data
+            for k in ["portfolio_data", "portfolio_account", "portfolio_prices",
+                       "net_liq_all", "yearly_transfers", "benchmark_returns",
+                       "portfolio_fetched_at"]:
+                st.session_state.pop(k, None)
+            for k in [k for k in st.session_state if k.startswith("net_liq_")]:
+                st.session_state.pop(k, None)
+            st.rerun()
+    else:
+        st.info("Connect your Tastytrade account to view your portfolio, cost basis, and options data. "
+                "We use **read-only** access — this app cannot place trades or modify your account in any way.")
+        with st.expander("How to get your refresh token", expanded=True):
+            st.markdown(
+                "1. Log in to [my.tastytrade.com](https://my.tastytrade.com)\n"
+                "2. Go to **My Profile > API Access** (or navigate directly to "
+                "[OAuth Applications](https://my.tastytrade.com/app.html#/manage/api-access/oauth-applications))\n"
+                "3. Click **Create OAuth Application**\n"
+                "4. Give it a name (e.g. *Stock Analysis*)\n"
+                "5. Under permissions, select only **Read** — this app does not need "
+                "and will never request write access. No trades can be placed through this app.\n"
+                "6. After creating the application, copy the **Refresh Token** "
+                "(a long string starting with `eyJ...`)\n"
+                "7. Paste it below and click Save"
+            )
+        with st.form("tt_token_form"):
+            _tt_input = st.text_input(
+                "Refresh Token",
+                type="password",
+                placeholder="Paste your Tastytrade refresh token",
+            )
+            _tt_submitted = st.form_submit_button("Save", type="primary")
+        if _tt_submitted and _tt_input:
+            save_credential(_sb_client, "tastytrade_refresh_token", _tt_input.strip())
+            st.session_state["tt_refresh_token"] = _tt_input.strip()
+            st.success("Tastytrade token saved.")
+            st.rerun()
+

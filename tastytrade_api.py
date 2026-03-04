@@ -5,11 +5,14 @@ Used by the Portfolio page in streamlit_app.py.
 
 import asyncio
 import json
+import logging
 import os
 import ssl
 import urllib.request
 from collections import defaultdict
 from decimal import Decimal
+
+logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 from tastytrade import Session, Account, DXLinkStreamer
@@ -24,28 +27,34 @@ def _get_secret(key):
     load_dotenv()
     val = os.environ.get(key)
     if val:
-        return val
+        return val.strip()
     try:
         import streamlit as st
-        return st.secrets[key]
+        return str(st.secrets[key]).strip()
     except Exception:
         raise KeyError(key)
 
 
-def _get_session():
-    """Create a Tastytrade Session from .env or Streamlit Cloud secrets."""
+def _get_session(refresh_token=None):
+    """Create a Tastytrade Session.
+
+    When refresh_token is provided (multi-user mode), uses that token.
+    Falls back to TASTYTRADE_REFRESH_TOKEN env var / secret for CLI usage.
+    """
+    if refresh_token is None:
+        refresh_token = _get_secret("TASTYTRADE_REFRESH_TOKEN")
     return Session(
         provider_secret=_get_secret("TASTYTRADE_CLIENT_SECRET"),
-        refresh_token=_get_secret("TASTYTRADE_REFRESH_TOKEN"),
+        refresh_token=refresh_token,
     )
 
 
-def fetch_portfolio_data():
+def fetch_portfolio_data(refresh_token=None):
     """
     Fetch all transactions from Tastytrade and compute cost basis.
     Returns (cost_basis_dict, account_number).
     """
-    session = _get_session()
+    session = _get_session(refresh_token)
 
     async def _run():
         async with session:
@@ -305,13 +314,13 @@ def _detect_wheels(trades):
     return cycles
 
 
-def fetch_yearly_transfers():
+def fetch_yearly_transfers(refresh_token=None):
     """Fetch net cash transfers (deposits minus withdrawals) per year and month.
 
     Returns:
         Dict of {year: {"total": net_amount, "months": {month_int: net_amount}}}.
     """
-    session = _get_session()
+    session = _get_session(refresh_token)
 
     async def _run():
         async with session:
@@ -344,13 +353,13 @@ def fetch_yearly_transfers():
     return asyncio.run(_run())
 
 
-def fetch_margin_interest():
+def fetch_margin_interest(refresh_token=None):
     """Fetch margin interest charges from transaction history.
 
     Returns:
         Dict with 'current_month', 'ytd', 'total', and 'monthly' breakdown.
     """
-    session = _get_session()
+    session = _get_session(refresh_token)
 
     async def _run():
         async with session:
@@ -400,9 +409,9 @@ def fetch_margin_interest():
     return asyncio.run(_run())
 
 
-def fetch_account_balances():
+def fetch_account_balances(refresh_token=None):
     """Fetch account balances (net liq, cash, buying power) from Tastytrade."""
-    session = _get_session()
+    session = _get_session(refresh_token)
 
     async def _run():
         async with session:
@@ -424,12 +433,12 @@ def fetch_account_balances():
     return asyncio.run(_run())
 
 
-def fetch_margin_requirements():
+def fetch_margin_requirements(refresh_token=None):
     """Fetch per-position margin requirements from Tastytrade.
 
     Returns dict keyed by underlying symbol with margin details.
     """
-    session = _get_session()
+    session = _get_session(refresh_token)
 
     async def _run():
         async with session:
@@ -462,12 +471,12 @@ def fetch_margin_requirements():
         return {}
 
 
-def fetch_margin_for_position(ticker, quantity):
+def fetch_margin_for_position(ticker, quantity, refresh_token=None):
     """Dry-run an order to get the real margin requirement from Tastytrade.
 
     Returns dict with margin fields, or None on error.
     """
-    session = _get_session()
+    session = _get_session(refresh_token)
 
     async def _run():
         async with session:
@@ -499,16 +508,17 @@ def fetch_margin_for_position(ticker, quantity):
         return None
 
 
-def fetch_net_liq_history(time_back="1y"):
+def fetch_net_liq_history(time_back="1y", refresh_token=None):
     """Fetch net liquidating value history from Tastytrade.
 
     Args:
         time_back: One of '1d', '1m', '3m', '6m', '1y', 'all'.
+        refresh_token: Per-user refresh token (optional, falls back to env).
 
     Returns:
         List of {"time": str, "close": float} dicts.
     """
-    session = _get_session()
+    session = _get_session(refresh_token)
 
     async def _run():
         async with session:
@@ -559,7 +569,8 @@ def _fetch_yearly_returns(symbol):
             cur_yr = years_sorted[i]
             returns[cur_yr] = (year_close[cur_yr] - year_close[prev_yr]) / year_close[prev_yr] * 100
         return returns
-    except Exception:
+    except Exception as e:
+        logger.debug("Yearly returns fetch failed: %s", e)
         return {}
 
 
@@ -596,26 +607,51 @@ def fetch_benchmark_returns():
 
 
 def fetch_ticker_profiles(tickers):
-    """Fetch sector and country for each ticker using yfinance (parallelized)."""
-    import yfinance as yf
+    """Fetch sector and country for each ticker via Yahoo Finance search API (no auth needed)."""
+    import urllib.parse
     from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+
+    EXCHANGE_COUNTRY = {
+        "NMS": "United States", "NYQ": "United States", "NGM": "United States",
+        "NCM": "United States", "ASE": "United States", "BTS": "United States",
+        "PCX": "United States", "OTC": "United States", "NAS": "United States",
+        "TOR": "Canada", "VAN": "Canada", "CNQ": "Canada",
+        "LSE": "United Kingdom", "IOB": "United Kingdom",
+        "AMS": "Netherlands", "PAR": "France", "GER": "Germany",
+        "FRA": "Germany", "MIL": "Italy", "MCE": "Spain",
+        "TAE": "Israel", "JPX": "Japan", "HKG": "Hong Kong",
+        "KSC": "South Korea", "TWO": "Taiwan", "TAI": "Taiwan",
+        "SHH": "China", "SHZ": "China", "ASX": "Australia",
+    }
 
     def _fetch_one(ticker):
         try:
-            t = yf.Ticker(ticker)
-            info = t.info
-            quote_type = info.get("quoteType", "")
-            if quote_type in ("MONEYMARKET", "MUTUALFUND") and not info.get("sector"):
-                sector = info.get("category") or "Cash & Equivalents"
-            else:
-                sector = info.get("sector") or info.get("category") or "Unknown"
-            country = info.get("country") or "Unknown"
+            url = (
+                f"https://query1.finance.yahoo.com/v1/finance/search"
+                f"?q={urllib.parse.quote(ticker)}&quotesCount=1&newsCount=0"
+            )
+            req = urllib.request.Request(url, headers={"User-Agent": ua})
+            with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
+                data = json.loads(resp.read())
+            quotes = data.get("quotes", [])
+            if not quotes:
+                return ticker, {"sector": "Unknown", "country": "Unknown"}
+            q = quotes[0]
+            qt = q.get("quoteType", "")
+            sector = q.get("sector") or ("Cash & Equivalents" if qt in ("MONEYMARKET", "MUTUALFUND") else "Unknown")
+            country = EXCHANGE_COUNTRY.get(q.get("exchange", ""), "Unknown")
             return ticker, {"sector": sector, "country": country}
-        except Exception:
+        except Exception as e:
+            logger.debug("Profile fetch failed for %s: %s", ticker, e)
             return ticker, {"sector": "Unknown", "country": "Unknown"}
 
     profiles = {}
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {executor.submit(_fetch_one, t): t for t in tickers}
         for future in as_completed(futures):
             ticker, profile = future.result()
@@ -640,7 +676,8 @@ def fetch_current_prices(tickers):
                     "price": meta["regularMarketPrice"],
                     "previousClose": meta.get("chartPreviousClose", meta.get("previousClose")),
                 }
-        except Exception:
+        except Exception as e:
+            logger.debug("Price fetch failed for %s: %s", ticker, e)
             return ticker, None
 
     async def _fetch_all():
@@ -653,22 +690,50 @@ def fetch_current_prices(tickers):
         results = asyncio.run(_fetch_all())
         for ticker, result in results:
             prices[ticker] = result
-    except Exception:
-        # Fallback to sequential
+    except Exception as e:
+        logger.debug("Async price fetch failed, falling back to sequential: %s", e)
         for ticker in tickers:
             _, result = _fetch_one(ticker)
             prices[ticker] = result
     return prices
 
 
-def fetch_portfolio_greeks():
+def fetch_earnings_dates(tickers, refresh_token=None):
+    """Fetch next earnings dates for a list of tickers via Tastytrade market metrics.
+
+    Returns dict: {ticker: {"date": date|None, "time": str|None, "estimated": bool} | None}
+    """
+    async def _fetch():
+        session = _get_session(refresh_token)
+        metrics = await get_market_metrics(session, list(tickers))
+        result = {}
+        for m in metrics:
+            e = m.earnings
+            if e and e.expected_report_date:
+                result[m.symbol] = {
+                    "date": e.expected_report_date,
+                    "time": e.time_of_day,
+                    "estimated": e.estimated,
+                }
+            else:
+                result[m.symbol] = None
+        return result
+
+    try:
+        return asyncio.run(_fetch())
+    except Exception as e:
+        logger.warning("Earnings dates fetch failed: %s", e)
+        return {t: None for t in tickers}
+
+
+def fetch_portfolio_greeks(refresh_token=None):
     """Fetch Greeks for all open option positions.
 
     Returns:
         Dict with 'positions' (list of per-option dicts) and 'totals'
         (aggregated portfolio delta/theta/gamma/vega in dollar terms).
     """
-    session = _get_session()
+    session = _get_session(refresh_token)
 
     async def _run():
         async with session:
@@ -761,13 +826,13 @@ def fetch_portfolio_greeks():
     return asyncio.run(_run())
 
 
-def fetch_greeks_and_bwd():
+def fetch_greeks_and_bwd(refresh_token=None):
     """Fetch Portfolio Greeks and Beta-Weighted Delta in a single session.
 
     Uses one DXLink streamer to avoid concurrent websocket conflicts.
     Returns (greeks_dict, bwd_dict).
     """
-    session = _get_session()
+    session = _get_session(refresh_token)
 
     _empty_greeks = {
         "positions": [],
@@ -887,8 +952,8 @@ def fetch_greeks_and_bwd():
                         _sp = _yf["chart"]["result"][0]["meta"]["regularMarketPrice"]
                         if _sp and float(_sp) > 0:
                             price_map["SPY"] = float(_sp)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("SPY price fallback failed: %s", e)
 
             # --- Build Greeks result ---
             totals = {"delta": 0.0, "theta": 0.0, "gamma": 0.0, "vega": 0.0}
@@ -989,7 +1054,7 @@ def fetch_greeks_and_bwd():
         return _empty_greeks, _empty_bwd
 
 
-def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_strikes=8, fallback_price=0.0):
+def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_strikes=8, fallback_price=0.0, refresh_token=None):
     """Fetch option chain data for a ticker with greeks via DXLink.
 
     Args:
@@ -999,18 +1064,20 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_str
         max_dte: Maximum days to expiration
         num_strikes: Number of strikes closest to ATM per expiration
         fallback_price: Price to use when streamer returns nothing (e.g. market closed)
+        refresh_token: Per-user refresh token (optional, falls back to env).
 
     Returns dict with underlying_price and list of expirations with strike data.
     """
     _empty = {'underlying_price': 0, 'expirations': []}
-    session = _get_session()
+    session = _get_session(refresh_token)
 
     async def _run():
         async with session:
             # Get nested chain structure
             try:
                 chains = await NestedOptionChain.get(session, ticker)
-            except Exception:
+            except Exception as e:
+                logger.warning("Option chain fetch failed for %s: %s", ticker, e)
                 return _empty
             if not chains:
                 return _empty
@@ -1071,8 +1138,8 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_str
                         _sp = _yf["chart"]["result"][0]["meta"]["regularMarketPrice"]
                         if _sp and float(_sp) > 0:
                             underlying_price = float(_sp)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("YF price fallback failed for %s: %s", ticker, e)
 
             # Last resort: use caller-provided fallback
             if underlying_price <= 0:
@@ -1085,7 +1152,7 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_str
             symbol_map = {}  # streamer_symbol -> (exp_idx, strike_price)
             result_exps = []
             total_symbols = 0
-            max_symbols = 50
+            max_symbols = 80 if option_type == 'Call' else 50
 
             for exp in valid_exps:
                 if total_symbols >= max_symbols:
@@ -1095,14 +1162,20 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_str
                 exp_date = str(exp.expiration_date)
                 exp_type = exp.expiration_type
 
-                # Sort strikes by distance to underlying price
-                sorted_strikes = sorted(
-                    exp.strikes,
-                    key=lambda s: abs(float(s.strike_price) - underlying_price),
-                )
-
-                # Take num_strikes closest
-                selected = sorted_strikes[:num_strikes]
+                # For calls: bias towards OTM (higher strikes); for puts: closest to ATM
+                if option_type == 'Call':
+                    # Take a few ITM + mostly OTM strikes
+                    atm_and_otm = [s for s in exp.strikes if float(s.strike_price) >= underlying_price * 0.97]
+                    itm = [s for s in exp.strikes if float(s.strike_price) < underlying_price * 0.97]
+                    atm_and_otm.sort(key=lambda s: float(s.strike_price))
+                    itm.sort(key=lambda s: float(s.strike_price), reverse=True)
+                    selected = atm_and_otm[:num_strikes] + itm[:max(2, num_strikes // 5)]
+                else:
+                    sorted_strikes = sorted(
+                        exp.strikes,
+                        key=lambda s: abs(float(s.strike_price) - underlying_price),
+                    )
+                    selected = sorted_strikes[:num_strikes]
                 remaining = max_symbols - total_symbols
                 if len(selected) > remaining:
                     selected = selected[:remaining]
@@ -1227,7 +1300,7 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_str
         return _empty
 
 
-def fetch_beta_weighted_delta():
+def fetch_beta_weighted_delta(refresh_token=None):
     """Calculate portfolio Beta-Weighted Delta relative to SPY.
 
     Converts all positions (stocks + options) to SPY-equivalent delta.
@@ -1235,7 +1308,7 @@ def fetch_beta_weighted_delta():
 
     Returns dict with per-ticker breakdown and portfolio totals.
     """
-    session = _get_session()
+    session = _get_session(refresh_token)
 
     async def _run():
         async with session:
@@ -1347,8 +1420,8 @@ def fetch_beta_weighted_delta():
                         _sp = _yf["chart"]["result"][0]["meta"]["regularMarketPrice"]
                         if _sp and float(_sp) > 0:
                             price_map["SPY"] = float(_sp)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("SPY price fallback failed (BWD): %s", e)
 
             spy_price = price_map.get("SPY", 0)
             if spy_price <= 0:

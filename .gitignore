@@ -6,6 +6,9 @@ __pycache__/
 *.pyc
 .DS_Store
 
+# Internal design docs
+docs/plans/
+
 # Streamlit
 .streamlit/secrets.toml
 

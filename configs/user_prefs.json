@@ -1,6 +1,6 @@
 {
   "delta_min": 0.2,
   "delta_max": 0.35,
-  "dte_min": 0,
-  "dte_max": 7
+  "dte_min": 25,
+  "dte_max": 45
 }
