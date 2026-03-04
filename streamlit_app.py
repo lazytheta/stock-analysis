@@ -4307,6 +4307,9 @@ def _find_open_options(trades):
 #  WATCHLIST PAGE — Track multiple DCF valuations
 # ══════════════════════════════════════════════════════
 
+GITHUB_REPO_URL = "https://github.com/lazytheta/stock-analysis"
+CONTACT_EMAIL = "security@lazytheta.io"
+
 if page == "Watchlist":
 
     st.markdown(
@@ -6030,9 +6033,6 @@ elif page == "Settings":
 
 elif page == "🔒 Security & Privacy":
 
-    GITHUB_REPO_URL = "https://github.com/lazytheta/stock-analysis"
-    CONTACT_EMAIL = "security@lazytheta.io"
-
     st.markdown(
         f"""<style>
         .block-container {{ max-width: 800px; margin: auto; }}
@@ -6255,145 +6255,249 @@ elif page == "🔒 Security & Privacy":
 
 elif page == "Privacy Policy":
 
+    st.markdown(
+        f"""<style>
+        .legal-container {{ max-width: 800px; margin: auto; }}
+        .legal-card {{
+            background: {T['card']};
+            border-radius: 18px;
+            padding: 32px 28px;
+            box-shadow: {T['shadow']};
+            margin-bottom: 16px;
+        }}
+        .legal-card h4 {{
+            font-family: 'DM Serif Display', Georgia, serif;
+            color: {T['text']};
+            font-weight: 400;
+            font-size: 1.15rem;
+            margin: 0 0 12px 0;
+        }}
+        .legal-card p, .legal-card li {{
+            color: {T['text_muted']};
+            font-size: 0.92rem;
+            line-height: 1.6;
+        }}
+        .legal-card table {{
+            width: 100%;
+            font-size: 0.88rem;
+            border-collapse: collapse;
+        }}
+        .legal-card th {{
+            text-align: left;
+            color: {T['text']};
+            border-bottom: 1px solid {T['border']};
+            padding: 6px 8px;
+        }}
+        .legal-card td {{
+            color: {T['text_muted']};
+            border-bottom: 1px solid {T['border']};
+            padding: 6px 8px;
+        }}
+        .legal-card a {{ color: {T['accent']}; text-decoration: none; }}
+        .legal-card a:hover {{ text-decoration: underline; }}
+        </style>""",
+        unsafe_allow_html=True,
+    )
+
     st.markdown(f'<p style="font-family: \'DM Serif Display\', Georgia, serif; font-size: 2rem; color: {T["text"]}; margin-bottom: 4px;">Privacy Policy</p>', unsafe_allow_html=True)
     st.caption(f"Effective date: March 4, 2026 — Last updated: {date.today().strftime('%B %d, %Y')}")
 
-    st.markdown(f"""
-### 1. Who we are
+    st.markdown(f"""<div class="legal-card">
+<h4>1. Who we are</h4>
+<p>Lazy Theta ("we", "us") operates the stock analysis platform at <a href="https://lazytheta.io">lazytheta.io</a>.<br>
+Contact: <a href="mailto:info@lazytheta.io">info@lazytheta.io</a></p>
+</div>""", unsafe_allow_html=True)
 
-Lazy Theta ("we", "us") operates the stock analysis platform at [lazytheta.io](https://lazytheta.io).
-Contact: [info@lazytheta.io](mailto:info@lazytheta.io)
+    st.markdown(f"""<div class="legal-card">
+<h4>2. What we collect</h4>
+<table>
+<tr><th>Data</th><th>Purpose</th><th>Stored where</th></tr>
+<tr><td>Email address</td><td>Account login</td><td>Supabase Auth</td></tr>
+<tr><td>Name, title, date of birth, country</td><td>Account profile</td><td>Supabase Auth metadata</td></tr>
+<tr><td>Password</td><td>Authentication (hashed, we never see it)</td><td>Supabase Auth</td></tr>
+<tr><td>Watchlist configurations</td><td>Save your DCF valuations</td><td>Supabase database</td></tr>
+<tr><td>Display preferences</td><td>Remember your settings</td><td>Supabase database</td></tr>
+<tr><td>Tastytrade refresh token</td><td>Read-only portfolio access</td><td>Supabase database (encrypted at rest)</td></tr>
+</table>
+</div>""", unsafe_allow_html=True)
 
-### 2. What we collect
+    st.markdown(f"""<div class="legal-card">
+<h4>3. What we do NOT collect</h4>
+<ul>
+<li>Portfolio positions, balances, or transaction history (fetched live, never stored)</li>
+<li>Market data or stock prices</li>
+<li>DCF calculation results</li>
+<li>Your Tastytrade password</li>
+<li>Analytics, cookies, or tracking data of any kind</li>
+</ul>
+</div>""", unsafe_allow_html=True)
 
-| Data | Purpose | Stored where |
-|------|---------|-------------|
-| Email address | Account login | Supabase Auth |
-| Name, title, date of birth, country | Account profile | Supabase Auth metadata |
-| Password | Authentication (hashed, we never see it) | Supabase Auth |
-| Watchlist configurations | Save your DCF valuations | Supabase database |
-| Display preferences | Remember your settings | Supabase database |
-| Tastytrade refresh token | Read-only portfolio access | Supabase database (encrypted at rest) |
+    st.markdown(f"""<div class="legal-card">
+<h4>4. How we protect your data</h4>
+<ul>
+<li>All data is isolated per user via <strong>Row Level Security</strong> (RLS)</li>
+<li>All connections are <strong>HTTPS encrypted</strong></li>
+<li>Passwords are hashed by Supabase Auth (bcrypt) &mdash; we never store or see plaintext passwords</li>
+<li>Tastytrade tokens are <strong>read-only</strong> and revocable from your Tastytrade account at any time</li>
+</ul>
+</div>""", unsafe_allow_html=True)
 
-### 3. What we do NOT collect
+    st.markdown(f"""<div class="legal-card">
+<h4>5. Third-party services</h4>
+<table>
+<tr><th>Service</th><th>Purpose</th><th>Privacy policy</th></tr>
+<tr><td>Supabase</td><td>Authentication &amp; database</td><td><a href="https://supabase.com/privacy">supabase.com/privacy</a></td></tr>
+<tr><td>Streamlit Cloud</td><td>App hosting</td><td><a href="https://streamlit.io/privacy-policy">streamlit.io/privacy-policy</a></td></tr>
+<tr><td>SEC EDGAR</td><td>Financial statements</td><td>Public government data</td></tr>
+<tr><td>Tastytrade</td><td>Portfolio data (opt-in)</td><td><a href="https://tastytrade.com/privacy-policy">tastytrade.com/privacy-policy</a></td></tr>
+</table>
+<p>We do <strong>not</strong> use Google Analytics, Mixpanel, or any tracking service.</p>
+</div>""", unsafe_allow_html=True)
 
-- Portfolio positions, balances, or transaction history (fetched live, never stored)
-- Market data or stock prices
-- DCF calculation results
-- Your Tastytrade password
-- Analytics, cookies, or tracking data of any kind
+    st.markdown(f"""<div class="legal-card">
+<h4>6. Your rights</h4>
+<p>You can at any time:</p>
+<ul>
+<li><strong>View</strong> your data in the app (Settings page)</li>
+<li><strong>Delete</strong> your session data (Clear Session Data button)</li>
+<li><strong>Revoke</strong> Tastytrade access from your Tastytrade account</li>
+<li><strong>Request deletion</strong> of your account and all data by emailing <a href="mailto:info@lazytheta.io">info@lazytheta.io</a></li>
+</ul>
+<p>Under GDPR (EU) and similar regulations, you also have the right to data portability and to lodge a complaint with your local data protection authority.</p>
+</div>""", unsafe_allow_html=True)
 
-### 4. How we protect your data
+    st.markdown(f"""<div class="legal-card">
+<h4>7. Data retention</h4>
+<ul>
+<li>Account data is retained as long as your account exists</li>
+<li>Session data (portfolio, calculations) is destroyed when you close the browser tab</li>
+<li>We do not keep backups of session data</li>
+</ul>
+</div>""", unsafe_allow_html=True)
 
-- All data is isolated per user via **Row Level Security** (RLS) — no user can access another user's data
-- All connections are **HTTPS encrypted**
-- Passwords are hashed by Supabase Auth (bcrypt) — we never store or see plaintext passwords
-- Tastytrade tokens are **read-only** and revocable from your Tastytrade account at any time
+    st.markdown(f"""<div class="legal-card">
+<h4>8. Changes</h4>
+<p>We may update this policy. Material changes will be communicated via the app. Continued use after changes constitutes acceptance.</p>
+</div>""", unsafe_allow_html=True)
 
-### 5. Third-party services
-
-| Service | Purpose | Their privacy policy |
-|---------|---------|---------------------|
-| [Supabase](https://supabase.com) | Authentication & database | [supabase.com/privacy](https://supabase.com/privacy) |
-| [Streamlit Cloud](https://streamlit.io) | App hosting | [streamlit.io/privacy-policy](https://streamlit.io/privacy-policy) |
-| [SEC EDGAR](https://www.sec.gov) | Financial statements | Public government data |
-| [Tastytrade](https://tastytrade.com) | Portfolio data (opt-in) | [tastytrade.com/privacy-policy](https://tastytrade.com/privacy-policy) |
-
-We do **not** use Google Analytics, Mixpanel, or any tracking service.
-
-### 6. Your rights
-
-You can at any time:
-- **View** your data in the app (Settings page)
-- **Delete** your session data (Clear Session Data button)
-- **Revoke** Tastytrade access from your Tastytrade account
-- **Request deletion** of your account and all data by emailing [info@lazytheta.io](mailto:info@lazytheta.io)
-
-Under GDPR (EU) and similar regulations, you also have the right to data portability and to lodge a complaint with your local data protection authority.
-
-### 7. Data retention
-
-- Account data is retained as long as your account exists
-- Session data (portfolio, calculations) is destroyed when you close the browser tab
-- We do not keep backups of session data
-
-### 8. Changes
-
-We may update this policy. Material changes will be communicated via the app. Continued use after changes constitutes acceptance.
-""")
-
-    if st.button("← Back to Security & Privacy"):
+    if st.button("Back to Security & Privacy", type="primary"):
         st.session_state["_account_page"] = "🔒 Security & Privacy"
         st.rerun()
 
 elif page == "Terms of Service":
 
+    st.markdown(
+        f"""<style>
+        .legal-container {{ max-width: 800px; margin: auto; }}
+        .legal-card {{
+            background: {T['card']};
+            border-radius: 18px;
+            padding: 32px 28px;
+            box-shadow: {T['shadow']};
+            margin-bottom: 16px;
+        }}
+        .legal-card h4 {{
+            font-family: 'DM Serif Display', Georgia, serif;
+            color: {T['text']};
+            font-weight: 400;
+            font-size: 1.15rem;
+            margin: 0 0 12px 0;
+        }}
+        .legal-card p, .legal-card li {{
+            color: {T['text_muted']};
+            font-size: 0.92rem;
+            line-height: 1.6;
+        }}
+        .legal-card a {{ color: {T['accent']}; text-decoration: none; }}
+        .legal-card a:hover {{ text-decoration: underline; }}
+        </style>""",
+        unsafe_allow_html=True,
+    )
+
     st.markdown(f'<p style="font-family: \'DM Serif Display\', Georgia, serif; font-size: 2rem; color: {T["text"]}; margin-bottom: 4px;">Terms of Service</p>', unsafe_allow_html=True)
     st.caption(f"Effective date: March 4, 2026 — Last updated: {date.today().strftime('%B %d, %Y')}")
 
-    st.markdown(f"""
-### 1. Acceptance
+    st.markdown(f"""<div class="legal-card">
+<h4>1. Acceptance</h4>
+<p>By creating an account or using Lazy Theta ("the Service"), you agree to these terms.</p>
+</div>""", unsafe_allow_html=True)
 
-By creating an account or using Lazy Theta ("the Service"), you agree to these terms.
+    st.markdown(f"""<div class="legal-card">
+<h4>2. What the Service provides</h4>
+<p>Lazy Theta is a stock analysis and portfolio management tool for personal, informational use. It provides:</p>
+<ul>
+<li>DCF valuation models based on public SEC filings</li>
+<li>Portfolio overview via Tastytrade API integration</li>
+<li>Wheel strategy cost basis tracking</li>
+</ul>
+</div>""", unsafe_allow_html=True)
 
-### 2. What the Service provides
+    st.markdown(f"""<div class="legal-card">
+<h4>3. Not financial advice</h4>
+<p><strong>The Service does not provide financial, investment, tax, or legal advice.</strong> All valuations, calculations, and data are for informational purposes only. You are solely responsible for your investment decisions. We are not a registered investment adviser, broker-dealer, or financial planner.</p>
+</div>""", unsafe_allow_html=True)
 
-Lazy Theta is a **stock analysis and portfolio management tool** for personal, informational use. It provides:
-- DCF valuation models based on public SEC filings
-- Portfolio overview via Tastytrade API integration
-- Wheel strategy cost basis tracking
+    st.markdown(f"""<div class="legal-card">
+<h4>4. Your account</h4>
+<ul>
+<li>You must provide accurate information when creating an account</li>
+<li>You are responsible for keeping your credentials secure</li>
+<li>One account per person</li>
+<li>We may suspend or terminate accounts that violate these terms</li>
+</ul>
+</div>""", unsafe_allow_html=True)
 
-### 3. Not financial advice
+    st.markdown(f"""<div class="legal-card">
+<h4>5. Acceptable use</h4>
+<p>You agree not to:</p>
+<ul>
+<li>Use the Service for any illegal purpose</li>
+<li>Attempt to access other users' data</li>
+<li>Reverse-engineer, scrape, or overload the Service</li>
+<li>Use automated tools to access the Service beyond normal use</li>
+</ul>
+</div>""", unsafe_allow_html=True)
 
-**The Service does not provide financial, investment, tax, or legal advice.** All valuations, calculations, and data are for informational purposes only. You are solely responsible for your investment decisions. We are not a registered investment adviser, broker-dealer, or financial planner.
+    st.markdown(f"""<div class="legal-card">
+<h4>6. Data accuracy</h4>
+<ul>
+<li>Financial data is sourced from SEC EDGAR, Yahoo Finance, and Tastytrade</li>
+<li>We do not guarantee the accuracy, completeness, or timeliness of any data</li>
+<li>DCF valuations are models with assumptions &mdash; they are not predictions of future stock prices</li>
+</ul>
+</div>""", unsafe_allow_html=True)
 
-### 4. Your account
+    st.markdown(f"""<div class="legal-card">
+<h4>7. Availability</h4>
+<p>The Service is provided "as is" on Streamlit Cloud. We do not guarantee uptime or availability. We may modify or discontinue the Service at any time.</p>
+</div>""", unsafe_allow_html=True)
 
-- You must provide accurate information when creating an account
-- You are responsible for keeping your credentials secure
-- One account per person
-- We may suspend or terminate accounts that violate these terms
+    st.markdown(f"""<div class="legal-card">
+<h4>8. Limitation of liability</h4>
+<p>To the maximum extent permitted by law, Lazy Theta and its operators shall not be liable for any indirect, incidental, special, or consequential damages, including but not limited to financial losses from investment decisions made using the Service.</p>
+</div>""", unsafe_allow_html=True)
 
-### 5. Acceptable use
+    st.markdown(f"""<div class="legal-card">
+<h4>9. Intellectual property</h4>
+<p>The source code is available on <a href="{GITHUB_REPO_URL}">GitHub</a>. All rights reserved unless otherwise specified. You may not copy, modify, or redistribute the code without permission.</p>
+</div>""", unsafe_allow_html=True)
 
-You agree not to:
-- Use the Service for any illegal purpose
-- Attempt to access other users' data
-- Reverse-engineer, scrape, or overload the Service
-- Use automated tools to access the Service beyond normal use
+    st.markdown(f"""<div class="legal-card">
+<h4>10. Changes</h4>
+<p>We may update these terms. Continued use after changes constitutes acceptance. Material changes will be communicated via the app.</p>
+</div>""", unsafe_allow_html=True)
 
-### 6. Data accuracy
+    st.markdown(f"""<div class="legal-card">
+<h4>11. Governing law</h4>
+<p>These terms are governed by the laws of the Netherlands.</p>
+</div>""", unsafe_allow_html=True)
 
-- Financial data is sourced from SEC EDGAR, Yahoo Finance, and Tastytrade
-- We do not guarantee the accuracy, completeness, or timeliness of any data
-- DCF valuations are models with assumptions — they are not predictions of future stock prices
+    st.markdown(f"""<div class="legal-card">
+<h4>12. Contact</h4>
+<p>Questions? Email <a href="mailto:info@lazytheta.io">info@lazytheta.io</a>.</p>
+</div>""", unsafe_allow_html=True)
 
-### 7. Availability
-
-The Service is provided "as is" on Streamlit Cloud. We do not guarantee uptime or availability. We may modify or discontinue the Service at any time.
-
-### 8. Limitation of liability
-
-To the maximum extent permitted by law, Lazy Theta and its operators shall not be liable for any indirect, incidental, special, or consequential damages, including but not limited to financial losses from investment decisions made using the Service.
-
-### 9. Intellectual property
-
-The source code is available on [GitHub]({GITHUB_REPO_URL}). All rights reserved unless otherwise specified. You may not copy, modify, or redistribute the code without permission.
-
-### 10. Changes
-
-We may update these terms. Continued use after changes constitutes acceptance. Material changes will be communicated via the app.
-
-### 11. Governing law
-
-These terms are governed by the laws of the Netherlands.
-
-### 12. Contact
-
-Questions? Email [info@lazytheta.io](mailto:info@lazytheta.io).
-""")
-
-    if st.button("← Back to Security & Privacy"):
+    if st.button("Back to Security & Privacy", type="primary"):
         st.session_state["_account_page"] = "🔒 Security & Privacy"
         st.rerun()
 
