@@ -6261,6 +6261,7 @@ elif page == "Privacy Policy":
         .legal-card {{
             background: {T['card']};
             border-radius: 18px;
+            border-top: 3px solid {T['accent']};
             padding: 32px 28px;
             box-shadow: {T['shadow']};
             margin-bottom: 16px;
@@ -6392,6 +6393,7 @@ elif page == "Terms of Service":
         .legal-card {{
             background: {T['card']};
             border-radius: 18px;
+            border-top: 3px solid {T['accent']};
             padding: 32px 28px;
             box-shadow: {T['shadow']};
             margin-bottom: 16px;
