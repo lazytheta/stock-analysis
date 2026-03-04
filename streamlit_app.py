@@ -38,6 +38,10 @@ from gather_data import (
     TERMINAL_GROWTH_DEFAULT,
     MARGIN_OF_SAFETY_DEFAULT,
     fetch_fundamentals,
+    fetch_historical_prices,
+    fetch_balance_sheet,
+    fetch_income_statement,
+    fetch_cashflow_statement,
 )
 from tastytrade_api import fetch_portfolio_data, fetch_current_prices, fetch_account_balances, fetch_net_liq_history, fetch_sp500_yearly_returns, fetch_benchmark_returns, fetch_ticker_profiles, fetch_yearly_transfers, fetch_portfolio_greeks, fetch_margin_interest, fetch_margin_for_position, fetch_margin_requirements, fetch_beta_weighted_delta
 import plotly.graph_objects as go
@@ -52,16 +56,47 @@ st.set_page_config(
 # ── Custom CSS ──
 st.markdown("""
 <style>
-    /* ── Apple-inspired design ── */
+    /* ── Refined with Edge ── */
 
-    /* Global typography */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    /* Global typography — DM Serif Display (headers) + DM Sans (body) */
+    @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@400;500;600;700&display=swap');
 
     html, body, [class*="css"] {
-        font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'SF Pro Display',
+        font-family: 'DM Sans', -apple-system, BlinkMacSystemFont,
                      'Helvetica Neue', Arial, sans-serif;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Subtle noise texture overlay */
+    body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        opacity: 0.03;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+        background-repeat: repeat;
+        background-size: 256px 256px;
+    }
+
+    /* Page load animation */
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #c4c4c6; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #81b29a; }
+
+    /* Focus states */
+    *:focus-visible {
+        outline: 2px solid #81b29a !important;
+        outline-offset: 2px !important;
     }
 
     /* Main content area */
@@ -69,11 +104,12 @@ st.markdown("""
         padding-top: 3rem;
     }
 
-    /* Headings — Apple style */
+    /* Headings — Editorial serif */
     h1, h2, h3 {
+        font-family: 'DM Serif Display', Georgia, 'Times New Roman', serif !important;
         color: #1d1d1f !important;
-        font-weight: 600 !important;
-        letter-spacing: -0.02em !important;
+        font-weight: 400 !important;
+        letter-spacing: -0.01em !important;
     }
     h2 { font-size: 2rem !important; }
     h3 { font-size: 1.4rem !important; }
@@ -82,14 +118,19 @@ st.markdown("""
         color: #1d1d1f;
     }
 
-    /* Metric cards — clean, flat Apple style */
+    /* Metric cards — with subtle depth */
     [data-testid="stMetric"] {
         background: #fff;
         border: none;
         border-radius: 18px;
         padding: 20px 24px;
-        box-shadow: none;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        animation: fadeInUp 0.4s ease-out both;
     }
+    [data-testid="stMetric"]:nth-child(1) { animation-delay: 0s; }
+    [data-testid="stMetric"]:nth-child(2) { animation-delay: 0.05s; }
+    [data-testid="stMetric"]:nth-child(3) { animation-delay: 0.1s; }
+    [data-testid="stMetric"]:nth-child(4) { animation-delay: 0.15s; }
     [data-testid="stMetric"] label {
         color: #86868b;
         font-size: 0.75rem;
@@ -103,14 +144,16 @@ st.markdown("""
         font-size: 1.3rem;
     }
 
-    /* Hero card — for the big P/L number */
+    /* Hero card — editorial with green accent */
     .hero-card {
         background: #fff;
         border-radius: 24px;
+        border-top: 3px solid #81b29a;
         padding: 48px 32px;
-        box-shadow: none;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
         text-align: center;
         margin-bottom: 32px;
+        animation: fadeInUp 0.4s ease-out both;
     }
     .hero-card .hero-label {
         color: #86868b;
@@ -121,6 +164,7 @@ st.markdown("""
         text-transform: uppercase;
     }
     .hero-card .hero-value {
+        font-family: 'DM Sans', -apple-system, sans-serif;
         font-size: 3.2rem;
         font-weight: 700;
         margin: 0;
@@ -135,7 +179,7 @@ st.markdown("""
     .hero-green { color: #81b29a; }
     .hero-red { color: #e07a5f; }
 
-    /* Stat pills — inline stats below hero */
+    /* Stat pills — frosted glass */
     .stat-row {
         display: flex;
         justify-content: center;
@@ -144,7 +188,10 @@ st.markdown("""
         flex-wrap: wrap;
     }
     .stat-pill {
-        background: #fff;
+        background: rgba(255,255,255,0.7);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        border: 1px solid rgba(255,255,255,0.5);
         border-radius: 980px;
         padding: 8px 18px;
         font-size: 0.95rem;
@@ -156,7 +203,7 @@ st.markdown("""
         font-weight: 600;
     }
 
-    /* Success banner (DCF page) — Apple style */
+    /* Success banner (DCF page) */
     .success-banner {
         background: #fff;
         border: none;
@@ -164,7 +211,8 @@ st.markdown("""
         padding: 40px 32px;
         margin: 24px 0;
         text-align: center;
-        box-shadow: none;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        animation: fadeInUp 0.4s ease-out both;
     }
     .success-banner h2 {
         color: #1d1d1f;
@@ -264,12 +312,18 @@ st.markdown("""
         background-color: #81b29a !important;
     }
 
-    /* Expanders — clean */
+    /* Expanders — with hover lift */
     [data-testid="stExpander"] {
         border: 1px solid #d2d2d7;
         border-radius: 18px;
-        box-shadow: none;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
         overflow: hidden;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        animation: fadeInUp 0.4s ease-out both;
+    }
+    [data-testid="stExpander"]:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
     }
 
     /* Dataframes — rounded, clean */
@@ -286,6 +340,7 @@ st.markdown("""
     section[data-testid="stSidebar"] [data-testid="stRadio"] label {
         font-weight: 500;
         color: #1d1d1f;
+        transition: background-color 0.2s ease;
     }
     /* Radio / checkbox accent — green */
     [data-testid="stRadio"] [role="radiogroup"] label[data-checked="true"]::before,
@@ -319,10 +374,10 @@ st.markdown("""
         min-width: 0 !important;
     }
 
-    /* Dividers */
+    /* Dividers — consistent subtle separators */
     hr {
-        border-color: #d2d2d7 !important;
-        opacity: 0.5;
+        border-color: rgba(0,0,0,0.06) !important;
+        opacity: 1;
     }
 
     /* Links */
@@ -339,7 +394,101 @@ st.markdown("""
         border-radius: 18px;
     }
 
+    /* Cumulative Returns — white block, green accent */
+    .st-key-cumulative_block {
+        background: #fff;
+        border-radius: 24px;
+        border-top: 3px solid #81b29a;
+        padding: 32px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .st-key-cumulative_block .performer-block {
+        background: none;
+        border-radius: 0;
+        padding: 0;
+        box-shadow: none;
+    }
+    .st-key-cumulative_block .performer-block:hover {
+        transform: none;
+        box-shadow: none;
+    }
+
+    /* Results hero + chart — single continuous white block */
+    .st-key-results_hero {
+        background: #fff;
+        border-radius: 24px;
+        border-top: 3px solid #81b29a;
+        padding: 32px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .st-key-results_hero .hero-card {
+        background: none;
+        border-top: none;
+        border-radius: 0;
+        padding: 0;
+        box-shadow: none;
+        margin-bottom: 0;
+        animation: none;
+    }
+
+    /* Portfolio Allocation — white block, green accent, no outer frame */
+    .st-key-allocation_block {
+        background: #fff;
+        border-radius: 24px;
+        border-top: 3px solid #81b29a;
+        padding: 32px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+
+    /* Greeks / BWD / Interest — CSS Grid, equal-height cards */
+    .greeks-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .greeks-grid .hero-card {
+        height: 100%;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+    }
+
+    /* Margin overview — single continuous white block */
+    .st-key-margin_block {
+        background: #fff;
+        border-radius: 24px;
+        border-top: 3px solid #81b29a;
+        padding: 32px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .st-key-margin_block .stTextInput > div > div > input,
+    .st-key-margin_block .stNumberInput > div > div > input {
+        background: #f5f4f0 !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+    .st-key-margin_block .hero-card {
+        background: none;
+        border-top: none;
+        border-radius: 0;
+        padding: 0;
+        box-shadow: none;
+        margin-bottom: 0;
+        animation: none;
+    }
+
     /* ── Ticker cards (Wheel Cost Basis) ── */
+    [class*="st-key-wheel_card_"] {
+        background: #fff;
+        border-radius: 24px;
+        border-top: 3px solid #81b29a;
+        padding: 24px 32px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        margin-bottom: 16px;
+    }
     .card-header {
         display: flex;
         justify-content: space-between;
@@ -398,7 +547,7 @@ st.markdown("""
         align-items: baseline;
         gap: 28px;
         padding: 12px 0;
-        border-bottom: 1px solid #f0f0f2;
+        border-bottom: 1px solid rgba(0,0,0,0.06);
     }
     .trade-row:last-child { border-bottom: none; }
     .trade-row .tr-desc {
@@ -442,11 +591,30 @@ st.markdown("""
     .status-open { background: #81b29a; }
     .status-assigned { background: #86868b; }
 
-    /* ── Performer block ── */
+    /* Section title bar */
+    .section-title-bar {
+        background: #fff;
+        border-radius: 14px;
+        padding: 12px 20px;
+        margin-bottom: 10px;
+        font-family: 'DM Serif Display', Georgia, serif;
+        font-size: 1.1rem;
+        font-weight: 400;
+        color: #1d1d1f;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+
+    /* ── Performer block — with hover lift ── */
     .performer-block {
         background: #fff;
         border-radius: 18px;
         padding: 24px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .performer-block:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
     }
     .performer-block h4 {
         margin: 0 0 12px 0;
@@ -471,10 +639,16 @@ st.markdown("""
         padding: 12px 16px;
         background: #fff;
         border: 1px solid #d2d2d7;
+        border-left: 3px solid #81b29a;
         border-radius: 14px;
         flex-wrap: wrap;
         width: 100%;
         box-sizing: border-box;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .portfolio-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
     }
     .portfolio-card .pf-logo {
         width: 30px;
@@ -513,6 +687,7 @@ st.markdown("""
     }
     .portfolio-card .pf-green { color: #81b29a; }
     .portfolio-card .pf-red { color: #e07a5f; }
+
 
     /* ── Performer grid (Top/Bottom side by side, stacked on mobile) ── */
     .performer-grid {
@@ -570,7 +745,7 @@ st.markdown("""
         content: "";
         position: fixed;
         inset: 0;
-        background: #fff;
+        background: #fafaf8;
         z-index: 9998;
     }
     body:has([data-testid="stSidebar"] [data-stale="true"]) [data-testid="stMain"]::after {
@@ -582,7 +757,7 @@ st.markdown("""
         height: 28px;
         margin: -14px 0 0 -14px;
         border: 3px solid #e5e5ea;
-        border-top-color: #1d1d1f;
+        border-top-color: #81b29a;
         border-radius: 50%;
         animation: pf-spin 0.6s linear infinite;
         z-index: 9999;
@@ -824,7 +999,7 @@ def _dcf_editor(ticker):
 
     # ── Tabs: DCF / Reverse DCF / Peer Comparison ──
     st.markdown("---")
-    _tab_dcf, _tab_rdcf, _tab_peers, _tab_fundamentals = st.tabs(["DCF", "Reverse DCF", "Peer Comparison", "Fundamentals"])
+    _tab_dcf, _tab_rdcf, _tab_peers, _tab_fundamentals, _tab_key_ratios = st.tabs(["DCF", "Reverse DCF", "Peer Comparison", "Fundamentals", "Key Ratios"])
 
     with _tab_dcf:
         st.markdown("#### Discounting Cash Flows")
@@ -1335,9 +1510,11 @@ def _dcf_editor(ticker):
                 step=100, key="ed_sec",
             ))
             _cash_sec = cfg['cash_bridge'] + cfg['securities']
-            _debt = cfg.get('debt_market_value', 0)
-            st.markdown(_wf_val.format(label="\u2003\u2212 Debt", value=f"(${_debt:,.0f})",
-                                       extra="color:#86868b;"), unsafe_allow_html=True)
+            cfg['debt_market_value'] = int(st.number_input(
+                "\u2003\u2212 Debt ($M)", value=int(cfg.get('debt_market_value', 0)),
+                step=100, key="ed_debt",
+            ))
+            _debt = cfg['debt_market_value']
 
             st.markdown(_wf_sep, unsafe_allow_html=True)
             _equity = _ev + _cash_sec - _debt
@@ -1349,7 +1526,7 @@ def _dcf_editor(ticker):
                 step=10, key="ed_shares",
             ))
             cfg['buyback_rate'] = st.number_input(
-                "\u2003\u00d7 Buyback Rate %", value=cfg.get('buyback_rate', 0.0) * 100,
+                "\u2003\u00d7 Bruto Buyback Rate %", value=cfg.get('buyback_rate', 0.0) * 100,
                 step=0.5, format="%.1f", key="ed_bb_rate",
             ) / 100
             _adj_shares = cfg['shares_outstanding'] * (1 - cfg['buyback_rate']) ** _n
@@ -1691,7 +1868,7 @@ def _dcf_editor(ticker):
 
         @st.cache_data(ttl=300, show_spinner="Loading fundamentals...")
         def _cached_fundamentals(t):
-            return fetch_fundamentals(t, n_years=12)
+            return fetch_fundamentals(t, n_years=11)
 
         fund = _cached_fundamentals(ticker)
         _yrs = fund['years']
@@ -2058,6 +2235,683 @@ def _dcf_editor(ticker):
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Insufficient data for FCF Yield")
+
+    with _tab_key_ratios:
+        st.markdown("#### Key Ratios")
+
+        fund = _cached_fundamentals(ticker)
+        _yrs = fund['years']
+        _n = len(_yrs)
+
+        @st.cache_data(ttl=300, show_spinner="Loading historical prices...")
+        def _cached_hist_prices(t, yrs):
+            return fetch_historical_prices(t, list(yrs))
+
+        _hist_prices = _cached_hist_prices(ticker, tuple(_yrs))
+
+        # ── Table helper styles ──
+        _kr_cell = 'text-align:right;padding:5px 10px;font-size:0.85rem'
+        _kr_hdr = 'text-align:right;padding:5px 10px;font-size:0.85rem;color:#86868b'
+        _kr_label = 'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:#1d1d1f;white-space:nowrap;width:220px;min-width:220px'
+        _kr_avg_style = f'{_kr_cell};font-weight:600;border-left:2px solid #d2d2d7'
+
+        def _kr_table_start():
+            html = (
+                '<div style="overflow-x:auto">'
+                '<table style="width:100%;border-collapse:collapse;table-layout:fixed">'
+                '<colgroup>'
+                '<col style="width:220px">'
+            )
+            for _ in _yrs:
+                html += '<col>'
+            html += '<col>'  # Avg column
+            html += '</colgroup>'
+            html += '<thead><tr>'
+            html += f'<th style="{_kr_hdr};text-align:left"></th>'
+            for yr in _yrs:
+                html += f'<th style="{_kr_hdr}">{yr}</th>'
+            html += f'<th style="{_kr_hdr};border-left:2px solid #d2d2d7">Avg</th>'
+            html += '</tr></thead><tbody>'
+            nonlocal _kr_row_idx
+            _kr_row_idx = 0
+            return html
+
+        def _kr_fmt(v, fmt):
+            if fmt == 'pct1':
+                return f'{v:.1f}%'
+            elif fmt == 'dec1':
+                return f'{v:.1f}'
+            elif fmt == 'dec2':
+                return f'{v:.2f}'
+            elif fmt == 'dollar2':
+                return f'${v:.2f}'
+            elif fmt == 'num0':
+                return f'{v:,.0f}'
+            return str(v)
+
+        _kr_row_idx = 0  # for zebra striping
+
+        def _kr_row(label, vals, fmt='pct1'):
+            """Render one table row with alternating background."""
+            nonlocal _kr_row_idx
+            bg = 'background:#f9f9fb' if _kr_row_idx % 2 == 1 else ''
+            _kr_row_idx += 1
+            row_style = f'border-top:1px solid #f0f0f2;{bg}'
+            html = f'<tr style="{row_style}"><td style="{_kr_label}">{label}</td>'
+            valid_vals = []
+            for v in vals:
+                if v is None:
+                    html += f'<td style="{_kr_cell}">—</td>'
+                    continue
+                valid_vals.append(v)
+                html += f'<td style="{_kr_cell}">{_kr_fmt(v, fmt)}</td>'
+            # Avg column
+            avg = sum(valid_vals) / len(valid_vals) if valid_vals else None
+            if avg is not None:
+                html += f'<td style="{_kr_avg_style}">{_kr_fmt(avg, fmt)}</td>'
+            else:
+                html += f'<td style="{_kr_avg_style}">—</td>'
+            html += '</tr>'
+            return html
+
+        def _kr_separator():
+            cols = _n + 2
+            return f'<tr><td colspan="{cols}" style="padding:4px"></td></tr>'
+
+        def _kr_pct_change(vals):
+            result = []
+            for i in range(len(vals)):
+                if i == 0 or vals[i] is None or vals[i - 1] is None or vals[i - 1] == 0:
+                    result.append(None)
+                else:
+                    result.append((vals[i] / vals[i - 1] - 1) * 100)
+            return result
+
+        # ── Balance Sheet ──
+        @st.cache_data(ttl=300, show_spinner="Loading balance sheet...")
+        def _cached_balance_sheet(t):
+            return fetch_balance_sheet(t, n_years=11)
+
+        bsheet = _cached_balance_sheet(ticker)
+        _bs_yrs = bsheet['years']
+        _bs_n = len(_bs_yrs)
+
+        with st.expander("Balance Sheet", expanded=False):
+            if _bs_n < 1:
+                st.info("Insufficient balance sheet data")
+            else:
+                _bs_cell = 'text-align:right;padding:5px 10px;font-size:0.85rem'
+                _bs_hdr = 'text-align:right;padding:5px 10px;font-size:0.85rem;color:#86868b'
+                _bs_label = 'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:#1d1d1f;white-space:nowrap;width:220px;min-width:220px'
+                _bs_row_idx = 0
+
+                def _bs_table_start():
+                    nonlocal _bs_row_idx
+                    _bs_row_idx = 0
+                    html = (
+                        '<div style="overflow-x:auto">'
+                        '<table style="width:100%;border-collapse:collapse;table-layout:fixed">'
+                        '<colgroup><col style="width:220px">'
+                    )
+                    for _ in _bs_yrs:
+                        html += '<col>'
+                    html += '</colgroup><thead><tr>'
+                    html += f'<th style="{_bs_hdr};text-align:left"></th>'
+                    for yr in _bs_yrs:
+                        html += f'<th style="{_bs_hdr}">{yr}</th>'
+                    html += '</tr></thead><tbody>'
+                    return html
+
+                def _bs_row(label, vals, bold=False):
+                    nonlocal _bs_row_idx
+                    bg = 'background:#f9f9fb' if _bs_row_idx % 2 == 1 else ''
+                    _bs_row_idx += 1
+                    row_style = f'border-top:1px solid #f0f0f2;{bg}'
+                    fw = ';font-weight:700' if bold else ''
+                    lbl_style = f'{_bs_label}{fw}'
+                    cell_style = f'{_bs_cell}{fw}'
+                    html = f'<tr style="{row_style}"><td style="{lbl_style}">{label}</td>'
+                    for v in vals:
+                        if v is None:
+                            html += f'<td style="{cell_style}">—</td>'
+                        else:
+                            html += f'<td style="{cell_style}">{v:,.0f}</td>'
+                    html += '</tr>'
+                    return html
+
+                def _bs_section_hdr(label):
+                    nonlocal _bs_row_idx
+                    _bs_row_idx = 0
+                    cols = _bs_n + 1
+                    return (f'<tr><td colspan="{cols}" style="text-align:left;padding:10px 10px 5px;'
+                            f'font-size:0.85rem;font-weight:700;color:#1d1d1f">{label}</td></tr>')
+
+                def _bs_separator():
+                    cols = _bs_n + 1
+                    return f'<tr><td colspan="{cols}" style="padding:4px"></td></tr>'
+
+                # Liabilities & Equity always equals Total Assets by definition
+                _liab_eq = bsheet['total_assets']
+
+                # Assets
+                st.markdown("**Assets** — *in millions*")
+                html = _bs_table_start()
+                html += _bs_row('Cash & Equivalents', bsheet['cash'])
+                html += _bs_row('Short-Term Investments', bsheet['short_term_investments'])
+                html += _bs_row('Accounts Receivable', bsheet['accounts_receivable'])
+                html += _bs_row('Inventories', bsheet['inventories'])
+                html += _bs_row('Other Current Assets', bsheet['other_current_assets'])
+                html += _bs_row('Total Current Assets', bsheet['total_current_assets'], bold=True)
+                html += _bs_separator()
+                html += _bs_row('Investments', bsheet['investments'])
+                html += _bs_row('Property, Plant, & Equipment (Net)', bsheet['ppe'])
+                html += _bs_row('Goodwill', bsheet['goodwill'])
+                html += _bs_row('Other Intangible Assets', bsheet['intangibles'])
+                html += _bs_row('Operating Lease Assets', bsheet['leases'])
+                html += _bs_row('Deferred Tax Assets', bsheet['deferred_tax_assets'])
+                html += _bs_row('Other Assets', bsheet['other_assets'])
+                html += _bs_row('Total Assets', bsheet['total_assets'], bold=True)
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+                # Liabilities
+                st.markdown("")
+                st.markdown("")
+                st.markdown("**Liabilities** — *in millions*")
+                html = _bs_table_start()
+                html += _bs_row('Accounts Payable', bsheet['accounts_payable'])
+                html += _bs_row('Tax Payable', bsheet['tax_payable'])
+                html += _bs_row('Accrued Liabilities', bsheet['accrued_liabilities'])
+                html += _bs_row('Short-Term Debt', bsheet['short_term_debt'])
+                html += _bs_row('Current Portion of Capital Leases', bsheet['current_capital_leases'])
+                html += _bs_row('Deferred Revenue', bsheet['deferred_revenue_current'])
+                html += _bs_row('Other Current Liabilities', bsheet['other_current_liabilities'])
+                html += _bs_row('Total Current Liabilities', bsheet['total_current_liabilities'], bold=True)
+                html += _bs_separator()
+                html += _bs_row('Long-Term Debt', bsheet['long_term_debt'])
+                html += _bs_row('Capital Leases', bsheet['capital_leases'])
+                html += _bs_row('Deferred Revenue', bsheet['deferred_revenue_noncurrent'])
+                html += _bs_row('Other Liabilities', bsheet['other_liabilities'])
+                html += _bs_row('Total Liabilities', bsheet['total_liabilities'], bold=True)
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+                # Equity
+                st.markdown("")
+                st.markdown("")
+                st.markdown("**Equity** — *in millions*")
+                html = _bs_table_start()
+                html += _bs_row('Retained Earnings', bsheet['retained_earnings'])
+                html += _bs_row('Common Stock', bsheet['common_stock'])
+                html += _bs_row('AOCI', bsheet['aoci'])
+                html += _bs_row("Shareholders' Equity", bsheet['shareholders_equity'], bold=True)
+                html += _bs_row('Liabilities & Equity', _liab_eq, bold=True)
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+        # ── Income Statement ──
+        @st.cache_data(ttl=300, show_spinner="Loading income statement...")
+        def _cached_income_stmt(t):
+            return fetch_income_statement(t, n_years=11)
+
+        istmt = _cached_income_stmt(ticker)
+        _is_yrs = istmt['years']
+        _is_n = len(_is_yrs)
+
+        with st.expander("Income Statement", expanded=False):
+            if _is_n < 1:
+                st.info("Insufficient income statement data")
+            else:
+                _is_cell = 'text-align:right;padding:5px 10px;font-size:0.85rem'
+                _is_hdr = 'text-align:right;padding:5px 10px;font-size:0.85rem;color:#86868b'
+                _is_label = 'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:#1d1d1f;white-space:nowrap;width:220px;min-width:220px'
+                _is_row_idx = 0
+
+                def _is_table_start():
+                    nonlocal _is_row_idx
+                    _is_row_idx = 0
+                    html = (
+                        '<div style="overflow-x:auto">'
+                        '<table style="width:100%;border-collapse:collapse;table-layout:fixed">'
+                        '<colgroup><col style="width:220px">'
+                    )
+                    for _ in _is_yrs:
+                        html += '<col>'
+                    html += '</colgroup><thead><tr>'
+                    html += f'<th style="{_is_hdr};text-align:left"></th>'
+                    for yr in _is_yrs:
+                        html += f'<th style="{_is_hdr}">{yr}</th>'
+                    html += '</tr></thead><tbody>'
+                    return html
+
+                def _is_row(label, vals, fmt='num0', bold=False):
+                    nonlocal _is_row_idx
+                    bg = 'background:#f9f9fb' if _is_row_idx % 2 == 1 else ''
+                    _is_row_idx += 1
+                    row_style = f'border-top:1px solid #f0f0f2;{bg}'
+                    fw = ';font-weight:700' if bold else ''
+                    lbl_style = f'{_is_label}{fw}'
+                    cell_style = f'{_is_cell}{fw}'
+                    html = f'<tr style="{row_style}"><td style="{lbl_style}">{label}</td>'
+                    for v in vals:
+                        if v is None:
+                            html += f'<td style="{cell_style}">—</td>'
+                        elif fmt == 'num0':
+                            html += f'<td style="{cell_style}">{v:,.0f}</td>'
+                        elif fmt == 'dollar2':
+                            html += f'<td style="{cell_style}">${v:.2f}</td>'
+                        else:
+                            html += f'<td style="{cell_style}">{v}</td>'
+                    html += '</tr>'
+                    return html
+
+                def _is_separator():
+                    cols = _is_n + 1
+                    return f'<tr><td colspan="{cols}" style="padding:4px"></td></tr>'
+
+                # Negate expenses for display (show as positive numbers)
+                def _neg(vals):
+                    return [(-v if v is not None else None) for v in vals]
+
+                # Shares in millions for display
+                def _shares_m(vals):
+                    return [(round(v / 1e6, 0) if v is not None else None) for v in vals]
+
+                # Revenue & Gross Profit
+                st.markdown("**Revenue & Gross Profit** — *in millions*")
+                html = _is_table_start()
+                html += _is_row('Revenue', istmt['revenue'])
+                html += _is_row('Cost of Revenue', istmt['cost_of_revenue'])
+                html += _is_row('Gross Profit', istmt['gross_profit'], bold=True)
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+                # Operating Expenses & Income
+                st.markdown("")
+                st.markdown("")
+                st.markdown("**Operating Expenses & Income** — *in millions*")
+                html = _is_table_start()
+                html += _is_row('Research & Development', istmt['rd'])
+                html += _is_row('Selling, General & Administrative', istmt['sga'])
+                html += _is_row('Other Operating Expenses', istmt['other_operating'])
+                html += _is_row('Operating Income', istmt['operating_income'], bold=True)
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+                # Non-Operating & Pretax
+                st.markdown("")
+                st.markdown("")
+                st.markdown("**Non-Operating & Pretax Income** — *in millions*")
+                html = _is_table_start()
+                html += _is_row('Interest Income', istmt['interest_income'])
+                html += _is_row('Interest Expense', istmt['interest_expense'])
+                for _ex_label, _ex_vals in istmt.get('extras_non_operating', []):
+                    html += _is_row(_ex_label, _ex_vals)
+                html += _is_row('Other Income / Expense', istmt['other_income'])
+                html += _is_row('Pretax Income', istmt['pretax_income'], bold=True)
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+                # Net Income
+                st.markdown("")
+                st.markdown("")
+                st.markdown("**Net Income** — *in millions*")
+                html = _is_table_start()
+                html += _is_row('Tax Provision', istmt['tax_provision'])
+                html += _is_row('Net Income', istmt['net_income'], bold=True)
+                html += _is_separator()
+                html += _is_row('EBITDA', istmt['ebitda'])
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+                # Per Share & Shares
+                st.markdown("")
+                st.markdown("")
+                st.markdown("**Per-Share Data & Shares**")
+                html = _is_table_start()
+                html += _is_row('Basic EPS', istmt['eps_basic'], fmt='dollar2')
+                html += _is_row('Diluted EPS', istmt['eps_diluted'], fmt='dollar2')
+                html += _is_separator()
+                html += _is_row('Basic Shares', _shares_m(istmt['shares_basic']))
+                html += _is_row('Diluted Shares', _shares_m(istmt['shares_diluted']))
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+        # ── Cash Flow Statement ──
+        @st.cache_data(ttl=300, show_spinner="Loading cash flow statement...")
+        def _cached_cashflow(t):
+            return fetch_cashflow_statement(t, n_years=11)
+
+        cflow = _cached_cashflow(ticker)
+        _cf_yrs = cflow['years']
+        _cf_n = len(_cf_yrs)
+
+        with st.expander("Cash Flow Statement", expanded=False):
+            if _cf_n < 1:
+                st.info("Insufficient cash flow data")
+            else:
+                _cf_cell = 'text-align:right;padding:5px 10px;font-size:0.85rem'
+                _cf_hdr = 'text-align:right;padding:5px 10px;font-size:0.85rem;color:#86868b'
+                _cf_label = 'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:#1d1d1f;white-space:nowrap;width:220px;min-width:220px'
+                _cf_row_idx = 0
+
+                def _cf_table_start():
+                    nonlocal _cf_row_idx
+                    _cf_row_idx = 0
+                    html = (
+                        '<div style="overflow-x:auto">'
+                        '<table style="width:100%;border-collapse:collapse;table-layout:fixed">'
+                        '<colgroup><col style="width:220px">'
+                    )
+                    for _ in _cf_yrs:
+                        html += '<col>'
+                    html += '</colgroup><thead><tr>'
+                    html += f'<th style="{_cf_hdr};text-align:left"></th>'
+                    for yr in _cf_yrs:
+                        html += f'<th style="{_cf_hdr}">{yr}</th>'
+                    html += '</tr></thead><tbody>'
+                    return html
+
+                def _cf_row(label, vals, bold=False):
+                    nonlocal _cf_row_idx
+                    bg = 'background:#f9f9fb' if _cf_row_idx % 2 == 1 else ''
+                    _cf_row_idx += 1
+                    row_style = f'border-top:1px solid #f0f0f2;{bg}'
+                    fw = ';font-weight:700' if bold else ''
+                    lbl_style = f'{_cf_label}{fw}'
+                    cell_style = f'{_cf_cell}{fw}'
+                    html = f'<tr style="{row_style}"><td style="{lbl_style}">{label}</td>'
+                    for v in vals:
+                        if v is None:
+                            html += f'<td style="{cell_style}">—</td>'
+                        else:
+                            html += f'<td style="{cell_style}">{v:,.0f}</td>'
+                    html += '</tr>'
+                    return html
+
+                def _cf_separator():
+                    cols = _cf_n + 1
+                    return f'<tr><td colspan="{cols}" style="padding:4px"></td></tr>'
+
+                # Operating Activities
+                st.markdown("**Operating Activities** — *in millions*")
+                html = _cf_table_start()
+                html += _cf_row('Net Income', cflow['net_income_cf'])
+                html += _cf_separator()
+                html += _cf_row('Depreciation & Amortization', cflow['da_cf'])
+                html += _cf_row('Stock-Based Compensation', cflow['sbc'])
+                html += _cf_row('Deferred Taxes', cflow['deferred_tax'])
+                html += _cf_row('Other Non-Cash Items', cflow['other_noncash'])
+                html += _cf_separator()
+                html += _cf_row('Change in Receivables', cflow['change_receivables'])
+                html += _cf_row('Change in Inventory', cflow['change_inventory'])
+                html += _cf_row('Change in Payables', cflow['change_payables'])
+                html += _cf_row('Other Working Capital', cflow['change_other_wc'])
+                html += _cf_separator()
+                html += _cf_row('Cash from Operations', cflow['operating_cf'], bold=True)
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+                # Investing Activities
+                st.markdown("")
+                st.markdown("")
+                st.markdown("**Investing Activities** — *in millions*")
+                html = _cf_table_start()
+                html += _cf_row('Capital Expenditure', cflow['capex'])
+                html += _cf_row('Acquisitions', cflow['acquisitions'])
+                html += _cf_row('Purchases of Investments', cflow['purchases_investments'])
+                html += _cf_row('Sales of Investments', cflow['sales_investments'])
+                html += _cf_row('Other Investing', cflow['other_investing'])
+                html += _cf_separator()
+                html += _cf_row('Cash from Investing', cflow['investing_cf'], bold=True)
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+                # Financing Activities
+                st.markdown("")
+                st.markdown("")
+                st.markdown("**Financing Activities** — *in millions*")
+                html = _cf_table_start()
+                html += _cf_row('Debt Issuance', cflow['debt_issuance'])
+                html += _cf_row('Debt Repayment', cflow['debt_repayment'])
+                html += _cf_row('Stock Buybacks', cflow['stock_buybacks'])
+                html += _cf_row('Dividends Paid', cflow['dividends_paid'])
+                html += _cf_row('Stock Issuance', cflow['stock_issuance'])
+                html += _cf_row('Other Financing', cflow['other_financing'])
+                html += _cf_separator()
+                html += _cf_row('Cash from Financing', cflow['financing_cf'], bold=True)
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+                # Cash Position
+                st.markdown("")
+                st.markdown("")
+                st.markdown("**Cash Position** — *in millions*")
+                html = _cf_table_start()
+                html += _cf_row('Effect of FX', cflow['fx_effect'])
+                html += _cf_row('Net Change in Cash', cflow['net_change_cash'])
+                html += _cf_separator()
+                html += _cf_row('Beginning Cash', cflow['beginning_cash'])
+                html += _cf_row('Ending Cash', cflow['ending_cash'], bold=True)
+                html += _cf_separator()
+                html += _cf_row('Free Cash Flow', cflow['fcf'], bold=True)
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+        if _n < 2:
+            st.info("Insufficient data for Key Ratios (need 2+ years)")
+        else:
+            # Pre-compute references
+            rev = fund['revenue']
+            oi = fund['operating_income']
+            ni = fund['net_income']
+            eq = fund['total_equity']
+            debt = fund['total_debt']
+            cash_v = fund['cash']
+            ta = fund['total_assets']
+            cl = fund['current_liabilities']
+            gw = fund['goodwill']
+            intang = fund['intangibles']
+            ppe_v = fund['ppe']
+            da_v = fund['da']
+            gp = fund['gross_profit']
+            eps_v = fund['eps']
+            dps = fund['dividends_per_share']
+            shares = fund['shares']
+            cfo_v = fund['cfo']
+            capex_v = fund['capex']
+            fcf_v = fund['fcf']
+            tp = fund['tax_provision']
+            pti = fund['pretax_income']
+
+            with st.expander("Key Ratios", expanded=False):
+                # ── 1. Returns ──
+                st.markdown("**Returns**")
+                roa = [ni[i] / ta[i] * 100 if ni[i] is not None and ta[i] else None for i in range(_n)]
+                roe = [ni[i] / eq[i] * 100 if ni[i] is not None and eq[i] else None for i in range(_n)]
+                roic = []
+                for i in range(_n):
+                    if oi[i] is not None and pti[i] and pti[i] != 0:
+                        tax_rate = (tp[i] / pti[i]) if tp[i] is not None else 0.21
+                        nopat = oi[i] * (1 - tax_rate)
+                        ic = (eq[i] or 0) + (debt[i] or 0) - (cash_v[i] or 0)
+                        roic.append(nopat / ic * 100 if ic > 0 else None)
+                    else:
+                        roic.append(None)
+                roce = [oi[i] / (ta[i] - (cl[i] or 0)) * 100
+                        if oi[i] is not None and ta[i] and (ta[i] - (cl[i] or 0)) > 0
+                        else None for i in range(_n)]
+                rotc = [oi[i] / (ta[i] - (cl[i] or 0) - (gw[i] or 0) - (intang[i] or 0)) * 100
+                        if oi[i] is not None and ta[i] and (ta[i] - (cl[i] or 0) - (gw[i] or 0) - (intang[i] or 0)) > 0
+                        else None for i in range(_n)]
+
+                html = _kr_table_start()
+                html += _kr_row('Return on Assets', roa, 'pct1')
+                html += _kr_row('Return on Equity', roe, 'pct1')
+                html += _kr_row('Return on Invested Capital', roic, 'pct1')
+                html += _kr_row('Return on Capital Employed', roce, 'pct1')
+                html += _kr_row('Return on Tangible Capital', rotc, 'pct1')
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+                # ── 2. Margins ──
+                st.markdown("")
+                st.markdown("")
+                st.markdown("**Margins as % of Revenue**")
+                gross_m = [gp[i] / rev[i] * 100 if gp[i] is not None and rev[i] else None for i in range(_n)]
+                ebitda_m = [(oi[i] + (da_v[i] or 0)) / rev[i] * 100
+                            if oi[i] is not None and rev[i] else None for i in range(_n)]
+                op_m = [oi[i] / rev[i] * 100 if oi[i] is not None and rev[i] else None for i in range(_n)]
+                pretax_m = [pti[i] / rev[i] * 100 if pti[i] is not None and rev[i] else None for i in range(_n)]
+                net_m = [ni[i] / rev[i] * 100 if ni[i] is not None and rev[i] else None for i in range(_n)]
+                fcf_m = [fcf_v[i] / rev[i] * 100 if fcf_v[i] is not None and rev[i] else None for i in range(_n)]
+
+                html = _kr_table_start()
+                html += _kr_row('Gross Margin', gross_m, 'pct1')
+                html += _kr_row('EBITDA Margin', ebitda_m, 'pct1')
+                html += _kr_row('Operating Margin', op_m, 'pct1')
+                html += _kr_row('Pretax Margin', pretax_m, 'pct1')
+                html += _kr_row('Net Margin', net_m, 'pct1')
+                html += _kr_row('FCF Margin', fcf_m, 'pct1')
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+                # ── 3. Capital Structure ──
+                st.markdown("")
+                st.markdown("")
+                st.markdown("**Capital Structure**")
+                a2e = [ta[i] / eq[i] if ta[i] and eq[i] and eq[i] != 0 else None for i in range(_n)]
+                e2a = [eq[i] / ta[i] if eq[i] is not None and ta[i] else None for i in range(_n)]
+                d2e = [(debt[i] or 0) / eq[i] if eq[i] and eq[i] != 0 else None for i in range(_n)]
+                d2a = [(debt[i] or 0) / ta[i] if ta[i] else None for i in range(_n)]
+
+                html = _kr_table_start()
+                html += _kr_row('Assets to Equity', a2e, 'dec1')
+                html += _kr_row('Equity to Assets', e2a, 'dec1')
+                html += _kr_row('Debt to Equity', d2e, 'dec1')
+                html += _kr_row('Debt to Assets', d2a, 'dec1')
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+                # ── 4. YoY Growth ──
+                st.markdown("")
+                st.markdown("")
+                st.markdown("**Year-Over-Year Growth**")
+                ebitda_abs = [(oi[i] or 0) + (da_v[i] or 0) if oi[i] is not None else None for i in range(_n)]
+
+                html = _kr_table_start()
+                html += _kr_row('Revenue', _kr_pct_change(rev))
+                html += _kr_row('Gross Profit', _kr_pct_change(gp))
+                html += _kr_row('EBITDA', _kr_pct_change(ebitda_abs))
+                html += _kr_row('Operating Income', _kr_pct_change(oi))
+                html += _kr_row('Pretax Income', _kr_pct_change(pti))
+                html += _kr_row('Net Income', _kr_pct_change(ni))
+                html += _kr_row('Diluted EPS', _kr_pct_change(eps_v))
+                html += _kr_separator()
+                html += _kr_row('Diluted Shares', _kr_pct_change(shares))
+                html += _kr_separator()
+                html += _kr_row('PP&E', _kr_pct_change(ppe_v))
+                html += _kr_row('Total Assets', _kr_pct_change(ta))
+                html += _kr_row('Equity', _kr_pct_change(eq))
+                html += _kr_separator()
+                html += _kr_row('Cash from Operations', _kr_pct_change(cfo_v))
+                html += _kr_row('Capital Expenditures', _kr_pct_change(capex_v))
+                html += _kr_row('Free Cash Flow', _kr_pct_change(fcf_v))
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+                # ── 5. Valuation Metrics ──
+                st.markdown("")
+                st.markdown("")
+                st.markdown("**Valuation Metrics** — *in millions*")
+                if _hist_prices:
+                    mkt_cap = []
+                    pe = []
+                    pb = []
+                    ps = []
+                    for i in range(_n):
+                        yr = _yrs[i]
+                        price = _hist_prices.get(yr)
+                        sh = shares[i]
+                        if price and sh and sh > 0:
+                            mc = price * sh / 1e6  # to millions
+                            mkt_cap.append(round(mc, 0))
+                            pe.append(price / eps_v[i] if eps_v[i] and eps_v[i] > 0 else None)
+                            bvps = eq[i] * 1e6 / sh if eq[i] else None
+                            pb.append(price / bvps if bvps and bvps > 0 else None)
+                            rps = rev[i] * 1e6 / sh if rev[i] else None
+                            ps.append(price / rps if rps and rps > 0 else None)
+                        else:
+                            mkt_cap.append(None)
+                            pe.append(None)
+                            pb.append(None)
+                            ps.append(None)
+
+                    html = _kr_table_start()
+                    html += _kr_row('Market Capitalization', mkt_cap, 'num0')
+                    html += _kr_row('Price-to-Earnings', pe, 'dec2')
+                    html += _kr_row('Price-to-Book', pb, 'dec2')
+                    html += _kr_row('Price-to-Sales', ps, 'dec2')
+                    html += '</tbody></table></div>'
+                    st.markdown(html, unsafe_allow_html=True)
+                else:
+                    st.info("Insufficient data for Valuation Metrics")
+
+                # ── 6. Dividends ──
+                st.markdown("")
+                st.markdown("")
+                st.markdown("**Dividends**")
+                has_dividends = any(d is not None and d > 0 for d in dps)
+                if has_dividends:
+                    payout = [dps[i] / eps_v[i] * 100 if dps[i] is not None and eps_v[i] and eps_v[i] > 0 else None
+                              for i in range(_n)]
+                    html = _kr_table_start()
+                    html += _kr_row('Dividends per Share', dps, 'dollar2')
+                    html += _kr_row('Payout Ratio', payout, 'pct1')
+                    html += '</tbody></table></div>'
+                    st.markdown(html, unsafe_allow_html=True)
+                else:
+                    st.caption("No dividend history available")
+
+                # ── 7. Per-Share Items ──
+                st.markdown("")
+                st.markdown("")
+                st.markdown("**Per-Share Items**")
+                def _per_share(vals):
+                    return [vals[i] * 1e6 / shares[i] if vals[i] is not None and shares[i] and shares[i] > 0 else None
+                            for i in range(_n)]
+
+                rev_ps = _per_share(rev)
+                ebitda_ps = _per_share(ebitda_abs)
+                oi_ps = _per_share(oi)
+                fcf_ps = _per_share(fcf_v)
+                bv_ps = _per_share(eq)
+                tbv = [(eq[i] or 0) - (gw[i] or 0) - (intang[i] or 0) if eq[i] is not None else None for i in range(_n)]
+                tbv_ps = _per_share(tbv)
+
+                html = _kr_table_start()
+                html += _kr_row('Revenue', rev_ps, 'dec2')
+                html += _kr_row('EBITDA', ebitda_ps, 'dec2')
+                html += _kr_row('Operating Income', oi_ps, 'dec2')
+                html += _kr_row('Diluted EPS', eps_v, 'dec2')
+                html += _kr_row('Free Cash Flow', fcf_ps, 'dec2')
+                html += _kr_row('Book Value', bv_ps, 'dec2')
+                html += _kr_row('Tangible Book Value', tbv_ps, 'dec2')
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
+
+                # ── 8. Supplementary Items ──
+                st.markdown("")
+                st.markdown("")
+                st.markdown("**Supplementary Items** — *in millions*")
+                tbv_abs = tbv
+
+                html = _kr_table_start()
+                html += _kr_row('Free Cash Flow', fcf_v, 'num0')
+                html += _kr_row('Book Value', eq, 'num0')
+                html += _kr_row('Tangible Book Value', tbv_abs, 'num0')
+                html += '</tbody></table></div>'
+                st.markdown(html, unsafe_allow_html=True)
 
     # ── Action buttons ──
     st.markdown("---")
@@ -2685,7 +3539,7 @@ elif page == "Portfolio":
         )
 
         # ── Simulator inputs (below the overview bar) ──
-        st.markdown('<p style="font-weight:600;margin-top:16px;margin-bottom:4px">Simulate Positions</p>', unsafe_allow_html=True)
+        st.markdown('<p style="font-weight:600;margin-top:24px;margin-bottom:4px;font-size:0.9rem;color:#86868b;text-transform:uppercase;letter-spacing:0.03em">Simulate Positions</p>', unsafe_allow_html=True)
 
         h1, h2, h3 = st.columns([1, 1, 1], gap="small")
         h1.markdown('<span style="font-size:0.8rem;color:#86868b">Ticker</span>', unsafe_allow_html=True)
@@ -3001,7 +3855,7 @@ elif page == "Portfolio":
 
     _portfolio_cards()
     st.markdown("<br>", unsafe_allow_html=True)
-    with st.container(border=True):
+    with st.container(key="margin_block"):
         _margin_overview()
 
     # ── Portfolio Greeks, BWD & Margin Interest ──
@@ -3045,107 +3899,103 @@ elif page == "Portfolio":
         _cards.append("interest")
 
     if _cards:
-      with st.container(border=True):
-            _cols = st.columns(len(_cards))
-            _col_map = {name: col for name, col in zip(_cards, _cols)}
+        # Build card HTML fragments
+        _card_htmls = []
 
-            if has_greeks:
-                tot = gk["totals"]
-                theta = tot["theta"]
-                delta = tot["delta"]
-                vega = tot["vega"]
-                theta_color = "#81b29a" if theta >= 0 else "#e07a5f"
+        if has_greeks:
+            tot = gk["totals"]
+            theta = tot["theta"]
+            delta = tot["delta"]
+            vega = tot["vega"]
+            theta_color = "#81b29a" if theta >= 0 else "#e07a5f"
+            _card_htmls.append(
+                f'<div class="hero-card">'
+                f'<h4>Portfolio Greeks</h4>'
+                f'<div style="text-align:center;margin-bottom:16px">'
+                f'  <span style="font-size:1.6rem;font-weight:700;color:{theta_color}">${theta:,.0f}</span>'
+                f'  <span style="font-size:0.85rem;color:#86868b">theta / day</span>'
+                f'</div>'
+                f'<div class="stat-row">'
+                f'<span class="stat-pill">Delta <b>{delta:,.0f}</b>'
+                f'  <span style="font-size:0.7rem;color:#86868b">$ per $1 move</span></span>'
+                f'<span class="stat-pill">Vega <b>${vega:,.0f}</b>'
+                f'  <span style="font-size:0.7rem;color:#86868b">per 1%% IV</span></span>'
+                f'</div>'
+                f'</div>'
+            )
 
-                with _col_map["greeks"]:
-                    st.markdown(
-                        f'<div class="hero-card" style="height:100%">'
-                        f'<h4>Portfolio Greeks</h4>'
-                        f'<div style="text-align:center;margin-bottom:16px">'
-                        f'  <span style="font-size:1.6rem;font-weight:700;color:{theta_color}">${theta:,.0f}</span>'
-                        f'  <span style="font-size:0.85rem;color:#86868b">theta / day</span>'
-                        f'</div>'
-                        f'<div class="stat-row">'
-                        f'<span class="stat-pill">Delta <b>{delta:,.0f}</b>'
-                        f'  <span style="font-size:0.7rem;color:#86868b">$ per $1 move</span></span>'
-                        f'<span class="stat-pill">Vega <b>${vega:,.0f}</b>'
-                        f'  <span style="font-size:0.7rem;color:#86868b">per 1%% IV</span></span>'
-                        f'</div>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
+        if has_bwd:
+            _bwd_total = bwd["portfolio_bwd"]
+            _spy_p = bwd["spy_price"]
+            _dollar_1pct = bwd["dollar_per_1pct"]
+            _nlv = st.session_state.get("_net_liq", 0)
+            _port_pct = (_dollar_1pct / _nlv * 100) if _nlv > 0 else 0
+            _pct_color = "#e07a5f" if _port_pct > 0 else "#81b29a"
 
-            if has_bwd:
-                _bwd_total = bwd["portfolio_bwd"]
-                _spy_p = bwd["spy_price"]
-                _dollar_1pct = bwd["dollar_per_1pct"]
-                _nlv = st.session_state.get("_net_liq", 0)
-                _port_pct = (_dollar_1pct / _nlv * 100) if _nlv > 0 else 0
-                _pct_color = "#e07a5f" if _port_pct > 0 else "#81b29a"
+            _td = 'padding:4px 8px;border-bottom:1px solid rgba(0,0,0,0.06)'
+            _bwd_rows = ""
+            for bp in bwd["positions"]:
+                _bp_loss = -bp["dollar_per_1pct"]
+                _bp_color = "#e07a5f" if _bp_loss < 0 else "#81b29a"
+                _bwd_rows += (
+                    f'<tr>'
+                    f'<td style="{_td}">{bp["ticker"]}</td>'
+                    f'<td style="{_td};text-align:right">{bp["beta"]:.2f}</td>'
+                    f'<td style="{_td};text-align:right">{bp["bwd"]:+,.1f}</td>'
+                    f'<td style="{_td};text-align:right;color:{_bp_color}">${_bp_loss:+,.0f}</td>'
+                    f'</tr>'
+                )
+            _card_htmls.append(
+                f'<div class="hero-card">'
+                f'<h4>Beta-Weighted Delta</h4>'
+                f'<div style="text-align:center;margin-bottom:16px">'
+                f'  <span style="font-size:1.6rem;font-weight:700;color:{_pct_color}">-{_port_pct:.2f}%</span>'
+                f'  <span style="font-size:0.85rem;color:#86868b">if S&P 500 drops 1%</span>'
+                f'</div>'
+                f'<div class="stat-row">'
+                f'<span class="stat-pill">P/L <b style="color:{_pct_color}">-${abs(_dollar_1pct):,.0f}</b></span>'
+                f'<span class="stat-pill">BWD <b>{_bwd_total:+,.1f}</b></span>'
+                f'<span class="stat-pill">SPY <b>${_spy_p:,.0f}</b></span>'
+                f'</div>'
+                f'<details style="margin-top:8px">'
+                f'<summary style="cursor:pointer;font-size:0.8rem;color:#86868b">Breakdown</summary>'
+                f'<table style="width:100%;border-collapse:collapse;font-size:0.8rem;margin-top:6px">'
+                f'<thead><tr style="color:#86868b;font-size:0.7rem;text-transform:uppercase">'
+                f'<th style="text-align:left;padding:3px 8px;border-bottom:1px solid #d2d2d7">Ticker</th>'
+                f'<th style="text-align:right;padding:3px 8px;border-bottom:1px solid #d2d2d7">Beta</th>'
+                f'<th style="text-align:right;padding:3px 8px;border-bottom:1px solid #d2d2d7">BWD</th>'
+                f'<th style="text-align:right;padding:3px 8px;border-bottom:1px solid #d2d2d7">P/L</th>'
+                f'</tr></thead>'
+                f'<tbody>{_bwd_rows}</tbody>'
+                f'</table>'
+                f'</details>'
+                f'</div>'
+            )
 
-                _td = 'padding:4px 8px;border-bottom:1px solid #f0f0f2'
-                _bwd_rows = ""
-                for bp in bwd["positions"]:
-                    _bp_loss = -bp["dollar_per_1pct"]
-                    _bp_color = "#e07a5f" if _bp_loss < 0 else "#81b29a"
-                    _bwd_rows += (
-                        f'<tr>'
-                        f'<td style="{_td}">{bp["ticker"]}</td>'
-                        f'<td style="{_td};text-align:right">{bp["beta"]:.2f}</td>'
-                        f'<td style="{_td};text-align:right">{bp["bwd"]:+,.1f}</td>'
-                        f'<td style="{_td};text-align:right;color:{_bp_color}">${_bp_loss:+,.0f}</td>'
-                        f'</tr>'
-                    )
+        if has_interest:
+            cur_mo = abs(mi["current_month"]) if mi else 0
+            ytd = abs(mi["ytd"]) if mi else 0
+            total_int = abs(mi["total"]) if mi else 0
+            _card_htmls.append(
+                f'<div class="hero-card">'
+                f'<h4>Margin Interest</h4>'
+                f'<div style="text-align:center;margin-bottom:16px">'
+                f'  <span style="font-size:1.6rem;font-weight:700;color:#e07a5f">${debt:,.0f}</span>'
+                f'  <span style="font-size:0.85rem;color:#86868b">margin debt</span>'
+                f'</div>'
+                f'<div class="stat-row">'
+                f'<span class="stat-pill">This Month <b style="color:#e07a5f">-${cur_mo:,.0f}</b></span>'
+                f'<span class="stat-pill">YTD <b style="color:#e07a5f">-${ytd:,.0f}</b></span>'
+                f'<span class="stat-pill">All Time <b style="color:#e07a5f">-${total_int:,.0f}</b></span>'
+                f'</div>'
+                f'</div>'
+            )
 
-                with _col_map["bwd"]:
-                    st.markdown(
-                        f'<div class="hero-card" style="height:100%">'
-                        f'<h4>Beta-Weighted Delta</h4>'
-                        f'<div style="text-align:center;margin-bottom:16px">'
-                        f'  <span style="font-size:1.6rem;font-weight:700;color:{_pct_color}">-{_port_pct:.2f}%</span>'
-                        f'  <span style="font-size:0.85rem;color:#86868b">if S&P 500 drops 1%</span>'
-                        f'</div>'
-                        f'<div class="stat-row">'
-                        f'<span class="stat-pill">P/L <b style="color:{_pct_color}">-${abs(_dollar_1pct):,.0f}</b></span>'
-                        f'<span class="stat-pill">BWD <b>{_bwd_total:+,.1f}</b></span>'
-                        f'<span class="stat-pill">SPY <b>${_spy_p:,.0f}</b></span>'
-                        f'</div>'
-                        f'<details style="margin-top:8px">'
-                        f'<summary style="cursor:pointer;font-size:0.8rem;color:#86868b">Breakdown</summary>'
-                        f'<table style="width:100%;border-collapse:collapse;font-size:0.8rem;margin-top:6px">'
-                        f'<thead><tr style="color:#86868b;font-size:0.7rem;text-transform:uppercase">'
-                        f'<th style="text-align:left;padding:3px 8px;border-bottom:1px solid #d2d2d7">Ticker</th>'
-                        f'<th style="text-align:right;padding:3px 8px;border-bottom:1px solid #d2d2d7">Beta</th>'
-                        f'<th style="text-align:right;padding:3px 8px;border-bottom:1px solid #d2d2d7">BWD</th>'
-                        f'<th style="text-align:right;padding:3px 8px;border-bottom:1px solid #d2d2d7">P/L</th>'
-                        f'</tr></thead>'
-                        f'<tbody>{_bwd_rows}</tbody>'
-                        f'</table>'
-                        f'</details>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-
-            if has_interest:
-                cur_mo = abs(mi["current_month"]) if mi else 0
-                ytd = abs(mi["ytd"]) if mi else 0
-                total_int = abs(mi["total"]) if mi else 0
-
-                with _col_map["interest"]:
-                    st.markdown(
-                        f'<div class="hero-card" style="height:100%">'
-                        f'<h4>Margin Interest</h4>'
-                        f'<div style="text-align:center;margin-bottom:16px">'
-                        f'  <span style="font-size:1.6rem;font-weight:700;color:#e07a5f">${debt:,.0f}</span>'
-                        f'  <span style="font-size:0.85rem;color:#86868b">margin debt</span>'
-                        f'</div>'
-                        f'<div class="stat-row">'
-                        f'<span class="stat-pill">This Month <b style="color:#e07a5f">-${cur_mo:,.0f}</b></span>'
-                        f'<span class="stat-pill">YTD <b style="color:#e07a5f">-${ytd:,.0f}</b></span>'
-                        f'<span class="stat-pill">All Time <b style="color:#e07a5f">-${total_int:,.0f}</b></span>'
-                        f'</div>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
+        # Render as single HTML grid
+        st.markdown(
+            f'<div class="greeks-grid">{"".join(_card_htmls)}</div>',
+            unsafe_allow_html=True,
+        )
 
     # ── Portfolio Exposure (loads independently via fragment) ──
     @st.cache_data(ttl=86400, show_spinner=False)
@@ -3227,7 +4077,7 @@ elif page == "Portfolio":
         except Exception as e:
             st.warning(f"Could not load portfolio exposure: {e}")
 
-    with st.container(border=True):
+    with st.container(key="allocation_block"):
         _portfolio_exposure()
 
 
@@ -3394,7 +4244,7 @@ elif page == "Wheel Cost Basis":
         day_chg = ((cur_price - prev_close) / prev_close * 100) if prev_close else 0.0
         day_color = "#81b29a" if day_chg >= 0 else "#e07a5f"
 
-        with st.container(border=True):
+        with st.container(key=f"wheel_card_{ticker}"):
             all_trades = data.get("trades", [])
 
             # Toggle: per wheel vs all transactions
@@ -3642,7 +4492,8 @@ elif page == "Results":
     hero_pl_class = true_pl_class if nl_all_early else pl_color_class
     hero_pl_sign = true_pl_sign if nl_all_early else pl_sign
 
-    st.markdown(
+    with st.container(key="results_hero"):
+      st.markdown(
         f'<div class="hero-card">'
         f'<p class="hero-label">Total P/L</p>'
         f'<p class="hero-value {hero_pl_class}">{hero_pl_sign}${abs(hero_pl):,.0f}</p>'
@@ -3655,70 +4506,68 @@ elif page == "Results":
         f'</div>'
         f'</div>',
         unsafe_allow_html=True,
-    )
+      )
 
-    # ── Net Liq History chart ──
-    period_map = {"1M": "1m", "3M": "3m", "6M": "6m", "YTD": "ytd", "1Y": "1y", "All": "all"}
-    selected_period = st.pills(
-        "Period", options=list(period_map.keys()), default="YTD",
-    )
-    time_back = period_map[selected_period]
-    # YTD uses 1y data filtered client-side to Jan 1 of current year
-    api_time_back = "1y" if time_back == "ytd" else time_back
-    cache_key = f"net_liq_{api_time_back}"
-    if cache_key not in st.session_state:
-        try:
-            with st.spinner("Loading net liq history..."):
-                st.session_state[cache_key] = fetch_net_liq_history(api_time_back)
-        except Exception:
-            st.session_state[cache_key] = None
+      # ── Net Liq History chart ──
+      period_map = {"1M": "1m", "3M": "3m", "6M": "6m", "YTD": "ytd", "1Y": "1y", "All": "all"}
+      selected_period = st.pills(
+          "Period", options=list(period_map.keys()), default="YTD",
+      )
+      time_back = period_map[selected_period]
+      # YTD uses 1y data filtered client-side to Jan 1 of current year
+      api_time_back = "1y" if time_back == "ytd" else time_back
+      cache_key = f"net_liq_{api_time_back}"
+      if cache_key not in st.session_state:
+          try:
+              with st.spinner("Loading net liq history..."):
+                  st.session_state[cache_key] = fetch_net_liq_history(api_time_back)
+          except Exception:
+              st.session_state[cache_key] = None
 
-    net_liq_data = st.session_state[cache_key]
-    if net_liq_data:
-        df_liq = pd.DataFrame(net_liq_data)
-        df_liq["time"] = pd.to_datetime(df_liq["time"])
-        df_liq = df_liq.set_index("time")
-        if time_back == "ytd":
-            df_liq = df_liq[df_liq.index >= f"{pd.Timestamp.now().year}-01-01"]
-        first_close = df_liq["close"].iloc[0]
-        last_close = df_liq["close"].iloc[-1]
-        pct_change = ((last_close - first_close) / first_close * 100) if first_close else 0
-        pct_color = "#81b29a" if pct_change >= 0 else "#e07a5f"
-        pct_sign = "+" if pct_change >= 0 else ""
-        st.markdown(
-            f'<span style="font-size:1.3rem;font-weight:700;color:{pct_color}">'
-            f'{pct_sign}{pct_change:.2f}%</span> '
-            f'<span style="color:#86868b;font-size:0.85rem">{selected_period}</span>',
-            unsafe_allow_html=True,
-        )
-        fig_liq = go.Figure()
-        fig_liq.add_trace(go.Scatter(
-            x=df_liq.index,
-            y=df_liq["close"],
-            mode="lines",
-            line=dict(color="#81b29a", width=2),
-            fill="tozeroy",
-            fillcolor="rgba(129,178,154,0.18)",
-            hovertemplate="$%{y:,.0f}<extra></extra>",
-        ))
-        fig_liq.update_layout(
-            margin=dict(t=10, b=20, l=40, r=20),
-            height=300,
-            font=dict(
-                family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
-                color="#1d1d1f",
-            ),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            xaxis=dict(gridcolor="#f0f0f2"),
-            yaxis=dict(gridcolor="#f0f0f2"),
-            showlegend=False,
-        )
-        st.plotly_chart(fig_liq, use_container_width=True)
-    else:
-        st.info("Net liquidation history unavailable.")
-
-    st.markdown("")
+      net_liq_data = st.session_state[cache_key]
+      if net_liq_data:
+          df_liq = pd.DataFrame(net_liq_data)
+          df_liq["time"] = pd.to_datetime(df_liq["time"])
+          df_liq = df_liq.set_index("time")
+          if time_back == "ytd":
+              df_liq = df_liq[df_liq.index >= f"{pd.Timestamp.now().year}-01-01"]
+          first_close = df_liq["close"].iloc[0]
+          last_close = df_liq["close"].iloc[-1]
+          pct_change = ((last_close - first_close) / first_close * 100) if first_close else 0
+          pct_color = "#81b29a" if pct_change >= 0 else "#e07a5f"
+          pct_sign = "+" if pct_change >= 0 else ""
+          st.markdown(
+              f'<span style="font-size:1.3rem;font-weight:700;color:{pct_color}">'
+              f'{pct_sign}{pct_change:.2f}%</span> '
+              f'<span style="color:#86868b;font-size:0.85rem">{selected_period}</span>',
+              unsafe_allow_html=True,
+          )
+          fig_liq = go.Figure()
+          fig_liq.add_trace(go.Scatter(
+              x=df_liq.index,
+              y=df_liq["close"],
+              mode="lines",
+              line=dict(color="#81b29a", width=2),
+              fill="tozeroy",
+              fillcolor="rgba(129,178,154,0.18)",
+              hovertemplate="$%{y:,.0f}<extra></extra>",
+          ))
+          fig_liq.update_layout(
+              margin=dict(t=10, b=20, l=40, r=20),
+              height=300,
+              font=dict(
+                  family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
+                  color="#1d1d1f",
+              ),
+              paper_bgcolor="rgba(0,0,0,0)",
+              plot_bgcolor="rgba(0,0,0,0)",
+              xaxis=dict(gridcolor="#f0f0f2"),
+              yaxis=dict(gridcolor="#f0f0f2"),
+              showlegend=False,
+          )
+          st.plotly_chart(fig_liq, use_container_width=True)
+      else:
+          st.info("Net liquidation history unavailable.")
 
     # ── Top / Bottom performers ──
     sorted_tickers = sorted(
@@ -3750,22 +4599,20 @@ elif page == "Results":
         return cards
 
     st.markdown(
-        f'<div class="performer-block">'
-        f'<div class="performer-grid">'
+        f'<div class="performer-grid" style="margin:24px 0">'
         f'<div>'
-        f'<h4>Top Performers</h4>'
+        f'<div class="section-title-bar">Top Performers</div>'
         f'<div class="portfolio-cards">{_performer_cards(top5)}</div>'
         f'</div>'
         f'<div>'
-        f'<h4>Bottom Performers</h4>'
+        f'<div class="section-title-bar" style="border-left-color:#e07a5f">Bottom Performers</div>'
         f'<div class="portfolio-cards">{_performer_cards(bottom5)}</div>'
-        f'</div>'
         f'</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
 
-    with st.container():
+    with st.container(key="cumulative_block"):
         if "benchmark_returns" not in st.session_state:
             try:
                 with st.spinner("Loading benchmark data..."):
@@ -3983,10 +4830,9 @@ elif page == "Results":
 
         with col_ret:
             returns_html = (
-                f'<div class="performer-block">'
-                f'<h4>Returns &nbsp;<span style="font-weight:400;font-size:0.85rem;color:#86868b">'
+                f'<div class="section-title-bar">Returns &nbsp;<span style="font-weight:400;font-size:0.85rem;color:#86868b">'
                 f'Cumulative: <span class="pf-val{total_ret_cls}" style="font-size:0.85rem">{total_return:+.1f}%</span>'
-                f'</span></h4>'
+                f'</span></div>'
             )
             for yr in sorted(yearly_returns, reverse=True):
                 yr_ret = yearly_returns[yr]
@@ -4006,28 +4852,28 @@ elif page == "Results":
                         f'</div>'
                     )
                 mo_cards += '</div>'
+                _yr_border = "#81b29a" if yr_ret >= 0 else "#e07a5f"
                 returns_html += (
-                    f'<details style="border:1px solid #d2d2d7;border-radius:18px;padding:12px 16px;margin-bottom:8px">'
+                    f'<details class="portfolio-card" style="border-left:3px solid {_yr_border};padding:12px 16px;margin-bottom:8px;display:block">'
                     f'<summary style="cursor:pointer;font-weight:600;color:#1d1d1f;list-style:none">'
                     f'{yr} — <span style="color:{yr_color}">{yr_ret:+.1f}%</span></summary>'
                     f'{mo_cards}'
                     f'</details>'
                 )
-            returns_html += '</div>'
             st.markdown(returns_html, unsafe_allow_html=True)
 
         with col_dep:
             if has_deposits:
                 dep_html = (
-                    f'<div class="performer-block">'
-                    f'<h4>Deposits &nbsp;<span style="font-weight:400;font-size:0.85rem;color:#86868b">'
+                    f'<div class="section-title-bar">Deposits &nbsp;<span style="font-weight:400;font-size:0.85rem;color:#86868b">'
                     f'Total: <span class="pf-val{total_dep_cls}" style="font-size:0.85rem">${total_deposited:+,.0f}</span>'
-                    f'</span></h4>'
+                    f'</span></div>'
                 )
                 for yr, yr_data in sorted_transfers:
                     amount = yr_data["total"]
                     months = yr_data.get("months", {})
                     dep_color = "#81b29a" if amount >= 0 else "#e07a5f"
+                    _dep_border = "#81b29a" if amount >= 0 else "#e07a5f"
                     month_cards = '<div class="portfolio-cards">'
                     for mo in range(1, 13):
                         mo_val = months.get(mo)
@@ -4044,13 +4890,12 @@ elif page == "Results":
                         )
                     month_cards += '</div>'
                     dep_html += (
-                        f'<details style="border:1px solid #d2d2d7;border-radius:18px;padding:12px 16px;margin-bottom:8px">'
+                        f'<details class="portfolio-card" style="border-left:3px solid {_dep_border};padding:12px 16px;margin-bottom:8px;display:block">'
                         f'<summary style="cursor:pointer;font-weight:600;color:#1d1d1f;list-style:none">'
                         f'{yr} — <span style="color:{dep_color}">${amount:+,.0f}</span></summary>'
                         f'{month_cards}'
                         f'</details>'
                     )
-                dep_html += '</div>'
                 st.markdown(dep_html, unsafe_allow_html=True)
 
     st.markdown("")

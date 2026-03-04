@@ -45,11 +45,35 @@ def compute_intrinsic_value(cfg, wacc=None):
     margins = cfg['op_margins']
     n_p = len(growth_rates)
     base_rev = cfg['base_revenue']
-    tax_r = cfg['tax_rate']
-    stc = cfg['sales_to_capital']
-    sbc_p = cfg.get('sbc_pct', 0.004)
     tg = cfg['terminal_growth']
     tm = cfg.get('terminal_margin', margins[-1])
+
+    # Per-year lists (from editor) with scalar fallbacks
+    default_tax = cfg['tax_rate']
+    tax_list = cfg.get('tax_per_year', [default_tax] * n_p)
+    if len(tax_list) < n_p:
+        tax_list = list(tax_list) + [tax_list[-1] if tax_list else default_tax] * (n_p - len(tax_list))
+
+    default_stc = cfg['sales_to_capital']
+    stc_list = cfg.get('stc_per_year', [default_stc] * n_p)
+    if len(stc_list) < n_p:
+        stc_list = list(stc_list) + [stc_list[-1] if stc_list else default_stc] * (n_p - len(stc_list))
+
+    default_sbc = cfg.get('sbc_pct', 0.004)
+    sbc_list = cfg.get('sbc_per_year', [default_sbc] * n_p)
+    if len(sbc_list) < n_p:
+        sbc_list = list(sbc_list) + [sbc_list[-1] if sbc_list else default_sbc] * (n_p - len(sbc_list))
+
+    default_wacc = wacc
+    wacc_list = cfg.get('wacc_per_year', [default_wacc] * n_p)
+    if len(wacc_list) < n_p:
+        wacc_list = list(wacc_list) + [wacc_list[-1] if wacc_list else default_wacc] * (n_p - len(wacc_list))
+
+    # Terminal overrides
+    tv_tax = cfg.get('terminal_tax', tax_list[-1])
+    tv_stc = cfg.get('terminal_stc', stc_list[-1])
+    tv_sbc_pct = cfg.get('terminal_sbc', sbc_list[-1])
+    tv_wacc = cfg.get('terminal_wacc', wacc_list[-1])
 
     # Project revenues
     revs = [base_rev]
@@ -60,23 +84,23 @@ def compute_intrinsic_value(cfg, wacc=None):
     pv_fcff = 0
     for i in range(1, n_p + 1):
         oi = revs[i] * margins[i - 1]
-        nopat = oi * (1 - tax_r)
-        reinvest = (revs[i] - revs[i - 1]) / stc
-        sbc = revs[i] * sbc_p * (1 - tax_r)
+        nopat = oi * (1 - tax_list[i - 1])
+        reinvest = (revs[i] - revs[i - 1]) / stc_list[i - 1]
+        sbc = revs[i] * sbc_list[i - 1] * (1 - tax_list[i - 1])
         fcff = nopat - reinvest - sbc
         period = 0.5 + (i - 1)
-        df = 1 / (1 + wacc) ** period
+        df = 1 / (1 + wacc_list[i - 1]) ** period
         pv_fcff += fcff * df
 
     # Terminal value
     tv_rev = revs[-1] * (1 + tg)
     tv_oi = tv_rev * tm
-    tv_nopat = tv_oi * (1 - tax_r)
-    tv_reinvest = (tv_rev - revs[-1]) / stc
-    tv_sbc = tv_rev * sbc_p * (1 - tax_r)
+    tv_nopat = tv_oi * (1 - tv_tax)
+    tv_reinvest = (tv_rev - revs[-1]) / tv_stc
+    tv_sbc = tv_rev * tv_sbc_pct * (1 - tv_tax)
     tv_fcff = tv_nopat - tv_reinvest - tv_sbc
-    tv = tv_fcff / (wacc - tg)
-    tv_df = 1 / (1 + wacc) ** (0.5 + n_p - 1)
+    tv = tv_fcff / (tv_wacc - tg)
+    tv_df = 1 / (1 + tv_wacc) ** (0.5 + n_p - 1)
     pv_tv = tv * tv_df
 
     # Enterprise & equity value
