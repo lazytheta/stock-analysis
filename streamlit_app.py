@@ -6237,11 +6237,11 @@ elif page == "🔒 Security & Privacy":
     # ── Legal links ──
     _lc, _rc = st.columns(2)
     with _lc:
-        if st.button("Privacy Policy", use_container_width=True):
+        if st.button("Privacy Policy", use_container_width=True, type="primary"):
             st.session_state["_account_page"] = "Privacy Policy"
             st.rerun()
     with _rc:
-        if st.button("Terms of Service", use_container_width=True):
+        if st.button("Terms of Service", use_container_width=True, type="primary"):
             st.session_state["_account_page"] = "Terms of Service"
             st.rerun()
 
