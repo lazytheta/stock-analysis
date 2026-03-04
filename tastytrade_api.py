@@ -604,10 +604,13 @@ def fetch_ticker_profiles(tickers):
         try:
             t = yf.Ticker(ticker)
             info = t.info
-            return ticker, {
-                "sector": info.get("sector") or "Unknown",
-                "country": info.get("country") or "Unknown",
-            }
+            quote_type = info.get("quoteType", "")
+            if quote_type in ("MONEYMARKET", "MUTUALFUND") and not info.get("sector"):
+                sector = info.get("category") or "Cash & Equivalents"
+            else:
+                sector = info.get("sector") or info.get("category") or "Unknown"
+            country = info.get("country") or "Unknown"
+            return ticker, {"sector": sector, "country": country}
         except Exception:
             return ticker, {"sector": "Unknown", "country": "Unknown"}
 

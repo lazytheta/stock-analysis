@@ -375,7 +375,8 @@ def parse_financials(facts, n_years=6):
         if op_lease_total and op_lease_nc:
             st_leases = [max(t - n, 0) for t, n in zip(op_lease_total, op_lease_nc)]
 
-    net_ppe = _get_values(["PropertyPlantAndEquipmentNet"])
+    net_ppe = _get_values(["PropertyPlantAndEquipmentNet",
+                           "PropertyPlantAndEquipmentAndFinanceLeaseRightOfUseAssetAfterAccumulatedDepreciationAndAmortization"])
     goodwill = _get_values(["Goodwill"])
     intangibles = _get_values(["IntangibleAssetsNetExcludingGoodwill",
                                 "FiniteLivedIntangibleAssetsNet"])
@@ -1633,6 +1634,215 @@ def write_config(cfg, output_path):
         f.write("\n".join(lines))
 
     print(f"\nConfig saved to: {output_path}")
+
+
+# ── Fundamentals Fetcher (for Streamlit app) ─────────────────────────
+
+def fetch_fundamentals(ticker, n_years=10):
+    """Fetch historical financial fundamentals from yfinance + EDGAR fallback.
+
+    Returns dict with sorted years and aligned lists:
+        years, revenue, operating_income, net_income, cost_of_revenue,
+        tax_provision, pretax_income  (all $M)
+        total_equity, total_debt, cash  (all $M)
+        shares  (raw count, NOT millions)
+        capex, cfo, fcf  (all $M)
+    """
+    M = 1_000_000
+
+    # Collect data keyed by year
+    data_by_year = {}  # year -> {metric: value}
+
+    metrics = [
+        "revenue", "operating_income", "net_income", "cost_of_revenue",
+        "tax_provision", "pretax_income",
+        "total_equity", "total_debt", "cash", "shares",
+        "capex", "cfo",
+    ]
+
+    def _safe(val):
+        """Return None if val is NaN or None, else float."""
+        if val is None:
+            return None
+        try:
+            v = float(val)
+            if v != v:  # NaN check
+                return None
+            return v
+        except (TypeError, ValueError):
+            return None
+
+    # ── Primary: yfinance ──────────────────────────────────────────
+    try:
+        import yfinance as yf
+        t = yf.Ticker(ticker)
+
+        # Income statement — columns are dates, rows are line items
+        inc = t.income_stmt
+        if inc is not None and not inc.empty:
+            for col in inc.columns:
+                yr = col.year
+                if yr not in data_by_year:
+                    data_by_year[yr] = {}
+                d = data_by_year[yr]
+
+                for label, key in [
+                    ("Total Revenue", "revenue"),
+                    ("Operating Income", "operating_income"),
+                    ("Net Income", "net_income"),
+                    ("Cost Of Revenue", "cost_of_revenue"),
+                    ("Tax Provision", "tax_provision"),
+                    ("Pretax Income", "pretax_income"),
+                ]:
+                    if label in inc.index:
+                        v = _safe(inc.at[label, col])
+                        if v is not None:
+                            d[key] = round(v / M, 0)
+
+        # Balance sheet
+        bs = t.balance_sheet
+        if bs is not None and not bs.empty:
+            for col in bs.columns:
+                yr = col.year
+                if yr not in data_by_year:
+                    data_by_year[yr] = {}
+                d = data_by_year[yr]
+
+                for label, key in [
+                    ("Stockholders Equity", "total_equity"),
+                    ("Total Debt", "total_debt"),
+                    ("Cash And Cash Equivalents", "cash"),
+                    ("Ordinary Shares Number", "shares"),
+                ]:
+                    if label in bs.index:
+                        v = _safe(bs.at[label, col])
+                        if v is not None:
+                            if key == "shares":
+                                d[key] = v  # raw count, no conversion
+                            else:
+                                d[key] = round(v / M, 0)
+
+        # Cash flow
+        cf = t.cashflow
+        if cf is not None and not cf.empty:
+            for col in cf.columns:
+                yr = col.year
+                if yr not in data_by_year:
+                    data_by_year[yr] = {}
+                d = data_by_year[yr]
+
+                for label, key in [
+                    ("Operating Cash Flow", "cfo"),
+                    ("Capital Expenditure", "capex"),
+                ]:
+                    if label in cf.index:
+                        v = _safe(cf.at[label, col])
+                        if v is not None:
+                            d[key] = round(v / M, 0)
+
+    except Exception as e:
+        print(f"[yfinance] Warning: {e}")
+
+    # ── Fallback: EDGAR XBRL ──────────────────────────────────────
+    try:
+        cik = get_cik(ticker)
+        facts = fetch_company_facts(cik)
+        edgar = parse_financials(facts, n_years)
+
+        edgar_years = edgar.get("years", [])
+        edgar_map = {
+            "revenue": "revenue",
+            "operating_income": "operating_income",
+            "net_income": "net_income",
+            "cost_of_revenue": "cost_of_revenue",
+            "tax_provision": "tax_provision",
+            "pretax_income": "pretax_income",
+            "cash": "cash",
+        }
+        # shares in parse_financials are in millions — multiply by 1e6
+        # for raw count
+
+        for i, yr in enumerate(edgar_years):
+            if yr not in data_by_year:
+                data_by_year[yr] = {}
+            d = data_by_year[yr]
+
+            for edgar_key, our_key in edgar_map.items():
+                if our_key not in d or d[our_key] is None:
+                    vals = edgar.get(edgar_key, [])
+                    if i < len(vals) and vals[i] is not None:
+                        d[our_key] = vals[i]  # already in millions
+
+            # shares: EDGAR gives millions, we need raw count
+            if "shares" not in d or d["shares"] is None:
+                shares_list = edgar.get("shares", [])
+                if i < len(shares_list) and shares_list[i] is not None:
+                    d["shares"] = shares_list[i] * M  # millions → raw
+
+        # Direct XBRL fallback for metrics not in parse_financials
+        _extra_tags = {
+            "total_equity": ["StockholdersEquity",
+                             "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"],
+            "total_debt": ["LongTermDebt", "LongTermDebtAndCapitalLeaseObligations"],
+            "cfo": ["NetCashProvidedByOperatingActivities",
+                    "NetCashProvidedByUsedInOperatingActivities"],
+            "capex": ["PaymentsToAcquirePropertyPlantAndEquipment",
+                      "PaymentsToAcquireProductiveAssets"],
+        }
+        for our_key, tags in _extra_tags.items():
+            tag_data = _try_tags(facts, tags, n_years)
+            for yr_val, val in tag_data:
+                if yr_val in data_by_year:
+                    d = data_by_year[yr_val]
+                    if our_key not in d or d[our_key] is None:
+                        if our_key == "capex":
+                            d[our_key] = -round(val / M, 0)  # negate: EDGAR reports as positive
+                        else:
+                            d[our_key] = round(val / M, 0)
+
+        # Shares: separate fallback with unit_key="shares" (raw count, not USD)
+        _shares_tags = ["WeightedAverageNumberOfDilutedSharesOutstanding",
+                        "CommonStockSharesOutstanding"]
+        shares_data = _try_tags(facts, _shares_tags, n_years, unit_key="shares")
+        for yr_val, val in shares_data:
+            if yr_val in data_by_year:
+                d = data_by_year[yr_val]
+                if "shares" not in d or d["shares"] is None:
+                    d["shares"] = val  # already raw count
+
+    except Exception as e:
+        print(f"[EDGAR] Warning: {e}")
+
+    # ── Assemble result ───────────────────────────────────────────
+    all_years = sorted(data_by_year.keys())
+    if len(all_years) > n_years:
+        all_years = all_years[-n_years:]
+
+    result = {"years": all_years}
+    for key in metrics:
+        result[key] = [data_by_year[yr].get(key) for yr in all_years]
+
+    # Adjust shares for stock splits — walk backwards from most recent,
+    # detect jumps > 1.5x and apply cumulative split ratio
+    shares = result["shares"]
+    for i in range(len(shares) - 1, 0, -1):
+        if shares[i] is not None and shares[i - 1] is not None and shares[i - 1] > 0:
+            ratio = shares[i] / shares[i - 1]
+            if ratio > 1.5:
+                # Stock split detected — adjust all prior years
+                for j in range(i):
+                    if shares[j] is not None:
+                        shares[j] = round(shares[j] * ratio)
+
+    # Compute FCF = CFO + CapEx (capex is already negative from yfinance)
+    result["fcf"] = []
+    for cfo_val, capex_val in zip(result["cfo"], result["capex"]):
+        if cfo_val is not None and capex_val is not None:
+            result["fcf"].append(round(cfo_val + capex_val, 0))
+        else:
+            result["fcf"].append(None)
+
+    return result
 
 
 # ── CLI Entry Point ───────────────────────────────────────────────────

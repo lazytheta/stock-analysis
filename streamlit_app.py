@@ -37,6 +37,7 @@ from gather_data import (
     ERP_DEFAULT,
     TERMINAL_GROWTH_DEFAULT,
     MARGIN_OF_SAFETY_DEFAULT,
+    fetch_fundamentals,
 )
 from tastytrade_api import fetch_portfolio_data, fetch_current_prices, fetch_account_balances, fetch_net_liq_history, fetch_sp500_yearly_returns, fetch_benchmark_returns, fetch_ticker_profiles, fetch_yearly_transfers, fetch_portfolio_greeks, fetch_margin_interest, fetch_margin_for_position, fetch_margin_requirements, fetch_beta_weighted_delta
 import plotly.graph_objects as go
@@ -701,6 +702,13 @@ def _watchlist_overview():
             sh = cfg_wl.get('shares_outstanding', 0)
             eps = ni[-1] / sh if ni and sh else 0
             pe = live_price / eps if eps > 0 else None
+            # FCF Yield
+            fcf_list = cfg_wl.get('hist_fcf', [])
+            sh_out = cfg_wl.get('shares_outstanding', 0)
+            if fcf_list and sh_out and live_price > 0:
+                fcf_yield_val = (fcf_list[-1] * 1e6 / sh_out) / live_price
+            else:
+                fcf_yield_val = None
         except Exception:
             continue
         rows.append({
@@ -711,13 +719,14 @@ def _watchlist_overview():
             'buy_price': val['buy_price'],
             'upside': upside,
             'pe': pe,
+            'fcf_yield': fcf_yield_val,
         })
 
     rows.sort(key=lambda r: r['upside'], reverse=True)
 
     # Header
-    hdr = st.columns([0.4, 1.4, 2.5, 1.1, 1.1, 1.1, 1, 1, 0.3])
-    _wl_hdr = ["", "Ticker", "Company", "Price", "Intrinsic", "Buy Price", "Upside", "P/E", ""]
+    hdr = st.columns([0.4, 1.4, 2.2, 1.0, 1.0, 1.0, 0.9, 0.8, 0.9, 0.3])
+    _wl_hdr = ["", "Ticker", "Company", "Price", "Intrinsic", "Buy Price", "Upside", "P/E", "FCF Yield", ""]
     for col, label in zip(hdr, _wl_hdr):
         if label:
             col.markdown(f"**{label}**")
@@ -726,7 +735,7 @@ def _watchlist_overview():
     for row in rows:
         t = row['ticker']
         up_color = "green" if row['upside'] > 0 else "red"
-        cols = st.columns([0.4, 1.4, 2.5, 1.1, 1.1, 1.1, 1, 1, 0.3], vertical_alignment="center")
+        cols = st.columns([0.4, 1.4, 2.2, 1.0, 1.0, 1.0, 0.9, 0.8, 0.9, 0.3], vertical_alignment="center")
         with cols[0]:
             if st.button("", key=f"wl_edit_{t}", icon=":material/edit:"):
                 st.query_params["edit"] = t
@@ -742,7 +751,8 @@ def _watchlist_overview():
         cols[5].markdown(f"${row['buy_price']:.2f}")
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
         cols[7].markdown(f"{row['pe']:.1f}x" if row['pe'] else "—")
-        with cols[8]:
+        cols[8].markdown(f"{row['fcf_yield']:.1%}" if row['fcf_yield'] else "—")
+        with cols[9]:
             if st.button("", key=f"wl_rm_row_{t}", icon=":material/close:"):
                 remove_from_watchlist(t)
                 st.rerun()
@@ -814,7 +824,7 @@ def _dcf_editor(ticker):
 
     # ── Tabs: DCF / Reverse DCF / Peer Comparison ──
     st.markdown("---")
-    _tab_dcf, _tab_rdcf, _tab_peers = st.tabs(["DCF", "Reverse DCF", "Peer Comparison"])
+    _tab_dcf, _tab_rdcf, _tab_peers, _tab_fundamentals = st.tabs(["DCF", "Reverse DCF", "Peer Comparison", "Fundamentals"])
 
     with _tab_dcf:
         st.markdown("#### Discounting Cash Flows")
@@ -1675,6 +1685,379 @@ def _dcf_editor(ticker):
                     st.rerun()
                 else:
                     st.warning("Could not fetch peer data. Check the ticker(s).")
+
+    with _tab_fundamentals:
+        st.markdown("#### Fundamentals")
+
+        @st.cache_data(ttl=300, show_spinner="Loading fundamentals...")
+        def _cached_fundamentals(t):
+            return fetch_fundamentals(t, n_years=12)
+
+        fund = _cached_fundamentals(ticker)
+        _yrs = fund['years']
+        _n = len(_yrs)
+
+        # Chart style constants
+        _COLORS = {
+            'primary': '#81b29a',
+            'secondary': '#e07a5f',
+            'accent': '#3d405b',
+            'tertiary': '#f2cc8f',
+        }
+
+        def _base_layout(fig, height=280):
+            fig.update_layout(
+                margin=dict(t=10, b=20, l=50, r=20),
+                height=height,
+                font=dict(
+                    family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
+                    color="#1d1d1f",
+                ),
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                xaxis=dict(gridcolor='#f0f0f2', dtick=1),
+                yaxis=dict(gridcolor='#f0f0f2'),
+                legend=dict(
+                    orientation="h", yanchor="top", y=-0.15,
+                    xanchor="center", x=0.5, font=dict(size=11),
+                ),
+                hovermode="x unified",
+            )
+            return fig
+
+        def _pct_growth(values):
+            result = [None]
+            for i in range(1, len(values)):
+                prev, curr = values[i - 1], values[i]
+                if prev and prev != 0 and curr is not None:
+                    result.append((curr / prev) - 1)
+                else:
+                    result.append(None)
+            return result
+
+        # ── Operating Leverage (compact table) ──
+        st.markdown("**Operating Leverage**")
+        rev_g = _pct_growth(fund['revenue'])
+        oi_g = _pct_growth(fund['operating_income'])
+        if _n >= 3:
+            _ol_cell = 'text-align:right;padding:6px 10px;font-size:0.85rem'
+            _ol_hdr = 'text-align:right;padding:6px 10px;font-size:0.85rem;color:#86868b'
+            _ol_label = 'text-align:left;padding:6px 10px;font-size:0.85rem;font-weight:600;color:#1d1d1f;white-space:nowrap'
+            _ol_html = (
+                '<div style="overflow-x:auto">'
+                '<table style="width:100%;border-collapse:collapse">'
+                '<thead><tr>'
+                f'<th style="{_ol_hdr};text-align:left"></th>'
+            )
+            _ol_avg = f'{_ol_cell};font-weight:600;border-left:2px solid #d2d2d7'
+            for yr in _yrs[1:]:
+                _ol_html += f'<th style="{_ol_hdr}">{yr}</th>'
+            _ol_html += f'<th style="{_ol_hdr};border-left:2px solid #d2d2d7">Avg</th>'
+            _ol_html += '</tr></thead><tbody>'
+
+            # Revenue Growth row
+            _rev_vals = [rev_g[i] for i in range(1, _n) if rev_g[i] is not None]
+            _rev_avg = sum(_rev_vals) / len(_rev_vals) if _rev_vals else None
+            _ol_html += f'<tr style="border-top:1px solid #f0f0f2"><td style="{_ol_label}">Revenue Growth</td>'
+            for i in range(1, _n):
+                v = rev_g[i]
+                _ol_html += f'<td style="{_ol_cell}">{v*100:.1f}%</td>' if v is not None else f'<td style="{_ol_cell}">—</td>'
+            _ol_html += f'<td style="{_ol_avg}">{_rev_avg*100:.1f}%</td>' if _rev_avg is not None else f'<td style="{_ol_avg}">—</td>'
+            _ol_html += '</tr>'
+
+            # OI Growth row — green when OI growth > Rev growth, red when below
+            _oi_vals = [oi_g[i] for i in range(1, _n) if oi_g[i] is not None]
+            _oi_avg = sum(_oi_vals) / len(_oi_vals) if _oi_vals else None
+            _ol_html += f'<tr style="border-top:1px solid #f0f0f2"><td style="{_ol_label}">OI Growth</td>'
+            for i in range(1, _n):
+                r, o = rev_g[i], oi_g[i]
+                if o is not None:
+                    if r is not None and o > r:
+                        color = '#81b29a'
+                    elif r is not None and o < r:
+                        color = '#e07a5f'
+                    else:
+                        color = '#1d1d1f'
+                    weight = 'font-weight:600;' if color != '#1d1d1f' else ''
+                    _ol_html += f'<td style="{_ol_cell};color:{color};{weight}">{o*100:.1f}%</td>'
+                else:
+                    _ol_html += f'<td style="{_ol_cell}">—</td>'
+            if _oi_avg is not None and _rev_avg is not None:
+                _oi_avg_color = '#81b29a' if _oi_avg > _rev_avg else '#e07a5f'
+                _ol_html += f'<td style="{_ol_avg};color:{_oi_avg_color}">{_oi_avg*100:.1f}%</td>'
+            else:
+                _ol_html += f'<td style="{_ol_avg}">—</td>'
+            _ol_html += '</tr>'
+
+            # DOL row
+            _dol_vals = []
+            for i in range(1, _n):
+                r, o = rev_g[i], oi_g[i]
+                if r and o and r != 0:
+                    _dol_vals.append(o / r)
+            _dol_avg = sum(_dol_vals) / len(_dol_vals) if _dol_vals else None
+            _ol_html += f'<tr style="border-top:1px solid #f0f0f2"><td style="{_ol_label}">DOL</td>'
+            for i in range(1, _n):
+                r, o = rev_g[i], oi_g[i]
+                if r and o and r != 0:
+                    dol = o / r
+                    color = '#81b29a' if dol > 1 else '#e07a5f'
+                    weight = 'font-weight:600;'
+                    _ol_html += f'<td style="{_ol_cell};color:{color};{weight}">{dol:.1f}x</td>'
+                else:
+                    _ol_html += f'<td style="{_ol_cell}">—</td>'
+            if _dol_avg is not None:
+                _dol_avg_color = '#81b29a' if _dol_avg > 1 else '#e07a5f'
+                _ol_html += f'<td style="{_ol_avg};color:{_dol_avg_color}">{_dol_avg:.1f}x</td>'
+            else:
+                _ol_html += f'<td style="{_ol_avg}">—</td>'
+            _ol_html += '</tr>'
+
+            _ol_html += '</tbody></table></div>'
+            st.markdown(_ol_html, unsafe_allow_html=True)
+            st.caption("DOL > 1 = elke % omzetgroei vertaalt in meer dan 1% winstgroei (schaalvoordeel)")
+        else:
+            st.info("Insufficient data for Operating Leverage (need 3+ years)")
+
+        # ── Margins ──
+        st.markdown("")
+        st.markdown("**Margins**")
+        if _n >= 3:
+            rev = fund['revenue']
+            gross_m = [(rev[i] - fund['cost_of_revenue'][i]) / rev[i] * 100
+                       if rev[i] and fund['cost_of_revenue'][i] is not None else None
+                       for i in range(_n)]
+            op_m = [fund['operating_income'][i] / rev[i] * 100
+                    if rev[i] and fund['operating_income'][i] is not None else None
+                    for i in range(_n)]
+            fcf_m = [fund['fcf'][i] / rev[i] * 100
+                     if rev[i] and fund['fcf'][i] is not None else None
+                     for i in range(_n)]
+            fig = go.Figure()
+            for name, vals, color in [
+                ('Gross', gross_m, _COLORS['primary']),
+                ('Operating', op_m, _COLORS['accent']),
+                ('FCF', fcf_m, _COLORS['tertiary']),
+            ]:
+                fig.add_trace(go.Scatter(
+                    x=_yrs, y=vals, name=name,
+                    line=dict(color=color, width=2.5),
+                    hovertemplate='%{y:.1f}%<extra>' + name + ' Margin</extra>',
+                ))
+            fig.update_yaxes(ticksuffix='%')
+            _base_layout(fig)
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Margins table with numbers + Operating Margin delta
+            _m_cell = 'text-align:right;padding:5px 10px;font-size:0.85rem'
+            _m_hdr = 'text-align:right;padding:5px 10px;font-size:0.85rem;color:#86868b'
+            _m_label = 'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:#1d1d1f;white-space:nowrap'
+            _m_avg_style = f'{_m_cell};font-weight:600;border-left:2px solid #d2d2d7'
+            _m_html = (
+                '<div style="overflow-x:auto">'
+                '<table style="width:100%;border-collapse:collapse">'
+                '<thead><tr>'
+                f'<th style="{_m_hdr};text-align:left"></th>'
+            )
+            for yr in _yrs:
+                _m_html += f'<th style="{_m_hdr}">{yr}</th>'
+            _m_html += f'<th style="{_m_hdr};border-left:2px solid #d2d2d7">Avg</th>'
+            _m_html += '</tr></thead><tbody>'
+
+            for label, vals in [('Gross', gross_m), ('Operating', op_m), ('FCF', fcf_m)]:
+                _valid = [v for v in vals if v is not None]
+                _avg = sum(_valid) / len(_valid) if _valid else None
+                _m_html += f'<tr style="border-top:1px solid #f0f0f2"><td style="{_m_label}">{label}</td>'
+                for v in vals:
+                    _m_html += f'<td style="{_m_cell}">{v:.1f}%</td>' if v is not None else f'<td style="{_m_cell}">—</td>'
+                _m_html += f'<td style="{_m_avg_style}">{_avg:.1f}%</td>' if _avg is not None else f'<td style="{_m_avg_style}">—</td>'
+                _m_html += '</tr>'
+
+            # Operating Margin delta row — expanding margin = operating leverage
+            _m_html += f'<tr style="border-top:1px solid #f0f0f2"><td style="{_m_label}">Op Margin \u0394</td>'
+            _delta_vals = []
+            for i in range(_n):
+                if i == 0:
+                    _m_html += f'<td style="{_m_cell}">—</td>'
+                elif op_m[i] is not None and op_m[i - 1] is not None:
+                    d = op_m[i] - op_m[i - 1]
+                    _delta_vals.append(d)
+                    color = '#81b29a' if d > 0 else '#e07a5f'
+                    sign = '+' if d > 0 else ''
+                    _m_html += f'<td style="{_m_cell};color:{color};font-weight:600">{sign}{d:.1f}pp</td>'
+                else:
+                    _m_html += f'<td style="{_m_cell}">—</td>'
+            _d_avg = sum(_delta_vals) / len(_delta_vals) if _delta_vals else None
+            if _d_avg is not None:
+                d_color = '#81b29a' if _d_avg > 0 else '#e07a5f'
+                d_sign = '+' if _d_avg > 0 else ''
+                _m_html += f'<td style="{_m_avg_style};color:{d_color}">{d_sign}{_d_avg:.1f}pp</td>'
+            else:
+                _m_html += f'<td style="{_m_avg_style}">—</td>'
+            _m_html += '</tr>'
+
+            _m_html += '</tbody></table></div>'
+            st.markdown(_m_html, unsafe_allow_html=True)
+            st.caption("Op Margin \u0394 > 0 bij groeiende omzet = operating leverage (schaalvoordeel in kosten)")
+        else:
+            st.info("Insufficient data for Margins (need 3+ years)")
+
+        # ── Row 2: ROIC + FCF Conversion ──
+        _r2c1, _r2c2 = st.columns(2)
+
+        with _r2c1:
+            st.markdown("**ROIC**")
+            if _n >= 3:
+                roic_vals = []
+                for i in range(_n):
+                    oi = fund['operating_income'][i]
+                    eq = fund['total_equity'][i]
+                    debt = fund['total_debt'][i]
+                    cash_v = fund['cash'][i]
+                    tp = fund['tax_provision'][i]
+                    pti = fund['pretax_income'][i]
+                    tax_rate = tp / pti if pti and pti != 0 else 0.21
+                    nopat = oi * (1 - tax_rate) if oi is not None else 0
+                    ic = (eq or 0) + (debt or 0) - (cash_v or 0)
+                    roic_vals.append(nopat / ic * 100 if ic > 0 else None)
+
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=_yrs, y=roic_vals, name='ROIC',
+                    line=dict(color=_COLORS['primary'], width=2.5),
+                    hovertemplate='%{y:.1f}%<extra>ROIC</extra>',
+                ))
+                wacc_pct = val.get('wacc', 0) * 100
+                if wacc_pct > 0:
+                    fig.add_hline(
+                        y=wacc_pct, line_dash="dash",
+                        line_color=_COLORS['secondary'],
+                        annotation_text=f"WACC {wacc_pct:.1f}%",
+                        annotation_position="top right",
+                    )
+                fig.update_yaxes(ticksuffix='%')
+                _base_layout(fig)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Insufficient data for ROIC (need 3+ years)")
+
+        with _r2c2:
+            st.markdown("**FCF Conversion**")
+            if _n >= 3:
+                conv = [fund['fcf'][i] / fund['net_income'][i] * 100
+                        if fund['net_income'][i] and fund['net_income'][i] != 0
+                           and fund['fcf'][i] is not None
+                        else None
+                        for i in range(_n)]
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=_yrs, y=conv, name='FCF / Net Income',
+                    line=dict(color=_COLORS['primary'], width=2.5),
+                    hovertemplate='%{y:.0f}%<extra>FCF Conversion</extra>',
+                ))
+                fig.add_hline(y=100, line_dash="dash", line_color=_COLORS['accent'],
+                              annotation_text="100%", annotation_position="top right")
+                fig.add_hline(y=70, line_dash="dot", line_color=_COLORS['secondary'],
+                              annotation_text="70%", annotation_position="bottom right")
+                fig.update_yaxes(ticksuffix='%')
+                _base_layout(fig)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Insufficient data for FCF Conversion (need 3+ years)")
+
+        # ── Row 3: Revenue per Share Growth + Debt/FCF ──
+        _r3c1, _r3c2 = st.columns(2)
+
+        with _r3c1:
+            st.markdown("**Revenue per Share Growth**")
+            if _n >= 3:
+                rps = [fund['revenue'][i] * 1e6 / fund['shares'][i]
+                       if fund['shares'][i] and fund['shares'][i] > 0
+                          and fund['revenue'][i] is not None
+                       else 0
+                       for i in range(_n)]
+                rps_g = _pct_growth(rps)
+                rev_g_clean = _pct_growth(fund['revenue'])
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=_yrs[1:], y=[r * 100 if r is not None else None for r in rev_g_clean[1:]],
+                    name='Revenue Growth',
+                    line=dict(color=_COLORS['primary'], width=2.5),
+                    hovertemplate='%{y:.1f}%<extra>Rev Growth</extra>',
+                ))
+                fig.add_trace(go.Scatter(
+                    x=_yrs[1:], y=[r * 100 if r is not None else None for r in rps_g[1:]],
+                    name='Rev/Share Growth',
+                    line=dict(color=_COLORS['accent'], width=2.5, dash='dash'),
+                    hovertemplate='%{y:.1f}%<extra>Rev/Share Growth</extra>',
+                ))
+                fig.update_yaxes(ticksuffix='%')
+                _base_layout(fig)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Insufficient data for Revenue per Share (need 3+ years)")
+
+        with _r3c2:
+            st.markdown("**Debt / FCF**")
+            if _n >= 3:
+                debt_fcf = []
+                for i in range(_n):
+                    fcf_v = fund['fcf'][i]
+                    debt_v = fund['total_debt'][i]
+                    if fcf_v and fcf_v > 0 and debt_v is not None:
+                        debt_fcf.append(debt_v / fcf_v)
+                    else:
+                        debt_fcf.append(None)
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=_yrs, y=debt_fcf, name='Debt/FCF',
+                    line=dict(color=_COLORS['accent'], width=2.5),
+                    hovertemplate='%{y:.1f}x<extra>Debt/FCF</extra>',
+                ))
+                fig.add_hline(y=3, line_dash="dash", line_color=_COLORS['primary'],
+                              annotation_text="3x", annotation_position="top right")
+                fig.add_hline(y=5, line_dash="dash", line_color=_COLORS['secondary'],
+                              annotation_text="5x", annotation_position="top right")
+                fig.update_yaxes(ticksuffix='x')
+                _base_layout(fig)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Insufficient data for Debt/FCF (need 3+ years)")
+
+        # ── Row 4: FCF Yield (full width) ──
+        st.markdown("**FCF Yield**")
+        if _n >= 2 and live_price > 0:
+            fcf_yield = []
+            for i in range(_n):
+                sh = fund['shares'][i]
+                if sh and sh > 0 and fund['fcf'][i] is not None:
+                    fps = fund['fcf'][i] * 1e6 / sh
+                    fcf_yield.append(fps / live_price * 100)
+                else:
+                    fcf_yield.append(None)
+
+            current_fy = fcf_yield[-1] if fcf_yield[-1] is not None else 0
+            fy_color = '#81b29a' if current_fy > 3 else ('#e07a5f' if current_fy < 1 else '#1d1d1f')
+            st.markdown(
+                f'<div style="text-align:center;padding:8px 0">'
+                f'<span style="font-size:2rem;font-weight:700;color:{fy_color}">{current_fy:.1f}%</span>'
+                f'<span style="color:#86868b;font-size:0.9rem;margin-left:8px">current FCF Yield</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=_yrs, y=fcf_yield, name='FCF Yield',
+                line=dict(color=_COLORS['primary'], width=2.5),
+                fill='tozeroy', fillcolor='rgba(129,178,154,0.15)',
+                hovertemplate='%{y:.1f}%<extra>FCF Yield</extra>',
+            ))
+            fig.update_yaxes(ticksuffix='%')
+            _base_layout(fig, height=250)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Insufficient data for FCF Yield")
 
     # ── Action buttons ──
     st.markdown("---")
