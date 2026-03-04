@@ -617,6 +617,48 @@ def fetch_sector_margins():
         return {}
 
 
+def fetch_sector_s2c():
+    """Fetch Sales/Invested Capital by sector from Damodaran's capex page.
+
+    Returns dict[sector_name → sales_to_capital (float)].
+    """
+    print("[Damodaran] Fetching sector Sales/Invested Capital...")
+    url = "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/capex.html"
+
+    try:
+        data = _http_get(url, {"User-Agent": "StockAnalysis/1.0"})
+        html = data.decode("utf-8", errors="replace")
+
+        s2c = {}
+        rows = re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL | re.IGNORECASE)
+        for row in rows:
+            cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL | re.IGNORECASE)
+            if len(cells) >= 10:
+                sector = re.sub(r"<[^>]+>", "", cells[0]).strip()
+                sector = re.sub(r"\s+", " ", sector)
+                sector = sector.replace("&amp;", "&")
+                val_str = re.sub(r"<[^>]+>", "", cells[9]).strip()
+                val_str = val_str.replace(",", "")
+                try:
+                    if val_str and sector and sector not in ("Industry Name", "Total Market"):
+                        val = float(val_str)
+                        if 0.01 < val < 50.0:
+                            s2c[sector] = val
+                except ValueError:
+                    continue
+
+        if s2c:
+            print(f"  Found S/C for {len(s2c)} sectors")
+        else:
+            print("  WARNING: Could not parse sector S/C from Damodaran")
+
+        return s2c
+
+    except Exception as e:
+        print(f"  WARNING: Damodaran S/C fetch failed: {e}")
+        return {}
+
+
 def fetch_consensus_estimates(ticker):
     """Fetch analyst consensus revenue estimates from Yahoo Finance via yfinance.
 

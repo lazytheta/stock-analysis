@@ -13,8 +13,10 @@ from decimal import Decimal
 
 from dotenv import load_dotenv
 from tastytrade import Session, Account, DXLinkStreamer
-from tastytrade.dxfeed import Greeks as GreeksEvent
-from tastytrade.instruments import Option
+from tastytrade.dxfeed import Greeks as GreeksEvent, Quote as QuoteEvent
+from tastytrade.instruments import Option, Equity
+from tastytrade.metrics import get_market_metrics
+from tastytrade.order import NewOrder, OrderType, OrderTimeInForce, OrderAction
 
 
 def _get_secret(key):
@@ -422,6 +424,81 @@ def fetch_account_balances():
     return asyncio.run(_run())
 
 
+def fetch_margin_requirements():
+    """Fetch per-position margin requirements from Tastytrade.
+
+    Returns dict keyed by underlying symbol with margin details.
+    """
+    session = _get_session()
+
+    async def _run():
+        async with session:
+            accounts = await Account.get(session)
+            acct = accounts[0]
+            report = await acct.get_margin_requirements(session)
+            result = {}
+            for entry in report.groups:
+                if isinstance(entry, dict):
+                    continue  # skip EmptyDict entries
+                sym = entry.underlying_symbol or entry.code
+                if not sym:
+                    continue
+                result[sym] = {
+                    "description": entry.description,
+                    "margin_requirement": float(entry.margin_requirement),
+                    "maintenance_requirement": float(entry.maintenance_requirement) if entry.maintenance_requirement else None,
+                    "initial_requirement": float(entry.initial_requirement) if entry.initial_requirement else None,
+                    "buying_power": float(entry.buying_power),
+                    "margin_type": entry.margin_calculation_type,
+                    "point_of_no_return_pct": float(entry.point_of_no_return_percent) if entry.point_of_no_return_percent else None,
+                    "expected_down_pct": float(entry.expected_price_range_down_percent) if entry.expected_price_range_down_percent else None,
+                }
+            return result
+
+    try:
+        return asyncio.run(_run())
+    except Exception as e:
+        print(f"[Margin requirements] Error: {e}")
+        return {}
+
+
+def fetch_margin_for_position(ticker, quantity):
+    """Dry-run an order to get the real margin requirement from Tastytrade.
+
+    Returns dict with margin fields, or None on error.
+    """
+    session = _get_session()
+
+    async def _run():
+        async with session:
+            accounts = await Account.get(session)
+            acct = accounts[0]
+            symbol = await Equity.get(session, ticker.upper())
+            leg = symbol.build_leg(Decimal(str(abs(quantity))), OrderAction.BUY_TO_OPEN)
+            order = NewOrder(
+                time_in_force=OrderTimeInForce.DAY,
+                order_type=OrderType.MARKET,
+                legs=[leg],
+            )
+            resp = await acct.place_order(session, order, dry_run=True)
+            bp = resp.buying_power_effect
+            fees = resp.fee_calculation
+            return {
+                "change_in_margin": float(bp.change_in_margin_requirement),
+                "change_in_buying_power": float(bp.change_in_buying_power),
+                "current_buying_power": float(bp.current_buying_power),
+                "new_buying_power": float(bp.new_buying_power),
+                "isolated_margin": float(bp.isolated_order_margin_requirement),
+                "total_fees": float(fees.total_fees) if fees else 0,
+            }
+
+    try:
+        return asyncio.run(_run())
+    except Exception as e:
+        print(f"[Margin dry-run] Error for {ticker}: {e}")
+        return None
+
+
 def fetch_net_liq_history(time_back="1y"):
     """Fetch net liquidating value history from Tastytrade.
 
@@ -549,20 +626,35 @@ def fetch_current_prices(tickers):
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
 
-    prices = {}
-    for ticker in tickers:
+    def _fetch_one(ticker):
         try:
             url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
                 data = json.loads(resp.read())
                 meta = data["chart"]["result"][0]["meta"]
-                prices[ticker] = {
+                return ticker, {
                     "price": meta["regularMarketPrice"],
                     "previousClose": meta.get("chartPreviousClose", meta.get("previousClose")),
                 }
         except Exception:
-            prices[ticker] = None
+            return ticker, None
+
+    async def _fetch_all():
+        loop = asyncio.get_event_loop()
+        tasks = [loop.run_in_executor(None, _fetch_one, t) for t in tickers]
+        return await asyncio.gather(*tasks)
+
+    prices = {}
+    try:
+        results = asyncio.run(_fetch_all())
+        for ticker, result in results:
+            prices[ticker] = result
+    except Exception:
+        # Fallback to sequential
+        for ticker in tickers:
+            _, result = _fetch_one(ticker)
+            prices[ticker] = result
     return prices
 
 
@@ -662,3 +754,157 @@ def fetch_portfolio_greeks():
             return {"positions": pos_details, "totals": totals}
 
     return asyncio.run(_run())
+
+
+def fetch_beta_weighted_delta():
+    """Calculate portfolio Beta-Weighted Delta relative to SPY.
+
+    Converts all positions (stocks + options) to SPY-equivalent delta.
+    Formula per position: position_delta * beta * (underlying_price / spy_price)
+
+    Returns dict with per-ticker breakdown and portfolio totals.
+    """
+    session = _get_session()
+
+    async def _run():
+        async with session:
+            accounts = await Account.get(session)
+            acct = accounts[0]
+            positions = await acct.get_positions(session, include_marks=True)
+
+            if not positions:
+                return {"positions": [], "portfolio_bwd": 0, "spy_price": 0,
+                        "dollar_per_1pct": 0}
+
+            # Separate stock and option positions
+            stock_positions = []
+            option_positions = []
+            underlyings = set()
+
+            for p in positions:
+                itype = p.instrument_type.value
+                sym = getattr(p, 'underlying_symbol', None) or p.symbol
+                underlyings.add(sym)
+                if itype == "Equity":
+                    stock_positions.append(p)
+                elif itype == "Equity Option":
+                    option_positions.append(p)
+
+            underlyings.add("SPY")
+            underlying_list = sorted(underlyings)
+
+            # Fetch betas via market metrics
+            metrics = await get_market_metrics(session, underlying_list)
+            beta_map = {}
+            for m in metrics:
+                if m.beta is not None:
+                    beta_map[m.symbol] = float(m.beta)
+
+            # Fetch SPY price + underlying prices via DXLink quotes
+            _ctx = ssl.create_default_context()
+            _ctx.check_hostname = False
+            _ctx.verify_mode = ssl.CERT_NONE
+
+            price_map = {}
+            greeks_map = {}
+            streamer_to_pos = {}
+
+            async with DXLinkStreamer(session, ssl_context=_ctx) as streamer:
+                await streamer.subscribe(QuoteEvent, underlying_list)
+                received = set()
+                async for quote in streamer.listen(QuoteEvent):
+                    sym = quote.event_symbol
+                    if sym not in received:
+                        bid = float(quote.bid_price) if quote.bid_price else 0
+                        ask = float(quote.ask_price) if quote.ask_price else 0
+                        price_map[sym] = (bid + ask) / 2 if bid and ask else bid or ask
+                        received.add(sym)
+                        if len(received) >= len(underlying_list):
+                            break
+
+                if option_positions:
+                    for p in option_positions:
+                        ss = Option.occ_to_streamer_symbol(p.symbol)
+                        if ss:
+                            streamer_to_pos[ss] = p
+                    if streamer_to_pos:
+                        await streamer.subscribe(GreeksEvent, list(streamer_to_pos.keys()))
+                        received_g = set()
+                        async for greek in streamer.listen(GreeksEvent):
+                            sym = greek.event_symbol
+                            if sym not in received_g and sym in streamer_to_pos:
+                                greeks_map[sym] = greek
+                                received_g.add(sym)
+                                if len(received_g) >= len(streamer_to_pos):
+                                    break
+
+            spy_price = price_map.get("SPY", 0)
+            if spy_price <= 0:
+                return {"positions": [], "portfolio_bwd": 0, "spy_price": 0,
+                        "dollar_per_1pct": 0}
+
+            ticker_bwd = defaultdict(lambda: {"raw_delta": 0.0, "beta": 0.0,
+                                              "price": 0.0, "bwd": 0.0})
+
+            for p in stock_positions:
+                sym = p.symbol
+                qty = float(p.quantity)
+                if p.quantity_direction == "Short":
+                    qty = -qty
+                beta = beta_map.get(sym, 1.0)
+                price = price_map.get(sym, float(p.mark_price or 0))
+                bwd = qty * beta * (price / spy_price)
+                entry = ticker_bwd[sym]
+                entry["raw_delta"] += qty
+                entry["beta"] = beta
+                entry["price"] = price
+                entry["bwd"] += bwd
+
+            for ss, pos in streamer_to_pos.items():
+                greek = greeks_map.get(ss)
+                if not greek:
+                    continue
+                qty = float(pos.quantity)
+                if pos.quantity_direction == "Short":
+                    qty = -qty
+                mult = pos.multiplier
+                underlying = pos.underlying_symbol
+                raw_delta = float(greek.delta) * qty * mult
+                beta = beta_map.get(underlying, 1.0)
+                price = price_map.get(underlying, 0)
+                bwd = raw_delta * beta * (price / spy_price)
+                entry = ticker_bwd[underlying]
+                entry["raw_delta"] += raw_delta
+                entry["beta"] = beta
+                entry["price"] = price
+                entry["bwd"] += bwd
+
+            portfolio_bwd = sum(e["bwd"] for e in ticker_bwd.values())
+            dollar_per_1pct = portfolio_bwd * spy_price * 0.01
+
+            pos_list = []
+            for sym, entry in sorted(ticker_bwd.items(),
+                                     key=lambda x: abs(x[1]["bwd"]),
+                                     reverse=True):
+                pos_list.append({
+                    "ticker": sym,
+                    "raw_delta": entry["raw_delta"],
+                    "beta": entry["beta"],
+                    "price": entry["price"],
+                    "bwd": entry["bwd"],
+                    "dollar_per_1pct": entry["bwd"] * spy_price * 0.01,
+                })
+
+            return {
+                "positions": pos_list,
+                "portfolio_bwd": portfolio_bwd,
+                "spy_price": spy_price,
+                "dollar_per_1pct": dollar_per_1pct,
+            }
+
+    try:
+        return asyncio.run(_run())
+    except Exception as e:
+        print(f"[BWD] Error: {e}")
+        return {"positions": [], "portfolio_bwd": 0, "spy_price": 0,
+                "dollar_per_1pct": 0}

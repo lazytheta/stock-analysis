@@ -16,7 +16,7 @@ import time
 from datetime import date, datetime, timedelta
 import re
 
-from dcf_calculator import compute_wacc, compute_intrinsic_value
+from dcf_calculator import compute_wacc, compute_intrinsic_value, compute_reverse_dcf
 from config_store import save_config, load_config, list_watchlist, remove_from_watchlist
 from gather_data import (
     get_cik,
@@ -28,6 +28,7 @@ from gather_data import (
     synthetic_credit_rating,
     fetch_sector_betas,
     fetch_sector_margins,
+    fetch_sector_s2c,
     fetch_consensus_estimates,
     find_peers,
     fetch_peer_data,
@@ -37,7 +38,7 @@ from gather_data import (
     TERMINAL_GROWTH_DEFAULT,
     MARGIN_OF_SAFETY_DEFAULT,
 )
-from tastytrade_api import fetch_portfolio_data, fetch_current_prices, fetch_account_balances, fetch_net_liq_history, fetch_sp500_yearly_returns, fetch_benchmark_returns, fetch_ticker_profiles, fetch_yearly_transfers, fetch_portfolio_greeks, fetch_margin_interest
+from tastytrade_api import fetch_portfolio_data, fetch_current_prices, fetch_account_balances, fetch_net_liq_history, fetch_sp500_yearly_returns, fetch_benchmark_returns, fetch_ticker_profiles, fetch_yearly_transfers, fetch_portfolio_greeks, fetch_margin_interest, fetch_margin_for_position, fetch_margin_requirements, fetch_beta_weighted_delta
 import plotly.graph_objects as go
 
 # ── Page config ──
@@ -145,7 +146,7 @@ st.markdown("""
         background: #fff;
         border-radius: 980px;
         padding: 8px 18px;
-        font-size: 0.82rem;
+        font-size: 0.95rem;
         color: #86868b;
         font-weight: 400;
     }
@@ -642,7 +643,7 @@ def _watchlist_overview():
 
     # ── Add ticker ──
     st.markdown("")
-    wl_add_col1, wl_add_col2 = st.columns([3, 1])
+    wl_add_col1, wl_add_col2 = st.columns([3, 1], vertical_alignment="center")
     with wl_add_col1:
         wl_ticker = st.text_input(
             "Add ticker",
@@ -676,13 +677,13 @@ def _watchlist_overview():
         st.info("Your watchlist is empty. Add a ticker above or use 'Add to Watchlist' on the DCF page.")
         return
 
-    @st.cache_data(ttl=300)
-    def _fetch_price_cached(t):
-        try:
-            p, _, _ = fetch_stock_price(t)
-            return p
-        except Exception:
-            return 0.0
+    @st.cache_data(ttl=30)
+    def _fetch_prices_batch(tickers_tuple):
+        prices = fetch_current_prices(list(tickers_tuple))
+        return {t: (p["price"] if p else 0.0) for t, p in prices.items()}
+
+    wl_tickers = [item['ticker'] for item in watchlist if load_config(item['ticker']) is not None]
+    batch_prices = _fetch_prices_batch(tuple(wl_tickers)) if wl_tickers else {}
 
     rows = []
     for item in watchlist:
@@ -690,11 +691,18 @@ def _watchlist_overview():
         cfg_wl = load_config(t)
         if cfg_wl is None:
             continue
-        live_price = _fetch_price_cached(t)
-        if live_price > 0:
-            cfg_wl['stock_price'] = live_price
-        val = compute_intrinsic_value(cfg_wl)
-        upside = (val['intrinsic_value'] / live_price - 1) if live_price > 0 else 0
+        try:
+            live_price = batch_prices.get(t, 0.0)
+            if live_price > 0:
+                cfg_wl['stock_price'] = live_price
+            val = compute_intrinsic_value(cfg_wl)
+            upside = (val['intrinsic_value'] / live_price - 1) if live_price > 0 else 0
+            ni = cfg_wl.get('hist_net_income', [])
+            sh = cfg_wl.get('shares_outstanding', 0)
+            eps = ni[-1] / sh if ni and sh else 0
+            pe = live_price / eps if eps > 0 else None
+        except Exception:
+            continue
         rows.append({
             'ticker': t,
             'company': cfg_wl.get('company', t),
@@ -702,40 +710,42 @@ def _watchlist_overview():
             'intrinsic': val['intrinsic_value'],
             'buy_price': val['buy_price'],
             'upside': upside,
-            'wacc': val['wacc'],
+            'pe': pe,
         })
 
     rows.sort(key=lambda r: r['upside'], reverse=True)
 
     # Header
-    hdr = st.columns([0.4, 1, 2.5, 1.1, 1.1, 1.1, 1, 1, 0.3])
-    for col, label in zip(hdr, ["", "Ticker", "Company", "Price", "Intrinsic", "Buy Price", "Upside", "WACC", ""]):
-        col.markdown(f"**{label}**")
+    hdr = st.columns([0.4, 1.4, 2.5, 1.1, 1.1, 1.1, 1, 1, 0.3])
+    _wl_hdr = ["", "Ticker", "Company", "Price", "Intrinsic", "Buy Price", "Upside", "P/E", ""]
+    for col, label in zip(hdr, _wl_hdr):
+        if label:
+            col.markdown(f"**{label}**")
 
     # Rows — edit icon navigates to editor
     for row in rows:
         t = row['ticker']
         up_color = "green" if row['upside'] > 0 else "red"
-        cols = st.columns([0.4, 1, 2.5, 1.1, 1.1, 1.1, 1, 1, 0.3], vertical_alignment="center")
+        cols = st.columns([0.4, 1.4, 2.5, 1.1, 1.1, 1.1, 1, 1, 0.3], vertical_alignment="center")
         with cols[0]:
             if st.button("", key=f"wl_edit_{t}", icon=":material/edit:"):
                 st.query_params["edit"] = t
                 st.rerun()
-        cols[1].markdown(f"**{t}**")
+        logo_url = f"https://assets.parqet.com/logos/symbol/{t}"
+        cols[1].markdown(
+            f'<img src="{logo_url}" style="width:24px;height:24px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:6px" onerror="this.style.display=\'none\'"><strong>{t}</strong>',
+            unsafe_allow_html=True,
+        )
         cols[2].markdown(row['company'])
         cols[3].markdown(f"${row['price']:.2f}")
         cols[4].markdown(f"${row['intrinsic']:.2f}")
         cols[5].markdown(f"${row['buy_price']:.2f}")
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
-        cols[7].markdown(f"{row['wacc']:.1%}")
+        cols[7].markdown(f"{row['pe']:.1f}x" if row['pe'] else "—")
         with cols[8]:
             if st.button("", key=f"wl_rm_row_{t}", icon=":material/close:"):
                 remove_from_watchlist(t)
                 st.rerun()
-
-    if st.button("Refresh All Prices"):
-        _fetch_price_cached.clear()
-        st.rerun()
 
     st.markdown("")
 
@@ -756,7 +766,7 @@ def _dcf_editor(ticker):
         st.rerun()
 
     # ── Live price ──
-    @st.cache_data(ttl=300)
+    @st.cache_data(ttl=30)
     def _price(t):
         try:
             p, _, _ = fetch_stock_price(t)
@@ -777,7 +787,12 @@ def _dcf_editor(ticker):
     st.markdown(
         f'<div class="hero-card">'
         f'<p class="hero-label">{cfg.get("company", ticker)}</p>'
-        f'<p class="hero-value" style="font-size:2rem">{ticker}</p>'
+        f'<div style="display:flex;align-items:center;justify-content:center;gap:12px">'
+        f'<img src="https://assets.parqet.com/logos/symbol/{ticker}" '
+        f'style="width:36px;height:36px;border-radius:50%;object-fit:cover" '
+        f'onerror="this.style.display=\'none\'">'
+        f'<p class="hero-value" style="font-size:2rem;margin:0">{ticker}</p>'
+        f'</div>'
         f'<div class="stat-row">'
         f'<span class="stat-pill">Price <b>${live_price:.2f}</b></span>'
         f'<span class="stat-pill">Intrinsic Value <b>${val["intrinsic_value"]:.2f}</b></span>'
@@ -786,7 +801,7 @@ def _dcf_editor(ticker):
         f'<span class="stat-pill">WACC <b>{val["wacc"]:.1%}</b></span>'
         f'<span class="stat-pill">EV <b>${val["enterprise_value"]:,.0f}M</b></span>'
         f'<span class="stat-pill">Equity Value <b>${val["equity_value"]:,.0f}M</b></span>'
-        f'<span class="stat-pill">TV %% of EV <b>{val["tv_pct"]:.0%}</b></span>'
+        f'<span class="stat-pill">TV % of EV <b>{val["tv_pct"]:.0%}</b></span>'
         f'</div>'
         f'</div>',
         unsafe_allow_html=True,
@@ -797,446 +812,56 @@ def _dcf_editor(ticker):
     growth = list(cfg.get('revenue_growth', []))
     margins = list(cfg.get('op_margins', []))
 
-    # ── Tabs: DCF / Peer Comparison ──
+    # ── Tabs: DCF / Reverse DCF / Peer Comparison ──
     st.markdown("---")
-    _tab_dcf, _tab_peers = st.tabs(["DCF", "Peer Comparison"])
+    _tab_dcf, _tab_rdcf, _tab_peers = st.tabs(["DCF", "Reverse DCF", "Peer Comparison"])
 
     with _tab_dcf:
         st.markdown("#### Discounting Cash Flows")
-        st.markdown('<p style="color:#86868b;font-size:0.85rem">In millions</p>', unsafe_allow_html=True)
-
-        _n = len(growth)
-        _base_rev = cfg.get('base_revenue', 0)
-        _base_oi = cfg.get('base_oi', 0)
-        _tg = cfg.get('terminal_growth', 0.03)
-        _tm = cfg.get('terminal_margin', margins[-1] if margins else 0.30)
-
-        # Expand single-value assumptions to per-year lists
-        _default_wacc = compute_wacc(cfg) if cfg.get('equity_market_value', 0) + cfg.get('debt_market_value', 0) > 0 else 0.08
-        _wacc_list = list(cfg.get('wacc_per_year', [_default_wacc] * _n))
-        if len(_wacc_list) < _n:
-            _wacc_list.extend([_wacc_list[-1] if _wacc_list else _default_wacc] * (_n - len(_wacc_list)))
-        _default_tax = cfg.get('tax_rate', 0.21)
-        _tax_list = list(cfg.get('tax_per_year', [_default_tax] * _n))
-        if len(_tax_list) < _n:
-            _tax_list.extend([_tax_list[-1] if _tax_list else _default_tax] * (_n - len(_tax_list)))
-        _default_stc = cfg.get('sales_to_capital', 1.0)
-        _stc_list = list(cfg.get('stc_per_year', [_default_stc] * _n))
-        if len(_stc_list) < _n:
-            _stc_list.extend([_stc_list[-1] if _stc_list else _default_stc] * (_n - len(_stc_list)))
-        _default_sbc = cfg.get('sbc_pct', 0.004)
-        _sbc_list = list(cfg.get('sbc_per_year', [_default_sbc] * _n))
-        if len(_sbc_list) < _n:
-            _sbc_list.extend([_sbc_list[-1] if _sbc_list else _default_sbc] * (_n - len(_sbc_list)))
-
-        # Terminal column editable values (defaults from config or last year)
-        _tv_tax_default = cfg.get('terminal_tax', _tax_list[-1] if _tax_list else _default_tax)
-        _tv_stc_default = cfg.get('terminal_stc', _stc_list[-1] if _stc_list else _default_stc)
-        _tv_sbc_default = cfg.get('terminal_sbc', _sbc_list[-1] if _sbc_list else _default_sbc)
-        # Pre-read terminal WACC from session state (widget rendered after TV calc)
-        _tv_wacc_default = cfg.get('terminal_wacc', _wacc_list[-1] if _wacc_list else _default_wacc)
-        _tv_wacc = st.session_state.get("ed_w_tv", _tv_wacc_default * 100) / 100
-
-        # Column layout: label + base year + 10 projection years + terminal
-        _cw = [1.8] + [1] * (_n + 2)
-        _tv_col = _n + 2  # terminal column index
-        _cs = 'font-size:0.78rem;padding:2px 0;min-height:28px;display:flex;align-items:center;justify-content:right'
-        _cs_bold = _cs + ';font-weight:700'
-        _cs_label = 'font-size:0.78rem;padding:2px 0;min-height:28px;display:flex;align-items:center'
-        _cs_label_bold = _cs_label + ';font-weight:700'
-        _cs_sep = 'border-top:2px solid #d2d2d7;' + _cs
-        _cs_hdr = 'font-size:0.78rem;padding:4px 0;min-height:32px;display:flex;align-items:center;justify-content:right;font-weight:700;border-bottom:2px solid #d2d2d7'
-        _cs_hdr_label = 'font-size:0.78rem;padding:4px 0;min-height:32px;display:flex;align-items:center;font-weight:700;border-bottom:2px solid #d2d2d7'
-        _tv_bg = 'background:rgba(0,0,0,0.03);border-radius:4px;padding-left:4px;padding-right:4px'
-
-        def _dcf_row_label(cols, label, bold=False):
-            with cols[0]:
-                st.markdown(f"<div style='{_cs_label_bold if bold else _cs_label}'>{label}</div>", unsafe_allow_html=True)
-
-        def _dcf_row_val(cols, idx, text, bold=False, sep=False, tv=False):
-            style = _cs_sep if sep else (_cs_bold if bold else _cs)
-            if tv or idx == _tv_col:
-                style += f';{_tv_bg}'
-            with cols[idx]:
-                st.markdown(f"<div style='{style}'>{text}</div>", unsafe_allow_html=True)
-
-        def _dcf_row_input(cols, idx, key, value, step, fmt, is_pct=True):
-            with cols[idx]:
-                v = st.number_input(key, value=value * 100 if is_pct else value,
-                                    step=step, format=fmt, key=key, label_visibility="collapsed")
-                return v / 100 if is_pct else v
-
-        def _dcf_divider():
-            st.markdown("<div style='border-top:1px solid #e5e5ea;margin:2px 0'></div>", unsafe_allow_html=True)
-
-        # ── Year header row ──
-        hdr = st.columns(_cw)
-        with hdr[0]:
-            st.markdown(f"<div style='{_cs_hdr_label}'></div>", unsafe_allow_html=True)
-        with hdr[1]:
-            st.markdown(f"<div style='{_cs_hdr}'>{base_year}</div>", unsafe_allow_html=True)
-        for i in range(_n):
-            with hdr[i + 2]:
-                st.markdown(f"<div style='{_cs_hdr}'>{base_year + i + 1}</div>", unsafe_allow_html=True)
-        with hdr[_tv_col]:
-            st.markdown(f"<div style='{_cs_hdr};{_tv_bg}'>Terminal</div>", unsafe_allow_html=True)
-
-        # ── Period row ──
-        pr = st.columns(_cw)
-        _dcf_row_label(pr, "Period")
-        _dcf_row_val(pr, 1, "0")
-        for i in range(_n):
-            _dcf_row_val(pr, i + 2, f"{0.5 + i:.1f}")
-        _dcf_row_val(pr, _tv_col, "")
-
-        # ── Revenue Growth (editable) ──
-        gr = st.columns(_cw)
-        _dcf_row_label(gr, "Revenue Growth", bold=True)
-        _dcf_row_val(gr, 1, "")
-        for i in range(_n):
-            growth[i] = _dcf_row_input(gr, i + 2, f"ed_g_{i}", growth[i], 0.5, "%.2f")
-        _tg = _dcf_row_input(gr, _tv_col, "ed_tg_tv", _tg, 0.5, "%.2f")
-
-        _revs = [_base_rev]
-        for g in growth:
-            _revs.append(_revs[-1] * (1 + g))
-
-        # ── Revenue (computed) ──
-        rv = st.columns(_cw)
-        _dcf_row_label(rv, "Revenue")
-        _dcf_row_val(rv, 1, f"{_base_rev:,.0f}")
-        for i in range(_n):
-            _dcf_row_val(rv, i + 2, f"{_revs[i + 1]:,.0f}")
-        _tv_rev = _revs[-1] * (1 + _tg)
-        _dcf_row_val(rv, _tv_col, f"{_tv_rev:,.0f}")
-
-        # ── Operating Margin (editable) ──
-        mr = st.columns(_cw)
-        _dcf_row_label(mr, "Operating Margin", bold=True)
-        _base_margin = cfg.get('base_op_margin', 0)
-        _dcf_row_val(mr, 1, f"{_base_margin:.2%}")
-        for i in range(_n):
-            margins[i] = _dcf_row_input(mr, i + 2, f"ed_m_{i}", margins[i], 0.5, "%.2f")
-        _tm = _dcf_row_input(mr, _tv_col, "ed_tm_tv", _tm, 0.5, "%.2f")
-
-        # ── Operating Income (computed) ──
-        oi_row = st.columns(_cw)
-        _dcf_row_label(oi_row, "Operating Income")
-        _dcf_row_val(oi_row, 1, f"{_base_oi:,.0f}")
-        _oi_vals = [_revs[i + 1] * margins[i] for i in range(_n)]
-        for i in range(_n):
-            _dcf_row_val(oi_row, i + 2, f"{_oi_vals[i]:,.0f}")
-        _tv_oi = _tv_rev * _tm
-        _dcf_row_val(oi_row, _tv_col, f"{_tv_oi:,.0f}")
-
-        _dcf_divider()  # ── Revenue → NOPAT ──
-
-        # ── Tax Rate (editable) ──
-        tr = st.columns(_cw)
-        _dcf_row_label(tr, "Tax Rate", bold=True)
-        _dcf_row_val(tr, 1, f"{_default_tax:.2%}")
-        for i in range(_n):
-            _tax_list[i] = _dcf_row_input(tr, i + 2, f"ed_t_{i}", _tax_list[i], 0.5, "%.2f")
-        _tv_tax = _dcf_row_input(tr, _tv_col, "ed_t_tv", _tv_tax_default, 0.5, "%.2f")
-
-        # ── NOPAT (computed) ──
-        np_row = st.columns(_cw)
-        _dcf_row_label(np_row, "NOPAT")
-        _base_nopat = _base_oi * (1 - _default_tax)
-        _dcf_row_val(np_row, 1, f"{_base_nopat:,.0f}")
-        _nopat_vals = [_oi_vals[i] * (1 - _tax_list[i]) for i in range(_n)]
-        for i in range(_n):
-            _dcf_row_val(np_row, i + 2, f"{_nopat_vals[i]:,.0f}")
-        _tv_nopat = _tv_oi * (1 - _tv_tax)
-        _dcf_row_val(np_row, _tv_col, f"{_tv_nopat:,.0f}")
-
-        _dcf_divider()  # ── NOPAT → Reinvestment ──
-
-        # ── Sales-to-Capital (editable) ──
-        sc_row = st.columns(_cw)
-        _dcf_row_label(sc_row, "Sales-to-Capital", bold=True)
-        _dcf_row_val(sc_row, 1, "")
-        for i in range(_n):
-            _stc_list[i] = _dcf_row_input(sc_row, i + 2, f"ed_s_{i}", _stc_list[i], 0.05, "%.2f", is_pct=False)
-        _tv_stc = _dcf_row_input(sc_row, _tv_col, "ed_s_tv", _tv_stc_default, 0.05, "%.2f", is_pct=False)
-
-        # ── Reinvestment (computed) ──
-        ri_row = st.columns(_cw)
-        _dcf_row_label(ri_row, "Reinvestment")
-        _dcf_row_val(ri_row, 1, "")
-        _reinvest_vals = [(_revs[i + 1] - _revs[i]) / _stc_list[i] if _stc_list[i] else 0 for i in range(_n)]
-        for i in range(_n):
-            _dcf_row_val(ri_row, i + 2, f"{_reinvest_vals[i]:,.0f}")
-        _tv_reinvest = (_tv_rev - _revs[-1]) / _tv_stc if _tv_stc else 0
-        _dcf_row_val(ri_row, _tv_col, f"{_tv_reinvest:,.0f}")
-
-        # ── SBC % (editable) ──
-        sbc_row = st.columns(_cw)
-        _dcf_row_label(sbc_row, "SBC % of Revenue", bold=True)
-        _dcf_row_val(sbc_row, 1, "")
-        for i in range(_n):
-            _sbc_list[i] = _dcf_row_input(sbc_row, i + 2, f"ed_sbc_{i}", _sbc_list[i], 0.1, "%.2f")
-        _tv_sbc_pct = _dcf_row_input(sbc_row, _tv_col, "ed_sbc_tv", _tv_sbc_default, 0.1, "%.2f")
-
-        # ── SBC After-Tax (computed) ──
-        sbc_at_row = st.columns(_cw)
-        _dcf_row_label(sbc_at_row, "SBC (after-tax)")
-        _dcf_row_val(sbc_at_row, 1, "")
-        _sbc_vals = [_revs[i + 1] * _sbc_list[i] * (1 - _tax_list[i]) for i in range(_n)]
-        for i in range(_n):
-            _dcf_row_val(sbc_at_row, i + 2, f"{_sbc_vals[i]:,.0f}")
-        _tv_sbc = _tv_rev * _tv_sbc_pct * (1 - _tv_tax)
-        _dcf_row_val(sbc_at_row, _tv_col, f"{_tv_sbc:,.0f}")
-
-        _dcf_divider()  # ── Reinvestment → FCFF ──
-
-        # ── FCFF (computed) ──
-        fcff_row = st.columns(_cw)
-        _dcf_row_label(fcff_row, "FCFF")
-        _dcf_row_val(fcff_row, 1, "")
-        _fcff_vals = [_nopat_vals[i] - _reinvest_vals[i] - _sbc_vals[i] for i in range(_n)]
-        for i in range(_n):
-            _dcf_row_val(fcff_row, i + 2, f"{_fcff_vals[i]:,.0f}")
-        _tv_fcff = _tv_nopat - _tv_reinvest - _tv_sbc
-        _dcf_row_val(fcff_row, _tv_col, f"{_tv_fcff:,.0f}")
-
-        # ── Undiscounted TV ──
-        tv_row = st.columns(_cw)
-        _dcf_row_label(tv_row, "Undiscounted TV")
-        for i in range(_n + 1):
-            _dcf_row_val(tv_row, i + 1, "")
-        _tv_undiscounted = _tv_fcff / (_tv_wacc - _tg) if (_tv_wacc - _tg) > 0 else 0
-        _dcf_row_val(tv_row, _tv_col, f"{_tv_undiscounted:,.0f}")
-
-        _dcf_divider()  # ── FCFF → Discounting ──
-
-        # ── WACC (editable) ──
-        wr = st.columns(_cw)
-        _dcf_row_label(wr, "WACC", bold=True)
-        _dcf_row_val(wr, 1, "")
-        for i in range(_n):
-            _wacc_list[i] = _dcf_row_input(wr, i + 2, f"ed_w_{i}", _wacc_list[i], 0.1, "%.2f")
-        _tv_wacc = _dcf_row_input(wr, _tv_col, "ed_w_tv", _tv_wacc, 0.1, "%.2f")
-
-        # ── Cumulative Discount Factor (computed) ──
-        df_row = st.columns(_cw)
-        _dcf_row_label(df_row, "Cum. Discount Factor")
-        _dcf_row_val(df_row, 1, "1")
-        _df_vals = []
-        for i in range(_n):
-            period = 0.5 + i
-            df = 1 / (1 + _wacc_list[i]) ** period if _wacc_list[i] > 0 else 1
-            _df_vals.append(df)
-            _dcf_row_val(df_row, i + 2, f"{df:.2f}")
-        _dcf_row_val(df_row, _tv_col, "")
-
-        # ── PV of FCFF (computed, with separator) ──
-        pv_row = st.columns(_cw)
-        _dcf_row_label(pv_row, "PV of FCFF", bold=True)
-        _dcf_row_val(pv_row, 1, "", sep=True)
-        _pv_vals = [_fcff_vals[i] * _df_vals[i] for i in range(_n)]
-        for i in range(_n):
-            _dcf_row_val(pv_row, i + 2, f"{_pv_vals[i]:,.0f}", sep=True)
-        _tv_df = 1 / (1 + _tv_wacc) ** (0.5 + _n - 1) if _tv_wacc > 0 and _n > 0 else 1
-        _pv_tv = _tv_undiscounted * _tv_df
-        _dcf_row_val(pv_row, _tv_col, f"{_pv_tv:,.0f}", sep=True)
-
-        # ── Enterprise Value ──
-        _sum_pv = sum(_pv_vals)
-        _ev = _sum_pv + _pv_tv
-        ev_row = st.columns(_cw)
-        _dcf_row_label(ev_row, "Enterprise Value", bold=True)
-        _dcf_row_val(ev_row, 1, f"{_ev:,.0f}", bold=True)
-        for i in range(_n + 1):
-            _dcf_row_val(ev_row, i + 2, "")
-
-        # Write back edited values
-        cfg['revenue_growth'] = growth
-        cfg['op_margins'] = margins
-        cfg['wacc_per_year'] = _wacc_list
-        cfg['tax_per_year'] = _tax_list
-        cfg['stc_per_year'] = _stc_list
-        cfg['sbc_per_year'] = _sbc_list
-        cfg['terminal_growth'] = _tg
-        cfg['terminal_margin'] = _tm
-        cfg['terminal_tax'] = _tv_tax
-        cfg['terminal_stc'] = _tv_stc
-        cfg['terminal_wacc'] = _tv_wacc
-        cfg['terminal_sbc'] = _tv_sbc_pct
-
-        # Equity bridge
-        st.markdown("#### Valuation Bridge")
-        sb1, sb2, sb3 = st.columns(3)
-        with sb1:
-            cfg['shares_outstanding'] = int(st.number_input(
-                "Shares Outstanding (M)", value=int(cfg.get('shares_outstanding', 0)),
-                step=10, key="ed_shares",
-            ))
-        with sb2:
-            cfg['cash_bridge'] = int(st.number_input(
-                "Cash ($M)", value=int(cfg.get('cash_bridge', 0)),
-                step=100, key="ed_cash",
-            ))
-        with sb3:
-            cfg['securities'] = int(st.number_input(
-                "Short-term Securities ($M)", value=int(cfg.get('securities', 0)),
-                step=100, key="ed_sec",
-            ))
-
-        bb1, bb2 = st.columns(2)
-        with bb1:
-            cfg['buyback_rate'] = st.number_input(
-                "Buyback Rate %", value=cfg.get('buyback_rate', 0.0) * 100,
-                step=0.5, format="%.1f", key="ed_bb_rate",
-            ) / 100
-        with bb2:
-            cfg['margin_of_safety'] = st.slider(
-                "Margin of Safety", 0, 50,
-                value=int(cfg.get('margin_of_safety', 0.20) * 100),
-                step=5, format="%d%%", key="ed_mos",
-            ) / 100
-
-        _cash_sec = cfg['cash_bridge'] + cfg['securities']
-        _debt = cfg.get('debt_market_value', 0)
-        _equity = _ev + _cash_sec - _debt
-        _adj_shares = cfg['shares_outstanding'] * (1 - cfg['buyback_rate']) ** _n
-        _intrinsic = _equity / _adj_shares if _adj_shares > 0 else 0
-        _mos = cfg['margin_of_safety']
-        _buy = _intrinsic * (1 - _mos)
-
-        _bstep = (
-            '<div style="display:flex;align-items:center;text-align:center;flex-direction:column;'
-            'min-width:80px;padding:8px 4px">'
-            '<div style="font-size:0.7rem;color:#86868b;margin-bottom:2px">{label}</div>'
-            '<div style="font-size:1.1rem;font-weight:700">{value}</div></div>'
-        )
-        _barrow = '<div style="display:flex;align-items:center;font-size:1.2rem;color:#86868b;padding:0 2px">\u2192</div>'
-
-        bridge_html = (
-            '<div style="display:flex;align-items:center;justify-content:center;flex-wrap:wrap;'
-            'gap:4px;padding:16px 0;background:rgba(0,0,0,0.02);border-radius:12px;margin:8px 0">'
-            + _bstep.format(label="PV of FCFFs", value=f"${_sum_pv:,.0f}")
-            + _barrow + '<div style="font-size:0.8rem;color:#86868b">+</div>' + _barrow
-            + _bstep.format(label="PV of Terminal", value=f"${_pv_tv:,.0f}")
-            + _barrow + '<div style="font-size:0.8rem;color:#86868b">=</div>' + _barrow
-            + _bstep.format(label="Enterprise Value", value=f"${_ev:,.0f}")
-            + _barrow + '<div style="font-size:0.8rem;color:#86868b">+</div>' + _barrow
-            + _bstep.format(label="Cash & Securities", value=f"${_cash_sec:,.0f}")
-            + _barrow + '<div style="font-size:0.8rem;color:#86868b">\u2212</div>' + _barrow
-            + _bstep.format(label="Debt", value=f"${_debt:,.0f}")
-            + _barrow + '<div style="font-size:0.8rem;color:#86868b">=</div>' + _barrow
-            + _bstep.format(label="Equity Value", value=f"${_equity:,.0f}")
-            + _barrow + '<div style="font-size:0.8rem;color:#86868b">\u00f7</div>' + _barrow
-            + _bstep.format(label=f"Shares ({_adj_shares:,.0f}M)", value=f"${_intrinsic:,.2f}")
-            + _barrow + '<div style="font-size:0.8rem;color:#86868b">\u00d7</div>' + _barrow
-            + _bstep.format(label=f"MoS ({_mos:.0%})", value=f"<span style='color:#81b29a'>${_buy:,.2f}</span>")
-            + '</div>'
-        )
-        st.markdown(bridge_html, unsafe_allow_html=True)
-
-        # ── Section: Scenario Adjustments ──
-        st.markdown("#### Scenario Adjustments")
-        sc1, sc2 = st.columns(2)
-        with sc1:
-            st.markdown("**Bull Case**")
-            cfg['bull_growth_adj'] = st.number_input(
-                "Growth Adjustment %", value=cfg.get('bull_growth_adj', 0.02) * 100,
-                step=0.5, format="%.1f", key="ed_bull_g",
-            ) / 100
-            cfg['bull_margin_adj'] = st.number_input(
-                "Margin Adjustment %", value=cfg.get('bull_margin_adj', 0.05) * 100,
-                step=0.5, format="%.1f", key="ed_bull_m",
-            ) / 100
-        with sc2:
-            st.markdown("**Bear Case**")
-            cfg['bear_growth_adj'] = st.number_input(
-                "Growth Adjustment %", value=cfg.get('bear_growth_adj', -0.02) * 100,
-                step=0.5, format="%.1f", key="ed_bear_g",
-            ) / 100
-            cfg['bear_margin_adj'] = st.number_input(
-                "Margin Adjustment %", value=cfg.get('bear_margin_adj', -0.05) * 100,
-                step=0.5, format="%.1f", key="ed_bear_m",
-            ) / 100
-
-        # ── Historical Data (read-only, inside DCF tab) ──
-        ic_years = cfg.get('ic_years', [])
-        if ic_years:
-            with st.expander("#### Historical Data", expanded=False):
-                st.markdown("**Income Statement ($M)**")
-                hist_rows = [
-                    ("Revenue", cfg.get('hist_revenue', [])),
-                    ("Operating Income", cfg.get('hist_operating_income', [])),
-                    ("Net Income", cfg.get('hist_net_income', [])),
-                    ("Cost of Revenue", cfg.get('hist_cost_of_revenue', [])),
-                    ("SBC", cfg.get('hist_sbc_values', [])),
-                    ("Shares (M)", cfg.get('hist_shares', [])),
-                ]
-                hist_header = "| |" + "|".join(str(y) for y in ic_years) + "|\n"
-                hist_header += "|---|" + "|".join("---:" for _ in ic_years) + "|\n"
-                hist_body = ""
-                for label, vals in hist_rows:
-                    if vals:
-                        hist_body += f"| **{label}** |" + "|".join(f"{v:,}" for v in vals) + "|\n"
-                if hist_body:
-                    st.markdown(hist_header + hist_body)
-
-                st.markdown("**Balance Sheet ($M)**")
-                bs_rows = [
-                    ("Current Assets", cfg.get('current_assets', [])),
-                    ("Cash", cfg.get('cash', [])),
-                    ("ST Investments", cfg.get('st_investments', [])),
-                    ("Operating Cash", cfg.get('operating_cash', [])),
-                    ("Current Liabilities", cfg.get('current_liabilities', [])),
-                    ("ST Debt", cfg.get('st_debt', [])),
-                    ("ST Leases", cfg.get('st_leases', [])),
-                    ("Net PP&E", cfg.get('net_ppe', [])),
-                    ("Goodwill & Intang.", cfg.get('goodwill_intang', [])),
-                ]
-                bs_header = "| |" + "|".join(str(y) for y in ic_years) + "|\n"
-                bs_header += "|---|" + "|".join("---:" for _ in ic_years) + "|\n"
-                bs_body = ""
-                for label, vals in bs_rows:
-                    if vals:
-                        bs_body += f"| **{label}** |" + "|".join(f"{v:,}" for v in vals) + "|\n"
-                if bs_body:
-                    st.markdown(bs_header + bs_body)
 
         # ── WACC Inputs (collapsible) ──
-        with st.expander("### WACC Inputs", expanded=False):
-            st.markdown("#### WACC Inputs")
-            w1, w2, w3, w4 = st.columns(4)
-            with w1:
-                cfg['risk_free_rate'] = st.number_input(
-                    "Risk-Free Rate %", value=cfg.get('risk_free_rate', 0.04) * 100,
-                    step=0.1, format="%.2f", key="ed_rfr",
-                ) / 100
-            with w2:
-                cfg['erp'] = st.number_input(
-                    "Equity Risk Premium %", value=cfg.get('erp', 0.055) * 100,
-                    step=0.1, format="%.2f", key="ed_erp",
-                ) / 100
-            with w3:
-                cfg['credit_spread'] = st.number_input(
-                    "Credit Spread %", value=cfg.get('credit_spread', 0.01) * 100,
-                    step=0.1, format="%.2f", key="ed_cs",
-                ) / 100
-            with w4:
-                cfg['tax_rate'] = st.number_input(
-                    "Tax Rate %", value=cfg.get('tax_rate', 0.21) * 100,
-                    step=0.5, format="%.1f", key="ed_tax",
-                ) / 100
+        _ww_val = '<div style="display:flex;justify-content:space-between;padding:6px 0"><span style="{extra}">{label}</span><span style="{extra}">{value}</span></div>'
+        _ww_sep = '<div style="border-top:1px solid rgba(128,128,128,0.25);margin:2px 0"></div>'
 
-            ev1, ev2 = st.columns(2)
-            with ev1:
-                cfg['equity_market_value'] = int(st.number_input(
-                    "Equity Market Value ($M)", value=int(cfg.get('equity_market_value', 0)),
-                    step=1000, key="ed_eq_val",
-                ))
-            with ev2:
-                cfg['debt_market_value'] = int(st.number_input(
-                    "Debt Market Value ($M)", value=int(cfg.get('debt_market_value', 0)),
-                    step=100, key="ed_debt_val",
-                ))
+        with st.expander("### WACC", expanded=False):
+          with st.container(border=True):
+            cfg['risk_free_rate'] = st.number_input(
+                "Risk-Free Rate %", value=cfg.get('risk_free_rate', 0.04) * 100,
+                step=0.1, format="%.2f", key="ed_rfr",
+            ) / 100
+            cfg['erp'] = st.number_input(
+                "Equity Risk Premium %", value=cfg.get('erp', 0.055) * 100,
+                step=0.1, format="%.2f", key="ed_erp",
+            ) / 100
+            cfg['credit_spread'] = st.number_input(
+                "Credit Spread %", value=cfg.get('credit_spread', 0.01) * 100,
+                step=0.1, format="%.2f", key="ed_cs",
+            ) / 100
+            cfg['tax_rate'] = st.number_input(
+                "Tax Rate %", value=cfg.get('tax_rate', 0.21) * 100,
+                step=0.5, format="%.1f", key="ed_tax",
+            ) / 100
+
+            st.markdown(_ww_sep, unsafe_allow_html=True)
+
+            cfg['equity_market_value'] = int(st.number_input(
+                "Equity Market Value ($M)", value=int(cfg.get('equity_market_value', 0)),
+                step=1000, key="ed_eq_val",
+            ))
+            cfg['debt_market_value'] = int(st.number_input(
+                "Debt Market Value ($M)", value=int(cfg.get('debt_market_value', 0)),
+                step=100, key="ed_debt_val",
+            ))
+
+            _eq_val = cfg['equity_market_value']
+            _debt_val = cfg['debt_market_value']
+            _total_cap = _eq_val + _debt_val
+            _eq_wt = _eq_val / _total_cap if _total_cap > 0 else 0
+            _debt_wt = _debt_val / _total_cap if _total_cap > 0 else 0
+            st.markdown(_ww_val.format(label="Equity Weight", value=f"{_eq_wt:.1%}", extra="color:#86868b;"), unsafe_allow_html=True)
+            st.markdown(_ww_val.format(label="Debt Weight", value=f"{_debt_wt:.1%}", extra="color:#86868b;"), unsafe_allow_html=True)
+
+            st.markdown(_ww_sep, unsafe_allow_html=True)
 
             # Sector betas
             @st.cache_data(ttl=3600, show_spinner=False)
@@ -1306,11 +931,624 @@ def _dcf_editor(ticker):
                 updated_betas.append((default_name, default_beta, 1.0))
             cfg['sector_betas'] = updated_betas
 
-            if cfg.get('equity_market_value', 0) + cfg.get('debt_market_value', 0) > 0:
-                computed_wacc = compute_wacc(cfg)
-                st.markdown(f"**Computed WACC: {computed_wacc:.2%}**")
+            _wu_beta = sum(ub * wt for _, ub, wt in cfg['sector_betas']) if cfg['sector_betas'] else 1.0
+            _de_ratio = _debt_val / _eq_val if _eq_val > 0 else 0
+            _lev_beta = _wu_beta * (1 + (1 - cfg['tax_rate']) * _de_ratio)
+            st.markdown(_ww_val.format(label="Weighted Unlevered \u03b2", value=f"{_wu_beta:.2f}", extra="color:#86868b;"), unsafe_allow_html=True)
+            st.markdown(_ww_val.format(label="Levered \u03b2", value=f"{_lev_beta:.2f}", extra="font-weight:700;"), unsafe_allow_html=True)
+
+            st.markdown(_ww_sep, unsafe_allow_html=True)
+
+            _ke = cfg['risk_free_rate'] + _lev_beta * cfg['erp']
+            _kd = (cfg['risk_free_rate'] + cfg['credit_spread']) * (1 - cfg['tax_rate'])
+            st.markdown(_ww_val.format(label="Cost of Equity", value=f"{_ke:.2%}", extra="font-weight:700;"), unsafe_allow_html=True)
+            st.markdown(_ww_val.format(label="Cost of Debt (after-tax)", value=f"{_kd:.2%}", extra="font-weight:700;"), unsafe_allow_html=True)
+
+            st.markdown(_ww_sep, unsafe_allow_html=True)
+
+            if _total_cap > 0:
+                _wacc_computed = _eq_wt * _ke + _debt_wt * _kd
+                st.markdown(_ww_val.format(label="WACC", value=f"{_wacc_computed:.2%}",
+                                           extra="font-weight:700;font-size:1.15rem;color:#81b29a;"), unsafe_allow_html=True)
             else:
                 st.warning("Equity + Debt market value must be > 0 to compute WACC")
+
+        _s2c_val = '<div style="display:flex;justify-content:space-between;padding:6px 0"><span style="{extra}">{label}</span><span style="{extra}">{value}</span></div>'
+        _s2c_sep = '<div style="border-top:1px solid rgba(128,128,128,0.25);margin:2px 0"></div>'
+
+        with st.expander("### Sales-to-Capital", expanded=False):
+          with st.container(border=True):
+            _s2c_years = cfg.get('ic_years', [])
+            _s2c_rev = cfg.get('hist_revenue', [])
+            _s2c_ca = cfg.get('current_assets', [])
+            _s2c_cash = cfg.get('cash', [])
+            _s2c_si = cfg.get('st_investments', [])
+            _s2c_cl = cfg.get('current_liabilities', [])
+            _s2c_sd = cfg.get('st_debt', [])
+            _s2c_sl = cfg.get('st_leases', [])
+            _s2c_ppe = cfg.get('net_ppe', [])
+            _s2c_gi = cfg.get('goodwill_intang', [])
+            _s2c_n = len(_s2c_years)
+
+            if _s2c_n >= 2 and len(_s2c_rev) >= _s2c_n:
+                _s2c_ratios = []
+                for _si in range(1, _s2c_n):
+                    _rev_chg = _s2c_rev[_si] - _s2c_rev[_si - 1]
+                    _ncwc_now = (_s2c_ca[_si] - _s2c_cash[_si] - _s2c_si[_si]) - (_s2c_cl[_si] - _s2c_sd[_si] - _s2c_sl[_si])
+                    _ncwc_prev = (_s2c_ca[_si-1] - _s2c_cash[_si-1] - _s2c_si[_si-1]) - (_s2c_cl[_si-1] - _s2c_sd[_si-1] - _s2c_sl[_si-1])
+                    _delta_ncwc = _ncwc_now - _ncwc_prev
+                    _delta_ppe = _s2c_ppe[_si] - _s2c_ppe[_si - 1]
+                    _delta_gi = _s2c_gi[_si] - _s2c_gi[_si - 1]
+                    _ic_chg = _delta_ncwc + _delta_ppe + _delta_gi
+
+                    _yr_label = f"{_s2c_years[_si-1]}\u2192{_s2c_years[_si]}"
+                    st.markdown(_s2c_val.format(label=f"**{_yr_label}**", value="", extra="font-weight:700;"), unsafe_allow_html=True)
+                    st.markdown(_s2c_val.format(label="\u2003\u0394 Revenue", value=f"${_rev_chg:,.0f}", extra="color:#86868b;"), unsafe_allow_html=True)
+                    st.markdown(_s2c_val.format(label="\u2003\u0394 Non-cash WC", value=f"${_delta_ncwc:,.0f}", extra="color:#86868b;"), unsafe_allow_html=True)
+                    st.markdown(_s2c_val.format(label="\u2003\u0394 Net PP&E", value=f"${_delta_ppe:,.0f}", extra="color:#86868b;"), unsafe_allow_html=True)
+                    st.markdown(_s2c_val.format(label="\u2003\u0394 Goodwill & Intang.", value=f"${_delta_gi:,.0f}", extra="color:#86868b;"), unsafe_allow_html=True)
+                    st.markdown(_s2c_val.format(label="\u2003\u0394 Invested Capital", value=f"${_ic_chg:,.0f}", extra="font-weight:700;"), unsafe_allow_html=True)
+                    if _ic_chg > 0 and _rev_chg != 0:
+                        _yr_s2c = _rev_chg / _ic_chg
+                        _s2c_ratios.append(_yr_s2c)
+                        st.markdown(_s2c_val.format(label="\u2003Sales-to-Capital", value=f"{_yr_s2c:.2f}", extra="font-weight:700;"), unsafe_allow_html=True)
+                    else:
+                        st.markdown(_s2c_val.format(label="\u2003Sales-to-Capital", value="n/a", extra="color:#86868b;"), unsafe_allow_html=True)
+                    st.markdown(_s2c_sep, unsafe_allow_html=True)
+
+                if _s2c_ratios:
+                    _s2c_ratios.sort()
+                    _s2c_median = _s2c_ratios[len(_s2c_ratios) // 2]
+                    st.markdown(_s2c_val.format(label="Median Sales-to-Capital", value=f"{_s2c_median:.2f}",
+                                               extra="font-weight:700;font-size:1.15rem;color:#81b29a;"), unsafe_allow_html=True)
+                    st.markdown(_s2c_val.format(label="Used in DCF", value=f"{cfg.get('sales_to_capital', 1.0):.2f}",
+                                               extra="font-weight:700;font-size:1.05rem;"), unsafe_allow_html=True)
+            else:
+                st.info("Not enough historical data to compute Sales-to-Capital breakdown")
+
+            # Sector reference from Damodaran
+            st.markdown(_s2c_sep, unsafe_allow_html=True)
+            @st.cache_data(ttl=3600, show_spinner=False)
+            def _damodaran_s2c():
+                return fetch_sector_s2c()
+
+            _dam_s2c = _damodaran_s2c()
+            if _dam_s2c:
+                _sector_names = [name for name, _, _ in cfg.get('sector_betas', [])]
+                _matched = []
+                for _sn in _sector_names:
+                    # Exact match first
+                    if _sn in _dam_s2c:
+                        _matched.append((_sn, _dam_s2c[_sn]))
+                    else:
+                        # Fuzzy: match on first word(s) before parentheses or common prefix
+                        _sn_base = _sn.split("(")[0].strip().lower()
+                        _sn_words = set(_sn.lower().split())
+                        _best_name, _best_score = None, 0
+                        for _ds in _dam_s2c:
+                            _ds_base = _ds.split("(")[0].strip().lower()
+                            _ds_words = set(_ds.lower().split())
+                            _overlap = len(_sn_words & _ds_words)
+                            if _sn_base == _ds_base:
+                                _overlap += 5  # strong boost for matching base name
+                            if _overlap > _best_score:
+                                _best_score = _overlap
+                                _best_name = _ds
+                        if _best_name and _best_score >= 1:
+                            _matched.append((_best_name, _dam_s2c[_best_name]))
+                st.markdown("**Sector Reference (Damodaran)**")
+                if _matched:
+                    for _sn, _sv in _matched:
+                        st.markdown(_s2c_val.format(label=f"\u2003{_sn}", value=f"{_sv:.2f}",
+                                                   extra="color:#86868b;"), unsafe_allow_html=True)
+                else:
+                    st.markdown('<p style="color:#86868b;font-size:0.85rem">No matching sector found</p>', unsafe_allow_html=True)
+
+        st.markdown('<p style="color:#86868b;font-size:0.85rem">In millions</p>', unsafe_allow_html=True)
+
+        _n = len(growth)
+        _base_rev = cfg.get('base_revenue', 0)
+        _base_oi = cfg.get('base_oi', 0)
+        _tg = cfg.get('terminal_growth', 0.03)
+        _tm = cfg.get('terminal_margin', margins[-1] if margins else 0.30)
+
+        # Expand single-value assumptions to per-year lists
+        _default_wacc = compute_wacc(cfg) if cfg.get('equity_market_value', 0) + cfg.get('debt_market_value', 0) > 0 else 0.08
+        _wacc_list = list(cfg.get('wacc_per_year', [_default_wacc] * _n))
+        if len(_wacc_list) < _n:
+            _wacc_list.extend([_wacc_list[-1] if _wacc_list else _default_wacc] * (_n - len(_wacc_list)))
+        _default_tax = cfg.get('tax_rate', 0.21)
+        _tax_list = list(cfg.get('tax_per_year', [_default_tax] * _n))
+        if len(_tax_list) < _n:
+            _tax_list.extend([_tax_list[-1] if _tax_list else _default_tax] * (_n - len(_tax_list)))
+        _default_stc = cfg.get('sales_to_capital', 1.0)
+        _stc_list = list(cfg.get('stc_per_year', [_default_stc] * _n))
+        if len(_stc_list) < _n:
+            _stc_list.extend([_stc_list[-1] if _stc_list else _default_stc] * (_n - len(_stc_list)))
+        _default_sbc = cfg.get('sbc_pct', 0.004)
+        _sbc_list = list(cfg.get('sbc_per_year', [_default_sbc] * _n))
+        if len(_sbc_list) < _n:
+            _sbc_list.extend([_sbc_list[-1] if _sbc_list else _default_sbc] * (_n - len(_sbc_list)))
+
+        # Terminal column editable values (defaults from config or last year)
+        _tv_tax_default = cfg.get('terminal_tax', _tax_list[-1] if _tax_list else _default_tax)
+        _tv_stc_default = cfg.get('terminal_stc', _stc_list[-1] if _stc_list else _default_stc)
+        _tv_sbc_default = cfg.get('terminal_sbc', _sbc_list[-1] if _sbc_list else _default_sbc)
+        # Pre-read terminal WACC from session state (widget rendered after TV calc)
+        _tv_wacc_default = cfg.get('terminal_wacc', _wacc_list[-1] if _wacc_list else _default_wacc)
+        _tv_wacc = st.session_state.get("ed_w_tv", _tv_wacc_default * 100) / 100
+
+        # Column layout: label + base year + 10 projection years + terminal
+        _cw = [1.8] + [1] * (_n + 2)
+        _tv_col = _n + 2  # terminal column index
+        _cs = 'font-size:0.78rem;padding:2px 0;min-height:28px;display:flex;align-items:center;justify-content:right'
+        _cs_bold = _cs + ';font-weight:700'
+        _cs_label = 'font-size:0.78rem;padding:2px 0;min-height:28px;display:flex;align-items:center'
+        _cs_label_bold = _cs_label + ';font-weight:700'
+        _cs_sep = 'border-top:2px solid #d2d2d7;' + _cs
+        _cs_hdr = 'font-size:0.78rem;padding:4px 0;min-height:32px;display:flex;align-items:center;justify-content:right;font-weight:700;border-bottom:2px solid #d2d2d7'
+        _cs_hdr_label = 'font-size:0.78rem;padding:4px 0;min-height:32px;display:flex;align-items:center;font-weight:700;border-bottom:2px solid #d2d2d7'
+        _tv_bg = 'background:rgba(0,0,0,0.03);border-radius:4px;padding-left:4px;padding-right:4px'
+
+        def _dcf_row_label(cols, label, bold=False):
+            with cols[0]:
+                st.markdown(f"<div style='{_cs_label_bold if bold else _cs_label}'>{label}</div>", unsafe_allow_html=True)
+
+        def _dcf_row_val(cols, idx, text, bold=False, sep=False, tv=False):
+            style = _cs_sep if sep else (_cs_bold if bold else _cs)
+            if tv or idx == _tv_col:
+                style += f';{_tv_bg}'
+            with cols[idx]:
+                st.markdown(f"<div style='{style}'>{text}</div>", unsafe_allow_html=True)
+
+        def _dcf_row_input(cols, idx, key, value, step, fmt, is_pct=True):
+            with cols[idx]:
+                v = st.number_input(key, value=value * 100 if is_pct else value,
+                                    step=step, format=fmt, key=key, label_visibility="collapsed")
+                return v / 100 if is_pct else v
+
+        def _dcf_divider():
+            st.markdown("<div style='border-top:1px solid #e5e5ea;margin:2px 0'></div>", unsafe_allow_html=True)
+
+        # ── Year header row ──
+        with st.container(border=True):
+            hdr = st.columns(_cw)
+            with hdr[0]:
+                st.markdown(f"<div style='{_cs_hdr_label}'></div>", unsafe_allow_html=True)
+            with hdr[1]:
+                st.markdown(f"<div style='{_cs_hdr}'>{base_year}</div>", unsafe_allow_html=True)
+            for i in range(_n):
+                with hdr[i + 2]:
+                    st.markdown(f"<div style='{_cs_hdr}'>{base_year + i + 1}</div>", unsafe_allow_html=True)
+            with hdr[_tv_col]:
+                st.markdown(f"<div style='{_cs_hdr};{_tv_bg}'>Terminal</div>", unsafe_allow_html=True)
+
+            # ── Period row ──
+            pr = st.columns(_cw)
+            _dcf_row_label(pr, "Period")
+            _dcf_row_val(pr, 1, "0")
+            for i in range(_n):
+                _dcf_row_val(pr, i + 2, f"{0.5 + i:.1f}")
+            _dcf_row_val(pr, _tv_col, "")
+
+            # ── Revenue Growth (editable) ──
+            gr = st.columns(_cw)
+            _dcf_row_label(gr, "Revenue Growth", bold=True)
+            _dcf_row_val(gr, 1, "")
+            for i in range(_n):
+                growth[i] = _dcf_row_input(gr, i + 2, f"ed_g_{i}", growth[i], 0.5, "%.2f")
+            _tg = _dcf_row_input(gr, _tv_col, "ed_tg_tv", _tg, 0.5, "%.2f")
+
+            _revs = [_base_rev]
+            for g in growth:
+                _revs.append(_revs[-1] * (1 + g))
+
+            # ── Revenue (computed) ──
+            rv = st.columns(_cw)
+            _dcf_row_label(rv, "Revenue")
+            _dcf_row_val(rv, 1, f"{_base_rev:,.0f}")
+            for i in range(_n):
+                _dcf_row_val(rv, i + 2, f"{_revs[i + 1]:,.0f}")
+            _tv_rev = _revs[-1] * (1 + _tg)
+            _dcf_row_val(rv, _tv_col, f"{_tv_rev:,.0f}")
+
+            # ── Operating Margin (editable) ──
+            mr = st.columns(_cw)
+            _dcf_row_label(mr, "Operating Margin", bold=True)
+            _base_margin = cfg.get('base_op_margin', 0)
+            _dcf_row_val(mr, 1, f"{_base_margin:.2%}")
+            for i in range(_n):
+                margins[i] = _dcf_row_input(mr, i + 2, f"ed_m_{i}", margins[i], 0.5, "%.2f")
+            _tm = _dcf_row_input(mr, _tv_col, "ed_tm_tv", _tm, 0.5, "%.2f")
+
+            # ── Operating Income (computed) ──
+            oi_row = st.columns(_cw)
+            _dcf_row_label(oi_row, "Operating Income")
+            _dcf_row_val(oi_row, 1, f"{_base_oi:,.0f}")
+            _oi_vals = [_revs[i + 1] * margins[i] for i in range(_n)]
+            for i in range(_n):
+                _dcf_row_val(oi_row, i + 2, f"{_oi_vals[i]:,.0f}")
+            _tv_oi = _tv_rev * _tm
+            _dcf_row_val(oi_row, _tv_col, f"{_tv_oi:,.0f}")
+
+            _dcf_divider()  # ── Revenue → NOPAT ──
+
+            # ── Tax Rate (editable) ──
+            tr = st.columns(_cw)
+            _dcf_row_label(tr, "Tax Rate", bold=True)
+            _dcf_row_val(tr, 1, f"{_default_tax:.2%}")
+            for i in range(_n):
+                _tax_list[i] = _dcf_row_input(tr, i + 2, f"ed_t_{i}", _tax_list[i], 0.5, "%.2f")
+            _tv_tax = _dcf_row_input(tr, _tv_col, "ed_t_tv", _tv_tax_default, 0.5, "%.2f")
+
+            # ── NOPAT (computed) ──
+            np_row = st.columns(_cw)
+            _dcf_row_label(np_row, "NOPAT")
+            _base_nopat = _base_oi * (1 - _default_tax)
+            _dcf_row_val(np_row, 1, f"{_base_nopat:,.0f}")
+            _nopat_vals = [_oi_vals[i] * (1 - _tax_list[i]) for i in range(_n)]
+            for i in range(_n):
+                _dcf_row_val(np_row, i + 2, f"{_nopat_vals[i]:,.0f}")
+            _tv_nopat = _tv_oi * (1 - _tv_tax)
+            _dcf_row_val(np_row, _tv_col, f"{_tv_nopat:,.0f}")
+
+            _dcf_divider()  # ── NOPAT → Reinvestment ──
+
+            # ── Sales-to-Capital (editable) ──
+            sc_row = st.columns(_cw)
+            _dcf_row_label(sc_row, "Sales-to-Capital", bold=True)
+            _dcf_row_val(sc_row, 1, "")
+            for i in range(_n):
+                _stc_list[i] = _dcf_row_input(sc_row, i + 2, f"ed_s_{i}", _stc_list[i], 0.05, "%.2f", is_pct=False)
+            _tv_stc = _dcf_row_input(sc_row, _tv_col, "ed_s_tv", _tv_stc_default, 0.05, "%.2f", is_pct=False)
+
+            # ── Reinvestment (computed) ──
+            ri_row = st.columns(_cw)
+            _dcf_row_label(ri_row, "Reinvestment")
+            _dcf_row_val(ri_row, 1, "")
+            _reinvest_vals = [(_revs[i + 1] - _revs[i]) / _stc_list[i] if _stc_list[i] else 0 for i in range(_n)]
+            for i in range(_n):
+                _dcf_row_val(ri_row, i + 2, f"{_reinvest_vals[i]:,.0f}")
+            _tv_reinvest = (_tv_rev - _revs[-1]) / _tv_stc if _tv_stc else 0
+            _dcf_row_val(ri_row, _tv_col, f"{_tv_reinvest:,.0f}")
+
+            # ── SBC % (editable) ──
+            sbc_row = st.columns(_cw)
+            _dcf_row_label(sbc_row, "SBC % of Revenue", bold=True)
+            _dcf_row_val(sbc_row, 1, "")
+            for i in range(_n):
+                _sbc_list[i] = _dcf_row_input(sbc_row, i + 2, f"ed_sbc_{i}", _sbc_list[i], 0.1, "%.2f")
+            _tv_sbc_pct = _dcf_row_input(sbc_row, _tv_col, "ed_sbc_tv", _tv_sbc_default, 0.1, "%.2f")
+
+            # ── SBC After-Tax (computed) ──
+            sbc_at_row = st.columns(_cw)
+            _dcf_row_label(sbc_at_row, "SBC (after-tax)")
+            _dcf_row_val(sbc_at_row, 1, "")
+            _sbc_vals = [_revs[i + 1] * _sbc_list[i] * (1 - _tax_list[i]) for i in range(_n)]
+            for i in range(_n):
+                _dcf_row_val(sbc_at_row, i + 2, f"{_sbc_vals[i]:,.0f}")
+            _tv_sbc = _tv_rev * _tv_sbc_pct * (1 - _tv_tax)
+            _dcf_row_val(sbc_at_row, _tv_col, f"{_tv_sbc:,.0f}")
+
+            _dcf_divider()  # ── Reinvestment → FCFF ──
+
+            # ── FCFF (computed) ──
+            fcff_row = st.columns(_cw)
+            _dcf_row_label(fcff_row, "FCFF")
+            _dcf_row_val(fcff_row, 1, "")
+            _fcff_vals = [_nopat_vals[i] - _reinvest_vals[i] - _sbc_vals[i] for i in range(_n)]
+            for i in range(_n):
+                _dcf_row_val(fcff_row, i + 2, f"{_fcff_vals[i]:,.0f}")
+            _tv_fcff = _tv_nopat - _tv_reinvest - _tv_sbc
+            _dcf_row_val(fcff_row, _tv_col, f"{_tv_fcff:,.0f}")
+
+            # ── Undiscounted TV ──
+            tv_row = st.columns(_cw)
+            _dcf_row_label(tv_row, "Undiscounted TV")
+            for i in range(_n + 1):
+                _dcf_row_val(tv_row, i + 1, "")
+            _tv_undiscounted = _tv_fcff / (_tv_wacc - _tg) if (_tv_wacc - _tg) > 0 else 0
+            _dcf_row_val(tv_row, _tv_col, f"{_tv_undiscounted:,.0f}")
+
+            _dcf_divider()  # ── FCFF → Discounting ──
+
+            # ── WACC (editable) ──
+            wr = st.columns(_cw)
+            _dcf_row_label(wr, "WACC", bold=True)
+            _dcf_row_val(wr, 1, "")
+            for i in range(_n):
+                _wacc_list[i] = _dcf_row_input(wr, i + 2, f"ed_w_{i}", _wacc_list[i], 0.1, "%.2f")
+            _tv_wacc = _dcf_row_input(wr, _tv_col, "ed_w_tv", _tv_wacc, 0.1, "%.2f")
+
+            # ── Cumulative Discount Factor (computed) ──
+            df_row = st.columns(_cw)
+            _dcf_row_label(df_row, "Cum. Discount Factor")
+            _dcf_row_val(df_row, 1, "1")
+            _df_vals = []
+            for i in range(_n):
+                period = 0.5 + i
+                df = 1 / (1 + _wacc_list[i]) ** period if _wacc_list[i] > 0 else 1
+                _df_vals.append(df)
+                _dcf_row_val(df_row, i + 2, f"{df:.2f}")
+            _dcf_row_val(df_row, _tv_col, "")
+
+            # ── PV of FCFF (computed, with separator) ──
+            pv_row = st.columns(_cw)
+            _dcf_row_label(pv_row, "PV of FCFF", bold=True)
+            _dcf_row_val(pv_row, 1, "", sep=True)
+            _pv_vals = [_fcff_vals[i] * _df_vals[i] for i in range(_n)]
+            for i in range(_n):
+                _dcf_row_val(pv_row, i + 2, f"{_pv_vals[i]:,.0f}", sep=True)
+            _tv_df = 1 / (1 + _tv_wacc) ** (0.5 + _n - 1) if _tv_wacc > 0 and _n > 0 else 1
+            _pv_tv = _tv_undiscounted * _tv_df
+            _dcf_row_val(pv_row, _tv_col, f"{_pv_tv:,.0f}", sep=True)
+
+            # ── Enterprise Value ──
+            _sum_pv = sum(_pv_vals)
+            _ev = _sum_pv + _pv_tv
+            ev_row = st.columns(_cw)
+            _dcf_row_label(ev_row, "Enterprise Value", bold=True)
+            _dcf_row_val(ev_row, 1, f"{_ev:,.0f}", bold=True)
+            for i in range(_n + 1):
+                _dcf_row_val(ev_row, i + 2, "")
+
+        # Write back edited values
+        cfg['revenue_growth'] = growth
+        cfg['op_margins'] = margins
+        cfg['wacc_per_year'] = _wacc_list
+        cfg['tax_per_year'] = _tax_list
+        cfg['stc_per_year'] = _stc_list
+        cfg['sbc_per_year'] = _sbc_list
+        cfg['terminal_growth'] = _tg
+        cfg['terminal_margin'] = _tm
+        cfg['terminal_tax'] = _tv_tax
+        cfg['terminal_stc'] = _tv_stc
+        cfg['terminal_wacc'] = _tv_wacc
+        cfg['terminal_sbc'] = _tv_sbc_pct
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Equity bridge — interactive waterfall
+        st.markdown("#### Valuation Bridge")
+        _wf_val = '<div style="display:flex;justify-content:space-between;padding:6px 0"><span style="{extra}">{label}</span><span style="{extra}">{value}</span></div>'
+        _wf_sep = '<div style="border-top:1px solid rgba(128,128,128,0.25);margin:2px 0"></div>'
+
+        with st.container(border=True):
+            st.markdown(_wf_val.format(label="Enterprise Value", value=f"${_ev:,.0f}",
+                                       extra="font-weight:700;font-size:1.05rem;"), unsafe_allow_html=True)
+            cfg['cash_bridge'] = int(st.number_input(
+                "\u2003+ Cash ($M)", value=int(cfg.get('cash_bridge', 0)),
+                step=100, key="ed_cash",
+            ))
+            cfg['securities'] = int(st.number_input(
+                "\u2003+ Securities ($M)", value=int(cfg.get('securities', 0)),
+                step=100, key="ed_sec",
+            ))
+            _cash_sec = cfg['cash_bridge'] + cfg['securities']
+            _debt = cfg.get('debt_market_value', 0)
+            st.markdown(_wf_val.format(label="\u2003\u2212 Debt", value=f"(${_debt:,.0f})",
+                                       extra="color:#86868b;"), unsafe_allow_html=True)
+
+            st.markdown(_wf_sep, unsafe_allow_html=True)
+            _equity = _ev + _cash_sec - _debt
+            st.markdown(_wf_val.format(label="Equity Value", value=f"${_equity:,.0f}",
+                                       extra="font-weight:700;font-size:1.05rem;"), unsafe_allow_html=True)
+
+            cfg['shares_outstanding'] = int(st.number_input(
+                "\u2003\u00f7 Shares Outstanding (M)", value=int(cfg.get('shares_outstanding', 0)),
+                step=10, key="ed_shares",
+            ))
+            cfg['buyback_rate'] = st.number_input(
+                "\u2003\u00d7 Buyback Rate %", value=cfg.get('buyback_rate', 0.0) * 100,
+                step=0.5, format="%.1f", key="ed_bb_rate",
+            ) / 100
+            _adj_shares = cfg['shares_outstanding'] * (1 - cfg['buyback_rate']) ** _n
+            _intrinsic = _equity / _adj_shares if _adj_shares > 0 else 0
+
+            st.markdown(_wf_sep, unsafe_allow_html=True)
+            st.markdown(_wf_val.format(label="Intrinsic Value", value=f"${_intrinsic:,.2f}",
+                                       extra="font-weight:700;font-size:1.05rem;"), unsafe_allow_html=True)
+
+            cfg['margin_of_safety'] = st.slider(
+                "\u2003\u00d7 Margin of Safety", 0, 50,
+                value=int(cfg.get('margin_of_safety', 0.20) * 100),
+                step=5, format="%d%%", key="ed_mos",
+            ) / 100
+            _mos = cfg['margin_of_safety']
+            _buy = _intrinsic * (1 - _mos)
+
+            st.markdown(_wf_sep, unsafe_allow_html=True)
+            st.markdown(_wf_val.format(label="Buy Price", value=f"${_buy:,.2f}",
+                                       extra="font-weight:700;font-size:1.15rem;color:#81b29a;"), unsafe_allow_html=True)
+
+            _cur_price = cfg.get('stock_price', 0)
+            if _cur_price > 0:
+                _upside = (_buy / _cur_price - 1) * 100
+                _up_color = "#81b29a" if _upside >= 0 else "#e07a5f"
+                _up_label = "upside" if _upside >= 0 else "downside"
+                st.markdown(_wf_sep, unsafe_allow_html=True)
+                st.markdown(_wf_val.format(label="Current Price", value=f"${_cur_price:,.2f}",
+                                           extra="font-weight:700;font-size:1.05rem;"), unsafe_allow_html=True)
+                st.markdown(_wf_val.format(label=f"\u2003{_up_label}",
+                                           value=f"{_upside:+.1f}%",
+                                           extra=f"font-weight:700;font-size:1.05rem;color:{_up_color};"), unsafe_allow_html=True)
+
+        # ── Historical Data (read-only, inside DCF tab) ──
+        ic_years = cfg.get('ic_years', [])
+        if ic_years:
+            with st.expander("#### Historical Data", expanded=False):
+                st.markdown("**Income Statement ($M)**")
+                hist_rows = [
+                    ("Revenue", cfg.get('hist_revenue', [])),
+                    ("Operating Income", cfg.get('hist_operating_income', [])),
+                    ("Net Income", cfg.get('hist_net_income', [])),
+                    ("Cost of Revenue", cfg.get('hist_cost_of_revenue', [])),
+                    ("SBC", cfg.get('hist_sbc_values', [])),
+                    ("Shares (M)", cfg.get('hist_shares', [])),
+                ]
+                hist_header = "| |" + "|".join(str(y) for y in ic_years) + "|\n"
+                hist_header += "|---|" + "|".join("---:" for _ in ic_years) + "|\n"
+                hist_body = ""
+                for label, vals in hist_rows:
+                    if vals:
+                        hist_body += f"| **{label}** |" + "|".join(f"{v:,}" for v in vals) + "|\n"
+                if hist_body:
+                    st.markdown(hist_header + hist_body)
+
+                st.markdown("**Balance Sheet ($M)**")
+                bs_rows = [
+                    ("Current Assets", cfg.get('current_assets', [])),
+                    ("Cash", cfg.get('cash', [])),
+                    ("ST Investments", cfg.get('st_investments', [])),
+                    ("Operating Cash", cfg.get('operating_cash', [])),
+                    ("Current Liabilities", cfg.get('current_liabilities', [])),
+                    ("ST Debt", cfg.get('st_debt', [])),
+                    ("ST Leases", cfg.get('st_leases', [])),
+                    ("Net PP&E", cfg.get('net_ppe', [])),
+                    ("Goodwill & Intang.", cfg.get('goodwill_intang', [])),
+                ]
+                bs_header = "| |" + "|".join(str(y) for y in ic_years) + "|\n"
+                bs_header += "|---|" + "|".join("---:" for _ in ic_years) + "|\n"
+                bs_body = ""
+                for label, vals in bs_rows:
+                    if vals:
+                        bs_body += f"| **{label}** |" + "|".join(f"{v:,}" for v in vals) + "|\n"
+                if bs_body:
+                    st.markdown(bs_header + bs_body)
+
+    with _tab_rdcf:
+        import pandas as pd
+
+        st.markdown("#### Reverse DCF")
+
+        # ── Adjustable ranges (expander) ──
+        _rdcf_g_range = None
+        _rdcf_m_range = None
+        with st.expander("Adjust ranges"):
+            _rc1, _rc2, _rc3 = st.columns(3)
+            with _rc1:
+                st.markdown("**Revenue CAGR**")
+                _rg_min = st.number_input("Min %", value=0.0, step=1.0, format="%.0f", key="rdcf_gmin") / 100
+                _rg_max = st.number_input("Max %", value=30.0, step=1.0, format="%.0f", key="rdcf_gmax") / 100
+                _rg_step = st.number_input("Step %", value=2.0, step=0.5, format="%.1f", key="rdcf_gstep") / 100
+                if _rg_step > 0 and _rg_max > _rg_min:
+                    _rdcf_g_range = (_rg_min, _rg_max, _rg_step)
+            with _rc2:
+                st.markdown("**Operating Margin**")
+                _rm_min = st.number_input("Min %", value=5.0, step=1.0, format="%.0f", key="rdcf_mmin") / 100
+                _rm_max = st.number_input("Max %", value=40.0, step=1.0, format="%.0f", key="rdcf_mmax") / 100
+                _rm_step = st.number_input("Step %", value=2.0, step=0.5, format="%.1f", key="rdcf_mstep") / 100
+                if _rm_step > 0 and _rm_max > _rm_min:
+                    _rdcf_m_range = (_rm_min, _rm_max, _rm_step)
+            with _rc3:
+                st.markdown("**WACC**")
+                _rdcf_wacc = st.number_input(
+                    "WACC %", value=val['wacc'] * 100,
+                    step=0.1, format="%.2f", key="rdcf_wacc",
+                ) / 100
+
+        # ── Compute reverse DCF ──
+        _rdcf = compute_reverse_dcf(cfg, wacc=_rdcf_wacc,
+                                     growth_range=_rdcf_g_range,
+                                     margin_range=_rdcf_m_range)
+
+        # ── Market vs Your Base Case comparison ──
+        _bc = _rdcf['base_cagr']
+        _bm = _rdcf['base_margin']
+        _closest = _rdcf['closest']
+        _impl_g, _impl_m = _closest if _closest else (0, 0)
+
+        _mc1, _mc2 = st.columns(2)
+        with _mc1:
+            st.markdown(
+                f'<div style="border:1px solid #e8e8ed;border-radius:12px;padding:20px;text-align:center">'
+                f'<div style="color:#86868b;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Market implies</div>'
+                f'<div style="font-size:1.8rem;font-weight:700;margin:8px 0;color:#1d1d1f">{_impl_g:.0%} CAGR &nbsp;+&nbsp; {_impl_m:.0%} Margin</div>'
+                f'<div style="color:#86868b;font-size:0.85rem">to justify ${_rdcf["market_price"]:.2f}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with _mc2:
+            st.markdown(
+                f'<div style="border:1px solid #e8e8ed;border-radius:12px;padding:20px;text-align:center">'
+                f'<div style="color:#86868b;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Your base case</div>'
+                f'<div style="font-size:1.8rem;font-weight:700;margin:8px 0;color:#1d1d1f">{_bc:.0%} CAGR &nbsp;+&nbsp; {_bm:.0%} Margin</div>'
+                f'<div style="color:#86868b;font-size:0.85rem">DCF value ${val["intrinsic_value"]:.2f}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        # ── Conclusion ──
+        if _impl_g > _bc * 1.2 or _impl_m > _bm * 1.2:
+            _conclusion = (f"Market is more optimistic than your base case — "
+                           f"it prices in {_impl_g:.0%} CAGR / {_impl_m:.0%} margin "
+                           f"vs your {_bc:.0%} / {_bm:.0%}.")
+        elif _impl_g < _bc * 0.8 or _impl_m < _bm * 0.8:
+            _conclusion = (f"Potential undervaluation — market only requires "
+                           f"{_impl_g:.0%} CAGR / {_impl_m:.0%} margin, "
+                           f"below your {_bc:.0%} / {_bm:.0%} base case.")
+        else:
+            _conclusion = (f"Fairly priced — market-implied assumptions "
+                           f"({_impl_g:.0%} CAGR / {_impl_m:.0%} margin) "
+                           f"are close to your base case ({_bc:.0%} / {_bm:.0%}).")
+        st.markdown(
+            f'<div style="color:#86868b;font-size:0.85rem;text-align:center;margin:12px 0 16px">{_conclusion}</div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── Sensitivity matrix ──
+        st.markdown(f"**Sensitivity Matrix** — WACC: {_rdcf['wacc']:.2%} | Market: ${_rdcf['market_price']:.2f}")
+
+        _g_tests = _rdcf['growth_tests']
+        _m_tests = _rdcf['margin_tests']
+        _closest = _rdcf['closest']
+        _mkt = _rdcf['market_price']
+
+        # Build pivot table
+        _matrix_data = {}
+        for entry in _rdcf['matrix']:
+            _matrix_data[(entry['growth'], entry['margin'])] = entry['price']
+
+        _df_data = []
+        for g in _g_tests:
+            row = {}
+            for mg in _m_tests:
+                row[f"{mg:.0%}"] = _matrix_data.get((g, mg), 0)
+            _df_data.append(row)
+        _df = pd.DataFrame(_df_data, index=[f"{g:.0%}" for g in _g_tests])
+        _df.index.name = "CAGR \\ Margin"
+
+        # Style the matrix
+        def _style_matrix(df):
+            styles = pd.DataFrame('', index=df.index, columns=df.columns)
+            for i, g in enumerate(_g_tests):
+                for j, mg in enumerate(_m_tests):
+                    price = _matrix_data.get((g, mg), 0)
+                    col_name = f"{mg:.0%}"
+                    row_name = f"{g:.0%}"
+                    if (g, mg) == _closest:
+                        styles.loc[row_name, col_name] = 'background-color: #81b29a; color: white; font-weight: bold'
+                    elif price >= _mkt:
+                        styles.loc[row_name, col_name] = 'background-color: rgba(129,178,154,0.15); color: #1d1d1f'
+                    else:
+                        styles.loc[row_name, col_name] = 'background-color: rgba(224,122,95,0.15); color: #1d1d1f'
+            return styles
+
+        _styled = _df.style.apply(_style_matrix, axis=None).format("${:,.0f}")
+        _row_height = 35
+        _header_height = 40
+        _df_height = _header_height + len(_g_tests) * _row_height + 10
+        st.dataframe(_styled, use_container_width=True, height=_df_height)
+
+        # ── Legend ──
+        st.markdown(
+            '<div style="display:flex;gap:20px;font-size:0.8rem;color:#86868b;margin-top:4px">'
+            '<span><span style="display:inline-block;width:12px;height:12px;background:#81b29a;border-radius:2px;vertical-align:middle;margin-right:4px"></span>Market-implied</span>'
+            '<span><span style="display:inline-block;width:12px;height:12px;background:rgba(129,178,154,0.15);border:1px solid #81b29a;border-radius:2px;vertical-align:middle;margin-right:4px"></span>Undervalued</span>'
+            '<span><span style="display:inline-block;width:12px;height:12px;background:rgba(224,122,95,0.15);border:1px solid #e07a5f;border-radius:2px;vertical-align:middle;margin-right:4px"></span>Overvalued</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
     with _tab_peers:
         _base_margin_p = cfg.get('base_op_margin', 0)
@@ -1414,14 +1652,14 @@ def _dcf_editor(ticker):
             save_config(ticker, cfg)
             st.rerun()
 
-        _ac1, _ac2 = st.columns([5, 1])
-        with _ac1:
-            _new_peer = st.text_input("Add peer", key="ed_add_peer",
-                                      placeholder="Add peer — e.g. MSFT, GOOG",
-                                      label_visibility="collapsed")
-        with _ac2:
-            _add_clicked = st.button("+ Add", key="ed_add_peer_btn",
-                                     use_container_width=True)
+        with st.form("add_peer_form"):
+            _ac1, _ac2 = st.columns([5, 1])
+            with _ac1:
+                _new_peer = st.text_input("Add peer", key="ed_add_peer",
+                                          placeholder="Add peer — e.g. MSFT, GOOG",
+                                          label_visibility="collapsed")
+            with _ac2:
+                _add_clicked = st.form_submit_button("+ Add", use_container_width=True)
         if _add_clicked and _new_peer:
             _new_tickers = [t.strip().upper() for t in _new_peer.split(",") if t.strip()]
             _existing = {p.get("ticker") for p in peers}
@@ -1433,6 +1671,7 @@ def _dcf_editor(ticker):
                     peers.extend(_new_peers)
                     cfg['peers'] = peers
                     save_config(ticker, cfg)
+                    st.session_state.pop("ed_peer_select", None)
                     st.rerun()
                 else:
                     st.warning("Could not fetch peer data. Check the ticker(s).")
@@ -1460,9 +1699,10 @@ def _dcf_editor(ticker):
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
             key="ed_dl",
+            type="primary",
         )
     with btn3:
-        if st.button("Remove from Watchlist", key="ed_remove", use_container_width=True):
+        if st.button("Remove from Watchlist", key="ed_remove", use_container_width=True, type="primary"):
             remove_from_watchlist(ticker)
             del st.query_params["edit"]
             st.rerun()
@@ -1662,51 +1902,12 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
 with st.sidebar:
     page = st.radio(
         "Navigate",
-        ["DCF Valuation", "Watchlist", "Portfolio", "Wheel Cost Basis", "Results"],
+        ["Portfolio", "Watchlist", "Wheel Cost Basis", "Results"],
         label_visibility="collapsed",
     )
     st.markdown("---")
 
-    if page == "DCF Valuation":
-        st.markdown("### Settings")
-        st.markdown("")
-
-        margin_of_safety = st.slider(
-            "Margin of Safety",
-            min_value=0,
-            max_value=50,
-            value=int(MARGIN_OF_SAFETY_DEFAULT * 100),
-            step=5,
-            format="%d%%",
-            help="Discount applied to fair value to determine buy price",
-        ) / 100.0
-
-        terminal_growth = st.slider(
-            "Terminal Growth Rate",
-            min_value=1.0,
-            max_value=5.0,
-            value=TERMINAL_GROWTH_DEFAULT * 100,
-            step=0.5,
-            format="%.1f%%",
-            help="Long-term perpetuity growth rate (GDP + inflation)",
-        ) / 100.0
-
-        n_peers = st.number_input(
-            "Number of Peers",
-            min_value=0,
-            max_value=20,
-            value=6,
-            help="How many comparable companies to include",
-        )
-
-        st.markdown("---")
-        st.markdown(
-            "<small style='color: #86868b'>Data: SEC EDGAR, Yahoo Finance, Damodaran<br>"
-            "Methodology: Damodaran DCF with Sales-to-Capital reinvestment</small>",
-            unsafe_allow_html=True,
-        )
-
-    elif page in ("Portfolio", "Wheel Cost Basis", "Results"):
+    if page in ("Portfolio", "Wheel Cost Basis", "Results"):
         st.markdown("### Tastytrade")
         if st.button("Refresh Data", use_container_width=True, type="primary"):
             st.session_state.pop("portfolio_data", None)
@@ -1715,6 +1916,7 @@ with st.sidebar:
             st.session_state.pop("net_liq_all", None)
             st.session_state.pop("yearly_transfers", None)
             st.session_state.pop("benchmark_returns", None)
+            st.session_state.pop("portfolio_fetched_at", None)
             for k in [k for k in st.session_state if k.startswith("net_liq_")]:
                 st.session_state.pop(k, None)
             st.rerun()
@@ -1732,13 +1934,23 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════
 
 def _load_portfolio_data():
-    """Fetch and enrich portfolio data (cached in session_state)."""
+    """Fetch and enrich portfolio data (cached in session_state, auto-refreshes every 5 min)."""
+    # Auto-refresh after 5 minutes
+    fetched_at = st.session_state.get("portfolio_fetched_at", 0)
+    if "portfolio_data" in st.session_state and time.time() - fetched_at > 300:
+        for k in ["portfolio_data", "portfolio_account", "portfolio_prices",
+                   "net_liq_all", "yearly_transfers", "benchmark_returns"]:
+            st.session_state.pop(k, None)
+        for k in [k for k in st.session_state if k.startswith("net_liq_")]:
+            st.session_state.pop(k, None)
+
     if "portfolio_data" not in st.session_state:
         with st.spinner("Fetching transactions from Tastytrade..."):
             try:
                 cost_basis, acct = fetch_portfolio_data()
                 st.session_state.portfolio_data = cost_basis
                 st.session_state.portfolio_account = acct
+                st.session_state.portfolio_fetched_at = time.time()
             except Exception as e:
                 st.error(f"Failed to fetch data: {e}")
                 with st.expander("Error details"):
@@ -1753,10 +1965,13 @@ def _load_portfolio_data():
         st.stop()
 
     if "portfolio_prices" not in st.session_state:
-        held_tickers = [t for t, d in cost_basis.items() if d["shares_held"] > 0]
-        if held_tickers:
+        active_tickers = [
+            t for t, d in cost_basis.items()
+            if d["shares_held"] > 0 or _has_open_options(d)
+        ]
+        if active_tickers:
             with st.spinner("Fetching current prices..."):
-                st.session_state.portfolio_prices = fetch_current_prices(held_tickers)
+                st.session_state.portfolio_prices = fetch_current_prices(active_tickers)
         else:
             st.session_state.portfolio_prices = {}
 
@@ -1771,6 +1986,12 @@ def _load_portfolio_data():
             data["previous_close"] = price_data.get("previousClose") or price
             data["market_value"] = price * shares
             data["total_pl_real"] = data["total_pl"] + data["market_value"]
+        elif price_data:
+            # Options-only position — store underlying price for reference
+            data["current_price"] = price_data["price"]
+            data["previous_close"] = price_data.get("previousClose") or price_data["price"]
+            data["market_value"] = 0.0
+            data["total_pl_real"] = data["total_pl"]
         else:
             data["current_price"] = 0.0
             data["previous_close"] = 0.0
@@ -1803,6 +2024,11 @@ def _parse_option_symbol(symbol):
         return strike, exp.strftime("%d-%m-%Y"), cp
     except ValueError:
         return strike, None, cp
+
+
+def _has_open_options(data):
+    """Check if a ticker has any open option positions."""
+    return bool(_find_open_options(data.get("trades", [])))
 
 
 def _find_open_options(trades):
@@ -1857,228 +2083,12 @@ def _find_open_options(trades):
     return result
 
 
-# ══════════════════════════════════════════════════════
-#  DCF VALUATION PAGE
-# ══════════════════════════════════════════════════════
-
-if page == "DCF Valuation":
-
-    st.markdown(
-        "<style>.block-container { max-width: 730px; margin: auto; }</style>",
-        unsafe_allow_html=True,
-    )
-    st.markdown("## DCF Valuation")
-    st.markdown(
-        '<p style="color: #86868b; font-size: 1.05rem; line-height: 1.6; max-width: 560px;">'
-        'Generate a full Discounted Cash Flow analysis from SEC filings. '
-        '10-year projection, WACC calculation, and a professional Excel workbook.'
-        '</p>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("")
-
-    # ── Input Form ──
-    with st.form("dcf_form"):
-        col1, col2 = st.columns([2, 1])
-
-        with col1:
-            ticker_input = st.text_input(
-                "Stock Ticker",
-                placeholder="e.g. MSFT, AAPL, PANW",
-                max_chars=10,
-            )
-
-        with col2:
-            peer_mode = st.selectbox(
-                "Peer Comparison",
-                options=["Auto-discover", "Manual", "None"],
-                index=0,
-            )
-
-        manual_peers = ""
-        if peer_mode == "Manual":
-            manual_peers = st.text_input(
-                "Peer tickers (comma-separated)",
-                placeholder="AAPL, GOOGL, AMZN, META",
-            )
-
-        submitted = st.form_submit_button("Generate DCF Model", type="primary", use_container_width=True)
-
-    # ── Run Analysis ──
-    if submitted and ticker_input:
-        ticker = ticker_input.strip().upper()
-
-        try:
-            excel_bytes, cfg, credit_rating = run_analysis(
-                ticker=ticker,
-                peer_mode=peer_mode,
-                manual_peers=manual_peers,
-                margin_of_safety=margin_of_safety,
-                terminal_growth=terminal_growth,
-                n_peers=n_peers,
-            )
-
-            st.session_state.excel_data = excel_bytes
-            st.session_state.cfg = cfg
-            st.session_state.ticker = ticker
-            st.session_state.credit_rating = credit_rating
-
-        except Exception as e:
-            st.error(f"Analysis failed: {e}")
-            with st.expander("Error details"):
-                st.exception(e)
-
-    elif submitted:
-        st.warning("Please enter a ticker symbol.")
-
-
-    # ══════════════════════════════════════════════════════
-    #  RESULTS
-    # ══════════════════════════════════════════════════════
-
-    if "excel_data" in st.session_state and st.session_state.excel_data:
-        ticker = st.session_state.ticker
-        cfg = st.session_state.cfg
-        credit_rating = st.session_state.get("credit_rating", "N/A")
-
-        # ── Success Banner + Download ──
-        st.markdown(
-            f'<div class="success-banner">'
-            f'<h2>{cfg.get("company", ticker)} ({ticker})</h2>'
-            f'<p>DCF model ready \u2014 10-year projection with {len(cfg.get("peers", []))} peer comparisons</p>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-        dl_col, wl_col = st.columns([3, 1])
-        with dl_col:
-            st.download_button(
-                label=f"Download {ticker}_DCF.xlsx",
-                data=st.session_state.excel_data,
-                file_name=f"{ticker}_DCF.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-                type="primary",
-            )
-        with wl_col:
-            if st.button("Add to Watchlist", use_container_width=True, key="dcf_save_wl"):
-                save_config(ticker, cfg)
-                st.success(f"{ticker} added to Watchlist")
-
-        st.markdown("")
-
-        # ── Key Metrics ──
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Stock Price", f"${cfg.get('stock_price', 0):.2f}")
-        c2.metric("Market Cap", f"${cfg.get('equity_market_value', 0):,.0f}M")
-        c3.metric("Revenue", f"${cfg.get('base_revenue', 0):,.0f}M")
-        c4.metric("Op. Margin", f"{cfg.get('base_op_margin', 0):.1%}")
-
-        c5, c6, c7, c8 = st.columns(4)
-        c5.metric("WACC Inputs", f"Rf {cfg.get('risk_free_rate', 0):.1%}")
-        c6.metric("Credit", credit_rating)
-        c7.metric("Terminal Growth", f"{cfg.get('terminal_growth', 0):.1%}")
-        c8.metric("MoS", f"{cfg.get('margin_of_safety', 0):.0%}")
-
-        st.markdown("")
-
-        # ── Projection Charts ──
-        growth = cfg.get("revenue_growth", [])
-        margins = cfg.get("op_margins", [])
-        base_year = cfg.get("base_year", 2025)
-
-        if growth and margins:
-            col_g, col_m = st.columns(2)
-
-            proj_years = [str(base_year + i + 1) for i in range(len(growth))]
-
-            with col_g:
-                st.markdown('<p class="chart-label">Revenue Growth</p>', unsafe_allow_html=True)
-                df_growth = pd.DataFrame({
-                    "Year": proj_years,
-                    "Growth": [g * 100 for g in growth],
-                }).set_index("Year")
-                st.bar_chart(df_growth, color="#81b29a", height=200)
-
-            with col_m:
-                st.markdown('<p class="chart-label">Operating Margin</p>', unsafe_allow_html=True)
-                df_margin = pd.DataFrame({
-                    "Year": proj_years,
-                    "Margin": [m * 100 for m in margins],
-                }).set_index("Year")
-                st.bar_chart(df_margin, color="#81b29a", height=200)
-
-        # ── Peer Comparison Table ──
-        peers = cfg.get("peers", [])
-        if peers:
-            st.markdown("")
-            st.markdown("#### Peer Comparison")
-
-            peer_rows = []
-            for p in peers:
-                peer_rows.append({
-                    "Ticker": p.get("ticker", ""),
-                    "Company": p.get("name", ""),
-                    "EV/Revenue": f"{p.get('ev_revenue', 0):.1f}x",
-                    "EV/EBITDA": f"{p.get('ev_ebitda', 0):.1f}x",
-                    "P/E": f"{p.get('pe', 0):.1f}x",
-                    "Op. Margin": f"{p.get('op_margin', 0):.1%}",
-                    "Rev. Growth": f"{p.get('rev_growth', 0):.1%}",
-                })
-
-            df_peers = pd.DataFrame(peer_rows)
-            st.dataframe(
-                df_peers,
-                use_container_width=True,
-                hide_index=True,
-            )
-
-        # ── Detailed Assumptions (collapsed) ──
-        with st.expander("View Detailed Assumptions"):
-            st.markdown("**Revenue Growth Trajectory**")
-            if growth:
-                growth_str = " \u2192 ".join(f"{g:.1%}" for g in growth)
-                st.code(growth_str, language=None)
-
-            st.markdown("**Operating Margin Trajectory**")
-            if margins:
-                margin_str = " \u2192 ".join(f"{m:.1%}" for m in margins)
-                st.code(margin_str, language=None)
-
-            det1, det2 = st.columns(2)
-            with det1:
-                st.markdown("**WACC Components**")
-                st.markdown(f"- Risk-free rate: {cfg.get('risk_free_rate', 0):.2%}")
-                st.markdown(f"- Equity risk premium: {cfg.get('erp', 0):.2%}")
-                st.markdown(f"- Credit spread: {cfg.get('credit_spread', 0):.2%}")
-                st.markdown(f"- Tax rate: {cfg.get('tax_rate', 0):.0%}")
-
-            with det2:
-                st.markdown("**Other Assumptions**")
-                st.markdown(f"- Sales-to-capital: {cfg.get('sales_to_capital', 0):.2f}")
-                st.markdown(f"- SBC as %% of revenue: {cfg.get('sbc_pct', 0):.1%}")
-                st.markdown(f"- Buyback rate: {cfg.get('buyback_rate', 0):.1%}")
-                st.markdown(f"- Terminal margin: {cfg.get('terminal_margin', 0):.1%}")
-
-            betas = cfg.get("sector_betas", [])
-            if betas:
-                st.markdown("**Sector Betas**")
-                for name, beta, weight in betas:
-                    st.markdown(f"- {name}: {beta:.2f} (weight {weight:.0%})")
-
-            debt = cfg.get("debt_breakdown", [])
-            if debt:
-                st.markdown("**Debt Breakdown**")
-                for label, amount in debt:
-                    st.markdown(f"- {label}: ${amount:,.0f}M")
-
 
 # ══════════════════════════════════════════════════════
 #  WATCHLIST PAGE — Track multiple DCF valuations
 # ══════════════════════════════════════════════════════
 
-elif page == "Watchlist":
+if page == "Watchlist":
 
     st.markdown(
         "<style>.block-container { max-width: 1400px; margin: auto; }</style>",
@@ -2106,7 +2116,10 @@ elif page == "Portfolio":
     st.markdown("")
     cost_basis = _load_portfolio_data()
 
-    held = {t: d for t, d in cost_basis.items() if d["shares_held"] > 0}
+    held = {
+        t: d for t, d in cost_basis.items()
+        if d["shares_held"] > 0 or _has_open_options(d)
+    }
 
     if not held:
         st.info("No active positions.")
@@ -2118,6 +2131,10 @@ elif page == "Portfolio":
     @st.cache_data(ttl=60, show_spinner=False)
     def _cached_account_balances():
         return fetch_account_balances()
+
+    @st.cache_data(ttl=120, show_spinner=False)
+    def _cached_margin_requirements():
+        return fetch_margin_requirements()
 
     def _margin_overview():
         st.markdown("")
@@ -2135,15 +2152,157 @@ elif page == "Portfolio":
         used_bp = bal["used_derivative_buying_power"]
         total_bp = bp + used_bp
 
-        # ── Simulator inputs (rendered first so we know the margin impact) ──
-        st.markdown('<p style="font-weight:600;margin-top:16px;margin-bottom:4px">Simulate Positions</p>', unsafe_allow_html=True)
+        # ── Compute assignment exposure from open short options ──
+        total_assignment = 0.0
+        total_assign_margin = 0.0
+        assignment_entries = []
+        portfolio = st.session_state.get("portfolio_data", {})
+        prices_cache = st.session_state.get("portfolio_prices", {})
 
+        for ticker, data in portfolio.items():
+            opts = _find_open_options(data["trades"])
+            for opt in opts:
+                if opt["cp"] == "P":
+                    shares = opt["quantity"] * 100
+                    exposure = opt["strike"] * shares
+                    # Fetch margin requirement for holding assigned shares
+                    _amk = f"_assign_margin_{ticker.upper()}_{shares}"
+                    if _amk not in st.session_state:
+                        _amr = fetch_margin_for_position(ticker, shares)
+                        st.session_state[_amk] = _amr
+                    _amr = st.session_state[_amk]
+                    margin = abs(_amr["change_in_margin"]) if _amr else exposure * 0.50
+                    total_assignment += exposure
+                    total_assign_margin += margin
+                    _apct = margin / exposure * 100 if exposure > 0 else 0
+                    assignment_entries.append(f'{opt["quantity"]}x {ticker} ${opt["strike"]:.0f}P = ${margin:,.0f} ({_apct:.0f}%)')
+                elif opt["cp"] == "C" and opt["type"] != "CC":
+                    # Naked short calls only — covered calls don't need extra margin
+                    shares = opt["quantity"] * 100
+                    cur_price = prices_cache.get(ticker, {}).get("price", 0) if prices_cache else 0
+                    exposure = cur_price * shares
+                    _amk = f"_assign_margin_{ticker.upper()}_{shares}"
+                    if _amk not in st.session_state:
+                        _amr = fetch_margin_for_position(ticker, shares)
+                        st.session_state[_amk] = _amr
+                    _amr = st.session_state[_amk]
+                    margin = abs(_amr["change_in_margin"]) if _amr else exposure * 0.50
+                    total_assignment += exposure
+                    total_assign_margin += margin
+                    _apct = margin / exposure * 100 if exposure > 0 else 0
+                    assignment_entries.append(f'{opt["quantity"]}x {ticker} ${opt["strike"]:.0f}C = ${margin:,.0f} ({_apct:.0f}%)')
+
+        # ── Compute simulation impact from session state ──
         if "sim_rows" not in st.session_state:
             st.session_state["sim_rows"] = 1
 
         total_sim_cost = 0.0
         total_sim_margin = 0.0
         sim_entries = []
+
+        for i in range(st.session_state["sim_rows"]):
+            ticker = st.session_state.get(f"sim_tick_{i}", "")
+            shares = st.session_state.get(f"sim_sh_{i}", 100)
+            price = st.session_state.get(f"sim_pr_{i}", 0.0)
+            if ticker and price > 0 and shares > 0:
+                cost = price * shares
+                _margin_key = f"_sim_margin_{ticker.upper()}_{shares}"
+                if _margin_key not in st.session_state:
+                    _mr = fetch_margin_for_position(ticker, shares)
+                    st.session_state[_margin_key] = _mr
+                _mr = st.session_state[_margin_key]
+                margin = abs(_mr["change_in_margin"]) if _mr else cost * 0.50
+                total_sim_cost += cost
+                total_sim_margin += margin
+                _pct = margin / cost * 100 if cost > 0 else 0
+                sim_entries.append(f'{shares}x {ticker.upper()} @ ${price:,.2f} ({_pct:.0f}%)')
+
+        # ── Compute final values (base + simulation + assignment) ──
+        show_used = used_bp + total_sim_margin + total_assign_margin
+        show_bp = bp - total_sim_margin - total_assign_margin
+        show_excess = maint_excess - total_sim_margin - total_assign_margin
+        show_usage = (show_used / total_bp * 100) if total_bp > 0 else 0
+        show_drop = (show_excess / net_liq * 100) if net_liq > 0 else 0
+
+        # Margin call line: point on bar where maintenance excess = 0
+        margin_call_pct = ((show_used + show_excess) / total_bp * 100) if total_bp > 0 else 100
+
+        if show_usage < 50:
+            bar_color = "#81b29a"
+            status = "Cash"
+        elif show_usage < 75:
+            bar_color = "#f2cc8f"
+            status = "Margin"
+        else:
+            bar_color = "#e07a5f"
+            status = "High Leverage"
+
+        # Simulation subtitle
+        sim_note = ""
+        if total_sim_cost > 0:
+            sim_label = " + ".join(sim_entries)
+            sim_note = (
+                f'<div style="margin-bottom:12px;padding:8px 12px;background:#f7f8fa;border-radius:8px;'
+                f'border:1px dashed #d2d2d7;font-size:0.85rem">'
+                f'<span style="color:#86868b">Simulating: </span>'
+                f'<b>{sim_label}</b>'
+                f'<span style="color:#86868b"> = ${total_sim_cost:,.0f} — margin ${total_sim_margin:,.0f}</span>'
+                f'</div>'
+            )
+
+        # Assignment risk info block
+        assign_note = ""
+        if total_assignment > 0:
+            assign_label = " | ".join(assignment_entries)
+            assign_note = (
+                f'<div style="margin-bottom:12px;padding:8px 12px;background:#f7f8fa;border-radius:8px;'
+                f'border:1px dashed #d2d2d7;font-size:0.85rem">'
+                f'<span style="color:#86868b">Assignment Risk: </span>'
+                f'<b>{assign_label}</b>'
+                f'<span style="color:#86868b"> — margin ${total_assign_margin:,.0f}</span>'
+                f'</div>'
+            )
+
+        st.markdown(
+            f'<div class="hero-card">'
+            f'<h4>Margin Overview</h4>'
+            f'{assign_note}'
+            f'{sim_note}'
+            f'<div style="margin:16px 0">'
+            f'  <div style="display:flex;justify-content:space-between;margin-bottom:6px">'
+            f'    <span style="font-size:0.85rem;color:#86868b">BP Used: ${show_used:,.0f} / ${total_bp:,.0f}</span>'
+            f'    <span style="font-size:0.85rem;font-weight:600;color:{bar_color}">{status} ({show_usage:.0f}%) · <span style="color:#e07a5f">MC at {margin_call_pct:.0f}%</span></span>'
+            f'  </div>'
+            f'  <div style="position:relative;height:28px">'
+            f'    <div style="position:absolute;top:8px;left:0;right:0;background:#f0f0f2;border-radius:8px;height:12px;overflow:hidden">'
+            f'      <div style="background:{bar_color};width:{min(show_usage, 100):.0f}%;height:100%;border-radius:8px;'
+            f'           transition:width 0.3s ease"></div>'
+            f'    </div>'
+            f'    <div style="position:absolute;left:50%;top:0;height:28px;display:flex;flex-direction:column;align-items:center;transform:translateX(-50%)">'
+            f'      <div style="width:2px;height:28px;background:#f2cc8f"></div>'
+            f'    </div>'
+            f'    <div style="position:absolute;left:75%;top:0;height:28px;display:flex;flex-direction:column;align-items:center;transform:translateX(-50%)">'
+            f'      <div style="width:2px;height:28px;background:#e07a5f"></div>'
+            f'    </div>'
+            f'  </div>'
+            f'  <div style="position:relative;height:16px;font-size:0.7rem;color:#86868b">'
+            f'    <span style="position:absolute;left:50%;transform:translateX(-50%)">50%</span>'
+            f'    <span style="position:absolute;left:75%;transform:translateX(-50%)">75%</span>'
+            f'  </div>'
+            f'</div>'
+            f'<div class="stat-row">'
+            f'<span class="stat-pill">Buying Power <b>${show_bp:,.0f}</b></span>'
+            f'<span class="stat-pill">BP in Use <b>${show_used:,.0f}</b></span>'
+            f'<span class="stat-pill">Buffer <b>${show_excess:,.0f}</b></span>'
+            f'<span class="stat-pill">Margin Call at <b>-{show_drop:.0f}%</b></span>'
+            + (f'<span class="stat-pill">Assignment Margin <b>${total_assign_margin:,.0f}</b></span>' if total_assign_margin > 0 else '') +
+            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── Simulator inputs (below the overview bar) ──
+        st.markdown('<p style="font-weight:600;margin-top:16px;margin-bottom:4px">Simulate Positions</p>', unsafe_allow_html=True)
 
         h1, h2, h3 = st.columns([1, 1, 1], gap="small")
         h1.markdown('<span style="font-size:0.8rem;color:#86868b">Ticker</span>', unsafe_allow_html=True)
@@ -2171,87 +2330,23 @@ elif page == "Portfolio":
             with c3:
                 price = st.number_input("Price", min_value=0.0, step=0.01, format="%.2f", key=price_key, label_visibility="collapsed")
 
-            if ticker and price > 0 and shares > 0:
-                cost = price * shares
-                margin = cost * 0.25
-                total_sim_cost += cost
-                total_sim_margin += margin
-                sim_entries.append(f'{shares}x {ticker.upper()} @ ${price:,.2f}')
-
-        _, btn_col, _ = st.columns([1, 1, 1])
-        with btn_col:
+        _, btn_add, btn_reset, _ = st.columns([1, 1, 1, 1])
+        with btn_add:
             if st.button("Add row", key="sim_add_row", type="primary", use_container_width=True):
                 st.session_state["sim_rows"] += 1
                 st.rerun()
+        with btn_reset:
+            if st.button("Reset", key="sim_reset", type="primary", use_container_width=True):
+                for i in range(st.session_state["sim_rows"]):
+                    st.session_state.pop(f"sim_tick_{i}", None)
+                    st.session_state.pop(f"sim_sh_{i}", None)
+                    st.session_state.pop(f"sim_pr_{i}", None)
+                st.session_state["sim_rows"] = 1
+                st.rerun()
 
-        # ── Compute final values (base + simulation) ──
-        show_used = used_bp + total_sim_margin
-        show_bp = bp - total_sim_margin
-        show_excess = maint_excess - total_sim_margin
-        show_usage = (show_used / total_bp * 100) if total_bp > 0 else 0
-        show_drop = (show_excess / net_liq * 100) if net_liq > 0 else 0
-
-        if show_usage < 50:
-            bar_color = "#81b29a"
-            status = "Healthy"
-        elif show_usage < 75:
-            bar_color = "#f2cc8f"
-            status = "Moderate"
-        else:
-            bar_color = "#e07a5f"
-            status = "Caution"
-
-        # Simulation subtitle
-        sim_note = ""
-        if total_sim_cost > 0:
-            sim_label = " + ".join(sim_entries)
-            sim_note = (
-                f'<div style="margin-bottom:12px;padding:8px 12px;background:#f7f8fa;border-radius:8px;'
-                f'border:1px dashed #d2d2d7;font-size:0.85rem">'
-                f'<span style="color:#86868b">Simulating: </span>'
-                f'<b>{sim_label}</b>'
-                f'<span style="color:#86868b"> = ${total_sim_cost:,.0f}</span>'
-                f'</div>'
-            )
-
-        st.markdown(
-            f'<div class="hero-card">'
-            f'<h4>Margin Overview</h4>'
-            f'{sim_note}'
-            f'<div style="margin:16px 0">'
-            f'  <div style="display:flex;justify-content:space-between;margin-bottom:6px">'
-            f'    <span style="font-size:0.85rem;color:#86868b">BP Used: ${show_used:,.0f} / ${total_bp:,.0f}</span>'
-            f'    <span style="font-size:0.85rem;font-weight:600;color:{bar_color}">{status} ({show_usage:.0f}%)</span>'
-            f'  </div>'
-            f'  <div style="position:relative;height:28px">'
-            f'    <div style="position:absolute;top:8px;left:0;right:0;background:#f0f0f2;border-radius:8px;height:12px;overflow:hidden">'
-            f'      <div style="background:{bar_color};width:{min(show_usage, 100):.0f}%;height:100%;border-radius:8px;'
-            f'           transition:width 0.3s ease"></div>'
-            f'    </div>'
-            f'    <div style="position:absolute;left:50%;top:0;height:28px;display:flex;flex-direction:column;align-items:center;transform:translateX(-50%)">'
-            f'      <div style="width:2px;height:28px;background:#f2cc8f"></div>'
-            f'    </div>'
-            f'    <div style="position:absolute;left:75%;top:0;height:28px;display:flex;flex-direction:column;align-items:center;transform:translateX(-50%)">'
-            f'      <div style="width:2px;height:28px;background:#e07a5f"></div>'
-            f'    </div>'
-            f'  </div>'
-            f'  <div style="position:relative;height:16px;font-size:0.7rem;color:#86868b">'
-            f'    <span style="position:absolute;left:50%;transform:translateX(-50%)">50%</span>'
-            f'    <span style="position:absolute;left:75%;transform:translateX(-50%)">75%</span>'
-            f'  </div>'
-            f'</div>'
-            f'<div class="stat-row">'
-            f'<span class="stat-pill">Buying Power <b>${show_bp:,.0f}</b></span>'
-            f'<span class="stat-pill">BP in Use <b>${show_used:,.0f}</b></span>'
-            f'<span class="stat-pill">Buffer <b>${show_excess:,.0f}</b></span>'
-            f'<span class="stat-pill">Margin Call at <b>-{show_drop:.0f}%</b></span>'
-            f'</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-        # Store balance for interest card
+        # Store balance for other cards
         st.session_state["_margin_cash"] = bal["cash_balance"]
+        st.session_state["_net_liq"] = bal["net_liquidating_value"]
 
     @st.fragment(run_every=timedelta(seconds=30))
     def _portfolio_cards():
@@ -2270,6 +2365,9 @@ elif page == "Portfolio":
                 data["current_price"] = p
                 data["previous_close"] = price_data.get("previousClose") or p
                 data["market_value"] = p * shares
+            elif price_data:
+                data["current_price"] = price_data["price"]
+                data["previous_close"] = price_data.get("previousClose") or price_data["price"]
 
         # ── Hero card ──
         if balances:
@@ -2304,10 +2402,10 @@ elif page == "Portfolio":
         # ── Column picker & Sort ──
         all_cols = ["Shares", "Buy Price", "Cost/Share", "Break-even", "Current Price",
                     "Day %", "Mkt Value", "Unrealized P/L", "Return %", "Ann. %",
-                    "Premie", "Days", "Weight"]
+                    "Premie", "Days", "Weight", "Margin", "Margin %"]
         default_cols = ["Shares", "Buy Price", "Cost/Share", "Current Price", "Day %",
                         "Mkt Value", "Unrealized P/L", "Return %", "Weight"]
-        sort_options = ["Ticker", "Weight", "Day %", "Return %", "Unrealized P/L", "Mkt Value", "Ann. %"]
+        sort_options = ["Ticker", "Weight", "Day %", "Return %", "Unrealized P/L", "Mkt Value", "Ann. %", "Margin %"]
 
         with st.container(key="toolbar_inline"):
             col_left, col_right = st.columns(2)
@@ -2400,8 +2498,18 @@ elif page == "Portfolio":
                 "Days": days_held,
             })
 
+        # ── Per-position margin requirements ──
+        try:
+            _margin_reqs = _cached_margin_requirements()
+        except Exception:
+            _margin_reqs = {}
+
         for row in rows:
             row["Weight"] = row["Mkt Value"] / total_value * 100 if total_value else 0.0
+            _mr = _margin_reqs.get(row["Ticker"], {})
+            row["Margin"] = _mr.get("margin_requirement", 0)
+            _mv = row["Mkt Value"]
+            row["Margin %"] = (row["Margin"] / _mv * 100) if _mv > 0 else 0
 
         # ── Sort rows ──
         if sort_by == "Ticker":
@@ -2428,6 +2536,10 @@ elif page == "Portfolio":
                 return f"{val:+.2f}%", cls
             if col == "Weight":
                 return f"{val:.1f}%", cls
+            if col == "Margin":
+                return f"${val:,.0f}", cls
+            if col == "Margin %":
+                return f"{val:.0f}%", cls
             if col == "Shares":
                 return f"{int(val)}", cls
             if col == "Days":
@@ -2505,17 +2617,29 @@ elif page == "Portfolio":
         st.markdown(cards_html, unsafe_allow_html=True)
 
     _portfolio_cards()
-    _margin_overview()
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.container(border=True):
+        _margin_overview()
 
-    # ── Portfolio Greeks & Margin Interest (side by side) ──
+    # ── Portfolio Greeks, BWD & Margin Interest ──
     gk = None
     try:
         from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(fetch_portfolio_greeks)
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(fetch_portfolio_greeks)
+        try:
             gk = future.result(timeout=15)
+        except Exception:
+            gk = None
+        executor.shutdown(wait=False, cancel_futures=True)
     except Exception:
         gk = None
+
+    bwd = None
+    try:
+        bwd = fetch_beta_weighted_delta()
+    except Exception:
+        bwd = None
 
     mi = None
     try:
@@ -2526,65 +2650,119 @@ elif page == "Portfolio":
     cash = st.session_state.get("_margin_cash", 0.0)
     debt = abs(cash) if cash < 0 else 0.0
     has_greeks = gk and gk["positions"]
+    has_bwd = bwd and bwd["spy_price"] > 0
     has_interest = debt > 0 or (mi and mi["total"] < 0)
 
-    if has_greeks or has_interest:
-        if has_greeks and has_interest:
-            col_greeks, col_interest = st.columns(2)
-        elif has_greeks:
-            col_greeks = st.container()
-            col_interest = None
-        else:
-            col_interest = st.container()
-            col_greeks = None
+    _cards = []
+    if has_greeks:
+        _cards.append("greeks")
+    if has_bwd:
+        _cards.append("bwd")
+    if has_interest:
+        _cards.append("interest")
 
-        if has_greeks and col_greeks:
-            tot = gk["totals"]
-            theta = tot["theta"]
-            delta = tot["delta"]
-            vega = tot["vega"]
-            theta_color = "#81b29a" if theta >= 0 else "#e07a5f"
+    if _cards:
+      with st.container(border=True):
+            _cols = st.columns(len(_cards))
+            _col_map = {name: col for name, col in zip(_cards, _cols)}
 
-            with col_greeks:
-                st.markdown(
-                    f'<div class="hero-card" style="height:100%">'
-                    f'<h4>Portfolio Greeks</h4>'
-                    f'<div style="text-align:center;margin-bottom:16px">'
-                    f'  <span style="font-size:1.6rem;font-weight:700;color:{theta_color}">${theta:,.0f}</span>'
-                    f'  <span style="font-size:0.85rem;color:#86868b">theta / day</span>'
-                    f'</div>'
-                    f'<div class="stat-row">'
-                    f'<span class="stat-pill">Delta <b>{delta:,.0f}</b>'
-                    f'  <span style="font-size:0.7rem;color:#86868b">$ per $1 move</span></span>'
-                    f'<span class="stat-pill">Vega <b>${vega:,.0f}</b>'
-                    f'  <span style="font-size:0.7rem;color:#86868b">per 1%% IV</span></span>'
-                    f'</div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
+            if has_greeks:
+                tot = gk["totals"]
+                theta = tot["theta"]
+                delta = tot["delta"]
+                vega = tot["vega"]
+                theta_color = "#81b29a" if theta >= 0 else "#e07a5f"
 
-        if has_interest and col_interest:
-            est_monthly = debt * 0.11 / 12
-            cur_mo = abs(mi["current_month"]) if mi else 0
-            ytd = abs(mi["ytd"]) if mi else 0
-            total_int = abs(mi["total"]) if mi else 0
+                with _col_map["greeks"]:
+                    st.markdown(
+                        f'<div class="hero-card" style="height:100%">'
+                        f'<h4>Portfolio Greeks</h4>'
+                        f'<div style="text-align:center;margin-bottom:16px">'
+                        f'  <span style="font-size:1.6rem;font-weight:700;color:{theta_color}">${theta:,.0f}</span>'
+                        f'  <span style="font-size:0.85rem;color:#86868b">theta / day</span>'
+                        f'</div>'
+                        f'<div class="stat-row">'
+                        f'<span class="stat-pill">Delta <b>{delta:,.0f}</b>'
+                        f'  <span style="font-size:0.7rem;color:#86868b">$ per $1 move</span></span>'
+                        f'<span class="stat-pill">Vega <b>${vega:,.0f}</b>'
+                        f'  <span style="font-size:0.7rem;color:#86868b">per 1%% IV</span></span>'
+                        f'</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
 
-            with col_interest:
-                st.markdown(
-                    f'<div class="hero-card" style="height:100%">'
-                    f'<h4>Margin Interest</h4>'
-                    f'<div style="text-align:center;margin-bottom:16px">'
-                    f'  <span style="font-size:1.6rem;font-weight:700;color:#e07a5f">${debt:,.0f}</span>'
-                    f'  <span style="font-size:0.85rem;color:#86868b">margin debt</span>'
-                    f'</div>'
-                    f'<div class="stat-row">'
-                    f'<span class="stat-pill">This Month <b style="color:#e07a5f">-${cur_mo:,.0f}</b></span>'
-                    f'<span class="stat-pill">YTD <b style="color:#e07a5f">-${ytd:,.0f}</b></span>'
-                    f'<span class="stat-pill">All Time <b style="color:#e07a5f">-${total_int:,.0f}</b></span>'
-                    f'</div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
+            if has_bwd:
+                _bwd_total = bwd["portfolio_bwd"]
+                _spy_p = bwd["spy_price"]
+                _dollar_1pct = bwd["dollar_per_1pct"]
+                _nlv = st.session_state.get("_net_liq", 0)
+                _port_pct = (_dollar_1pct / _nlv * 100) if _nlv > 0 else 0
+                _pct_color = "#e07a5f" if _port_pct > 0 else "#81b29a"
+
+                _td = 'padding:4px 8px;border-bottom:1px solid #f0f0f2'
+                _bwd_rows = ""
+                for bp in bwd["positions"]:
+                    _bp_loss = -bp["dollar_per_1pct"]
+                    _bp_color = "#e07a5f" if _bp_loss < 0 else "#81b29a"
+                    _bwd_rows += (
+                        f'<tr>'
+                        f'<td style="{_td}">{bp["ticker"]}</td>'
+                        f'<td style="{_td};text-align:right">{bp["beta"]:.2f}</td>'
+                        f'<td style="{_td};text-align:right">{bp["bwd"]:+,.1f}</td>'
+                        f'<td style="{_td};text-align:right;color:{_bp_color}">${_bp_loss:+,.0f}</td>'
+                        f'</tr>'
+                    )
+
+                with _col_map["bwd"]:
+                    st.markdown(
+                        f'<div class="hero-card" style="height:100%">'
+                        f'<h4>Beta-Weighted Delta</h4>'
+                        f'<div style="text-align:center;margin-bottom:16px">'
+                        f'  <span style="font-size:1.6rem;font-weight:700;color:{_pct_color}">-{_port_pct:.2f}%</span>'
+                        f'  <span style="font-size:0.85rem;color:#86868b">if S&P 500 drops 1%</span>'
+                        f'</div>'
+                        f'<div class="stat-row">'
+                        f'<span class="stat-pill">P/L <b style="color:{_pct_color}">-${abs(_dollar_1pct):,.0f}</b></span>'
+                        f'<span class="stat-pill">BWD <b>{_bwd_total:+,.1f}</b></span>'
+                        f'<span class="stat-pill">SPY <b>${_spy_p:,.0f}</b></span>'
+                        f'</div>'
+                        f'<details style="margin-top:8px">'
+                        f'<summary style="cursor:pointer;font-size:0.8rem;color:#86868b">Breakdown</summary>'
+                        f'<table style="width:100%;border-collapse:collapse;font-size:0.8rem;margin-top:6px">'
+                        f'<thead><tr style="color:#86868b;font-size:0.7rem;text-transform:uppercase">'
+                        f'<th style="text-align:left;padding:3px 8px;border-bottom:1px solid #d2d2d7">Ticker</th>'
+                        f'<th style="text-align:right;padding:3px 8px;border-bottom:1px solid #d2d2d7">Beta</th>'
+                        f'<th style="text-align:right;padding:3px 8px;border-bottom:1px solid #d2d2d7">BWD</th>'
+                        f'<th style="text-align:right;padding:3px 8px;border-bottom:1px solid #d2d2d7">P/L</th>'
+                        f'</tr></thead>'
+                        f'<tbody>{_bwd_rows}</tbody>'
+                        f'</table>'
+                        f'</details>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+            if has_interest:
+                cur_mo = abs(mi["current_month"]) if mi else 0
+                ytd = abs(mi["ytd"]) if mi else 0
+                total_int = abs(mi["total"]) if mi else 0
+
+                with _col_map["interest"]:
+                    st.markdown(
+                        f'<div class="hero-card" style="height:100%">'
+                        f'<h4>Margin Interest</h4>'
+                        f'<div style="text-align:center;margin-bottom:16px">'
+                        f'  <span style="font-size:1.6rem;font-weight:700;color:#e07a5f">${debt:,.0f}</span>'
+                        f'  <span style="font-size:0.85rem;color:#86868b">margin debt</span>'
+                        f'</div>'
+                        f'<div class="stat-row">'
+                        f'<span class="stat-pill">This Month <b style="color:#e07a5f">-${cur_mo:,.0f}</b></span>'
+                        f'<span class="stat-pill">YTD <b style="color:#e07a5f">-${ytd:,.0f}</b></span>'
+                        f'<span class="stat-pill">All Time <b style="color:#e07a5f">-${total_int:,.0f}</b></span>'
+                        f'</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
 
     # ── Portfolio Exposure (loads independently via fragment) ──
     @st.cache_data(ttl=86400, show_spinner=False)
@@ -2593,7 +2771,7 @@ elif page == "Portfolio":
 
     @st.fragment
     def _portfolio_exposure():
-        st.markdown("")
+        st.markdown("<h4 style='text-align:center'>Portfolio Allocation</h4>", unsafe_allow_html=True)
         try:
             with st.spinner("Loading sector & country data..."):
                 profiles = _cached_ticker_profiles(tuple(held_tickers))
@@ -2666,7 +2844,8 @@ elif page == "Portfolio":
         except Exception as e:
             st.warning(f"Could not load portfolio exposure: {e}")
 
-    _portfolio_exposure()
+    with st.container(border=True):
+        _portfolio_exposure()
 
 
 # ══════════════════════════════════════════════════════
@@ -2710,38 +2889,10 @@ elif page == "Wheel Cost Basis":
 
     # ── Helper: detect if a ticker has an active position ──
     def _is_active(data):
-        """Active = open CSP, shares held, or open CC."""
+        """Active = shares held or any open option positions."""
         if data["shares_held"] > 0:
             return True
-        # If the last wheel is completed or options_only, no active position
-        wheels = data.get("wheels", [])
-        if wheels and wheels[-1]["status"] in ("completed", "options_only"):
-            return False
-        # Count open/close for CSP and CC
-        trades = data.get("trades", [])
-        open_csp = 0
-        open_cc = 0
-        for t in trades:
-            label = t.get("label", "")
-            inst = t.get("instrument_type", "")
-            if label == "CSP":
-                open_csp += 1
-            elif label in ("BTC CSP", "STC Put"):
-                open_csp -= 1
-            elif label == "Expired" and _is_put(t):
-                open_csp -= 1
-            elif label == "Assignment" and "Option" in inst:
-                if _is_put(t):
-                    open_csp -= 1
-                elif _is_call(t):
-                    open_cc -= 1
-            elif label == "CC":
-                open_cc += 1
-            elif label in ("BTC CC", "STC Call"):
-                open_cc -= 1
-            elif label == "Expired" and _is_call(t):
-                open_cc -= 1
-        return open_csp > 0 or open_cc > 0
+        return _has_open_options(data)
 
     # ── Helper: categorize trades ──
     def _categorize(trades):
@@ -3015,7 +3166,10 @@ elif page == "Results":
     total_pl_real = sum(d["total_pl_real"] for d in cost_basis.values())
     total_option_pl = sum(d["option_pl"] for d in cost_basis.values())
     total_dividends = sum(d["dividends"] for d in cost_basis.values())
-    active_positions = sum(1 for d in cost_basis.values() if d["shares_held"] > 0)
+    active_positions = sum(
+        1 for d in cost_basis.values()
+        if d["shares_held"] > 0 or _has_open_options(d)
+    )
 
     realized_pl = sum(
         w["pl"] for d in cost_basis.values()
@@ -3123,7 +3277,7 @@ elif page == "Results":
     # ── Net Liq History chart ──
     period_map = {"1M": "1m", "3M": "3m", "6M": "6m", "YTD": "ytd", "1Y": "1y", "All": "all"}
     selected_period = st.pills(
-        "Period", options=list(period_map.keys()), default="1Y",
+        "Period", options=list(period_map.keys()), default="YTD",
     )
     time_back = period_map[selected_period]
     # YTD uses 1y data filtered client-side to Jan 1 of current year
