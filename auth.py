@@ -285,9 +285,12 @@ def render_login_page():
     with col2:
         try:
             from assets.logo_b64 import LOGO_B64
-            _, _logo_center, _ = st.columns([2, 1, 2])
-            with _logo_center:
-                st.image(base64.b64decode(LOGO_B64), use_container_width=True)
+            st.markdown(
+                f'<div style="text-align:center;">'
+                f'<img src="data:image/png;base64,{LOGO_B64}" style="width: 160px;" />'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
         except ImportError:
             pass
         st.markdown('<p class="auth-subtitle">Sign in to access your watchlist and portfolio</p>', unsafe_allow_html=True)

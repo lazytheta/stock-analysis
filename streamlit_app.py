@@ -4062,18 +4062,6 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
 # ══════════════════════════════════════════════════════
 
 with st.sidebar:
-    st.markdown(
-        f'<p style="'
-        f'font-family: \'DM Serif Display\', Georgia, serif;'
-        f'font-size: 1.3rem;'
-        f'font-weight: 400;'
-        f'color: {T["text"]};'
-        f'text-align: center;'
-        f'margin: -8px 0 12px 0;'
-        f'letter-spacing: -0.01em;'
-        f'">Lazy Theta</p>',
-        unsafe_allow_html=True,
-    )
     st.toggle("Dark mode", key="dark_mode")
 
     def _on_nav_change():
@@ -4111,20 +4099,7 @@ with st.sidebar:
                 del st.session_state[key]
             st.rerun()
 
-        st.markdown("---")
-        st.markdown(
-            f'<small style="color: {T["text_muted"]}">Data: Tastytrade API<br>'
-            f'Tracks wheel strategy cost basis</small>',
-            unsafe_allow_html=True,
-        )
-
-    # User info + account actions at bottom of sidebar
-    _user_info = st.session_state.get("user", {})
     st.markdown("---")
-    st.markdown(
-        f'<small style="color: {T["text_muted"]}">{_user_info.get("email", "")}</small>',
-        unsafe_allow_html=True,
-    )
 
     def _on_acct_change():
         """Map account radio selection to _account_page."""
@@ -4151,6 +4126,27 @@ with st.sidebar:
         key="_acct_radio",
         on_change=_on_acct_change,
     )
+
+    try:
+        from assets.logo_footer_b64 import LOGO_FOOTER_B64
+        _dark = st.session_state.get("dark_mode", False)
+        _filter = "filter: invert(1) brightness(2);" if _dark else ""
+        st.markdown(
+            f'<style>'
+            f'.lt-sidebar-footer {{'
+            f'  position: fixed; bottom: 16px; text-align: center;'
+            f'  width: var(--sidebar-width, 245px); left: 0; opacity: 0.5;'
+            f'  pointer-events: none;'
+            f'}}'
+            f'</style>'
+            f'<div class="lt-sidebar-footer">'
+            f'<img src="data:image/png;base64,{LOGO_FOOTER_B64}" '
+            f'style="width: 36px; {_filter}" />'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    except ImportError:
+        pass
 
 
 # ══════════════════════════════════════════════════════
@@ -6044,8 +6040,10 @@ elif page == "🔒 Security & Privacy":
         [data-testid="stHorizontalBlock"]:has(.sec-card) {{
             align-items: stretch;
         }}
-        [data-testid="stHorizontalBlock"]:has(.sec-card) [data-testid="stColumn"] > div,
-        [data-testid="stHorizontalBlock"]:has(.sec-card) [data-testid="stColumn"] > div > div {{
+        [data-testid="stHorizontalBlock"]:has(.sec-card) [data-testid="stColumn"] {{
+            height: auto !important;
+        }}
+        [data-testid="stHorizontalBlock"]:has(.sec-card) [data-testid="stColumn"] div {{
             height: 100%;
         }}
         .sec-card {{
@@ -6056,6 +6054,7 @@ elif page == "🔒 Security & Privacy":
             height: 100%;
             display: flex;
             flex-direction: column;
+            justify-content: flex-start;
             animation: fadeInUp 0.4s ease-out both;
         }}
         .sec-card h4 {{
