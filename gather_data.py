@@ -235,7 +235,7 @@ def _extract_annual_values(facts, tag, n_years=6, unit_key="USD", taxonomy="us-g
     annual = []
     for entry in tag_data:
         form = entry.get("form", "")
-        if form not in ("10-K", "10-K405", "10-K/A"):
+        if form not in ("10-K", "10-K405", "10-K/A", "20-F", "20-F/A"):
             continue
 
         end = entry.get("end", "")
@@ -343,7 +343,9 @@ def parse_financials(facts, n_years=6):
                            "RevenueFromContractWithCustomerIncludingAssessedTax",
                            "SalesRevenueNet"])
     operating_income = _get_values(["OperatingIncomeLoss"])
-    net_income = _get_values(["NetIncomeLoss"])
+    net_income = _get_values(["NetIncomeLoss",
+                               "ProfitLoss",
+                               "NetIncomeLossAvailableToCommonStockholdersBasic"])
     cost_of_revenue = _get_values(["CostOfGoodsAndServicesSold",
                                     "CostOfRevenue",
                                     "CostOfGoodsSold"])
