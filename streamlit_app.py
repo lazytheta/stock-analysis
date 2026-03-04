@@ -72,27 +72,49 @@ def rate_limited_lookup() -> bool:
 
 
 # ── Page config ──
+from pathlib import Path as _Path
+_favicon = _Path(__file__).parent / "assets" / "favicon.png"
 st.set_page_config(
-    page_title="Stock Analysis",
-    page_icon="\U0001f4ca",
+    page_title="Lazy Theta",
+    page_icon=str(_favicon) if _favicon.exists() else "\U0001f4ca",
     layout="wide",
 )
 
 # ── Authentication gate ──
-from auth import render_login_page, logout
+from auth import render_login_page, logout, inject_remember_me_handler, handle_remember_me, save_session_to_browser
 
 if "supabase_client" not in st.session_state:
-    render_login_page()
-    st.stop()
+    # Try to restore session from browser localStorage
+    inject_remember_me_handler()
+    client, user = handle_remember_me()
+    if client and user:
+        st.session_state["supabase_client"] = client
+        st.session_state["user"] = {"id": str(user.id), "email": user.email}
+        st.rerun()
+    else:
+        render_login_page()
+        st.stop()
 
-# Validate session still active
+# Save remember-me token to browser if flagged during login
 _sb_client = st.session_state["supabase_client"]
-try:
-    _sb_client.auth.get_user()
-except Exception:
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
-    st.rerun()
+if st.session_state.pop("_save_remember_token", False):
+    save_session_to_browser(_sb_client)
+
+# Validate session still active (check at most once per 5 minutes)
+_last_auth_check = st.session_state.get("_auth_checked_at", 0)
+if time.time() - _last_auth_check > 300:
+    try:
+        _sb_client.auth.get_user()
+        st.session_state["_auth_checked_at"] = time.time()
+    except Exception:
+        # Try refreshing the session before giving up
+        try:
+            _sb_client.auth.refresh_session()
+            st.session_state["_auth_checked_at"] = time.time()
+        except Exception:
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
 
 
 def _get_tt_token():
@@ -4040,6 +4062,18 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
 # ══════════════════════════════════════════════════════
 
 with st.sidebar:
+    st.markdown(
+        f'<p style="'
+        f'font-family: \'DM Serif Display\', Georgia, serif;'
+        f'font-size: 1.3rem;'
+        f'font-weight: 400;'
+        f'color: {T["text"]};'
+        f'text-align: center;'
+        f'margin: -8px 0 12px 0;'
+        f'letter-spacing: -0.01em;'
+        f'">Lazy Theta</p>',
+        unsafe_allow_html=True,
+    )
     st.toggle("Dark mode", key="dark_mode")
 
     def _on_nav_change():
@@ -4070,6 +4104,13 @@ with st.sidebar:
                 st.session_state.pop(k, None)
             st.rerun()
 
+        if st.button("Clear Session Data", use_container_width=True, type="primary"):
+            _preserve = {"dark_mode", "nav_page", "_account_page",
+                         "supabase_client", "user", "_user_id", "tt_refresh_token"}
+            for key in [k for k in st.session_state if k not in _preserve]:
+                del st.session_state[key]
+            st.rerun()
+
         st.markdown("---")
         st.markdown(
             f'<small style="color: {T["text_muted"]}">Data: Tastytrade API<br>'
@@ -4084,35 +4125,32 @@ with st.sidebar:
         f'<small style="color: {T["text_muted"]}">{_user_info.get("email", "")}</small>',
         unsafe_allow_html=True,
     )
-    _active_acct = st.session_state.get("_account_page", "")
-    _acct_col1, _acct_col2 = st.columns(2)
-    with _acct_col1:
-        _settings_type = "primary" if _active_acct == "Settings" else "secondary"
-        if st.button("⚙ Settings", use_container_width=True, type=_settings_type):
+
+    def _on_acct_change():
+        """Map account radio selection to _account_page."""
+        sel = st.session_state.get("_acct_radio")
+        if sel == "Settings":
             st.session_state["_account_page"] = "Settings"
-            st.rerun()
-    with _acct_col2:
-        _privacy_type = "primary" if _active_acct == "🔒 Security & Privacy" else "secondary"
-        if st.button("🔒 Privacy", use_container_width=True, type=_privacy_type):
+        elif sel == "Security & Privacy":
             st.session_state["_account_page"] = "🔒 Security & Privacy"
-            st.rerun()
-    with st.popover("🗑️ Clear Data", use_container_width=True):
-        st.markdown(
-            f'<small style="color: {T["text_muted"]}">Remove all cached portfolio data, '
-            f'prices, and session state. Your saved watchlist and settings are not affected.</small>',
-            unsafe_allow_html=True,
-        )
-        if st.button("Confirm Clear", type="primary", use_container_width=True):
-            # Preserve auth and UI state, clear everything else
-            _preserve = {"dark_mode", "nav_page", "_account_page",
-                         "supabase_client", "user", "_user_id", "tt_refresh_token"}
-            for key in [k for k in st.session_state if k not in _preserve]:
-                del st.session_state[key]
-            st.success("Session data cleared.")
-            st.rerun()
-    if st.button("Sign Out", use_container_width=True):
-        logout()
-        st.rerun()
+        elif sel == "Sign Out":
+            logout()
+
+    _acct_default = None
+    _active_acct = st.session_state.get("_account_page", "")
+    if _active_acct == "Settings":
+        _acct_default = 0
+    elif _active_acct == "🔒 Security & Privacy":
+        _acct_default = 1
+
+    st.radio(
+        "Account",
+        ["Settings", "Security & Privacy", "Sign Out"],
+        index=_acct_default,
+        label_visibility="collapsed",
+        key="_acct_radio",
+        on_change=_on_acct_change,
+    )
 
 
 # ══════════════════════════════════════════════════════
@@ -6002,12 +6040,22 @@ elif page == "🔒 Security & Privacy":
     st.markdown(
         f"""<style>
         .block-container {{ max-width: 800px; margin: auto; }}
+        /* Force Streamlit columns to stretch to equal height */
+        [data-testid="stHorizontalBlock"]:has(.sec-card) {{
+            align-items: stretch;
+        }}
+        [data-testid="stHorizontalBlock"]:has(.sec-card) [data-testid="stColumn"] > div,
+        [data-testid="stHorizontalBlock"]:has(.sec-card) [data-testid="stColumn"] > div > div {{
+            height: 100%;
+        }}
         .sec-card {{
             background: {T['card']};
             border-radius: 18px;
             padding: 28px 24px;
             box-shadow: {T['shadow']};
             height: 100%;
+            display: flex;
+            flex-direction: column;
             animation: fadeInUp 0.4s ease-out both;
         }}
         .sec-card h4 {{
@@ -6022,6 +6070,7 @@ elif page == "🔒 Security & Privacy":
             font-size: 0.88rem;
             line-height: 1.6;
             margin: 0;
+            flex: 1;
         }}
         .sec-card a {{
             color: {T['accent']};

@@ -5,6 +5,7 @@ Keeps auth logic out of the main app. All functions return typed tuples
 so callers can handle errors consistently.
 """
 
+import base64
 import logging
 import os
 from datetime import date
@@ -155,6 +156,75 @@ def handle_oauth_callback():
         return None, None
 
 
+def save_session_to_browser(client):
+    """Store Supabase refresh token in browser localStorage for persistent login."""
+    import streamlit.components.v1 as components
+    try:
+        session = client.auth.get_session()
+        if session and session.refresh_token:
+            components.html(f"""
+            <script>
+                window.parent.localStorage.setItem('lt_refresh_token', '{session.refresh_token}');
+            </script>
+            """, height=0)
+    except Exception:
+        pass
+
+
+def clear_browser_session():
+    """Remove stored tokens from browser localStorage."""
+    import streamlit.components.v1 as components
+    components.html("""
+    <script>
+        window.parent.localStorage.removeItem('lt_refresh_token');
+    </script>
+    """, height=0)
+
+
+def inject_remember_me_handler():
+    """Check localStorage for a stored refresh token and pass it via query param.
+
+    Must be called early, before render_login_page().
+    """
+    import streamlit.components.v1 as components
+    components.html("""
+    <script>
+        const url = new URL(window.parent.location.href);
+        if (!url.searchParams.has('remember_token') && !url.searchParams.has('access_token')) {
+            const token = window.parent.localStorage.getItem('lt_refresh_token');
+            if (token) {
+                url.searchParams.set('remember_token', token);
+                window.parent.location.href = url.toString();
+            }
+        }
+    </script>
+    """, height=0)
+
+
+def handle_remember_me():
+    """Restore session from stored refresh token in query params.
+
+    Returns (client, user) on success or (None, None) if not present/failed.
+    """
+    params = st.query_params
+    remember_token = params.get("remember_token")
+    if not remember_token:
+        return None, None
+
+    try:
+        client = init_auth_client()
+        client.auth.refresh_session(remember_token)
+        user = client.auth.get_user().user
+        st.query_params.clear()
+        return client, user
+    except Exception as e:
+        logger.warning("Remember-me session restore failed: %s", e)
+        st.query_params.clear()
+        # Token is invalid/expired — clear it from browser
+        clear_browser_session()
+        return None, None
+
+
 def logout():
     """Sign out and clear all session state."""
     client = st.session_state.get("supabase_client")
@@ -163,6 +233,7 @@ def logout():
             client.auth.sign_out()
         except Exception:
             pass
+    clear_browser_session()
     for key in list(st.session_state.keys()):
         del st.session_state[key]
 
@@ -212,7 +283,13 @@ def render_login_page():
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown('<p class="auth-title">Stock Analysis</p>', unsafe_allow_html=True)
+        try:
+            from assets.logo_b64 import LOGO_B64
+            _, _logo_center, _ = st.columns([2, 1, 2])
+            with _logo_center:
+                st.image(base64.b64decode(LOGO_B64), use_container_width=True)
+        except ImportError:
+            pass
         st.markdown('<p class="auth-subtitle">Sign in to access your watchlist and portfolio</p>', unsafe_allow_html=True)
 
         tab_login, tab_signup = st.tabs(["Sign In", "Create Account"])
@@ -221,6 +298,7 @@ def render_login_page():
             with st.form("login_form"):
                 email = st.text_input("Email", key="login_email")
                 password = st.text_input("Password", type="password", key="login_password")
+                remember = st.checkbox("Keep me logged in", value=True, key="login_remember")
                 submitted = st.form_submit_button("Sign In", use_container_width=True, type="primary")
             if submitted and email and password:
                 with st.spinner("Signing in..."):
@@ -230,6 +308,8 @@ def render_login_page():
                 else:
                     st.session_state["supabase_client"] = client
                     st.session_state["user"] = {"id": str(user.id), "email": user.email}
+                    if remember:
+                        st.session_state["_save_remember_token"] = True
                     st.rerun()
 
         with tab_signup:
