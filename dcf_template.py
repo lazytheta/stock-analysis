@@ -377,10 +377,13 @@ def build_dcf_model(cfg, output_path):
     R_EV2 = DR + 24; lb(R_EV2, 2, "Enterprise Value"); sc(R_EV2, YR0, f'={cl(YR0)}{REV}', BLK, None, '#,##0')
     R_CSH = R_EV2 + 1; lb(R_CSH, 2, "Cash"); sc(R_CSH, YR0, cfg['cash_bridge'], BLUE_B, None, '#,##0')
     R_SEC = R_CSH + 1; lb(R_SEC, 2, "Marketable Securities"); sc(R_SEC, YR0, cfg['securities'], BLUE_B, None, '#,##0')
-    R_DBT = R_SEC + 1; lb(R_DBT, 2, "Debt Value"); sc(R_DBT, YR0, f'=J{R_TOTAL_DEBT}', BLK, None, '#,##0')
-    R_EQV = R_DBT + 1
+    R_EQI = R_SEC + 1; lb(R_EQI, 2, "Equity Investments"); sc(R_EQI, YR0, cfg.get('equity_investments', 0), BLUE_B, None, '#,##0')
+    R_DBT = R_EQI + 1; lb(R_DBT, 2, "Debt Value"); sc(R_DBT, YR0, f'=J{R_TOTAL_DEBT}', BLK, None, '#,##0')
+    R_MIN = R_DBT + 1; lb(R_MIN, 2, "Minority Interest"); sc(R_MIN, YR0, cfg.get('minority_interest', 0), BLUE_B, None, '#,##0')
+    R_PEN = R_MIN + 1; lb(R_PEN, 2, "Unfunded Pension"); sc(R_PEN, YR0, cfg.get('unfunded_pension', 0), BLUE_B, None, '#,##0')
+    R_EQV = R_PEN + 1
     lb(R_EQV, 2, "Equity Value", BLK_B)
-    sc(R_EQV, YR0, f'={cl(YR0)}{R_EV2}+{cl(YR0)}{R_CSH}+{cl(YR0)}{R_SEC}-{cl(YR0)}{R_DBT}', BLK_B, None, '#,##0')
+    sc(R_EQV, YR0, f'={cl(YR0)}{R_EV2}+{cl(YR0)}{R_CSH}+{cl(YR0)}{R_SEC}+{cl(YR0)}{R_EQI}-{cl(YR0)}{R_DBT}-{cl(YR0)}{R_MIN}-{cl(YR0)}{R_PEN}', BLK_B, None, '#,##0')
 
     R_SHR_BASE = R_EQV + 2
     lb(R_SHR_BASE, 2, "Shares Outstanding (current)")
@@ -448,7 +451,11 @@ def build_dcf_model(cfg, output_path):
         tv_df = 1 / (1 + wacc) ** (0.5 + n_p - 1)
         pv_tv = tv * tv_df
         ev = pv_fcff + pv_tv
-        equity = ev + cfg['cash_bridge'] + cfg.get('securities', 0) - cfg['debt_market_value']
+        equity = (ev + cfg['cash_bridge'] + cfg.get('securities', 0)
+                  + cfg.get('equity_investments', 0)
+                  - cfg['debt_market_value']
+                  - cfg.get('minority_interest', 0)
+                  - cfg.get('unfunded_pension', 0))
         adj_shares = cfg['shares_outstanding'] * (1 - cfg['buyback_rate']) ** n_p
         return equity / adj_shares if adj_shares > 0 else 0
 
@@ -627,7 +634,7 @@ def build_dcf_model(cfg, output_path):
         # Equity Value
         r += 1; eq_r = r
         lb(r, 2, "Equity Value", BLK_B)
-        sc(r, YR0, f'={cl(YR0)}{ev_r}+{cl(YR0)}{R_CSH}+{cl(YR0)}{R_SEC}-J{R_TOTAL_DEBT}', BLK, None, '#,##0')
+        sc(r, YR0, f'={cl(YR0)}{ev_r}+{cl(YR0)}{R_CSH}+{cl(YR0)}{R_SEC}+{cl(YR0)}{R_EQI}-J{R_TOTAL_DEBT}-{cl(YR0)}{R_MIN}-{cl(YR0)}{R_PEN}', BLK, None, '#,##0')
 
         # Share Price
         r += 1; sp = r
@@ -955,7 +962,10 @@ def build_summary_sheet(wb, cfg):
     
     stock_price = cfg.get('stock_price', cfg['equity_market_value'] / cfg['shares_outstanding'])
     mkt_cap = cfg['equity_market_value']
-    ev = mkt_cap + cfg['debt_market_value'] - cfg['cash_bridge'] - cfg.get('securities', 0)
+    ev = (mkt_cap + cfg['debt_market_value']
+          + cfg.get('minority_interest', 0) + cfg.get('unfunded_pension', 0)
+          - cfg['cash_bridge'] - cfg.get('securities', 0)
+          - cfg.get('equity_investments', 0))
     
     # ════════════════════════════════════════════
     # HEADER
@@ -1028,7 +1038,8 @@ def build_summary_sheet(wb, cfg):
     note(rv, RV + 1, f"Compare to risk-free: {cfg['risk_free_rate']:.1%}")
     
     rv += 1
-    net_cash = cfg['cash_bridge'] + cfg.get('securities', 0) - cfg['debt_market_value']
+    net_cash = (cfg['cash_bridge'] + cfg.get('securities', 0) + cfg.get('equity_investments', 0)
+                - cfg['debt_market_value'] - cfg.get('minority_interest', 0) - cfg.get('unfunded_pension', 0))
     lb(rv, RP, "Net Cash per Share")
     sc(rv, RV, net_cash / cfg['shares_outstanding'], BLK, None, '$#,##0.00')
     note(rv, RV + 1, f"{net_cash/mkt_cap*100:.0f}% of market cap" if mkt_cap else "")
@@ -1630,15 +1641,17 @@ def build_calculations_sheet(wb, cfg):
     if len(hist_shares) >= 2:
         first_shares = hist_shares[0]
         last_shares = hist_shares[-1]
+        if not first_shares or first_shares <= 0:
+            first_shares = last_shares  # no valid baseline → treat as flat
         # Find peak shares (often right after IPO lockup)
         peak_shares = max(hist_shares)
         peak_idx = hist_shares.index(peak_shares)
-        total_chg = (last_shares - first_shares) / first_shares
+        total_chg = (last_shares - first_shares) / first_shares if first_shares > 0 else 0
         peak_chg = (last_shares - peak_shares) / peak_shares if peak_shares > 0 else 0
-        
+
         # Recent trend (last 3 years)
         recent_start = max(0, n - 4)
-        recent_chg = (hist_shares[-1] - hist_shares[recent_start]) / hist_shares[recent_start]
+        recent_chg = (hist_shares[-1] - hist_shares[recent_start]) / hist_shares[recent_start] if hist_shares[recent_start] and hist_shares[recent_start] > 0 else 0
         
         if recent_chg < -0.02:  # >2% net reduction recently
             verdict = f"Buybacks > SBC: shares down {abs(recent_chg):.1%} since {years[recent_start]} despite ${hist_sbc[-1]}M SBC/yr"
@@ -1778,8 +1791,10 @@ def build_peer_comparison_sheet(wb, cfg):
     # Metrics to display
     mkt_cap = cfg.get('equity_market_value', 0)
     debt = cfg.get('debt_market_value', 0)
-    cash = cfg.get('cash_bridge', 0) + cfg.get('securities', 0)
-    ev_val = mkt_cap + debt - cash
+    cash = cfg.get('cash_bridge', 0) + cfg.get('securities', 0) + cfg.get('equity_investments', 0)
+    ev_val = (mkt_cap + debt
+              + cfg.get('minority_interest', 0) + cfg.get('unfunded_pension', 0)
+              - cash)
     last_rev = cfg.get('hist_revenue', [0])[-1]
     last_oi = cfg.get('hist_operating_income', [0])[-1]
     hist_ni = cfg.get('hist_net_income', [0])

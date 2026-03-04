@@ -14,7 +14,7 @@ from decimal import Decimal
 from dotenv import load_dotenv
 from tastytrade import Session, Account, DXLinkStreamer
 from tastytrade.dxfeed import Greeks as GreeksEvent, Quote as QuoteEvent
-from tastytrade.instruments import Option, Equity
+from tastytrade.instruments import Option, Equity, NestedOptionChain
 from tastytrade.metrics import get_market_metrics
 from tastytrade.order import NewOrder, OrderType, OrderTimeInForce, OrderAction
 
@@ -704,9 +704,8 @@ def fetch_portfolio_greeks():
             _ctx = ssl.create_default_context()
             _ctx.check_hostname = False
             _ctx.verify_mode = ssl.CERT_NONE
-            async with DXLinkStreamer(session, ssl_context=_ctx) as streamer:
+            async def _stream_greeks(streamer):
                 await streamer.subscribe(GreeksEvent, streamer_symbols)
-
                 received = set()
                 async for greek in streamer.listen(GreeksEvent):
                     sym = greek.event_symbol
@@ -715,6 +714,9 @@ def fetch_portfolio_greeks():
                         received.add(sym)
                         if len(received) >= len(streamer_symbols):
                             break
+
+            async with DXLinkStreamer(session, ssl_context=_ctx) as streamer:
+                await asyncio.wait_for(_stream_greeks(streamer), timeout=12)
 
             # Aggregate — quantity is always positive, direction indicates sign
             totals = {"delta": 0.0, "theta": 0.0, "gamma": 0.0, "vega": 0.0}
@@ -757,6 +759,472 @@ def fetch_portfolio_greeks():
             return {"positions": pos_details, "totals": totals}
 
     return asyncio.run(_run())
+
+
+def fetch_greeks_and_bwd():
+    """Fetch Portfolio Greeks and Beta-Weighted Delta in a single session.
+
+    Uses one DXLink streamer to avoid concurrent websocket conflicts.
+    Returns (greeks_dict, bwd_dict).
+    """
+    session = _get_session()
+
+    _empty_greeks = {
+        "positions": [],
+        "totals": {"delta": 0.0, "theta": 0.0, "gamma": 0.0, "vega": 0.0},
+    }
+    _empty_bwd = {"positions": [], "portfolio_bwd": 0, "spy_price": 0,
+                  "dollar_per_1pct": 0}
+
+    async def _run():
+        async with session:
+            accounts = await Account.get(session)
+            acct = accounts[0]
+            positions = await acct.get_positions(session, include_marks=True)
+
+            if not positions:
+                return _empty_greeks, _empty_bwd
+
+            # Categorize positions
+            stock_positions = []
+            option_positions = []
+            underlyings = set()
+
+            for p in positions:
+                itype = p.instrument_type.value
+                sym = getattr(p, 'underlying_symbol', None) or p.symbol
+                underlyings.add(sym)
+                if itype == "Equity":
+                    stock_positions.append(p)
+                elif itype == "Equity Option":
+                    option_positions.append(p)
+
+            underlyings.add("SPY")
+            underlying_list = sorted(underlyings)
+
+            # Fetch betas for BWD
+            metrics = await get_market_metrics(session, underlying_list)
+            beta_map = {}
+            for m in metrics:
+                if m.beta is not None:
+                    beta_map[m.symbol] = float(m.beta)
+
+            # Build streamer symbol mapping for options
+            streamer_to_pos = {}
+            for p in option_positions:
+                ss = Option.occ_to_streamer_symbol(p.symbol)
+                if ss:
+                    streamer_to_pos[ss] = p
+
+            # Pre-populate price_map with mark prices (fallback for off-hours)
+            price_map = {}
+            for p in positions:
+                sym = getattr(p, 'underlying_symbol', None) or p.symbol
+                mp = float(p.mark_price) if p.mark_price else 0
+                if mp > 0:
+                    price_map[sym] = mp
+
+            # Stream live quotes + greeks via single DXLink connection
+            _ctx = ssl.create_default_context()
+            _ctx.check_hostname = False
+            _ctx.verify_mode = ssl.CERT_NONE
+
+            greeks_map = {}
+
+            async def _collect_quotes(streamer):
+                await streamer.subscribe(QuoteEvent, underlying_list)
+                received = set()
+                async for quote in streamer.listen(QuoteEvent):
+                    sym = quote.event_symbol
+                    if sym not in received:
+                        bid = float(quote.bid_price) if quote.bid_price else 0
+                        ask = float(quote.ask_price) if quote.ask_price else 0
+                        mid = (bid + ask) / 2 if bid and ask else bid or ask
+                        if mid > 0:
+                            price_map[sym] = mid
+                        received.add(sym)
+                        if len(received) >= len(underlying_list):
+                            break
+
+            async def _collect_greeks(streamer):
+                if not streamer_to_pos:
+                    return
+                await streamer.subscribe(GreeksEvent, list(streamer_to_pos.keys()))
+                received = set()
+                async for greek in streamer.listen(GreeksEvent):
+                    sym = greek.event_symbol
+                    if sym not in received and sym in streamer_to_pos:
+                        greeks_map[sym] = greek
+                        received.add(sym)
+                        if len(received) >= len(streamer_to_pos):
+                            break
+
+            async with DXLinkStreamer(session, ssl_context=_ctx) as streamer:
+                try:
+                    await asyncio.wait_for(_collect_quotes(streamer), timeout=10)
+                except asyncio.TimeoutError:
+                    pass
+                if streamer_to_pos:
+                    try:
+                        await asyncio.wait_for(_collect_greeks(streamer), timeout=12)
+                    except asyncio.TimeoutError:
+                        pass
+
+            # Fallback: fetch SPY price from Yahoo Finance if still missing
+            if price_map.get("SPY", 0) <= 0:
+                try:
+                    _yf_req = urllib.request.Request(
+                        "https://query1.finance.yahoo.com/v8/finance/chart/SPY"
+                        "?range=1d&interval=1d",
+                        headers={"User-Agent": "Mozilla/5.0"},
+                    )
+                    _yf_ctx = ssl.create_default_context()
+                    _yf_ctx.check_hostname = False
+                    _yf_ctx.verify_mode = ssl.CERT_NONE
+                    with urllib.request.urlopen(_yf_req, context=_yf_ctx,
+                                               timeout=5) as _yf_resp:
+                        _yf = json.loads(_yf_resp.read())
+                        _sp = _yf["chart"]["result"][0]["meta"]["regularMarketPrice"]
+                        if _sp and float(_sp) > 0:
+                            price_map["SPY"] = float(_sp)
+                except Exception:
+                    pass
+
+            # --- Build Greeks result ---
+            totals = {"delta": 0.0, "theta": 0.0, "gamma": 0.0, "vega": 0.0}
+            pos_details = []
+            for ss, pos in streamer_to_pos.items():
+                greek = greeks_map.get(ss)
+                if not greek:
+                    continue
+                qty = float(pos.quantity)
+                if pos.quantity_direction == "Short":
+                    qty = -qty
+                mult = pos.multiplier
+                underlying = pos.underlying_symbol
+                d = float(greek.delta) * qty * mult
+                t = float(greek.theta) * qty * mult
+                g = float(greek.gamma) * qty * mult
+                v = float(greek.vega) * qty * mult
+                totals["delta"] += d
+                totals["theta"] += t
+                totals["gamma"] += g
+                totals["vega"] += v
+                pos_details.append({
+                    "symbol": pos.symbol,
+                    "underlying": underlying,
+                    "quantity": float(pos.quantity),
+                    "direction": pos.quantity_direction,
+                    "delta": d, "theta": t, "gamma": g, "vega": v,
+                    "iv": float(greek.volatility) if greek.volatility else 0.0,
+                })
+            greeks_result = {"positions": pos_details, "totals": totals}
+
+            # --- Build BWD result ---
+            spy_price = price_map.get("SPY", 0)
+            bwd_result = _empty_bwd
+
+            if spy_price > 0:
+                ticker_bwd = defaultdict(
+                    lambda: {"raw_delta": 0.0, "beta": 0.0, "price": 0.0, "bwd": 0.0})
+
+                for p in stock_positions:
+                    sym = p.symbol
+                    qty = float(p.quantity)
+                    if p.quantity_direction == "Short":
+                        qty = -qty
+                    beta = beta_map.get(sym, 1.0)
+                    price = price_map.get(sym, float(p.mark_price or 0))
+                    bwd_val = qty * beta * (price / spy_price)
+                    entry = ticker_bwd[sym]
+                    entry["raw_delta"] += qty
+                    entry["beta"] = beta
+                    entry["price"] = price
+                    entry["bwd"] += bwd_val
+
+                for ss, pos in streamer_to_pos.items():
+                    greek = greeks_map.get(ss)
+                    if not greek:
+                        continue
+                    qty = float(pos.quantity)
+                    if pos.quantity_direction == "Short":
+                        qty = -qty
+                    mult = pos.multiplier
+                    underlying = pos.underlying_symbol
+                    raw_delta = float(greek.delta) * qty * mult
+                    beta = beta_map.get(underlying, 1.0)
+                    price = price_map.get(underlying, 0)
+                    bwd_val = raw_delta * beta * (price / spy_price)
+                    entry = ticker_bwd[underlying]
+                    entry["raw_delta"] += raw_delta
+                    entry["beta"] = beta
+                    entry["price"] = price
+                    entry["bwd"] += bwd_val
+
+                portfolio_bwd = sum(e["bwd"] for e in ticker_bwd.values())
+                dollar_per_1pct = portfolio_bwd * spy_price * 0.01
+                pos_list = []
+                for sym, entry in sorted(ticker_bwd.items(),
+                                         key=lambda x: abs(x[1]["bwd"]),
+                                         reverse=True):
+                    pos_list.append({
+                        "ticker": sym, "raw_delta": entry["raw_delta"],
+                        "beta": entry["beta"], "price": entry["price"],
+                        "bwd": entry["bwd"],
+                        "dollar_per_1pct": entry["bwd"] * spy_price * 0.01,
+                    })
+                bwd_result = {
+                    "positions": pos_list,
+                    "portfolio_bwd": portfolio_bwd,
+                    "spy_price": spy_price,
+                    "dollar_per_1pct": dollar_per_1pct,
+                }
+
+            return greeks_result, bwd_result
+
+    try:
+        return asyncio.run(_run())
+    except Exception as e:
+        print(f"[Greeks+BWD] Error: {e}")
+        return _empty_greeks, _empty_bwd
+
+
+def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_strikes=8, fallback_price=0.0):
+    """Fetch option chain data for a ticker with greeks via DXLink.
+
+    Args:
+        ticker: Stock symbol (e.g. 'AAPL')
+        option_type: 'Put' or 'Call'
+        min_dte: Minimum days to expiration
+        max_dte: Maximum days to expiration
+        num_strikes: Number of strikes closest to ATM per expiration
+        fallback_price: Price to use when streamer returns nothing (e.g. market closed)
+
+    Returns dict with underlying_price and list of expirations with strike data.
+    """
+    _empty = {'underlying_price': 0, 'expirations': []}
+    session = _get_session()
+
+    async def _run():
+        async with session:
+            # Get nested chain structure
+            try:
+                chains = await NestedOptionChain.get(session, ticker)
+            except Exception:
+                return _empty
+            if not chains:
+                return _empty
+            chain = chains[0] if isinstance(chains, list) else chains
+
+            # Filter expirations by DTE range
+            valid_exps = []
+            for exp in chain.expirations:
+                dte = exp.days_to_expiration
+                if min_dte <= dte <= max_dte:
+                    valid_exps.append(exp)
+
+            if not valid_exps:
+                return _empty
+
+            # Sort: monthlies first (Regular), then by date
+            valid_exps.sort(key=lambda e: (
+                0 if e.expiration_type == 'Regular' else 1,
+                e.expiration_date,
+            ))
+
+            # Stream underlying quote to get current price
+            _ctx = ssl.create_default_context()
+            _ctx.check_hostname = False
+            _ctx.verify_mode = ssl.CERT_NONE
+
+            underlying_price = 0.0
+
+            # Collect streamer symbols for selected strikes (will be filled after we get price)
+            # First pass: get underlying price
+            async with DXLinkStreamer(session, ssl_context=_ctx) as streamer:
+                # Get underlying price
+                await streamer.subscribe(QuoteEvent, [ticker])
+                try:
+                    async def _get_underlying():
+                        async for quote in streamer.listen(QuoteEvent):
+                            if quote.event_symbol == ticker:
+                                bid = float(quote.bid_price) if quote.bid_price else 0
+                                ask = float(quote.ask_price) if quote.ask_price else 0
+                                return (bid + ask) / 2 if bid and ask else bid or ask
+                    underlying_price = await asyncio.wait_for(_get_underlying(), timeout=8)
+                except asyncio.TimeoutError:
+                    pass
+
+            # Fallback: Yahoo Finance last close price
+            if underlying_price <= 0:
+                try:
+                    _yf_req = urllib.request.Request(
+                        f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+                        "?range=1d&interval=1d",
+                        headers={"User-Agent": "Mozilla/5.0"},
+                    )
+                    _yf_ctx = ssl.create_default_context()
+                    _yf_ctx.check_hostname = False
+                    _yf_ctx.verify_mode = ssl.CERT_NONE
+                    with urllib.request.urlopen(_yf_req, context=_yf_ctx, timeout=5) as _yf_resp:
+                        _yf = json.loads(_yf_resp.read())
+                        _sp = _yf["chart"]["result"][0]["meta"]["regularMarketPrice"]
+                        if _sp and float(_sp) > 0:
+                            underlying_price = float(_sp)
+                except Exception:
+                    pass
+
+            # Last resort: use caller-provided fallback
+            if underlying_price <= 0:
+                underlying_price = fallback_price
+
+            if underlying_price <= 0:
+                return _empty
+
+            # Select strikes closest to ATM and collect streamer symbols
+            symbol_map = {}  # streamer_symbol -> (exp_idx, strike_price)
+            result_exps = []
+            total_symbols = 0
+            max_symbols = 50
+
+            for exp in valid_exps:
+                if total_symbols >= max_symbols:
+                    break
+
+                dte = exp.days_to_expiration
+                exp_date = str(exp.expiration_date)
+                exp_type = exp.expiration_type
+
+                # Sort strikes by distance to underlying price
+                sorted_strikes = sorted(
+                    exp.strikes,
+                    key=lambda s: abs(float(s.strike_price) - underlying_price),
+                )
+
+                # Take num_strikes closest
+                selected = sorted_strikes[:num_strikes]
+                remaining = max_symbols - total_symbols
+                if len(selected) > remaining:
+                    selected = selected[:remaining]
+
+                exp_entry = {
+                    'expiration_date': exp_date,
+                    'dte': dte,
+                    'expiration_type': exp_type,
+                    'strikes': [],
+                }
+
+                for s in sorted(selected, key=lambda s: float(s.strike_price)):
+                    strike_price = float(s.strike_price)
+                    if option_type == 'Put':
+                        ss = s.put_streamer_symbol
+                    else:
+                        ss = s.call_streamer_symbol
+                    if ss:
+                        exp_idx = len(result_exps)
+                        symbol_map[ss] = (exp_idx, strike_price)
+                        exp_entry['strikes'].append({
+                            'strike': strike_price,
+                            'streamer_symbol': ss,
+                            'bid': 0.0, 'ask': 0.0, 'mid': 0.0,
+                            'delta': 0.0, 'theta': 0.0, 'gamma': 0.0,
+                            'vega': 0.0, 'iv': 0.0,
+                        })
+                        total_symbols += 1
+
+                if exp_entry['strikes']:
+                    result_exps.append(exp_entry)
+
+            if not symbol_map:
+                return {'underlying_price': underlying_price, 'expirations': []}
+
+            # Build quick lookup: streamer_symbol -> (exp_idx, strike_idx)
+            strike_lookup = {}
+            for exp_idx, exp_entry in enumerate(result_exps):
+                for strike_idx, strike_data in enumerate(exp_entry['strikes']):
+                    strike_lookup[strike_data['streamer_symbol']] = (exp_idx, strike_idx)
+
+            all_symbols = list(symbol_map.keys())
+
+            # Second pass: stream greeks + quotes for options
+            quotes_received = {}
+            greeks_received = {}
+
+            async with DXLinkStreamer(session, ssl_context=_ctx) as streamer:
+                async def _collect_option_quotes():
+                    await streamer.subscribe(QuoteEvent, all_symbols)
+                    received = set()
+                    async for quote in streamer.listen(QuoteEvent):
+                        sym = quote.event_symbol
+                        if sym in symbol_map and sym not in received:
+                            quotes_received[sym] = quote
+                            received.add(sym)
+                            if len(received) >= len(all_symbols):
+                                break
+
+                async def _collect_option_greeks():
+                    await streamer.subscribe(GreeksEvent, all_symbols)
+                    received = set()
+                    async for greek in streamer.listen(GreeksEvent):
+                        sym = greek.event_symbol
+                        if sym in symbol_map and sym not in received:
+                            greeks_received[sym] = greek
+                            received.add(sym)
+                            if len(received) >= len(all_symbols):
+                                break
+
+                try:
+                    await asyncio.wait_for(_collect_option_quotes(), timeout=10)
+                except asyncio.TimeoutError:
+                    pass
+                try:
+                    await asyncio.wait_for(_collect_option_greeks(), timeout=10)
+                except asyncio.TimeoutError:
+                    pass
+
+            # Populate results from streamed data
+            for ss, (exp_idx, strike_idx) in strike_lookup.items():
+                entry = result_exps[exp_idx]['strikes'][strike_idx]
+                quote = quotes_received.get(ss)
+                if quote:
+                    bid = float(quote.bid_price) if quote.bid_price else 0.0
+                    ask = float(quote.ask_price) if quote.ask_price else 0.0
+                    entry['bid'] = bid
+                    entry['ask'] = ask
+                    entry['mid'] = (bid + ask) / 2 if bid and ask else bid or ask
+                greek = greeks_received.get(ss)
+                if greek:
+                    entry['delta'] = float(greek.delta) if greek.delta else 0.0
+                    entry['theta'] = float(greek.theta) if greek.theta else 0.0
+                    entry['gamma'] = float(greek.gamma) if greek.gamma else 0.0
+                    entry['vega'] = float(greek.vega) if greek.vega else 0.0
+                    entry['iv'] = float(greek.volatility) if greek.volatility else 0.0
+                    # Use greeks price as fallback for mid when quotes are missing
+                    if entry['mid'] <= 0 and greek.price:
+                        _gp = float(greek.price)
+                        if _gp > 0:
+                            entry['mid'] = _gp
+                            entry['bid'] = _gp
+                            entry['ask'] = _gp
+
+            # Remove streamer_symbol from output; keep strikes that have any price data
+            for exp_entry in result_exps:
+                exp_entry['strikes'] = [
+                    {k: v for k, v in s.items() if k != 'streamer_symbol'}
+                    for s in exp_entry['strikes']
+                    if s['bid'] > 0 or s['mid'] > 0
+                ]
+
+            # Remove expirations with no valid strikes
+            result_exps = [e for e in result_exps if e['strikes']]
+
+            return {'underlying_price': underlying_price, 'expirations': result_exps}
+
+    try:
+        return asyncio.run(_run())
+    except Exception as e:
+        print(f"[OptionChain] Error: {e}")
+        return _empty
 
 
 def fetch_beta_weighted_delta():
@@ -803,16 +1271,23 @@ def fetch_beta_weighted_delta():
                 if m.beta is not None:
                     beta_map[m.symbol] = float(m.beta)
 
+            # Pre-populate price_map with mark prices (fallback for off-hours)
+            price_map = {}
+            for p in positions:
+                sym = getattr(p, 'underlying_symbol', None) or p.symbol
+                mp = float(p.mark_price) if p.mark_price else 0
+                if mp > 0:
+                    price_map[sym] = mp
+
             # Fetch SPY price + underlying prices via DXLink quotes
             _ctx = ssl.create_default_context()
             _ctx.check_hostname = False
             _ctx.verify_mode = ssl.CERT_NONE
 
-            price_map = {}
             greeks_map = {}
             streamer_to_pos = {}
 
-            async with DXLinkStreamer(session, ssl_context=_ctx) as streamer:
+            async def _collect_quotes(streamer):
                 await streamer.subscribe(QuoteEvent, underlying_list)
                 received = set()
                 async for quote in streamer.listen(QuoteEvent):
@@ -820,26 +1295,60 @@ def fetch_beta_weighted_delta():
                     if sym not in received:
                         bid = float(quote.bid_price) if quote.bid_price else 0
                         ask = float(quote.ask_price) if quote.ask_price else 0
-                        price_map[sym] = (bid + ask) / 2 if bid and ask else bid or ask
+                        mid = (bid + ask) / 2 if bid and ask else bid or ask
+                        if mid > 0:
+                            price_map[sym] = mid
                         received.add(sym)
                         if len(received) >= len(underlying_list):
                             break
 
-                if option_positions:
-                    for p in option_positions:
-                        ss = Option.occ_to_streamer_symbol(p.symbol)
-                        if ss:
-                            streamer_to_pos[ss] = p
-                    if streamer_to_pos:
-                        await streamer.subscribe(GreeksEvent, list(streamer_to_pos.keys()))
-                        received_g = set()
-                        async for greek in streamer.listen(GreeksEvent):
-                            sym = greek.event_symbol
-                            if sym not in received_g and sym in streamer_to_pos:
-                                greeks_map[sym] = greek
-                                received_g.add(sym)
-                                if len(received_g) >= len(streamer_to_pos):
-                                    break
+            async def _collect_greeks(streamer):
+                for p in option_positions:
+                    ss = Option.occ_to_streamer_symbol(p.symbol)
+                    if ss:
+                        streamer_to_pos[ss] = p
+                if not streamer_to_pos:
+                    return
+                await streamer.subscribe(GreeksEvent, list(streamer_to_pos.keys()))
+                received_g = set()
+                async for greek in streamer.listen(GreeksEvent):
+                    sym = greek.event_symbol
+                    if sym not in received_g and sym in streamer_to_pos:
+                        greeks_map[sym] = greek
+                        received_g.add(sym)
+                        if len(received_g) >= len(streamer_to_pos):
+                            break
+
+            async with DXLinkStreamer(session, ssl_context=_ctx) as streamer:
+                try:
+                    await asyncio.wait_for(_collect_quotes(streamer), timeout=10)
+                except asyncio.TimeoutError:
+                    pass  # use whatever quotes we got
+                if option_positions and price_map.get("SPY", 0) > 0:
+                    try:
+                        await asyncio.wait_for(_collect_greeks(streamer), timeout=10)
+                    except asyncio.TimeoutError:
+                        pass  # use whatever greeks we got
+
+            # Fallback: fetch SPY price from Yahoo Finance if still missing
+            if price_map.get("SPY", 0) <= 0:
+                try:
+                    _yf_req = urllib.request.Request(
+                        "https://query1.finance.yahoo.com/v8/finance/chart/SPY"
+                        "?range=1d&interval=1d",
+                        headers={"User-Agent": "Mozilla/5.0"},
+                    )
+                    _yf_ctx = ssl.create_default_context()
+                    _yf_ctx.check_hostname = False
+                    _yf_ctx.verify_mode = ssl.CERT_NONE
+                    with urllib.request.urlopen(_yf_req, context=_yf_ctx,
+                                               timeout=5) as _yf_resp:
+                        _yf = json.loads(_yf_resp.read())
+                        _sp = _yf["chart"]["result"][0]["meta"]["regularMarketPrice"]
+                        if _sp and float(_sp) > 0:
+                            price_map["SPY"] = float(_sp)
+                except Exception:
+                    pass
 
             spy_price = price_map.get("SPY", 0)
             if spy_price <= 0:

@@ -1,7 +1,17 @@
 {
   "AMZN": {
     "company": "AMAZON COM INC",
-    "updated": "2026-02-24T10:25:31.815577",
+    "updated": "2026-02-26T20:00:36.108605",
     "stock_price": 205.27
+  },
+  "TTD": {
+    "company": "Trade Desk, Inc.",
+    "updated": "2026-02-26T20:00:38.054778",
+    "stock_price": 25.81
+  },
+  "PEP": {
+    "company": "PEPSICO INC",
+    "updated": "2026-02-27T14:47:08.103331",
+    "stock_price": 167.58
   }
 }

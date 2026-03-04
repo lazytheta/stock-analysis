@@ -2,7 +2,7 @@
 """
 Automated DCF Data Gathering Pipeline
 ======================================
-Fetches financial data from SEC EDGAR, Yahoo Finance, Treasury.gov,
+Fetches financial data from SEC EDGAR, Treasury.gov,
 and Damodaran's website to build a complete DCF config file.
 
 Usage:
@@ -348,10 +348,10 @@ def parse_financials(facts, n_years=6):
     def _get_values(tags, unit="USD"):
         data = _try_tags(facts, tags, n_years, unit)
         val_by_year = {y: v for y, v in data}
-        return [val_by_year.get(y, 0) for y in years]
+        return [val_by_year.get(y) for y in years]
 
     def _to_millions(values):
-        return [round(v / M, 0) for v in values]
+        return [round(v / M, 0) if v is not None else None for v in values]
 
     # Income statement items
     revenue = _get_values(["RevenueFromContractWithCustomerExcludingAssessedTax",
@@ -385,18 +385,20 @@ def parse_financials(facts, n_years=6):
                             "CurrentPortionOfLongTermDebt"])
     st_leases = _get_values(["OperatingLeaseLiabilityCurrent"])
     # Derive current lease if not directly reported: total - noncurrent
-    if all(v == 0 for v in st_leases):
+    if all(v is None or v == 0 for v in st_leases):
         op_lease_total = _get_values(["OperatingLeaseLiability"])
         op_lease_nc = _get_values(["OperatingLeaseLiabilityNoncurrent"])
         if op_lease_total and op_lease_nc:
-            st_leases = [max(t - n, 0) for t, n in zip(op_lease_total, op_lease_nc)]
+            st_leases = [max((t or 0) - (n or 0), 0) if t is not None else None
+                         for t, n in zip(op_lease_total, op_lease_nc)]
 
     net_ppe = _get_values(["PropertyPlantAndEquipmentNet",
                            "PropertyPlantAndEquipmentAndFinanceLeaseRightOfUseAssetAfterAccumulatedDepreciationAndAmortization"])
     goodwill = _get_values(["Goodwill"])
     intangibles = _get_values(["IntangibleAssetsNetExcludingGoodwill",
                                 "FiniteLivedIntangibleAssetsNet"])
-    goodwill_intang = [g + i for g, i in zip(goodwill, intangibles)]
+    goodwill_intang = [(g or 0) + (i or 0) if g is not None or i is not None else None
+                       for g, i in zip(goodwill, intangibles)]
 
     # Debt & related
     lt_debt = _get_values(["LongTermDebtNoncurrent", "LongTermDebt"])
@@ -404,6 +406,17 @@ def parse_financials(facts, n_years=6):
     lt_leases = _get_values(["OperatingLeaseLiabilityNoncurrent"])
     finance_leases = _get_values(["FinanceLeaseLiability"])
     buyback = _get_values(["PaymentsForRepurchaseOfCommonStock"])
+
+    # Equity bridge items (point-in-time)
+    minority_interest = _get_values(["MinorityInterest",
+                                      "RedeemableNoncontrollingInterestEquityCarryingAmount",
+                                      "NoncontrollingInterestInVariableInterestEntity"])
+    equity_investments = _get_values(["EquityMethodInvestments",
+                                       "InvestmentsInAffiliatesSubsidiariesAssociatesAndJointVentures",
+                                       "EquityMethodInvestmentsFairValueDisclosure"])
+    unfunded_pension = _get_values(["PensionAndOtherPostretirementDefinedBenefitPlansLiabilitiesNoncurrent",
+                                     "DefinedBenefitPlanAmountsRecognizedInBalanceSheet",
+                                     "PensionAndOtherPostretirementDefinedBenefitPlansCurrentLiabilities"])
 
     # Tax rate from most recent year
     tax_provision = _get_values(["IncomeTaxExpenseBenefit"])
@@ -417,7 +430,7 @@ def parse_financials(facts, n_years=6):
         "net_income": _to_millions(net_income),
         "cost_of_revenue": _to_millions(cost_of_revenue),
         "sbc": _to_millions(sbc),
-        "shares": [round(v / M, 0) for v in shares],
+        "shares": [round(v / M, 0) if v is not None else None for v in shares],
         "current_assets": _to_millions(current_assets),
         "cash": _to_millions(cash),
         "st_investments": _to_millions(st_investments),
@@ -431,6 +444,9 @@ def parse_financials(facts, n_years=6):
         "st_debt_latest": round(st_debt[-1] / M, 0) if st_debt and st_debt[-1] else 0,
         "interest_expense_latest": round(interest_expense[-1] / M, 0) if interest_expense and interest_expense[-1] else 0,
         "finance_leases_latest": round(finance_leases[-1] / M, 0) if finance_leases and finance_leases[-1] else 0,
+        "minority_interest_latest": round(minority_interest[-1] / M, 0) if minority_interest and minority_interest[-1] else 0,
+        "equity_investments_latest": round(equity_investments[-1] / M, 0) if equity_investments and equity_investments[-1] else 0,
+        "unfunded_pension_latest": round(abs(unfunded_pension[-1]) / M, 0) if unfunded_pension and unfunded_pension[-1] else 0,
         "buyback": _to_millions(buyback),
         "tax_provision": _to_millions(tax_provision),
         "pretax_income": _to_millions(pretax_income),
@@ -441,7 +457,7 @@ def parse_financials(facts, n_years=6):
     for key in ("revenue", "operating_income", "net_income"):
         vals = result[key]
         if vals:
-            print(f"  {key}: {[f'{v:,.0f}' for v in vals]}")
+            print(f"  {key}: {[f'{v:,.0f}' if v is not None else '—' for v in vals]}")
 
     return result
 
@@ -513,7 +529,7 @@ def fetch_historical_prices(ticker, years):
 
 
 def fetch_balance_sheet(ticker, n_years=11):
-    """Fetch historical balance sheet line items from yfinance + EDGAR fallback.
+    """Fetch historical balance sheet line items from EDGAR XBRL.
 
     Returns dict with sorted years and aligned lists (all values in $M).
     """
@@ -529,79 +545,7 @@ def fetch_balance_sheet(ticker, n_years=11):
         except (TypeError, ValueError):
             return None
 
-    # ── Primary: yfinance ──
-    try:
-        import yfinance as yf
-        t = yf.Ticker(ticker)
-        bs = t.balance_sheet
-        if bs is not None and not bs.empty:
-            _bs_items = [
-                # Assets
-                ("Cash And Cash Equivalents", "cash"),
-                ("Other Short Term Investments", "short_term_investments"),
-                ("Available For Sale Securities", "short_term_investments"),
-                ("Accounts Receivable", "accounts_receivable"),
-                ("Receivables", "accounts_receivable"),
-                ("Other Receivables", "accounts_receivable"),
-                ("Inventory", "inventories"),
-                ("Other Current Assets", "other_current_assets"),
-                ("Prepaid Assets", "other_current_assets"),
-                ("Current Assets", "total_current_assets"),
-                ("Investments And Advances", "investments"),
-                ("Long Term Equity Investment", "investments"),
-                ("Other Investments", "investments"),
-                ("Net PPE", "ppe"),
-                ("Goodwill", "goodwill"),
-                ("Other Intangible Assets", "intangibles"),
-                ("Leases", "leases"),
-                ("Non Current Deferred Taxes Assets", "deferred_tax_assets"),
-                ("Non Current Deferred Assets", "deferred_tax_assets"),
-                ("Other Non Current Assets", "other_assets"),
-                ("Total Assets", "total_assets"),
-                # Liabilities
-                ("Accounts Payable", "accounts_payable"),
-                ("Payables And Accrued Expenses", "accounts_payable"),
-                ("Income Tax Payable", "tax_payable"),
-                ("Total Tax Payable", "tax_payable"),
-                ("Tax Payable", "tax_payable"),
-                ("Current Accrued Expenses", "accrued_liabilities"),
-                ("Current Debt", "short_term_debt"),
-                ("Current Debt And Capital Lease Obligation", "short_term_debt"),
-                ("Current Capital Lease Obligation", "current_capital_leases"),
-                ("Current Deferred Revenue", "deferred_revenue_current"),
-                ("Current Deferred Liabilities", "deferred_revenue_current"),
-                ("Other Current Liabilities", "other_current_liabilities"),
-                ("Current Liabilities", "total_current_liabilities"),
-                ("Long Term Debt", "long_term_debt"),
-                ("Long Term Debt And Capital Lease Obligation", "long_term_debt"),
-                ("Long Term Capital Lease Obligation", "capital_leases"),
-                ("Non Current Deferred Revenue", "deferred_revenue_noncurrent"),
-                ("Non Current Deferred Liabilities", "deferred_revenue_noncurrent"),
-                ("Other Non Current Liabilities", "other_liabilities"),
-                ("Total Liabilities Net Minority Interest", "total_liabilities"),
-                # Equity
-                ("Retained Earnings", "retained_earnings"),
-                ("Capital Stock", "common_stock"),
-                ("Common Stock Equity", "common_stock"),
-                ("Gains Losses Not Affecting Retained Earnings", "aoci"),
-                ("Other Equity Adjustments", "aoci"),
-                ("Total Equity Gross Minority Interest", "shareholders_equity"),
-                ("Stockholders Equity", "shareholders_equity"),
-            ]
-            for col in bs.columns:
-                yr = col.year
-                if yr not in data_by_year:
-                    data_by_year[yr] = {}
-                d = data_by_year[yr]
-                for label, key in _bs_items:
-                    if label in bs.index and key not in d:
-                        v = _safe(bs.at[label, col])
-                        if v is not None:
-                            d[key] = round(v / M, 0)
-    except Exception as e:
-        print(f"[yfinance] Balance sheet warning: {e}")
-
-    # ── Fallback: EDGAR XBRL ──
+    # ── EDGAR XBRL ──
     _edgar_tags = {
         # ── Assets ──
         "cash": ["CashAndCashEquivalentsAtCarryingValue",
@@ -789,7 +733,7 @@ def fetch_balance_sheet(ticker, n_years=11):
 
 
 def fetch_cashflow_statement(ticker, n_years=11):
-    """Fetch historical cash flow statement from yfinance + EDGAR fallback.
+    """Fetch historical cash flow statement from EDGAR XBRL.
 
     Returns dict with sorted years and aligned lists (all values in $M).
     Signs follow cash flow convention: positive = inflow, negative = outflow.
@@ -806,75 +750,7 @@ def fetch_cashflow_statement(ticker, n_years=11):
         except (TypeError, ValueError):
             return None
 
-    # ── Primary: yfinance ──
-    try:
-        import yfinance as yf
-        t = yf.Ticker(ticker)
-        cf = t.cashflow
-        if cf is not None and not cf.empty:
-            _cf_items = [
-                # Operating
-                ("Net Income From Continuing Operations", "net_income_cf"),
-                ("Depreciation And Amortization", "da_cf"),
-                ("Depreciation Amortization Depletion", "da_cf"),
-                ("Stock Based Compensation", "sbc"),
-                ("Deferred Tax", "deferred_tax"),
-                ("Deferred Income Tax", "deferred_tax"),
-                ("Other Non Cash Items", "other_noncash"),
-                ("Change In Working Capital", "change_wc"),
-                ("Change In Receivables", "change_receivables"),
-                ("Changes In Account Receivables", "change_receivables"),
-                ("Change In Inventory", "change_inventory"),
-                ("Change In Payables And Accrued Expense", "change_payables"),
-                ("Change In Account Payable", "change_payables"),
-                ("Change In Other Working Capital", "change_other_wc"),
-                ("Operating Cash Flow", "operating_cf"),
-                ("Cash Flow From Continuing Operating Activities", "operating_cf"),
-                # Investing
-                ("Capital Expenditure", "capex"),
-                ("Purchase Of PPE", "capex"),
-                ("Purchase Of Business", "acquisitions"),
-                ("Purchase Of Investment", "purchases_investments"),
-                ("Sale Of Investment", "sales_investments"),
-                ("Net Other Investing Changes", "other_investing"),
-                ("Investing Cash Flow", "investing_cf"),
-                ("Cash Flow From Continuing Investing Activities", "investing_cf"),
-                # Financing
-                ("Issuance Of Debt", "debt_issuance"),
-                ("Long Term Debt Issuance", "debt_issuance"),
-                ("Repayment Of Debt", "debt_repayment"),
-                ("Long Term Debt Payments", "debt_repayment"),
-                ("Repurchase Of Capital Stock", "stock_buybacks"),
-                ("Common Stock Payments", "stock_buybacks"),
-                ("Cash Dividends Paid", "dividends_paid"),
-                ("Common Stock Dividend Paid", "dividends_paid"),
-                ("Common Stock Issuance", "stock_issuance"),
-                ("Issuance Of Capital Stock", "stock_issuance"),
-                ("Proceeds From Stock Option Exercised", "stock_issuance"),
-                ("Net Other Financing Charges", "other_financing"),
-                ("Financing Cash Flow", "financing_cf"),
-                ("Cash Flow From Continuing Financing Activities", "financing_cf"),
-                # Summary
-                ("Effect Of Exchange Rate Changes", "fx_effect"),
-                ("Changes In Cash", "net_change_cash"),
-                ("Beginning Cash Position", "beginning_cash"),
-                ("End Cash Position", "ending_cash"),
-                ("Free Cash Flow", "fcf"),
-            ]
-            for col in cf.columns:
-                yr = col.year
-                if yr not in data_by_year:
-                    data_by_year[yr] = {}
-                d = data_by_year[yr]
-                for label, key in _cf_items:
-                    if label in cf.index and key not in d:
-                        v = _safe(cf.at[label, col])
-                        if v is not None:
-                            d[key] = round(v / M, 0)
-    except Exception as e:
-        print(f"[yfinance] Cashflow warning: {e}")
-
-    # ── Fallback: EDGAR XBRL ──
+    # ── EDGAR XBRL ──
     _edgar_tags = {
         "net_income_cf": ["NetIncomeLoss", "ProfitLoss"],
         "da_cf": ["DepreciationDepletionAndAmortization",
@@ -1015,7 +891,7 @@ def fetch_cashflow_statement(ticker, n_years=11):
 
 
 def fetch_income_statement(ticker, n_years=11):
-    """Fetch historical income statement line items from yfinance + EDGAR fallback.
+    """Fetch historical income statement line items from EDGAR XBRL.
 
     Returns dict with sorted years and aligned lists.
     Dollar amounts in $M, EPS in raw dollars, shares as raw count.
@@ -1034,100 +910,7 @@ def fetch_income_statement(ticker, n_years=11):
         except (TypeError, ValueError):
             return None
 
-    # ── Primary: yfinance ──
-    try:
-        import yfinance as yf
-        t = yf.Ticker(ticker)
-        inc = t.income_stmt
-        if inc is not None and not inc.empty:
-            _inc_items = [
-                ("Total Revenue", "revenue"),
-                ("Operating Revenue", "revenue"),
-                ("Cost Of Revenue", "cost_of_revenue"),
-                ("Reconciled Cost Of Revenue", "cost_of_revenue"),
-                ("Gross Profit", "gross_profit"),
-                ("Research And Development", "rd"),
-                ("Selling General And Administration", "sga"),
-                ("Selling And Marketing Expense", "selling_marketing"),
-                ("General And Administrative Expense", "general_admin"),
-                ("Other Operating Expenses", "other_operating"),
-                ("Operating Expense", "total_operating_expense"),
-                ("Operating Income", "operating_income"),
-                ("Interest Income", "interest_income"),
-                ("Interest Income Non Operating", "interest_income"),
-                ("Interest Expense", "interest_expense"),
-                ("Interest Expense Non Operating", "interest_expense"),
-                ("Other Income Expense", "other_income"),
-                ("Other Non Operating Income Expenses", "other_income"),
-                ("Pretax Income", "pretax_income"),
-                ("Tax Provision", "tax_provision"),
-                ("Net Income", "net_income"),
-                ("Net Income Common Stockholders", "net_income"),
-                ("EBITDA", "ebitda"),
-                ("Reconciled Depreciation", "da"),
-                ("Basic EPS", "eps_basic"),
-                ("Diluted EPS", "eps_diluted"),
-                ("Basic Average Shares", "shares_basic"),
-                ("Diluted Average Shares", "shares_diluted"),
-            ]
-            for col in inc.columns:
-                yr = col.year
-                if yr not in data_by_year:
-                    data_by_year[yr] = {}
-                d = data_by_year[yr]
-                for label, key in _inc_items:
-                    if label in inc.index and key not in d:
-                        v = _safe(inc.at[label, col])
-                        if v is not None:
-                            if key in ('eps_basic', 'eps_diluted'):
-                                d[key] = v
-                            elif key in ('shares_basic', 'shares_diluted'):
-                                d[key] = v
-                            else:
-                                d[key] = round(v / M, 0)
-
-            # ── Dynamic extras: capture unmapped yfinance rows ──
-            _yf_mapped = {label for label, _ in _inc_items}
-            _yf_ignore = {
-                # Computed/derived metrics (not actual line items)
-                "EBIT", "Normalized EBITDA", "Normalized Income",
-                "Total Expenses", "Total Operating Income As Reported",
-                "Tax Rate For Calcs", "Tax Effect Of Unusual Items",
-                "Total Unusual Items", "Total Unusual Items Excluding Goodwill",
-                "Diluted NI Availto Com Stockholders",
-                "Net Income Continuous Operations",
-                "Net Income From Continuing And Discontinued Operation",
-                "Net Income From Continuing Operation Net Minority Interest",
-                "Net Income Including Noncontrolling Interests",
-                "Net Interest Income", "Net Non Operating Interest Income Expense",
-                "Average Dilution Earnings",
-                "Otherunder Preferred Stock Dividend",
-                "Minority Interests",
-                "Total Other Finance Cost",
-                # Sub-components (already included in parent items)
-                "Special Income Charges",  # = -(Restructuring + Write Off)
-                "Other Gand A",  # part of SGA
-                "Salaries And Wages",  # part of SGA/OpEx
-                "Rent Expense Supplemental",  # supplemental disclosure
-                "Amortization",  # detail of D&A
-                "Amortization Of Intangibles Income Statement",
-                "Depreciation Amortization Depletion Income Statement",
-                "Depreciation And Amortization In Income Statement",
-            }
-            for row_name in inc.index:
-                if row_name in _yf_mapped or row_name in _yf_ignore:
-                    continue
-                for col in inc.columns:
-                    v = _safe(inc.at[row_name, col])
-                    if v is not None:
-                        yr = col.year
-                        if row_name not in extras_raw:
-                            extras_raw[row_name] = {}
-                        extras_raw[row_name][yr] = round(v / M, 0)
-    except Exception as e:
-        print(f"[yfinance] Income statement warning: {e}")
-
-    # ── Fallback: EDGAR XBRL ──
+    # ── EDGAR XBRL ──
     _edgar_tags = {
         "revenue": ["RevenueFromContractWithCustomerExcludingAssessedTax",
                      "Revenues", "SalesRevenueNet",
@@ -1847,7 +1630,7 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
     base_op_margin = round(base_oi / base_revenue, 3) if base_revenue > 0 else 0
 
     # Shares: prefer EDGAR diluted, fall back to Yahoo
-    shares = financials["shares"][-1] if financials["shares"] and financials["shares"][-1] > 0 else shares_yahoo
+    shares = financials["shares"][-1] if financials["shares"] and financials["shares"][-1] and financials["shares"][-1] > 0 else shares_yahoo
     if shares == 0:
         shares = market_cap / stock_price if stock_price > 0 else 0
 
@@ -1932,7 +1715,7 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
     # [IMPROVEMENT 1] Detect margin trend from history
     hist_margins = []
     for r, o in zip(rev, oi):
-        if r > 0:
+        if r > 0 and o is not None:
             hist_margins.append(o / r)
         else:
             hist_margins.append(0)
@@ -2006,7 +1789,7 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
         # Average of last 3 years
         recent_sbc = sbc_vals[-3:] if len(sbc_vals) >= 3 else sbc_vals
         recent_rev = rev[-3:] if len(rev) >= 3 else rev
-        sbc_ratios = [s / r for s, r in zip(recent_sbc, recent_rev) if r > 0 and s > 0]
+        sbc_ratios = [s / r for s, r in zip(recent_sbc, recent_rev) if r and r > 0 and s and s > 0]
         sbc_pct = round(sum(sbc_ratios) / len(sbc_ratios), 4) if sbc_ratios else 0.004
     else:
         sbc_pct = 0.004
@@ -2016,15 +1799,15 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
     # (using current P/E applied to historical earnings as proxy)
     buyback_vals = financials["buyback"]
     hist_shares = financials["shares"]
-    if buyback_vals and market_cap > 0 and ni and ni[-1] > 0:
+    if buyback_vals and market_cap > 0 and ni and ni[-1] and ni[-1] > 0:
         current_pe = market_cap / ni[-1]
         yearly_rates = []
         for i in range(len(buyback_vals)):
-            bb = abs(buyback_vals[i])
-            if bb > 0 and i < len(ni) and ni[i] > 0:
+            bb = abs(buyback_vals[i] or 0)
+            if bb > 0 and i < len(ni) and ni[i] and ni[i] > 0:
                 est_mc = ni[i] * current_pe
                 yearly_rates.append(bb / est_mc)
-            elif bb > 0 and i < len(rev) and rev[i] > 0:
+            elif bb > 0 and i < len(rev) and rev[i] and rev[i] > 0:
                 # Fallback: use revenue-based proxy (P/S) if earnings negative
                 current_ps = market_cap / rev[-1]
                 est_mc = rev[i] * current_ps
@@ -2042,7 +1825,7 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
     # ── Tax rate ──
     tax_prov = financials["tax_provision"]
     pretax = financials["pretax_income"]
-    if tax_prov and pretax and pretax[-1] > 0 and tax_prov[-1] > 0:
+    if tax_prov and pretax and pretax[-1] and pretax[-1] > 0 and tax_prov[-1] and tax_prov[-1] > 0:
         tax_rate = round(tax_prov[-1] / pretax[-1], 2)
         tax_rate = min(max(tax_rate, 0.05), 0.35)  # Sanity bounds
     else:
@@ -2062,7 +1845,12 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
         pp = financials["net_ppe"]
         gi = financials["goodwill_intang"]
 
-        # Non-cash working capital
+        # Non-cash working capital — skip years with missing data
+        _vals = [ca[i], cs[i], si[i], cl[i], sd[i], sl[i], pp[i], gi[i],
+                 ca[i-1], cs[i-1], si[i-1], cl[i-1], sd[i-1], sl[i-1], pp[i-1], gi[i-1]]
+        if any(v is None for v in _vals):
+            continue
+
         ncwc_now = (ca[i] - cs[i] - si[i]) - (cl[i] - sd[i] - sl[i])
         ncwc_prev = (ca[i-1] - cs[i-1] - si[i-1]) - (cl[i-1] - sd[i-1] - sl[i-1])
         delta_ncwc = ncwc_now - ncwc_prev
@@ -2104,8 +1892,8 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
         total_debt = 0
 
     # ── Cash bridge ──
-    cash_bridge = financials["cash"][-1] if financials["cash"] else 0
-    securities = financials["st_investments"][-1] if financials["st_investments"] else 0
+    cash_bridge = financials["cash"][-1] if financials["cash"] and financials["cash"][-1] else 0
+    securities = financials["st_investments"][-1] if financials["st_investments"] and financials["st_investments"][-1] else 0
 
     # ── Build config dict ──
     cfg = {
@@ -2144,17 +1932,20 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
 
         "cash_bridge": cash_bridge,
         "securities": securities,
+        "equity_investments": financials["equity_investments_latest"],
+        "minority_interest": financials["minority_interest_latest"],
+        "unfunded_pension": financials["unfunded_pension_latest"],
 
         "ic_years": years,
-        "current_assets": financials["current_assets"],
-        "cash": financials["cash"],
-        "st_investments": financials["st_investments"],
+        "current_assets": [v or 0 for v in financials["current_assets"]],
+        "cash": [v or 0 for v in financials["cash"]],
+        "st_investments": [v or 0 for v in financials["st_investments"]],
         "operating_cash": [0] * n,
-        "current_liabilities": financials["current_liabilities"],
-        "st_debt": financials["st_debt"],
-        "st_leases": financials["st_leases"],
-        "net_ppe": financials["net_ppe"],
-        "goodwill_intang": financials["goodwill_intang"],
+        "current_liabilities": [v or 0 for v in financials["current_liabilities"]],
+        "st_debt": [v or 0 for v in financials["st_debt"]],
+        "st_leases": [v or 0 for v in financials["st_leases"]],
+        "net_ppe": [v or 0 for v in financials["net_ppe"]],
+        "goodwill_intang": [v or 0 for v in financials["goodwill_intang"]],
 
         "hist_revenue": rev,
         "hist_operating_income": oi,
@@ -2239,6 +2030,8 @@ def write_config(cfg, output_path):
 
     def _fmt_number(v):
         """Format a number for a list."""
+        if v is None:
+            return "None"
         if isinstance(v, float):
             if v == 0:
                 return "0"
@@ -2348,6 +2141,9 @@ def write_config(cfg, output_path):
     lines.append(f"    # {'─' * 46}")
     lines.append(f"    'cash_bridge': {_fmt_val(cfg['cash_bridge'])},")
     lines.append(f"    'securities': {_fmt_val(cfg['securities'])},")
+    lines.append(f"    'equity_investments': {_fmt_val(cfg.get('equity_investments', 0))},")
+    lines.append(f"    'minority_interest': {_fmt_val(cfg.get('minority_interest', 0))},")
+    lines.append(f"    'unfunded_pension': {_fmt_val(cfg.get('unfunded_pension', 0))},")
     lines.append(f"")
 
     # Historical Balance Sheet
@@ -2447,7 +2243,7 @@ def write_config(cfg, output_path):
 # ── Fundamentals Fetcher (for Streamlit app) ─────────────────────────
 
 def fetch_fundamentals(ticker, n_years=10):
-    """Fetch historical financial fundamentals from yfinance + EDGAR fallback.
+    """Fetch historical financial fundamentals from EDGAR XBRL.
 
     Returns dict with sorted years and aligned lists:
         years, revenue, operating_income, net_income, cost_of_revenue,
@@ -2482,89 +2278,7 @@ def fetch_fundamentals(ticker, n_years=10):
         except (TypeError, ValueError):
             return None
 
-    # ── Primary: yfinance ──────────────────────────────────────────
-    try:
-        import yfinance as yf
-        t = yf.Ticker(ticker)
-
-        # Income statement — columns are dates, rows are line items
-        inc = t.income_stmt
-        if inc is not None and not inc.empty:
-            for col in inc.columns:
-                yr = col.year
-                if yr not in data_by_year:
-                    data_by_year[yr] = {}
-                d = data_by_year[yr]
-
-                for label, key in [
-                    ("Total Revenue", "revenue"),
-                    ("Operating Income", "operating_income"),
-                    ("Net Income", "net_income"),
-                    ("Cost Of Revenue", "cost_of_revenue"),
-                    ("Tax Provision", "tax_provision"),
-                    ("Pretax Income", "pretax_income"),
-                    ("Gross Profit", "gross_profit"),
-                    ("Diluted EPS", "eps"),
-                ]:
-                    if label in inc.index:
-                        v = _safe(inc.at[label, col])
-                        if v is not None:
-                            if key == "eps":
-                                d[key] = v  # per-share value, no conversion
-                            else:
-                                d[key] = round(v / M, 0)
-
-        # Balance sheet
-        bs = t.balance_sheet
-        if bs is not None and not bs.empty:
-            for col in bs.columns:
-                yr = col.year
-                if yr not in data_by_year:
-                    data_by_year[yr] = {}
-                d = data_by_year[yr]
-
-                for label, key in [
-                    ("Stockholders Equity", "total_equity"),
-                    ("Total Debt", "total_debt"),
-                    ("Cash And Cash Equivalents", "cash"),
-                    ("Ordinary Shares Number", "shares"),
-                    ("Total Assets", "total_assets"),
-                    ("Current Liabilities", "current_liabilities"),
-                    ("Goodwill", "goodwill"),
-                    ("Intangible Assets", "intangibles"),
-                    ("Net PPE", "ppe"),
-                ]:
-                    if label in bs.index:
-                        v = _safe(bs.at[label, col])
-                        if v is not None:
-                            if key == "shares":
-                                d[key] = v  # raw count, no conversion
-                            else:
-                                d[key] = round(v / M, 0)
-
-        # Cash flow
-        cf = t.cashflow
-        if cf is not None and not cf.empty:
-            for col in cf.columns:
-                yr = col.year
-                if yr not in data_by_year:
-                    data_by_year[yr] = {}
-                d = data_by_year[yr]
-
-                for label, key in [
-                    ("Operating Cash Flow", "cfo"),
-                    ("Capital Expenditure", "capex"),
-                    ("Depreciation And Amortization", "da"),
-                ]:
-                    if label in cf.index:
-                        v = _safe(cf.at[label, col])
-                        if v is not None:
-                            d[key] = round(v / M, 0)
-
-    except Exception as e:
-        print(f"[yfinance] Warning: {e}")
-
-    # ── Fallback: EDGAR XBRL ──────────────────────────────────────
+    # ── EDGAR XBRL ──────────────────────────────────────────────────
     try:
         cik = get_cik(ticker)
         facts = fetch_company_facts(cik)
@@ -2708,7 +2422,7 @@ def fetch_fundamentals(ticker, n_years=10):
                     if shares[j] is not None:
                         shares[j] = round(shares[j] * ratio)
 
-    # Compute FCF = CFO + CapEx (capex is already negative from yfinance)
+    # Compute FCF = CFO + CapEx (capex is already negative)
     result["fcf"] = []
     for cfo_val, capex_val in zip(result["cfo"], result["capex"]):
         if cfo_val is not None and capex_val is not None:
@@ -2861,13 +2575,13 @@ Examples:
     risk_free_rate = fetch_treasury_yield()
 
     # ── Step 5: Credit rating ──
-    oi_latest = financials["operating_income"][-1] if financials["operating_income"] else 0
+    oi_latest = financials["operating_income"][-1] if financials["operating_income"] and financials["operating_income"][-1] is not None else 0
     ie_latest = financials["interest_expense_latest"]
     credit_rating, credit_spread = synthetic_credit_rating(oi_latest, ie_latest)
 
     # Compute market cap from EDGAR shares if Yahoo didn't provide it
     if market_cap == 0 and stock_price > 0:
-        edgar_shares = financials["shares"][-1] if financials["shares"] and financials["shares"][-1] > 0 else 0
+        edgar_shares = financials["shares"][-1] if financials["shares"] and financials["shares"][-1] and financials["shares"][-1] > 0 else 0
         if edgar_shares > 0:
             market_cap = round(stock_price * edgar_shares, 0)
             print(f"  Market Cap (EDGAR shares): ${market_cap:,.0f}M")

@@ -105,7 +105,11 @@ def compute_intrinsic_value(cfg, wacc=None):
 
     # Enterprise & equity value
     ev = pv_fcff + pv_tv
-    equity = ev + cfg['cash_bridge'] + cfg.get('securities', 0) - cfg['debt_market_value']
+    equity = (ev + cfg['cash_bridge'] + cfg.get('securities', 0)
+              + cfg.get('equity_investments', 0)
+              - cfg['debt_market_value']
+              - cfg.get('minority_interest', 0)
+              - cfg.get('unfunded_pension', 0))
     adj_shares = cfg['shares_outstanding'] * (1 - cfg['buyback_rate']) ** n_p
     intrinsic = equity / adj_shares if adj_shares > 0 else 0
 
@@ -189,14 +193,13 @@ def compute_reverse_dcf(cfg, wacc=None, growth_range=None, margin_range=None):
     implied_growth = find_implied_value(cfg, wacc, 'growth', -0.05, 0.50, mkt_price)
     implied_margin = find_implied_value(cfg, wacc, 'margin', 0.01, 0.80, mkt_price)
 
-    # Build test ranges
+    # Build test ranges — centered on base case, +/- 10 percentage points, 0.5% steps
     if growth_range:
         g_min, g_max, g_step = growth_range
     else:
-        g_step = 0.02
-        g_center = round(implied_growth / g_step) * g_step
-        g_min = max(0.0, g_center - 0.08)
-        g_max = g_center + 0.08
+        g_step = 0.005
+        g_min = max(0.0, round(base_cagr - 0.05, 3))
+        g_max = round(base_cagr + 0.05, 3)
     growth_tests = []
     g = g_min
     while g <= g_max + 1e-9:
@@ -206,10 +209,9 @@ def compute_reverse_dcf(cfg, wacc=None, growth_range=None, margin_range=None):
     if margin_range:
         m_min, m_max, m_step = margin_range
     else:
-        m_step = 0.02
-        m_center = round(implied_margin / m_step) * m_step
-        m_min = max(0.05, m_center - 0.08)
-        m_max = m_center + 0.08
+        m_step = 0.005
+        m_min = max(0.01, round(base_margin - 0.05, 3))
+        m_max = round(base_margin + 0.05, 3)
     margin_tests = []
     m = m_min
     while m <= m_max + 1e-9:
@@ -218,16 +220,23 @@ def compute_reverse_dcf(cfg, wacc=None, growth_range=None, margin_range=None):
 
     # Compute matrix
     matrix = []
-    closest = None
-    closest_diff = float('inf')
     for gr in growth_tests:
         for mg in margin_tests:
             price = _dcf_price_with_overrides(cfg, wacc, growth_rate=gr, margin=mg)
             matrix.append({'growth': gr, 'margin': mg, 'price': price})
-            diff = abs(price - mkt_price)
-            if diff < closest_diff:
-                closest_diff = diff
-                closest = (gr, mg)
+
+    # Find closest: price match to market is primary, base case proximity is tiebreaker
+    closest = None
+    best_score = float('inf')
+    for m in matrix:
+        price_diff = abs(m['price'] - mkt_price) / max(mkt_price, 1)
+        # Small tiebreaker toward base case when prices are equally close
+        g_dist = abs(m['growth'] - base_cagr) / max(abs(base_cagr), 0.01)
+        m_dist = abs(m['margin'] - base_margin) / max(abs(base_margin), 0.01)
+        score = price_diff + (g_dist + m_dist) * 0.01
+        if score < best_score:
+            best_score = score
+            closest = (m['growth'], m['margin'])
 
     return {
         'implied_growth': implied_growth,
