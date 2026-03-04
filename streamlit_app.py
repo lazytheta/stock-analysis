@@ -6030,8 +6030,8 @@ elif page == "Settings":
 
 elif page == "🔒 Security & Privacy":
 
-    GITHUB_REPO_URL = "https://github.com/lazy-theta/stock-analysis"
-    CONTACT_EMAIL = "security@lazytheta.com"
+    GITHUB_REPO_URL = "https://github.com/lazytheta/stock-analysis"
+    CONTACT_EMAIL = "security@lazytheta.io"
 
     st.markdown(
         f"""<style>

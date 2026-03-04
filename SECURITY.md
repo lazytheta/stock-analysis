@@ -1,7 +1,7 @@
 # Security
 
 ## Reporting Vulnerabilities
-If you discover a security vulnerability, please open a private issue on GitHub or email security@lazytheta.com.
+If you discover a security vulnerability, please open a private issue on GitHub or email security@lazytheta.io.
 
 ## Security Measures
 - User accounts isolated via Supabase Row Level Security (RLS)
