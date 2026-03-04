@@ -398,3 +398,13 @@ def render_login_page():
                         st.error(error)
                     else:
                         st.success("Account created! Please check your email to verify, then sign in.")
+
+        st.markdown(
+            '<p style="text-align: center; font-size: 0.75rem; color: #86868b; margin-top: 16px;">'
+            'By signing in you agree to our '
+            '<a href="?_account_page=Terms+of+Service" target="_self" style="color: #86868b;">Terms of Service</a>'
+            ' and '
+            '<a href="?_account_page=Privacy+Policy" target="_self" style="color: #86868b;">Privacy Policy</a>'
+            '</p>',
+            unsafe_allow_html=True,
+        )

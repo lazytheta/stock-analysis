@@ -6234,6 +6234,17 @@ elif page == "🔒 Security & Privacy":
 
     st.markdown('<div style="height: 4px"></div>', unsafe_allow_html=True)
 
+    # ── Legal links ──
+    _lc, _rc = st.columns(2)
+    with _lc:
+        if st.button("Privacy Policy", use_container_width=True):
+            st.session_state["_account_page"] = "Privacy Policy"
+            st.rerun()
+    with _rc:
+        if st.button("Terms of Service", use_container_width=True):
+            st.session_state["_account_page"] = "Terms of Service"
+            st.rerun()
+
     # ── Footer ──
     st.caption(
         f"Last updated: {date.today().strftime('%B %d, %Y')}. "
@@ -6241,4 +6252,148 @@ elif page == "🔒 Security & Privacy":
         f"[Open an issue on GitHub]({GITHUB_REPO_URL}/issues) "
         f"or reach out at {CONTACT_EMAIL}."
     )
+
+elif page == "Privacy Policy":
+
+    st.markdown(f'<p style="font-family: \'DM Serif Display\', Georgia, serif; font-size: 2rem; color: {T["text"]}; margin-bottom: 4px;">Privacy Policy</p>', unsafe_allow_html=True)
+    st.caption(f"Effective date: March 4, 2026 — Last updated: {date.today().strftime('%B %d, %Y')}")
+
+    st.markdown(f"""
+### 1. Who we are
+
+Lazy Theta ("we", "us") operates the stock analysis platform at [lazytheta.io](https://lazytheta.io).
+Contact: [info@lazytheta.io](mailto:info@lazytheta.io)
+
+### 2. What we collect
+
+| Data | Purpose | Stored where |
+|------|---------|-------------|
+| Email address | Account login | Supabase Auth |
+| Name, title, date of birth, country | Account profile | Supabase Auth metadata |
+| Password | Authentication (hashed, we never see it) | Supabase Auth |
+| Watchlist configurations | Save your DCF valuations | Supabase database |
+| Display preferences | Remember your settings | Supabase database |
+| Tastytrade refresh token | Read-only portfolio access | Supabase database (encrypted at rest) |
+
+### 3. What we do NOT collect
+
+- Portfolio positions, balances, or transaction history (fetched live, never stored)
+- Market data or stock prices
+- DCF calculation results
+- Your Tastytrade password
+- Analytics, cookies, or tracking data of any kind
+
+### 4. How we protect your data
+
+- All data is isolated per user via **Row Level Security** (RLS) — no user can access another user's data
+- All connections are **HTTPS encrypted**
+- Passwords are hashed by Supabase Auth (bcrypt) — we never store or see plaintext passwords
+- Tastytrade tokens are **read-only** and revocable from your Tastytrade account at any time
+
+### 5. Third-party services
+
+| Service | Purpose | Their privacy policy |
+|---------|---------|---------------------|
+| [Supabase](https://supabase.com) | Authentication & database | [supabase.com/privacy](https://supabase.com/privacy) |
+| [Streamlit Cloud](https://streamlit.io) | App hosting | [streamlit.io/privacy-policy](https://streamlit.io/privacy-policy) |
+| [SEC EDGAR](https://www.sec.gov) | Financial statements | Public government data |
+| [Tastytrade](https://tastytrade.com) | Portfolio data (opt-in) | [tastytrade.com/privacy-policy](https://tastytrade.com/privacy-policy) |
+
+We do **not** use Google Analytics, Mixpanel, or any tracking service.
+
+### 6. Your rights
+
+You can at any time:
+- **View** your data in the app (Settings page)
+- **Delete** your session data (Clear Session Data button)
+- **Revoke** Tastytrade access from your Tastytrade account
+- **Request deletion** of your account and all data by emailing [info@lazytheta.io](mailto:info@lazytheta.io)
+
+Under GDPR (EU) and similar regulations, you also have the right to data portability and to lodge a complaint with your local data protection authority.
+
+### 7. Data retention
+
+- Account data is retained as long as your account exists
+- Session data (portfolio, calculations) is destroyed when you close the browser tab
+- We do not keep backups of session data
+
+### 8. Changes
+
+We may update this policy. Material changes will be communicated via the app. Continued use after changes constitutes acceptance.
+""")
+
+    if st.button("← Back to Security & Privacy"):
+        st.session_state["_account_page"] = "🔒 Security & Privacy"
+        st.rerun()
+
+elif page == "Terms of Service":
+
+    st.markdown(f'<p style="font-family: \'DM Serif Display\', Georgia, serif; font-size: 2rem; color: {T["text"]}; margin-bottom: 4px;">Terms of Service</p>', unsafe_allow_html=True)
+    st.caption(f"Effective date: March 4, 2026 — Last updated: {date.today().strftime('%B %d, %Y')}")
+
+    st.markdown(f"""
+### 1. Acceptance
+
+By creating an account or using Lazy Theta ("the Service"), you agree to these terms.
+
+### 2. What the Service provides
+
+Lazy Theta is a **stock analysis and portfolio management tool** for personal, informational use. It provides:
+- DCF valuation models based on public SEC filings
+- Portfolio overview via Tastytrade API integration
+- Wheel strategy cost basis tracking
+
+### 3. Not financial advice
+
+**The Service does not provide financial, investment, tax, or legal advice.** All valuations, calculations, and data are for informational purposes only. You are solely responsible for your investment decisions. We are not a registered investment adviser, broker-dealer, or financial planner.
+
+### 4. Your account
+
+- You must provide accurate information when creating an account
+- You are responsible for keeping your credentials secure
+- One account per person
+- We may suspend or terminate accounts that violate these terms
+
+### 5. Acceptable use
+
+You agree not to:
+- Use the Service for any illegal purpose
+- Attempt to access other users' data
+- Reverse-engineer, scrape, or overload the Service
+- Use automated tools to access the Service beyond normal use
+
+### 6. Data accuracy
+
+- Financial data is sourced from SEC EDGAR, Yahoo Finance, and Tastytrade
+- We do not guarantee the accuracy, completeness, or timeliness of any data
+- DCF valuations are models with assumptions — they are not predictions of future stock prices
+
+### 7. Availability
+
+The Service is provided "as is" on Streamlit Cloud. We do not guarantee uptime or availability. We may modify or discontinue the Service at any time.
+
+### 8. Limitation of liability
+
+To the maximum extent permitted by law, Lazy Theta and its operators shall not be liable for any indirect, incidental, special, or consequential damages, including but not limited to financial losses from investment decisions made using the Service.
+
+### 9. Intellectual property
+
+The source code is available on [GitHub]({GITHUB_REPO_URL}). All rights reserved unless otherwise specified. You may not copy, modify, or redistribute the code without permission.
+
+### 10. Changes
+
+We may update these terms. Continued use after changes constitutes acceptance. Material changes will be communicated via the app.
+
+### 11. Governing law
+
+These terms are governed by the laws of the Netherlands.
+
+### 12. Contact
+
+Questions? Email [info@lazytheta.io](mailto:info@lazytheta.io).
+""")
+
+    if st.button("← Back to Security & Privacy"):
+        st.session_state["_account_page"] = "🔒 Security & Privacy"
+        st.rerun()
 
