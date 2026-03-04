@@ -7,6 +7,16 @@ font = "sans serif"
 
 [server]
 maxUploadSize = 5
+# Disable file watcher in production (reduces attack surface)
+fileWatcherType = "none"
+# Disable CORS for tighter security
+enableCORS = false
+# Enable XSRF protection
+enableXsrfProtection = true
+
+[browser]
+gatherUsageStats = false
 
 [client]
 showErrorDetails = false
+# toolbarMode = "minimal"

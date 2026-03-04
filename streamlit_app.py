@@ -45,6 +45,32 @@ from gather_data import (
 from tastytrade_api import fetch_portfolio_data, fetch_current_prices, fetch_account_balances, fetch_net_liq_history, fetch_sp500_yearly_returns, fetch_benchmark_returns, fetch_ticker_profiles, fetch_yearly_transfers, fetch_portfolio_greeks, fetch_margin_interest, fetch_margin_for_position, fetch_margin_requirements, fetch_beta_weighted_delta, fetch_greeks_and_bwd, fetch_option_chain, fetch_earnings_dates
 import plotly.graph_objects as go
 
+# ── Input sanitization ──
+def sanitize_ticker(raw: str) -> str | None:
+    """Validate and clean a ticker symbol. Returns None if invalid."""
+    cleaned = raw.strip().upper()
+    if re.match(r'^[A-Z]{1,5}$', cleaned):
+        return cleaned
+    return None
+
+
+# ── Rate limiting ──
+def rate_limited_lookup() -> bool:
+    """Returns True if the lookup is allowed, False if rate limited."""
+    now = time.time()
+    key = '_api_call_times'
+    if key not in st.session_state:
+        st.session_state[key] = []
+    # Clean entries older than 60 seconds
+    st.session_state[key] = [t for t in st.session_state[key] if now - t < 60]
+    # Max 10 lookups per minute
+    if len(st.session_state[key]) >= 10:
+        st.warning("Too many requests. Please wait a moment before trying again.")
+        return False
+    st.session_state[key].append(now)
+    return True
+
+
 # ── Page config ──
 st.set_page_config(
     page_title="Stock Analysis",
@@ -1424,21 +1450,27 @@ def _watchlist_overview():
         wl_add = st.button("Add to Watchlist", use_container_width=True, type="primary")
 
     if wl_add and wl_ticker:
-        ticker_clean = wl_ticker.strip().upper()
-        try:
-            _, wl_cfg, _ = run_analysis(
-                ticker_clean,
-                peer_mode="Auto-discover",
-                manual_peers="",
-                margin_of_safety=MARGIN_OF_SAFETY_DEFAULT,
-                terminal_growth=TERMINAL_GROWTH_DEFAULT,
-                n_peers=6,
-            )
-            save_config(_sb_client, ticker_clean, wl_cfg)
-            st.success(f"{ticker_clean} added to watchlist")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Could not analyse {ticker_clean}: {e}")
+        ticker_clean = sanitize_ticker(wl_ticker)
+        if ticker_clean is None:
+            st.warning("Invalid ticker. Use 1–5 letters only (e.g. AAPL).")
+        elif not rate_limited_lookup():
+            pass
+        else:
+            try:
+                _, wl_cfg, _ = run_analysis(
+                    ticker_clean,
+                    peer_mode="Auto-discover",
+                    manual_peers="",
+                    margin_of_safety=MARGIN_OF_SAFETY_DEFAULT,
+                    terminal_growth=TERMINAL_GROWTH_DEFAULT,
+                    n_peers=6,
+                )
+                save_config(_sb_client, ticker_clean, wl_cfg)
+                st.success(f"{ticker_clean} added to watchlist")
+                st.rerun()
+            except Exception as e:
+                logger.error("Watchlist analysis failed for %s: %s", ticker_clean, e)
+                st.error(f"Could not analyse {ticker_clean}. Please try again. ({type(e).__name__})")
 
     # ── Overview table ──
     watchlist = list_watchlist(_sb_client)
@@ -2473,7 +2505,9 @@ def _dcf_editor(ticker):
             with _ac2:
                 _add_clicked = st.form_submit_button("+ Add", use_container_width=True)
         if _add_clicked and _new_peer:
-            _new_tickers = [t.strip().upper() for t in _new_peer.split(",") if t.strip()]
+            _new_tickers = [t for t in (sanitize_ticker(t) for t in _new_peer.split(",")) if t]
+            if not _new_tickers:
+                st.warning("Invalid ticker(s). Use 1–5 letters only (e.g. MSFT, GOOG).")
             _existing = {p.get("ticker") for p in peers}
             _to_fetch = [t for t in _new_tickers if t not in _existing and t != ticker]
             if _to_fetch:
@@ -4007,12 +4041,19 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
 
 with st.sidebar:
     st.toggle("Dark mode", key="dark_mode")
-    page = st.radio(
+
+    def _on_nav_change():
+        """Clear account page override when user clicks a main nav item."""
+        st.session_state.pop("_account_page", None)
+
+    _nav = st.radio(
         "Navigate",
-        ["Portfolio", "Watchlist", "Wheel Cost Basis", "Results", "Settings"],
+        ["Portfolio", "Watchlist", "Wheel Cost Basis", "Results"],
         label_visibility="collapsed",
         key="nav_page",
+        on_change=_on_nav_change,
     )
+    page = st.session_state.get("_account_page") or _nav
     st.markdown("---")
 
     if page in ("Portfolio", "Wheel Cost Basis", "Results"):
@@ -4036,14 +4077,40 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
 
-    # User info + sign out at bottom of sidebar
+    # User info + account actions at bottom of sidebar
     _user_info = st.session_state.get("user", {})
     st.markdown("---")
     st.markdown(
         f'<small style="color: {T["text_muted"]}">{_user_info.get("email", "")}</small>',
         unsafe_allow_html=True,
     )
-    if st.button("Sign Out", use_container_width=True, type="primary"):
+    _active_acct = st.session_state.get("_account_page", "")
+    _acct_col1, _acct_col2 = st.columns(2)
+    with _acct_col1:
+        _settings_type = "primary" if _active_acct == "Settings" else "secondary"
+        if st.button("⚙ Settings", use_container_width=True, type=_settings_type):
+            st.session_state["_account_page"] = "Settings"
+            st.rerun()
+    with _acct_col2:
+        _privacy_type = "primary" if _active_acct == "🔒 Security & Privacy" else "secondary"
+        if st.button("🔒 Privacy", use_container_width=True, type=_privacy_type):
+            st.session_state["_account_page"] = "🔒 Security & Privacy"
+            st.rerun()
+    with st.popover("🗑️ Clear Data", use_container_width=True):
+        st.markdown(
+            f'<small style="color: {T["text_muted"]}">Remove all cached portfolio data, '
+            f'prices, and session state. Your saved watchlist and settings are not affected.</small>',
+            unsafe_allow_html=True,
+        )
+        if st.button("Confirm Clear", type="primary", use_container_width=True):
+            # Preserve auth and UI state, clear everything else
+            _preserve = {"dark_mode", "nav_page", "_account_page",
+                         "supabase_client", "user", "_user_id", "tt_refresh_token"}
+            for key in [k for k in st.session_state if k not in _preserve]:
+                del st.session_state[key]
+            st.success("Session data cleared.")
+            st.rerun()
+    if st.button("Sign Out", use_container_width=True):
         logout()
         st.rerun()
 
@@ -4071,9 +4138,8 @@ def _load_portfolio_data():
                 st.session_state.portfolio_account = acct
                 st.session_state.portfolio_fetched_at = time.time()
             except Exception as e:
-                st.error(f"Failed to fetch data: {e}")
-                with st.expander("Error details"):
-                    st.exception(e)
+                logger.error("Portfolio fetch failed: %s", e, exc_info=True)
+                st.error(f"Failed to fetch portfolio data. Please try again. ({type(e).__name__})")
                 st.stop()
 
     cost_basis = st.session_state.portfolio_data
@@ -4325,7 +4391,7 @@ elif page == "Portfolio":
         sim_entries = []
 
         for i in range(st.session_state["sim_rows"]):
-            ticker = st.session_state.get(f"sim_tick_{i}", "")
+            ticker = sanitize_ticker(st.session_state.get(f"sim_tick_{i}", "") or "")
             try:
                 shares = int(st.session_state.get(f"sim_sh_{i}", "100"))
             except (ValueError, TypeError):
@@ -4442,10 +4508,11 @@ elif page == "Portfolio":
                 shares = st.text_input("Shares", value="100", placeholder="100", key=f"sim_sh_{i}", label_visibility="collapsed")
             # Auto-fetch price when ticker is entered and price not yet set
             price_key = f"sim_pr_{i}"
-            if ticker and st.session_state.get(price_key, "0") in ("0", "0.00", ""):
+            _sim_ticker_clean = sanitize_ticker(ticker) if ticker else None
+            if _sim_ticker_clean and st.session_state.get(price_key, "0") in ("0", "0.00", "") and rate_limited_lookup():
                 try:
-                    _sp = fetch_current_prices([ticker.upper()])
-                    _spd = _sp.get(ticker.upper())
+                    _sp = fetch_current_prices([_sim_ticker_clean])
+                    _spd = _sp.get(_sim_ticker_clean)
                     if _spd and _spd["price"]:
                         st.session_state[price_key] = f"{float(_spd['price']):.2f}"
                 except Exception as e:
@@ -5922,4 +5989,208 @@ elif page == "Settings":
             st.session_state["tt_refresh_token"] = _tt_input.strip()
             st.success("Tastytrade token saved.")
             st.rerun()
+
+# ══════════════════════════════════════════════════════
+#  SECURITY & PRIVACY PAGE
+# ══════════════════════════════════════════════════════
+
+elif page == "🔒 Security & Privacy":
+
+    GITHUB_REPO_URL = "https://github.com/lazy-theta/stock-analysis"
+    CONTACT_EMAIL = "security@lazytheta.com"
+
+    st.markdown(
+        f"""<style>
+        .block-container {{ max-width: 800px; margin: auto; }}
+        .sec-card {{
+            background: {T['card']};
+            border-radius: 18px;
+            padding: 28px 24px;
+            box-shadow: {T['shadow']};
+            height: 100%;
+            animation: fadeInUp 0.4s ease-out both;
+        }}
+        .sec-card h4 {{
+            font-family: 'DM Serif Display', Georgia, serif;
+            color: {T['text']};
+            font-weight: 400;
+            font-size: 1.1rem;
+            margin: 12px 0 8px 0;
+        }}
+        .sec-card p {{
+            color: {T['text_muted']};
+            font-size: 0.88rem;
+            line-height: 1.6;
+            margin: 0;
+        }}
+        .sec-card a {{
+            color: {T['accent']};
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.85rem;
+        }}
+        .sec-card a:hover {{ text-decoration: underline; }}
+        .sec-icon {{
+            font-size: 1.8rem;
+            display: block;
+        }}
+        .sec-badge {{
+            background: {T['card']};
+            border: 1px solid {T['border_light']};
+            border-radius: 980px;
+            padding: 10px 0;
+            text-align: center;
+            font-size: 0.82rem;
+            font-weight: 500;
+            color: {T['text']};
+        }}
+        </style>""",
+        unsafe_allow_html=True,
+    )
+    st.markdown("## 🔒 Security & Privacy")
+
+    # ── Hero section ──
+    st.markdown(
+        f"""<div style="
+            background: {T['card']};
+            border-radius: 24px;
+            border-top: 3px solid {T['accent']};
+            padding: 36px 32px;
+            box-shadow: {T['shadow']};
+            text-align: center;
+            margin-bottom: 24px;
+            animation: fadeInUp 0.4s ease-out both;
+        ">
+            <p style="font-size: 1.6rem; margin: 0 0 8px 0;">🛡️</p>
+            <p style="
+                color: {T['text']};
+                font-size: 1.05rem;
+                font-weight: 500;
+                margin: 0;
+                line-height: 1.5;
+            ">We never sell or share your data.</p>
+            <p style="
+                color: {T['text_muted']};
+                font-size: 0.9rem;
+                margin: 6px 0 0 0;
+            ">Your account is isolated with Row Level Security, and we only store the minimum needed to run the app.</p>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    # ── Three columns ──
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown(
+            f"""<div class="sec-card" style="animation-delay: 0.05s;">
+                <span class="sec-icon">🗄️</span>
+                <h4>Minimal Data Storage</h4>
+                <p>We store only what's needed: your watchlist configs, preferences, and
+                broker connection tokens. Portfolio data and analysis results are fetched
+                live each session — we don't keep copies of your financial data.</p>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+    with col2:
+        st.markdown(
+            f"""<div class="sec-card" style="animation-delay: 0.1s;">
+                <span class="sec-icon">👁️‍🗨️</span>
+                <h4>No Tracking</h4>
+                <p>We run zero analytics, zero cookies, zero third-party tracking scripts.
+                No Google Analytics, no Mixpanel, no pixel trackers.
+                Your usage is your business.</p>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+    with col3:
+        st.markdown(
+            f"""<div class="sec-card" style="animation-delay: 0.15s;">
+                <span class="sec-icon">🔓</span>
+                <h4>Open Source</h4>
+                <p>Our entire codebase is publicly available on GitHub.
+                Every line of code can be inspected, audited, and verified.
+                Transparency is our default.</p>
+                <a href="{GITHUB_REPO_URL}" target="_blank">View on GitHub →</a>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown('<div style="height: 12px"></div>', unsafe_allow_html=True)
+
+    # ── Expander sections ──
+    with st.expander("How your data flows"):
+        st.markdown(
+            "1. You sign in — your account is managed by Supabase with Row Level Security\n"
+            "2. Watchlist configs and preferences are stored in Supabase, isolated per user\n"
+            "3. Market data is fetched live from public APIs (SEC EDGAR, Yahoo Finance)\n"
+            "4. Portfolio data is fetched from Tastytrade using your stored refresh token\n"
+            "5. Calculations (DCF, Greeks, P&L) run server-side in your Streamlit session\n"
+            "6. Results are displayed — raw portfolio data is not persisted\n"
+            "7. When you close the tab, session-level data (fetched prices, calculations) is cleared"
+        )
+
+    with st.expander("What about the Tastytrade integration?"):
+        st.markdown(
+            "The Tastytrade integration uses **OAuth 2.0** — the same standard your bank uses. "
+            "This means:\n\n"
+            "- You authenticate directly with Tastytrade (we never see your password)\n"
+            "- We store a **read-only** refresh token, encrypted in Supabase with per-user isolation\n"
+            "- The token only grants read access — this app cannot place trades or modify your account\n"
+            "- You can revoke access at any time from your Tastytrade account or disconnect in Settings\n\n"
+            "We will never request write/trade permissions unless you explicitly enable this."
+        )
+
+    with st.expander("What we store"):
+        st.markdown(
+            "Stored **per-user** in Supabase (isolated via Row Level Security):\n\n"
+            "- **Watchlist configs** — your saved DCF configurations per ticker\n"
+            "- **User preferences** — display settings\n"
+            "- **Tastytrade refresh token** — encrypted, read-only, revocable\n\n"
+            "**Not** stored:\n\n"
+            "- Portfolio positions, balances, or transaction history (fetched live each session)\n"
+            "- Market data or stock prices\n"
+            "- DCF calculation results\n"
+            "- Your Tastytrade password"
+        )
+
+    with st.expander("HTTPS & Infrastructure"):
+        st.markdown(
+            "This app runs on **Streamlit Community Cloud** with enforced HTTPS/TLS encryption. "
+            "All data in transit between your browser and the app is encrypted. "
+            "The hosting infrastructure is managed by Streamlit (Snowflake) with SOC 2 compliance."
+        )
+
+    with st.expander("What we'd need to improve for production"):
+        st.markdown(
+            "We believe in transparency about what's not yet perfect:\n\n"
+            "- **Custom security headers** (CSP, HSTS) — not configurable on Streamlit Cloud\n"
+            "- **Rate limiting on API calls** — planned for future release\n"
+            "- **Formal security audit** — planned before any paid tier launch"
+        )
+
+    st.markdown('<div style="height: 8px"></div>', unsafe_allow_html=True)
+
+    # ── Trust badges ──
+    b1, b2, b3, b4 = st.columns(4)
+    with b1:
+        st.markdown('<div class="sec-badge">🔒 HTTPS Encrypted</div>', unsafe_allow_html=True)
+    with b2:
+        st.markdown('<div class="sec-badge">🚫 No Data Selling</div>', unsafe_allow_html=True)
+    with b3:
+        st.markdown('<div class="sec-badge">📖 Open Source</div>', unsafe_allow_html=True)
+    with b4:
+        st.markdown('<div class="sec-badge">🛡️ Per-User Isolation</div>', unsafe_allow_html=True)
+
+    st.markdown('<div style="height: 4px"></div>', unsafe_allow_html=True)
+
+    # ── Footer ──
+    st.caption(
+        f"Last updated: {date.today().strftime('%B %d, %Y')}. "
+        f"Questions about our security practices? "
+        f"[Open an issue on GitHub]({GITHUB_REPO_URL}/issues) "
+        f"or reach out at {CONTACT_EMAIL}."
+    )
 

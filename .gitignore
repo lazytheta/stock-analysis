@@ -4,16 +4,36 @@ output/*.xlsx
 # Python
 __pycache__/
 *.pyc
+*.pyo
+.venv/
+venv/
+
+# Secrets
+.streamlit/secrets.toml
+.env
+.env.*
+**/credentials*
+**/token*
+
+# API keys and tokens
+secrets.*
+
+# Data files that may contain sensitive information
+*.csv
+*.xlsx
+!example_*.csv
+!template_*.xlsx
+
+# OS files
 .DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
 
 # Internal design docs
 docs/plans/
-
-# Streamlit
-.streamlit/secrets.toml
-
-# Environment variables
-.env
 
 # Watchlist configs — tracked so data survives deploys
 # configs/watchlist/
