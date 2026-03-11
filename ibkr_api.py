@@ -22,6 +22,32 @@ logger = logging.getLogger(__name__)
 _CACHE_TTL = 300  # 5 minutes
 
 
+def _patch_ibflex_parser():
+    """Patch ibflex parser to skip unknown XML attributes instead of crashing.
+
+    IBKR sometimes sends fields (e.g. lastTradedDate) that aren't in ibflex's
+    dataclass definitions. The stock parser raises FlexParserError; we patch
+    parse_data_element to silently skip unknown attributes.
+    """
+    from ibflex import parser, Types
+
+    _orig_parse_data_element = parser.parse_data_element
+
+    def _lenient_parse_data_element(elem):
+        Class = getattr(Types, elem.tag)
+        known = set(Class.__annotations__)
+        # Remove unknown attributes before the original parser sees them
+        unknown = [k for k in elem.attrib if k not in known]
+        for k in unknown:
+            del elem.attrib[k]
+        return _orig_parse_data_element(elem)
+
+    parser.parse_data_element = _lenient_parse_data_element
+
+
+_patch_ibflex_parser()
+
+
 def _get_flex_statement():
     """Download and cache the Flex Query statement."""
     cached = st.session_state.get("_ibkr_flex_cache")
