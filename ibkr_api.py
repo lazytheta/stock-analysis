@@ -1,153 +1,135 @@
 """
-IBKR API module — fetch portfolio data from Interactive Brokers.
+IBKR API module — fetch portfolio data from Interactive Brokers via Flex Queries.
 Returns the same data structures as tastytrade_api.py for adapter compatibility.
+
+Uses the ibflex library to download and parse Flex Query reports.
+Users only need a Flex Web Service token and a Query ID (set up in IBKR portal).
 """
 
 import json
 import logging
 import ssl
-import tempfile
 import urllib.request
 from collections import defaultdict
 from datetime import date, datetime
+from decimal import Decimal
 
 import streamlit as st
 
 logger = logging.getLogger(__name__)
 
+# How long to cache the Flex statement (seconds)
+_CACHE_TTL = 300  # 5 minutes
 
-def _get_ibkr_client():
-    """Get or create a cached IBKRHttpClient from stored credentials."""
-    # Return cached client if available
-    if "_ibkr_client" in st.session_state:
-        return st.session_state["_ibkr_client"]
 
-    from pathlib import Path
-    from ibkr_web_client import IBKRConfig, IBKRHttpClient
+def _get_flex_statement():
+    """Download and cache the Flex Query statement."""
+    cached = st.session_state.get("_ibkr_flex_cache")
+    if cached:
+        ts, stmt = cached
+        if (datetime.now() - ts).total_seconds() < _CACHE_TTL:
+            return stmt
+
+    from ibflex import client, parser
 
     creds = st.session_state.get("ibkr_credentials")
     if not creds:
         raise RuntimeError("IBKR credentials not configured")
 
-    # Write key material to temp files (ibkr_web_client expects file paths)
-    tmp_dir = tempfile.mkdtemp(prefix="ibkr_")
-    enc_path = Path(tmp_dir) / "encryption.pem"
-    sig_path = Path(tmp_dir) / "signature.pem"
-    dh_path = Path(tmp_dir) / "dhparam.pem"
+    token = creds["ibkr_flex_token"]
+    query_id = creds["ibkr_flex_query_id"]
 
-    try:
-        enc_path.write_text(creds["ibkr_encryption_key"])
-        sig_path.write_text(creds["ibkr_signing_key"])
+    raw = client.download(token, query_id)
+    response = parser.parse(raw)
 
-        # DH params: generate once and cache in session state
-        if "ibkr_dh_param" in creds:
-            dh_path.write_text(creds["ibkr_dh_param"])
-        elif "_ibkr_dh_param_cached" in st.session_state:
-            dh_path.write_text(st.session_state["_ibkr_dh_param_cached"])
-        else:
-            import subprocess
-            subprocess.run(
-                ["openssl", "dhparam", "-out", str(dh_path), "2048"],
-                capture_output=True, check=True,
-            )
-            st.session_state["_ibkr_dh_param_cached"] = dh_path.read_text()
+    if not response.FlexStatements:
+        raise RuntimeError("Flex Query returned no statements")
 
-        config = IBKRConfig(
-            token_access=creds["ibkr_access_token"],
-            token_secret=creds["ibkr_access_token_secret"],
-            consumer_key=creds["ibkr_consumer_key"],
-            dh_param_path=dh_path,
-            dh_private_encryption_path=enc_path,
-            dh_private_signature_path=sig_path,
-        )
-        client = IBKRHttpClient(config)
-        st.session_state["_ibkr_client"] = client
-        return client
-    finally:
-        # Clean up temp files
-        import shutil
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+    stmt = response.FlexStatements[0]
+    st.session_state["_ibkr_flex_cache"] = (datetime.now(), stmt)
+    return stmt
 
 
-def _get_account_id(client):
-    """Get the first brokerage account ID."""
-    accounts = client.portfolio_accounts()
-    if isinstance(accounts, list) and accounts:
-        return accounts[0].get("accountId") or accounts[0].get("id")
-    raise RuntimeError("No IBKR accounts found")
+def _dec(val, default=0.0):
+    """Convert Decimal/None to float."""
+    if val is None:
+        return default
+    return float(val)
 
 
-def _normalize_ibkr_trade(tx):
-    """Convert an IBKR transaction dict to the standard trade record format."""
-    net_value = float(tx.get("amount", 0) or tx.get("netAmount", 0) or 0)
-    quantity = abs(float(tx.get("quantity", 0) or 0))
-    price = float(tx.get("price", 0) or 0)
+def _normalize_flex_trade(trade):
+    """Convert an ibflex Trade object to the standard trade record format."""
+    from ibflex.enums import AssetClass, BuySell, PutCall
 
-    asset_class = tx.get("assetClass", "").upper()
-    side = (tx.get("side", "") or tx.get("buySell", "")).upper()
-    tx_type = (tx.get("type", "") or tx.get("transactionType", "")).upper()
+    qty = abs(_dec(trade.quantity))
+    price = _dec(trade.tradePrice)
+    net_value = _dec(trade.netCash)
+    asset_class = trade.assetCategory
+    side = trade.buySell
+    description = trade.description or ""
 
-    if "DIVIDEND" in tx_type or "DIV" in tx_type:
-        label = "Dividend"
-    elif asset_class in ("OPT", "FOP"):
-        if "BUY" in side:
+    if asset_class == AssetClass.OPTION:
+        if side in (BuySell.BUY,):
             label = "BTC" if net_value < 0 else "Buy Option"
         else:
-            label = "CSP" if "PUT" in tx.get("description", "").upper() else "CC"
-    elif asset_class in ("STK", "STOCK"):
-        label = "Stock Buy" if "BUY" in side else "Stock Sell"
+            label = "CSP" if trade.putCall == PutCall.PUT else "CC"
+    elif asset_class == AssetClass.STOCK:
+        label = "Stock Buy" if side in (BuySell.BUY,) else "Stock Sell"
     else:
-        label = tx_type or "Other"
+        label = str(side) if side else "Other"
 
-    raw_date = tx.get("date", "") or tx.get("tradeDate", "") or tx.get("settleDate", "")
-    try:
-        if isinstance(raw_date, str) and len(raw_date) >= 10:
-            trade_date = date.fromisoformat(raw_date[:10])
-        else:
-            trade_date = date.today()
-    except (ValueError, TypeError):
-        trade_date = date.today()
+    trade_date = trade.tradeDate or trade.reportDate or date.today()
 
     return {
         "date": trade_date,
         "label": label,
-        "type": tx_type,
-        "sub_type": tx.get("subType", ""),
-        "description": tx.get("description", ""),
-        "symbol": tx.get("symbol", ""),
-        "action": side,
-        "quantity": quantity,
+        "type": str(trade.transactionType) if trade.transactionType else "",
+        "sub_type": "",
+        "description": description,
+        "symbol": trade.symbol or "",
+        "action": str(side) if side else "",
+        "quantity": qty,
         "price": price,
         "net_value": net_value,
-        "instrument_type": "Option" if asset_class in ("OPT", "FOP") else "Equity",
+        "instrument_type": "Option" if asset_class == AssetClass.OPTION else "Equity",
     }
 
 
 # ── Public API (same signatures as tastytrade_api) ──
 
 def fetch_account_balances():
-    """Fetch IBKR account balances via portfolio summary."""
+    """Fetch IBKR account balances from Flex Query data."""
     try:
-        client = _get_ibkr_client()
-        account_id = _get_account_id(client)
-        summary = client.get_portfolio_summary(account_id)
+        stmt = _get_flex_statement()
 
-        def _val(key, default=0.0):
-            entry = summary.get(key, {})
-            if isinstance(entry, dict):
-                return float(entry.get("amount", default))
-            return float(entry) if entry else default
+        nav = stmt.ChangeInNAV
+        net_liq = _dec(nav.endingValue) if nav else 0
+
+        # Get cash and equity summary from EquitySummaryInBase
+        cash = 0
+        equity = 0
+        if hasattr(stmt, "EquitySummaryInBase") and stmt.EquitySummaryInBase:
+            summary = stmt.EquitySummaryInBase[-1]  # most recent date
+            cash = _dec(summary.cash)
+            equity = _dec(summary.total)
+
+        # Cash report fallback
+        if not cash and stmt.CashReport:
+            for cr in stmt.CashReport:
+                if hasattr(cr, "endingCash"):
+                    cash = _dec(cr.endingCash)
+                    break
 
         return {
-            "net_liquidating_value": _val("netliquidation"),
-            "cash_balance": _val("totalcashvalue"),
-            "equity_buying_power": _val("buyingpower"),
-            "derivative_buying_power": _val("buyingpower"),
-            "maintenance_requirement": _val("maintenancemarginreq"),
-            "maintenance_excess": _val("excessliquidity"),
-            "margin_equity": _val("grosspositionvalue"),
+            "net_liquidating_value": net_liq or equity,
+            "cash_balance": cash,
+            "equity_buying_power": cash,
+            "derivative_buying_power": cash,
+            "maintenance_requirement": 0.0,
+            "maintenance_excess": 0.0,
+            "margin_equity": equity,
             "used_derivative_buying_power": 0.0,
-            "reg_t_margin_requirement": _val("initmarginreq"),
+            "reg_t_margin_requirement": 0.0,
         }
     except Exception as e:
         logger.error("IBKR fetch_account_balances failed: %s", e)
@@ -161,41 +143,27 @@ def fetch_account_balances():
 
 
 def fetch_portfolio_data():
-    """Fetch IBKR positions and transactions, compute cost basis per ticker."""
+    """Fetch IBKR positions and trades from Flex Query, compute cost basis."""
     from tastytrade_api import _detect_wheels
     try:
-        client = _get_ibkr_client()
-        account_id = _get_account_id(client)
+        stmt = _get_flex_statement()
+        from ibflex.enums import AssetClass
 
-        positions = client.get_positions(account_id, page_id=0)
-        if not isinstance(positions, list):
-            positions = []
-
-        try:
-            tx_resp = client.get_accounts_transactions(
-                account_ids=[account_id], contract_ids=[], days=365,
-            )
-            transactions = tx_resp.get("transactions", []) if isinstance(tx_resp, dict) else []
-        except Exception as e:
-            logger.warning("IBKR transaction fetch failed: %s", e)
-            transactions = []
-
+        # Build position map from OpenPositions
         position_map = {}
-        for pos in positions:
-            ticker = (pos.get("ticker") or pos.get("contractDesc", "")
-                      or pos.get("symbol", "UNKNOWN")).split(" ")[0].upper()
+        for pos in (stmt.OpenPositions or []):
+            ticker = (pos.symbol or "UNKNOWN").split(" ")[0].upper()
             if ticker not in position_map:
                 position_map[ticker] = {"shares": 0}
-            asset_class = (pos.get("assetClass", "") or "").upper()
-            qty = float(pos.get("position", 0) or pos.get("quantity", 0) or 0)
-            if asset_class in ("STK", "STOCK", ""):
-                position_map[ticker]["shares"] += int(qty)
+            if pos.assetCategory in (AssetClass.STOCK, None):
+                position_map[ticker]["shares"] += int(_dec(pos.position))
 
+        # Build trades from Trades section
         trades_by_ticker = defaultdict(list)
-        for tx in transactions:
-            trade = _normalize_ibkr_trade(tx)
-            ticker = trade["symbol"].split(" ")[0].upper() if trade["symbol"] else "UNKNOWN"
-            trades_by_ticker[ticker].append(trade)
+        for trade in (stmt.Trades or []):
+            rec = _normalize_flex_trade(trade)
+            ticker = rec["symbol"].split(" ")[0].upper() if rec["symbol"] else "UNKNOWN"
+            trades_by_ticker[ticker].append(rec)
 
         all_tickers = set(position_map.keys()) | set(trades_by_ticker.keys())
         cost_basis = {}
@@ -209,7 +177,7 @@ def fetch_portfolio_data():
             dividends = sum(t["net_value"] for t in trades if t["label"] == "Dividend")
             option_pl = sum(t["net_value"] for t in trades if t["instrument_type"] == "Option")
             equity_cost = sum(t["net_value"] for t in trades
-                            if t["instrument_type"] == "Equity" and t["label"] != "Dividend")
+                             if t["instrument_type"] == "Equity" and t["label"] != "Dividend")
             shares_held = pos_info["shares"]
             total_pl = total_credits + total_debits
             adjusted_cost = equity_cost + option_pl
@@ -232,6 +200,7 @@ def fetch_portfolio_data():
                 "wheels": wheels,
             }
 
+        account_id = stmt.accountId or ""
         return cost_basis, account_id
     except Exception as e:
         logger.error("IBKR fetch_portfolio_data failed: %s", e)
@@ -239,120 +208,71 @@ def fetch_portfolio_data():
 
 
 def fetch_margin_requirements():
-    """Fetch per-position margin requirements from IBKR."""
-    try:
-        client = _get_ibkr_client()
-        account_id = _get_account_id(client)
-
-        positions = client.get_positions(account_id, page_id=0)
-        if not isinstance(positions, list):
-            return {}
-
-        result = {}
-        for pos in positions:
-            ticker = (pos.get("ticker") or pos.get("contractDesc", "")
-                      or pos.get("symbol", "")).split(" ")[0].upper()
-            if not ticker:
-                continue
-            margin = float(pos.get("maintenanceMarginReq", 0) or pos.get("maintMarginReq", 0) or 0)
-            init_margin = float(pos.get("initMarginReq", 0) or 0)
-
-            result[ticker] = {
-                "description": pos.get("contractDesc", ticker),
-                "margin_requirement": margin,
-                "maintenance_requirement": margin,
-                "initial_requirement": init_margin,
-                "buying_power": margin,
-                "margin_type": "Margin",
-                "point_of_no_return_pct": None,
-                "expected_down_pct": None,
-            }
-        return result
-    except Exception as e:
-        logger.error("IBKR fetch_margin_requirements failed: %s", e)
-        return {}
+    """Margin per position is not available via Flex Queries."""
+    return {}
 
 
 def fetch_margin_for_position(ticker, quantity):
-    """Dry-run margin check. IBKR web client lacks this endpoint.
-    Returns: None
-    """
+    """Dry-run margin check not available via Flex Queries."""
     return None
 
 
 def fetch_net_liq_history(time_back="1y"):
-    """Fetch IBKR net liquidating value history via performance endpoint."""
+    """Build net liq history from EquitySummaryByReportDateInBase."""
     try:
-        client = _get_ibkr_client()
-        account_id = _get_account_id(client)
+        stmt = _get_flex_statement()
 
-        period_map = {
-            "1d": "1D", "1m": "1M", "3m": "3M",
-            "6m": "6M", "1y": "1Y", "all": "10Y",
-        }
-        period = period_map.get(time_back, "1Y")
-
-        perf = client.get_accounts_performance(account_ids=[account_id], period=period)
+        if not hasattr(stmt, "EquitySummaryInBase") or not stmt.EquitySummaryInBase:
+            # Fallback: just return current NAV as single point
+            nav = stmt.ChangeInNAV
+            if nav and nav.endingValue:
+                return [{"time": str(date.today()), "close": _dec(nav.endingValue)}]
+            return []
 
         result = []
-        if isinstance(perf, dict):
-            nav_data = perf.get("nav", {}).get("data", [])
-            if not nav_data:
-                nav_data = perf.get("data", [])
-            for series in nav_data:
-                if isinstance(series, dict):
-                    dates = series.get("dates", [])
-                    values = series.get("values", []) or series.get("nav", [])
-                    for d, v in zip(dates, values):
-                        try:
-                            result.append({"time": str(d), "close": float(v)})
-                        except (ValueError, TypeError):
-                            continue
-        return result
+        for entry in stmt.EquitySummaryInBase:
+            if entry.reportDate and entry.total is not None:
+                result.append({
+                    "time": str(entry.reportDate),
+                    "close": _dec(entry.total),
+                })
+
+        # Filter by time_back
+        if result and time_back != "all":
+            from datetime import timedelta
+            days_map = {"1d": 1, "1m": 30, "3m": 90, "6m": 180, "1y": 365}
+            days = days_map.get(time_back, 365)
+            cutoff = date.today() - timedelta(days=days)
+            result = [r for r in result if r["time"] >= str(cutoff)]
+
+        return sorted(result, key=lambda r: r["time"])
     except Exception as e:
         logger.error("IBKR fetch_net_liq_history failed: %s", e)
         return []
 
 
 def fetch_portfolio_greeks():
-    """Fetch Greeks for all open option positions from IBKR."""
+    """Greeks are not available in Flex Queries. Return positions without Greeks."""
     try:
-        client = _get_ibkr_client()
-        account_id = _get_account_id(client)
-        positions = client.get_positions(account_id, page_id=0)
-        if not isinstance(positions, list):
-            return {"positions": [], "totals": {"delta": 0, "theta": 0, "gamma": 0, "vega": 0}}
+        stmt = _get_flex_statement()
+        from ibflex.enums import AssetClass
 
         option_positions = []
         totals = {"delta": 0.0, "theta": 0.0, "gamma": 0.0, "vega": 0.0}
 
-        for pos in positions:
-            asset_class = (pos.get("assetClass", "") or "").upper()
-            if asset_class not in ("OPT", "FOP"):
+        for pos in (stmt.OpenPositions or []):
+            if pos.assetCategory != AssetClass.OPTION:
                 continue
-            qty = float(pos.get("position", 0) or pos.get("quantity", 0) or 0)
-            multiplier = float(pos.get("multiplier", 100) or 100)
-
-            delta = float(pos.get("delta", 0) or 0) * qty * multiplier
-            theta = float(pos.get("theta", 0) or 0) * qty * multiplier
-            gamma = float(pos.get("gamma", 0) or 0) * qty * multiplier
-            vega = float(pos.get("vega", 0) or 0) * qty * multiplier
-            iv = float(pos.get("impliedVol", 0) or pos.get("iv", 0) or 0) * 100
-
-            ticker = (pos.get("ticker") or pos.get("contractDesc", "")
-                      or pos.get("symbol", "")).split(" ")[0].upper()
+            qty = _dec(pos.position)
+            ticker = (pos.symbol or "").split(" ")[0].upper()
 
             option_positions.append({
-                "symbol": pos.get("contractDesc", ""),
+                "symbol": pos.description or pos.symbol or "",
                 "underlying": ticker,
                 "quantity": qty,
                 "direction": "Long" if qty > 0 else "Short",
-                "delta": delta, "theta": theta, "gamma": gamma, "vega": vega, "iv": iv,
+                "delta": 0, "theta": 0, "gamma": 0, "vega": 0, "iv": 0,
             })
-            totals["delta"] += delta
-            totals["theta"] += theta
-            totals["gamma"] += gamma
-            totals["vega"] += vega
 
         return {"positions": option_positions, "totals": totals}
     except Exception as e:
@@ -361,13 +281,10 @@ def fetch_portfolio_greeks():
 
 
 def fetch_beta_weighted_delta():
-    """Calculate portfolio Beta-Weighted Delta relative to SPY."""
+    """Calculate portfolio Beta-Weighted Delta from Flex positions."""
     try:
-        client = _get_ibkr_client()
-        account_id = _get_account_id(client)
-        positions = client.get_positions(account_id, page_id=0)
-        if not isinstance(positions, list):
-            return {"positions": [], "portfolio_bwd": 0, "spy_price": 0, "dollar_per_1pct": 0}
+        stmt = _get_flex_statement()
+        from ibflex.enums import AssetClass
 
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
@@ -379,15 +296,15 @@ def fetch_beta_weighted_delta():
             spy_data = json.loads(resp.read())
         spy_price = spy_data["chart"]["result"][0]["meta"]["regularMarketPrice"]
 
+        # Aggregate share-equivalent deltas per ticker
         ticker_positions = defaultdict(float)
-        for pos in positions:
-            ticker = (pos.get("ticker") or pos.get("symbol", "")).split(" ")[0].upper()
-            qty = float(pos.get("position", 0) or 0)
-            asset_class = (pos.get("assetClass", "") or "").upper()
-            if asset_class in ("OPT", "FOP"):
-                delta_per = float(pos.get("delta", 0) or 0)
-                multiplier = float(pos.get("multiplier", 100) or 100)
-                ticker_positions[ticker] += delta_per * qty * multiplier
+        for pos in (stmt.OpenPositions or []):
+            ticker = (pos.symbol or "").split(" ")[0].upper()
+            qty = _dec(pos.position)
+            if pos.assetCategory == AssetClass.OPTION:
+                # Without Greeks from Flex, approximate: long calls +0.5, long puts -0.5
+                multiplier = _dec(pos.multiplier, 100)
+                ticker_positions[ticker] += 0.5 * qty * multiplier  # rough estimate
             else:
                 ticker_positions[ticker] += qty
 
@@ -437,27 +354,23 @@ def fetch_greeks_and_bwd():
 
 
 def fetch_yearly_transfers():
-    """Fetch net cash transfers by year from IBKR transactions."""
+    """Fetch net cash transfers by year from Flex CashTransactions."""
     try:
-        client = _get_ibkr_client()
-        account_id = _get_account_id(client)
-        tx_resp = client.get_accounts_transactions(
-            account_ids=[account_id], contract_ids=[], days=3650,
-        )
-        transactions = tx_resp.get("transactions", []) if isinstance(tx_resp, dict) else []
+        stmt = _get_flex_statement()
+        from ibflex.enums import CashAction
+
+        deposit_types = {CashAction.DEPOSITWITHDRAW}
 
         result = {}
-        for tx in transactions:
-            tx_type = (tx.get("type", "") or tx.get("transactionType", "")).upper()
-            if not any(k in tx_type for k in ("DEPOSIT", "WITHDRAWAL", "TRANSFER")):
+        for tx in (stmt.CashTransactions or []):
+            if tx.type not in deposit_types:
                 continue
-            amount = float(tx.get("amount", 0) or tx.get("netAmount", 0) or 0)
-            raw_date = tx.get("date", "") or tx.get("settleDate", "")
-            try:
-                dt = datetime.fromisoformat(str(raw_date)[:10])
-            except (ValueError, TypeError):
+            amount = _dec(tx.amount)
+            tx_date = tx.reportDate or (tx.dateTime.date() if tx.dateTime else None)
+            if not tx_date:
                 continue
-            year, month = dt.year, dt.month
+
+            year, month = tx_date.year, tx_date.month
             if year not in result:
                 result[year] = {"total": 0, "months": {}}
             result[year]["total"] += amount
@@ -469,14 +382,12 @@ def fetch_yearly_transfers():
 
 
 def fetch_margin_interest():
-    """Fetch margin interest charges from IBKR transactions."""
+    """Fetch margin interest from Flex CashTransactions."""
     try:
-        client = _get_ibkr_client()
-        account_id = _get_account_id(client)
-        tx_resp = client.get_accounts_transactions(
-            account_ids=[account_id], contract_ids=[], days=3650,
-        )
-        transactions = tx_resp.get("transactions", []) if isinstance(tx_resp, dict) else []
+        stmt = _get_flex_statement()
+        from ibflex.enums import CashAction
+
+        interest_types = {CashAction.BROKERINTPAID, CashAction.BROKERINTRCVD}
 
         now = datetime.now()
         current_month_total = 0
@@ -484,24 +395,25 @@ def fetch_margin_interest():
         all_time_total = 0
         monthly = {}
 
-        for tx in transactions:
-            tx_type = (tx.get("type", "") or tx.get("transactionType", "")).upper()
-            if "INTEREST" not in tx_type:
+        for tx in (stmt.CashTransactions or []):
+            if tx.type not in interest_types:
                 continue
-            amount = float(tx.get("amount", 0) or tx.get("netAmount", 0) or 0)
-            raw_date = tx.get("date", "") or tx.get("settleDate", "")
-            try:
-                dt = datetime.fromisoformat(str(raw_date)[:10])
-            except (ValueError, TypeError):
+            amount = _dec(tx.amount)
+            tx_date = tx.reportDate or (tx.dateTime.date() if tx.dateTime else None)
+            if not tx_date:
                 continue
-            all_time_total += amount
-            if dt.year == now.year:
-                ytd_total += amount
-                if dt.month == now.month:
-                    current_month_total += amount
-            monthly[(dt.year, dt.month)] = monthly.get((dt.year, dt.month), 0) + amount
 
-        return {"current_month": current_month_total, "ytd": ytd_total, "total": all_time_total, "monthly": monthly}
+            all_time_total += amount
+            if tx_date.year == now.year:
+                ytd_total += amount
+                if tx_date.month == now.month:
+                    current_month_total += amount
+            monthly[(tx_date.year, tx_date.month)] = monthly.get(
+                (tx_date.year, tx_date.month), 0
+            ) + amount
+
+        return {"current_month": current_month_total, "ytd": ytd_total,
+                "total": all_time_total, "monthly": monthly}
     except Exception as e:
         logger.error("IBKR fetch_margin_interest failed: %s", e)
         return {"current_month": 0, "ytd": 0, "total": 0, "monthly": {}}
@@ -509,15 +421,14 @@ def fetch_margin_interest():
 
 def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60,
                        num_strikes=8, fallback_price=0.0):
-    """Fetch option chain via yfinance (IBKR web client lacks this endpoint)."""
+    """Fetch option chain via yfinance (not available in Flex Queries)."""
     try:
         import yfinance as yf
 
         stock = yf.Ticker(ticker)
         current_price = stock.info.get("regularMarketPrice") or fallback_price
-
-        expirations = []
         today = date.today()
+        expirations = []
 
         for exp_str in (stock.options or []):
             try:

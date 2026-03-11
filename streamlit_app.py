@@ -6225,6 +6225,7 @@ elif page == "Settings":
         if st.button("Disconnect Interactive Brokers", type="primary"):
             delete_ibkr_credentials(_sb_client)
             st.session_state.pop("ibkr_credentials", None)
+            st.session_state.pop("_ibkr_flex_cache", None)
             if get_active_broker() == "ibkr":
                 st.session_state.pop("active_broker", None)
             for k in ["portfolio_data", "portfolio_account", "portfolio_prices",
@@ -6236,37 +6237,38 @@ elif page == "Settings":
             st.rerun()
     else:
         st.info("Connect your Interactive Brokers account to view your portfolio, cost basis, and options data. "
-                "We use **read-only** access — this app cannot place trades or modify your account in any way.")
-        with st.expander("How to get your IBKR API credentials", expanded=True):
+                "We use **read-only** Flex Query access — this app cannot place trades or modify your account in any way.")
+        with st.expander("How to set up your IBKR Flex Query", expanded=True):
             st.markdown(
+                "**Step 1 — Create a Flex Query:**\n"
                 "1. Log in to [Client Portal](https://www.interactivebrokers.com/portal)\n"
-                "2. Go to **Settings > API > OAuth**\n"
-                "3. Create a new OAuth consumer:\n"
-                "   - Set permissions to **Read Only**\n"
-                "   - Generate your Consumer Key\n"
-                "4. Generate Access Token and Access Token Secret\n"
-                "5. Download or copy your **Encryption Key** and **Signing Key** (PEM format)\n"
-                "6. Paste all values below and click Save"
+                "2. Go to **Performance & Reports → Flex Queries**\n"
+                "3. Click **+ Create** under Activity Flex Queries\n"
+                "4. Give it a name (e.g. *Lazy Theta*)\n"
+                "5. Select these sections: **Open Positions**, **Trades**, "
+                "**Cash Transactions**, **Equity Summary**, **Account Information**, **Change in NAV**\n"
+                "6. Set the period to **Last 365 Calendar Days**\n"
+                "7. Save the query — note the **Query ID** number\n\n"
+                "**Step 2 — Enable the Flex Web Service:**\n"
+                "1. Go to **Performance & Reports → Flex Queries → ⚙ Flex Web Service**\n"
+                "2. Toggle it **on** and copy the **token** shown\n\n"
+                "**Step 3 — Paste both values below:**"
             )
         with st.form("ibkr_creds_form"):
-            _ibkr_consumer = st.text_input("Consumer Key", placeholder="Your IBKR OAuth consumer key")
-            _ibkr_token = st.text_input("Access Token", type="password", placeholder="Your IBKR access token")
-            _ibkr_secret = st.text_input("Access Token Secret", type="password", placeholder="Your IBKR access token secret")
-            _ibkr_enc_key = st.text_area("Encryption Key (PEM)", placeholder="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----", height=120)
-            _ibkr_sig_key = st.text_area("Signing Key (PEM)", placeholder="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----", height=120)
+            _ibkr_token = st.text_input("Flex Web Service Token", type="password",
+                                        placeholder="Your Flex Web Service token")
+            _ibkr_query_id = st.text_input("Flex Query ID",
+                                           placeholder="e.g. 123456")
             _ibkr_submitted = st.form_submit_button("Save", type="primary")
 
-        if _ibkr_submitted and _ibkr_consumer and _ibkr_token and _ibkr_secret and _ibkr_enc_key and _ibkr_sig_key:
+        if _ibkr_submitted and _ibkr_token and _ibkr_query_id:
             _creds = {
-                "ibkr_consumer_key": _ibkr_consumer.strip(),
-                "ibkr_access_token": _ibkr_token.strip(),
-                "ibkr_access_token_secret": _ibkr_secret.strip(),
-                "ibkr_encryption_key": _ibkr_enc_key.strip(),
-                "ibkr_signing_key": _ibkr_sig_key.strip(),
+                "ibkr_flex_token": _ibkr_token.strip(),
+                "ibkr_flex_query_id": _ibkr_query_id.strip(),
             }
             save_ibkr_credentials(_sb_client, _creds)
             st.session_state["ibkr_credentials"] = _creds
-            st.success("Interactive Brokers credentials saved.")
+            st.success("Interactive Brokers connected.")
             st.rerun()
 
 # ══════════════════════════════════════════════════════

@@ -199,11 +199,8 @@ def delete_credential(client, service_name):
 # ---------------------------------------------------------------------------
 
 IBKR_CREDENTIAL_KEYS = [
-    "ibkr_consumer_key",
-    "ibkr_access_token",
-    "ibkr_access_token_secret",
-    "ibkr_encryption_key",
-    "ibkr_signing_key",
+    "ibkr_flex_token",
+    "ibkr_flex_query_id",
 ]
 
 
@@ -221,7 +218,7 @@ def load_ibkr_credentials(client):
         val = load_credential(client, key)
         if val:
             result[key] = val
-    if "ibkr_consumer_key" in result and "ibkr_access_token" in result:
+    if "ibkr_flex_token" in result and "ibkr_flex_query_id" in result:
         return result
     return None
 
