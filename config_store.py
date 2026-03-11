@@ -192,3 +192,44 @@ def load_credential(client, service_name):
 def delete_credential(client, service_name):
     """Delete a stored credential."""
     client.table("user_credentials").delete().eq("service_name", service_name).execute()
+
+
+# ---------------------------------------------------------------------------
+# IBKR credential bundle
+# ---------------------------------------------------------------------------
+
+IBKR_CREDENTIAL_KEYS = [
+    "ibkr_consumer_key",
+    "ibkr_access_token",
+    "ibkr_access_token_secret",
+    "ibkr_encryption_key",
+    "ibkr_signing_key",
+]
+
+
+def save_ibkr_credentials(client, creds):
+    """Save all IBKR credentials. creds is a dict with keys matching IBKR_CREDENTIAL_KEYS."""
+    for key in IBKR_CREDENTIAL_KEYS:
+        if key in creds and creds[key]:
+            save_credential(client, key, creds[key])
+
+
+def load_ibkr_credentials(client):
+    """Load all IBKR credentials. Returns dict or None if not connected."""
+    result = {}
+    for key in IBKR_CREDENTIAL_KEYS:
+        val = load_credential(client, key)
+        if val:
+            result[key] = val
+    if "ibkr_consumer_key" in result and "ibkr_access_token" in result:
+        return result
+    return None
+
+
+def delete_ibkr_credentials(client):
+    """Delete all IBKR credentials."""
+    for key in IBKR_CREDENTIAL_KEYS:
+        try:
+            delete_credential(client, key)
+        except Exception:
+            pass

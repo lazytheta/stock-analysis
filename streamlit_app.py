@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 from error_logger import log_error, log_error_with_trace
 from dcf_calculator import compute_wacc, compute_intrinsic_value, compute_reverse_dcf
-from config_store import save_config, load_config, list_watchlist, remove_from_watchlist, load_user_prefs, save_user_prefs, load_credential, save_credential, delete_credential
+from config_store import save_config, load_config, list_watchlist, remove_from_watchlist, load_user_prefs, save_user_prefs, load_credential, save_credential, delete_credential, load_ibkr_credentials, save_ibkr_credentials, delete_ibkr_credentials, IBKR_CREDENTIAL_KEYS
 from gather_data import (
     get_cik,
     fetch_company_submissions,
@@ -131,6 +131,13 @@ def _get_tt_token():
     if "tt_refresh_token" not in st.session_state:
         st.session_state["tt_refresh_token"] = load_credential(_sb_client, "tastytrade_refresh_token")
     return st.session_state.get("tt_refresh_token")
+
+
+def _get_ibkr_credentials():
+    """Get per-user IBKR credentials from session or DB."""
+    if "ibkr_credentials" not in st.session_state:
+        st.session_state["ibkr_credentials"] = load_ibkr_credentials(_sb_client)
+    return st.session_state.get("ibkr_credentials")
 
 
 def _render_welcome_page():
