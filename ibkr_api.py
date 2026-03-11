@@ -18,6 +18,8 @@ import streamlit as st
 
 logger = logging.getLogger(__name__)
 
+from error_logger import log_error
+
 # How long to cache the Flex statement (seconds)
 _CACHE_TTL = 300  # 5 minutes
 
@@ -159,6 +161,7 @@ def fetch_account_balances():
         }
     except Exception as e:
         logger.error("IBKR fetch_account_balances failed: %s", e)
+        log_error("IBKR_ERROR", f"fetch_account_balances: {e}", page="Portfolio")
         return {
             "net_liquidating_value": 0, "cash_balance": 0,
             "equity_buying_power": 0, "derivative_buying_power": 0,
@@ -230,6 +233,7 @@ def fetch_portfolio_data():
         return cost_basis, account_id
     except Exception as e:
         logger.error("IBKR fetch_portfolio_data failed: %s", e)
+        log_error("IBKR_ERROR", f"fetch_portfolio_data: {e}", page="Portfolio")
         return {}, ""
 
 
@@ -274,6 +278,7 @@ def fetch_net_liq_history(time_back="1y"):
         return sorted(result, key=lambda r: r["time"])
     except Exception as e:
         logger.error("IBKR fetch_net_liq_history failed: %s", e)
+        log_error("IBKR_ERROR", f"fetch_net_liq_history: {e}", page="Portfolio")
         return []
 
 
@@ -303,6 +308,7 @@ def fetch_portfolio_greeks():
         return {"positions": option_positions, "totals": totals}
     except Exception as e:
         logger.error("IBKR fetch_portfolio_greeks failed: %s", e)
+        log_error("IBKR_ERROR", f"fetch_portfolio_greeks: {e}", page="Portfolio")
         return {"positions": [], "totals": {"delta": 0, "theta": 0, "gamma": 0, "vega": 0}}
 
 
@@ -369,6 +375,7 @@ def fetch_beta_weighted_delta():
         }
     except Exception as e:
         logger.error("IBKR fetch_beta_weighted_delta failed: %s", e)
+        log_error("IBKR_ERROR", f"fetch_beta_weighted_delta: {e}", page="Portfolio")
         return {"positions": [], "portfolio_bwd": 0, "spy_price": 0, "dollar_per_1pct": 0}
 
 
@@ -404,6 +411,7 @@ def fetch_yearly_transfers():
         return result
     except Exception as e:
         logger.error("IBKR fetch_yearly_transfers failed: %s", e)
+        log_error("IBKR_ERROR", f"fetch_yearly_transfers: {e}", page="Portfolio")
         return {}
 
 
@@ -442,6 +450,7 @@ def fetch_margin_interest():
                 "total": all_time_total, "monthly": monthly}
     except Exception as e:
         logger.error("IBKR fetch_margin_interest failed: %s", e)
+        log_error("IBKR_ERROR", f"fetch_margin_interest: {e}", page="Portfolio")
         return {"current_month": 0, "ytd": 0, "total": 0, "monthly": {}}
 
 
@@ -492,6 +501,7 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60,
         return {"underlying_price": current_price, "expirations": expirations}
     except Exception as e:
         logger.error("IBKR fetch_option_chain failed: %s", e)
+        log_error("IBKR_ERROR", f"fetch_option_chain ({ticker}): {e}", page="Watchlist")
         return {"underlying_price": fallback_price, "expirations": []}
 
 
