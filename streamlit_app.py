@@ -170,10 +170,9 @@ def _render_welcome_page():
         f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">'
         f'<div style="{_card}">'
         f'<div style="{_num};background:var(--accent)">1</div>'
-        f'<h4 style="margin:0 0 8px 0;font-size:1rem">Connect Tastytrade</h4>'
+        f'<h4 style="margin:0 0 8px 0;font-size:1rem">Connect your Broker</h4>'
         f'<p style="color:var(--text-muted);font-size:0.85rem;margin:0">'
-        f'Link your account to see positions, P&L, and wheel cycles in real-time. '
-        f'We use <b>read-only</b> access, no trades can be placed.</p>'
+        f'Link your Tastytrade or Interactive Brokers account to see positions, P&L, and wheel cycles in real-time.</p>'
         f'<p style="color:var(--accent);font-size:0.8rem;font-weight:600;margin:10px 0 0 0">'
         f'Important: please read below</p>'
         f'</div>'
@@ -213,7 +212,7 @@ def _render_welcome_page():
         '<p style="margin:0 0 6px 0;font-weight:600;font-size:0.95rem">'
         '<span style="color:var(--accent);font-weight:700">Important!</span> Read-only connection</p>'
         '<p style="margin:0;color:var(--text-muted);font-size:0.85rem;line-height:1.5">'
-        'Lazy Theta uses the Tastytrade <b>read-only</b> API. '
+        'Lazy Theta uses <b>read-only</b> API access for both Tastytrade and Interactive Brokers. '
         'We can only <b>view</b> your positions and history, '
         'we cannot place trades, move funds, or modify your account in any way. '
         'Your credentials are encrypted and stored securely. '
@@ -230,9 +229,9 @@ def _render_connect_prompt():
         '<div style="background:var(--card);border:1px solid var(--border-medium);'
         'border-radius:16px;padding:32px;text-align:center;max-width:520px;margin:80px auto">'
         '<p style="font-size:1.6rem;margin:0 0 8px 0">&#x1f512;</p>'
-        '<h3 style="margin:0 0 8px 0">Connect Tastytrade</h3>'
+        '<h3 style="margin:0 0 8px 0">Connect a Broker</h3>'
         '<p style="color:var(--text-muted);font-size:0.9rem;margin:0 0 20px 0">'
-        'This page requires a Tastytrade connection. '
+        'This page requires a broker connection (Tastytrade or Interactive Brokers). '
         'We use <b>read-only</b> access, no trades can be placed through this app.</p>'
         '</div>',
         unsafe_allow_html=True,
@@ -4206,10 +4205,42 @@ with st.sidebar:
         on_change=_on_nav_change,
     )
     page = st.session_state.get("_account_page") or _nav
+
+    # ── Broker switcher (only if multiple brokers connected) ──
+    _has_tt = bool(st.session_state.get("tt_refresh_token"))
+    _has_ibkr = bool(st.session_state.get("ibkr_credentials"))
+    if _has_tt and _has_ibkr:
+        _broker_options = ["Tastytrade", "Interactive Brokers"]
+        _broker_keys = ["tastytrade", "ibkr"]
+        _current = get_active_broker()
+        _idx = _broker_keys.index(_current) if _current in _broker_keys else 0
+        _selected = st.selectbox(
+            "Active Broker",
+            _broker_options,
+            index=_idx,
+            key="_broker_select",
+            label_visibility="collapsed",
+        )
+        _new_broker = _broker_keys[_broker_options.index(_selected)]
+        if _new_broker != _current:
+            st.session_state["active_broker"] = _new_broker
+            for k in ["portfolio_data", "portfolio_account", "portfolio_prices",
+                       "net_liq_all", "yearly_transfers", "benchmark_returns",
+                       "portfolio_fetched_at"]:
+                st.session_state.pop(k, None)
+            for k in [k for k in st.session_state if k.startswith("net_liq_")]:
+                st.session_state.pop(k, None)
+            st.rerun()
+    elif _has_tt:
+        st.session_state["active_broker"] = "tastytrade"
+    elif _has_ibkr:
+        st.session_state["active_broker"] = "ibkr"
+
     st.markdown("---")
 
     if page in ("Portfolio", "Wheel Cost Basis", "Results"):
-        st.markdown("### Tastytrade")
+        _broker_label = "Interactive Brokers" if get_active_broker() == "ibkr" else "Tastytrade"
+        st.markdown(f"### {_broker_label}")
         if st.button("Refresh Data", use_container_width=True, type="primary"):
             st.session_state.pop("portfolio_data", None)
             st.session_state.pop("portfolio_account", None)
@@ -6183,6 +6214,59 @@ elif page == "Settings":
                 st.session_state["tt_refresh_token"] = _token
                 st.success("Tastytrade token saved.")
                 st.rerun()
+
+    # ── Interactive Brokers connection ──
+    st.markdown("---")
+    st.markdown("### Interactive Brokers")
+    _ibkr_creds = _get_ibkr_credentials()
+    if _ibkr_creds:
+        st.success("Interactive Brokers account connected.")
+        if st.button("Disconnect Interactive Brokers", type="primary"):
+            delete_ibkr_credentials(_sb_client)
+            st.session_state.pop("ibkr_credentials", None)
+            if get_active_broker() == "ibkr":
+                st.session_state.pop("active_broker", None)
+            for k in ["portfolio_data", "portfolio_account", "portfolio_prices",
+                       "net_liq_all", "yearly_transfers", "benchmark_returns",
+                       "portfolio_fetched_at"]:
+                st.session_state.pop(k, None)
+            for k in [k for k in st.session_state if k.startswith("net_liq_")]:
+                st.session_state.pop(k, None)
+            st.rerun()
+    else:
+        st.info("Connect your Interactive Brokers account to view your portfolio, cost basis, and options data. "
+                "We use **read-only** access — this app cannot place trades or modify your account in any way.")
+        with st.expander("How to get your IBKR API credentials", expanded=True):
+            st.markdown(
+                "1. Log in to [Client Portal](https://www.interactivebrokers.com/portal)\n"
+                "2. Go to **Settings > API > OAuth**\n"
+                "3. Create a new OAuth consumer:\n"
+                "   - Set permissions to **Read Only**\n"
+                "   - Generate your Consumer Key\n"
+                "4. Generate Access Token and Access Token Secret\n"
+                "5. Download or copy your **Encryption Key** and **Signing Key** (PEM format)\n"
+                "6. Paste all values below and click Save"
+            )
+        with st.form("ibkr_creds_form"):
+            _ibkr_consumer = st.text_input("Consumer Key", placeholder="Your IBKR OAuth consumer key")
+            _ibkr_token = st.text_input("Access Token", type="password", placeholder="Your IBKR access token")
+            _ibkr_secret = st.text_input("Access Token Secret", type="password", placeholder="Your IBKR access token secret")
+            _ibkr_enc_key = st.text_area("Encryption Key (PEM)", placeholder="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----", height=120)
+            _ibkr_sig_key = st.text_area("Signing Key (PEM)", placeholder="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----", height=120)
+            _ibkr_submitted = st.form_submit_button("Save", type="primary")
+
+        if _ibkr_submitted and _ibkr_consumer and _ibkr_token and _ibkr_secret:
+            _creds = {
+                "ibkr_consumer_key": _ibkr_consumer.strip(),
+                "ibkr_access_token": _ibkr_token.strip(),
+                "ibkr_access_token_secret": _ibkr_secret.strip(),
+                "ibkr_encryption_key": _ibkr_enc_key.strip(),
+                "ibkr_signing_key": _ibkr_sig_key.strip(),
+            }
+            save_ibkr_credentials(_sb_client, _creds)
+            st.session_state["ibkr_credentials"] = _creds
+            st.success("Interactive Brokers credentials saved.")
+            st.rerun()
 
 # ══════════════════════════════════════════════════════
 #  SECURITY & PRIVACY PAGE
