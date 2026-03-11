@@ -1595,6 +1595,15 @@ def _watchlist_overview():
                 save_config(_sb_client, ticker_clean, wl_cfg)
                 st.success(f"{ticker_clean} added to watchlist")
                 st.rerun()
+            except ValueError as e:
+                err_msg = str(e)
+                if "not found in SEC" in err_msg:
+                    st.warning(f"**{ticker_clean}** is not available for DCF analysis. "
+                               "Only individual stocks with SEC filings (10-K) can be added. "
+                               "ETFs, mutual funds, and indices are not supported.")
+                else:
+                    logger.error("Watchlist analysis failed for %s: %s", ticker_clean, e)
+                    st.error(f"Could not analyse {ticker_clean}. Please try again. ({type(e).__name__})")
             except Exception as e:
                 logger.error("Watchlist analysis failed for %s: %s", ticker_clean, e)
                 st.error(f"Could not analyse {ticker_clean}. Please try again. ({type(e).__name__})")
