@@ -15,8 +15,19 @@ import tastytrade_api
 # ---------------------------------------------------------------------------
 
 def get_active_broker():
-    """Return the name of the currently active broker."""
-    return st.session_state.get("active_broker", "tastytrade")
+    """Return the name of the currently active broker.
+
+    If not explicitly set, auto-detect based on which brokers are connected.
+    """
+    explicit = st.session_state.get("active_broker")
+    if explicit:
+        return explicit
+    # Auto-detect: prefer whichever broker is actually connected
+    has_tt = bool(st.session_state.get("tt_refresh_token"))
+    has_ibkr = bool(st.session_state.get("ibkr_credentials"))
+    if has_ibkr and not has_tt:
+        return "ibkr"
+    return "tastytrade"
 
 
 def has_active_broker():
