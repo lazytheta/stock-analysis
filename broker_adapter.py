@@ -22,11 +22,16 @@ def get_active_broker():
     explicit = st.session_state.get("active_broker")
     if explicit:
         return explicit
-    # Auto-detect: prefer whichever broker is actually connected
+    # Auto-detect: if only one broker is connected, use that one.
+    # If both are connected the sidebar switcher should be shown so the
+    # user picks explicitly; default to tastytrade until they do.
     has_tt = bool(st.session_state.get("tt_refresh_token"))
     has_ibkr = bool(st.session_state.get("ibkr_credentials"))
     if has_ibkr and not has_tt:
         return "ibkr"
+    if has_tt and not has_ibkr:
+        return "tastytrade"
+    # Both connected — default to tastytrade (sidebar switcher lets user change)
     return "tastytrade"
 
 

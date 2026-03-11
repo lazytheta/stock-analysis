@@ -4191,8 +4191,9 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
 # ══════════════════════════════════════════════════════
 
 # Eagerly load credentials into session_state so has_active_broker() works
-_get_tt_token()
-_get_ibkr_credentials()
+_tt = _get_tt_token()
+_ibkr = _get_ibkr_credentials()
+logger.info("Broker check: tt_token=%s ibkr_creds=%s", bool(_tt), bool(_ibkr))
 
 with st.sidebar:
     st.toggle("Dark mode", key="dark_mode")
