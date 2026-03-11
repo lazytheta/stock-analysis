@@ -4190,6 +4190,10 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
 #  SIDEBAR — Navigation + page-specific settings
 # ══════════════════════════════════════════════════════
 
+# Eagerly load credentials into session_state so has_active_broker() works
+_get_tt_token()
+_get_ibkr_credentials()
+
 with st.sidebar:
     st.toggle("Dark mode", key="dark_mode")
 
