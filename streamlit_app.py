@@ -6143,7 +6143,7 @@ elif page == "Settings":
                 "We use **read-only** access — this app cannot place trades or modify your account in any way.")
         with st.expander("How to get your refresh token", expanded=True):
             st.markdown(
-                "1. Go to [my.tastytrade.com](https://my.tastytrade.com) and navigate to **API Access**\n"
+                "1. Go to [my.tastytrade.com](https://my.tastytrade.com), open **My Profile** and navigate to **API**\n"
                 "2. Go to **OAuth Applications** — create one if you haven't already "
                 "(give it a name like *Lazy Theta*, select **Read** permissions only)\n"
                 "3. Open your application and click **Create Grant**\n"
