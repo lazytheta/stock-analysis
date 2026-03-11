@@ -180,13 +180,13 @@ def _render_welcome_page():
     st.markdown('<div style="height:24px"></div>', unsafe_allow_html=True)
     _, btn1, _, btn2, _ = st.columns([1, 1.2, 0.6, 1.2, 1])
     with btn1:
-        if st.button("Connect Account", type="primary", use_container_width=True, key="welcome_connect"):
-            st.session_state["nav_page"] = "Settings"
-            st.rerun()
+        st.button("Connect Account", type="primary", use_container_width=True,
+                   key="welcome_connect",
+                   on_click=lambda: st.session_state.update({"_account_page": "Settings"}))
     with btn2:
-        if st.button("Explore Watchlist", type="primary", use_container_width=True, key="welcome_watchlist"):
-            st.session_state["nav_page"] = "Watchlist"
-            st.rerun()
+        st.button("Explore Watchlist", type="primary", use_container_width=True,
+                   key="welcome_watchlist",
+                   on_click=lambda: st.session_state.update({"nav_page": "Watchlist", "_account_page": None}))
 
     st.markdown(
         '<div style="background:var(--card);border:1px solid var(--border-medium);'
@@ -223,9 +223,9 @@ def _render_connect_prompt():
     )
     _, btn_col, _ = st.columns([1, 1, 1])
     with btn_col:
-        if st.button("Go to Settings", type="primary", use_container_width=True, key=f"connect_btn_{st.session_state.get('nav_page', '')}"):
-            st.session_state["nav_page"] = "Settings"
-            st.rerun()
+        st.button("Go to Settings", type="primary", use_container_width=True,
+                   key=f"connect_btn_{st.session_state.get('nav_page', '')}",
+                   on_click=lambda: st.session_state.update({"_account_page": "Settings"}))
     st.stop()
 
 
