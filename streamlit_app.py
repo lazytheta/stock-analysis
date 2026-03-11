@@ -43,7 +43,14 @@ from gather_data import (
     MARGIN_OF_SAFETY_DEFAULT,
     fetch_fundamentals,
 )
-from tastytrade_api import fetch_portfolio_data, fetch_current_prices, fetch_account_balances, fetch_net_liq_history, fetch_sp500_yearly_returns, fetch_benchmark_returns, fetch_ticker_profiles, fetch_yearly_transfers, fetch_portfolio_greeks, fetch_margin_interest, fetch_margin_for_position, fetch_margin_requirements, fetch_beta_weighted_delta, fetch_greeks_and_bwd, fetch_option_chain, fetch_earnings_dates
+from broker_adapter import (
+    fetch_portfolio_data, fetch_current_prices, fetch_account_balances,
+    fetch_net_liq_history, fetch_sp500_yearly_returns, fetch_benchmark_returns,
+    fetch_ticker_profiles, fetch_yearly_transfers, fetch_portfolio_greeks,
+    fetch_margin_interest, fetch_margin_for_position, fetch_margin_requirements,
+    fetch_beta_weighted_delta, fetch_greeks_and_bwd, fetch_option_chain,
+    fetch_earnings_dates, has_active_broker, get_active_broker,
+)
 import plotly.graph_objects as go
 
 # ── Input sanitization ──
@@ -1476,7 +1483,7 @@ def _build_excel_bytes(cfg):
             os.remove(tmp_path)
 
 
-def _best_put_pick(ticker_sym, price, intrinsic_val, prefs=None, refresh_token=None):
+def _best_put_pick(ticker_sym, price, intrinsic_val, prefs=None):
     """Find the best put option for a ticker given user wheel prefs.
 
     Returns dict with strike, bid, ann_roc, delta, dte, dcf_mos or None.
@@ -1487,7 +1494,6 @@ def _best_put_pick(ticker_sym, price, intrinsic_val, prefs=None, refresh_token=N
         chain = fetch_option_chain(
             ticker_sym, option_type='Put', fallback_price=price,
             min_dte=prefs['dte_min'], max_dte=prefs['dte_max'],
-            refresh_token=refresh_token,
         )
     except Exception as e:
         logger.warning("Best put chain fetch failed for %s: %s", ticker_sym, e)
@@ -1697,10 +1703,10 @@ def _watchlist_overview():
     _wl_prefs = load_user_prefs(_sb_client)
 
     @st.cache_data(ttl=600, show_spinner=False)
-    def _cached_best_put(t, price_rounded, intrinsic_rounded, prefs_tuple, _tt_token=None):
+    def _cached_best_put(t, price_rounded, intrinsic_rounded, prefs_tuple):
         prefs = {'delta_min': prefs_tuple[0], 'delta_max': prefs_tuple[1],
                  'dte_min': prefs_tuple[2], 'dte_max': prefs_tuple[3]}
-        return _best_put_pick(t, price_rounded, intrinsic_rounded, prefs, refresh_token=_tt_token)
+        return _best_put_pick(t, price_rounded, intrinsic_rounded, prefs)
 
     _prefs_t = (_wl_prefs['delta_min'], _wl_prefs['delta_max'],
                 _wl_prefs['dte_min'], _wl_prefs['dte_max'])
@@ -1710,7 +1716,7 @@ def _watchlist_overview():
     with ThreadPoolExecutor(max_workers=4) as _bp_exec:
         for _r in rows:
             _bp_futures[_r['ticker']] = _bp_exec.submit(
-                _cached_best_put, _r['ticker'], round(_r['price'], 0), round(_r['intrinsic'], 0), _prefs_t, _get_tt_token())
+                _cached_best_put, _r['ticker'], round(_r['price'], 0), round(_r['intrinsic'], 0), _prefs_t)
     _bp_map = {}
     for _t, _f in _bp_futures.items():
         try:
@@ -1721,10 +1727,10 @@ def _watchlist_overview():
 
     # Fetch earnings dates (cached 5 min)
     @st.cache_data(ttl=3600, show_spinner=False)
-    def _cached_earnings(tickers_tuple, _tt_token=None):
-        return fetch_earnings_dates(list(tickers_tuple), refresh_token=_tt_token)
+    def _cached_earnings(tickers_tuple):
+        return fetch_earnings_dates(list(tickers_tuple))
 
-    _earnings_map = _cached_earnings(tuple(wl_tickers), _get_tt_token()) if wl_tickers else {}
+    _earnings_map = _cached_earnings(tuple(wl_tickers)) if wl_tickers else {}
 
     # Header
     hdr = st.columns([0.3, 1.0, 1.6, 0.8, 0.8, 0.8, 0.7, 0.6, 0.7, 0.7, 2.2, 0.3])
@@ -1879,10 +1885,10 @@ def _dcf_editor(ticker):
 
     # ── Earnings warning (hero card) ──
     @st.cache_data(ttl=300, show_spinner=False)
-    def _cached_earnings_single(t, _tt_token=None):
-        return fetch_earnings_dates([t], refresh_token=_tt_token)
+    def _cached_earnings_single(t):
+        return fetch_earnings_dates([t])
 
-    _earn_data = _cached_earnings_single(ticker, _get_tt_token()).get(ticker)
+    _earn_data = _cached_earnings_single(ticker).get(ticker)
     _days_to_earn = None
     if _earn_data and _earn_data.get('date') and _earn_data['date'] >= date.today():
         _days_to_earn = (_earn_data['date'] - date.today()).days
@@ -3546,14 +3552,13 @@ def _dcf_editor(ticker):
 
         # Cached data fetch — use user DTE range
         @st.cache_data(ttl=60, show_spinner="Loading option chain...")
-        def _cached_chain(t, opt_type, fb_price, dte_lo, dte_hi, n_strikes=8, _tt_token=None):
+        def _cached_chain(t, opt_type, fb_price, dte_lo, dte_hi, n_strikes=8):
             return fetch_option_chain(t, option_type=opt_type, fallback_price=fb_price,
-                                      min_dte=dte_lo, max_dte=dte_hi, num_strikes=n_strikes,
-                                      refresh_token=_tt_token)
+                                      min_dte=dte_lo, max_dte=dte_hi, num_strikes=n_strikes)
 
         _num_strikes = 15 if _opt_type == 'Call' else 8
 
-        _chain_data = _cached_chain(ticker, _opt_type, live_price, _usr_dte_lo, _usr_dte_hi, _num_strikes, _get_tt_token())
+        _chain_data = _cached_chain(ticker, _opt_type, live_price, _usr_dte_lo, _usr_dte_hi, _num_strikes)
         _ch_price = _chain_data['underlying_price']
         _ch_exps = _chain_data['expirations']
 
@@ -4285,7 +4290,7 @@ def _load_portfolio_data():
     if "portfolio_data" not in st.session_state:
         with st.spinner("Fetching transactions from Tastytrade..."):
             try:
-                cost_basis, acct = fetch_portfolio_data(refresh_token=_get_tt_token())
+                cost_basis, acct = fetch_portfolio_data()
                 st.session_state.portfolio_data = cost_basis
                 st.session_state.portfolio_account = acct
                 st.session_state.portfolio_fetched_at = time.time()
@@ -4467,7 +4472,7 @@ if page == "Watchlist":
 
 elif page == "Portfolio":
 
-    if not _get_tt_token():
+    if not has_active_broker():
         _render_welcome_page()
         st.stop()
 
@@ -4491,17 +4496,17 @@ elif page == "Portfolio":
 
     # ── Margin / Buying Power (with integrated simulator) ──
     @st.cache_data(ttl=60, show_spinner=False)
-    def _cached_account_balances(_tt_token=None):
-        return fetch_account_balances(refresh_token=_tt_token)
+    def _cached_account_balances():
+        return fetch_account_balances()
 
     @st.cache_data(ttl=120, show_spinner=False)
-    def _cached_margin_requirements(_tt_token=None):
-        return fetch_margin_requirements(refresh_token=_tt_token)
+    def _cached_margin_requirements():
+        return fetch_margin_requirements()
 
     def _margin_overview():
         st.markdown("")
         try:
-            bal = _cached_account_balances(_get_tt_token())
+            bal = _cached_account_balances()
         except Exception as e:
             logger.warning("Account balances fetch failed: %s", e)
             bal = None
@@ -4531,7 +4536,7 @@ elif page == "Portfolio":
                     # Fetch margin requirement for holding assigned shares
                     _amk = f"_assign_margin_{ticker.upper()}_{shares}"
                     if _amk not in st.session_state:
-                        _amr = fetch_margin_for_position(ticker, shares, refresh_token=_get_tt_token())
+                        _amr = fetch_margin_for_position(ticker, shares)
                         st.session_state[_amk] = _amr
                     _amr = st.session_state[_amk]
                     margin = abs(_amr["change_in_margin"]) if _amr else exposure * 0.50
@@ -4546,7 +4551,7 @@ elif page == "Portfolio":
                     exposure = cur_price * shares
                     _amk = f"_assign_margin_{ticker.upper()}_{shares}"
                     if _amk not in st.session_state:
-                        _amr = fetch_margin_for_position(ticker, shares, refresh_token=_get_tt_token())
+                        _amr = fetch_margin_for_position(ticker, shares)
                         st.session_state[_amk] = _amr
                     _amr = st.session_state[_amk]
                     margin = abs(_amr["change_in_margin"]) if _amr else exposure * 0.50
@@ -4577,7 +4582,7 @@ elif page == "Portfolio":
                 cost = price * shares
                 _margin_key = f"_sim_margin_{ticker.upper()}_{shares}"
                 if _margin_key not in st.session_state:
-                    _mr = fetch_margin_for_position(ticker, shares, refresh_token=_get_tt_token())
+                    _mr = fetch_margin_for_position(ticker, shares)
                     st.session_state[_margin_key] = _mr
                 _mr = st.session_state[_margin_key]
                 margin = abs(_mr["change_in_margin"]) if _mr else cost * 0.50
@@ -4716,7 +4721,7 @@ elif page == "Portfolio":
         # Fetch fresh prices + account balances
         prices = fetch_current_prices(held_tickers)
         try:
-            balances = fetch_account_balances(refresh_token=_get_tt_token())
+            balances = fetch_account_balances()
         except Exception as e:
             logger.warning("Account balances fetch failed: %s", e)
             balances = None
@@ -4864,7 +4869,7 @@ elif page == "Portfolio":
 
         # ── Per-position margin requirements ──
         try:
-            _margin_reqs = _cached_margin_requirements(_get_tt_token())
+            _margin_reqs = _cached_margin_requirements()
         except Exception as e:
             logger.debug("Margin requirements fetch failed: %s", e)
             _margin_reqs = {}
@@ -5022,8 +5027,8 @@ elif page == "Portfolio":
         # Combined greeks+BWD uses one DXLink streamer (avoids concurrent
         # websocket conflicts); margin interest runs in parallel (no streamer).
         executor = ThreadPoolExecutor(max_workers=2)
-        f_combo = executor.submit(fetch_greeks_and_bwd, refresh_token=_get_tt_token())
-        f_mi = executor.submit(fetch_margin_interest, refresh_token=_get_tt_token())
+        f_combo = executor.submit(fetch_greeks_and_bwd)
+        f_mi = executor.submit(fetch_margin_interest)
         try:
             gk, bwd = f_combo.result(timeout=30)
         except Exception as e:
@@ -5244,7 +5249,7 @@ elif page == "Portfolio":
 
 elif page == "Wheel Cost Basis":
 
-    if not _get_tt_token():
+    if not has_active_broker():
         _render_connect_prompt()
 
 
@@ -5537,7 +5542,7 @@ elif page == "Wheel Cost Basis":
 
 elif page == "Results":
 
-    if not _get_tt_token():
+    if not has_active_broker():
         _render_connect_prompt()
 
     st.markdown("")
@@ -5569,7 +5574,7 @@ elif page == "Results":
     if "net_liq_all" not in st.session_state:
         try:
             with st.spinner("Loading full net liq history..."):
-                st.session_state["net_liq_all"] = fetch_net_liq_history("all", refresh_token=_get_tt_token())
+                st.session_state["net_liq_all"] = fetch_net_liq_history("all")
         except Exception as e:
             logger.warning("Net liq history fetch failed: %s", e)
             log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "net_liq_history"})
@@ -5577,7 +5582,7 @@ elif page == "Results":
     if "yearly_transfers" not in st.session_state:
         try:
             with st.spinner("Loading cash transfer history..."):
-                st.session_state["yearly_transfers"] = fetch_yearly_transfers(refresh_token=_get_tt_token())
+                st.session_state["yearly_transfers"] = fetch_yearly_transfers()
         except Exception as e:
             logger.warning("Yearly transfers fetch failed: %s", e)
             log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "yearly_transfers"})
@@ -5672,7 +5677,7 @@ elif page == "Results":
       if cache_key not in st.session_state:
           try:
               with st.spinner("Loading net liq history..."):
-                  st.session_state[cache_key] = fetch_net_liq_history(api_time_back, refresh_token=_get_tt_token())
+                  st.session_state[cache_key] = fetch_net_liq_history(api_time_back)
           except Exception as e:
               logger.warning("Net liq history fetch failed (%s): %s", api_time_back, e)
               st.session_state[cache_key] = None
