@@ -124,6 +124,111 @@ def _get_tt_token():
     return st.session_state.get("tt_refresh_token")
 
 
+def _render_welcome_page():
+    """Full welcome page for users without a Tastytrade connection."""
+    st.markdown(
+        "<style>.block-container { max-width: 900px; margin: auto; }</style>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="hero-card">'
+        '<p class="hero-value" style="font-size:2.4rem;letter-spacing:-0.02em">Welcome to Lazy Theta</p>'
+        '<p class="hero-sub" style="font-size:1.05rem;max-width:560px;margin:12px auto 0">'
+        'Track your wheel strategy, analyze positions, and optimize your options income.</p>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    _num = (
+        'display:inline-flex;align-items:center;justify-content:center;'
+        'width:36px;height:36px;border-radius:50%;'
+        'color:#fff;font-weight:700;font-size:1rem;margin-bottom:12px'
+    )
+    _card = (
+        'background:var(--card);border:1px solid var(--border-medium);'
+        'border-radius:16px;padding:28px 20px;text-align:center'
+    )
+
+    st.markdown(
+        f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">'
+        f'<div style="{_card}">'
+        f'<div style="{_num};background:var(--accent)">1</div>'
+        f'<h4 style="margin:0 0 8px 0;font-size:1rem">Connect Tastytrade</h4>'
+        f'<p style="color:var(--text-muted);font-size:0.85rem;margin:0">'
+        f'Link your account to see positions, P&L, and wheel cycles in real-time. '
+        f'We use <b>read-only</b> access, no trades can be placed.</p>'
+        f'<p style="color:var(--accent);font-size:0.8rem;font-weight:600;margin:10px 0 0 0">'
+        f'Important: please read below</p>'
+        f'</div>'
+        f'<div style="{_card}">'
+        f'<div style="{_num};background:var(--accent)">2</div>'
+        f'<h4 style="margin:0 0 8px 0;font-size:1rem">Track your Portfolio</h4>'
+        f'<p style="color:var(--text-muted);font-size:0.85rem;margin:0">'
+        f'Monitor positions, Greeks, margin usage, and wheel progress</p>'
+        f'</div>'
+        f'<div style="{_card}">'
+        f'<div style="{_num};background:var(--accent)">3</div>'
+        f'<h4 style="margin:0 0 8px 0;font-size:1rem">Build your Watchlist</h4>'
+        f'<p style="color:var(--text-muted);font-size:0.85rem;margin:0">'
+        f'Run DCF valuations and find the best options to sell</p>'
+        f'</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div style="height:24px"></div>', unsafe_allow_html=True)
+    _, btn1, _, btn2, _ = st.columns([1, 1.2, 0.6, 1.2, 1])
+    with btn1:
+        if st.button("Connect Account", type="primary", use_container_width=True, key="welcome_connect"):
+            st.session_state["nav_page"] = "Settings"
+            st.rerun()
+    with btn2:
+        if st.button("Explore Watchlist", type="primary", use_container_width=True, key="welcome_watchlist"):
+            st.session_state["nav_page"] = "Watchlist"
+            st.rerun()
+
+    st.markdown(
+        '<div style="background:var(--card);border:1px solid var(--border-medium);'
+        'border-radius:16px;padding:24px 28px;margin-top:8px;'
+        'display:flex;align-items:flex-start;gap:16px">'
+        '<span style="font-size:1.6rem;line-height:1">&#x1f512;</span>'
+        '<div>'
+        '<p style="margin:0 0 6px 0;font-weight:600;font-size:0.95rem">'
+        '<span style="color:var(--accent);font-weight:700">Important!</span> Read-only connection</p>'
+        '<p style="margin:0;color:var(--text-muted);font-size:0.85rem;line-height:1.5">'
+        'Lazy Theta uses the Tastytrade <b>read-only</b> API. '
+        'We can only <b>view</b> your positions and history, '
+        'we cannot place trades, move funds, or modify your account in any way. '
+        'Your credentials are encrypted and stored securely. '
+        'You can disconnect at any time in Settings.</p>'
+        '</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_connect_prompt():
+    """Compact prompt shown on pages that require Tastytrade connection."""
+    st.markdown(
+        '<div style="background:var(--card);border:1px solid var(--border-medium);'
+        'border-radius:16px;padding:32px;text-align:center;max-width:520px;margin:80px auto">'
+        '<p style="font-size:1.6rem;margin:0 0 8px 0">&#x1f512;</p>'
+        '<h3 style="margin:0 0 8px 0">Connect Tastytrade</h3>'
+        '<p style="color:var(--text-muted);font-size:0.9rem;margin:0 0 20px 0">'
+        'This page requires a Tastytrade connection. '
+        'We use <b>read-only</b> access, no trades can be placed through this app.</p>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    _, btn_col, _ = st.columns([1, 1, 1])
+    with btn_col:
+        if st.button("Go to Settings", type="primary", use_container_width=True, key=f"connect_btn_{st.session_state.get('nav_page', '')}"):
+            st.session_state["nav_page"] = "Settings"
+            st.rerun()
+    st.stop()
+
+
 # ── Theme ──
 if 'dark_mode' not in st.session_state:
     st.session_state.dark_mode = False
@@ -4332,7 +4437,7 @@ if page == "Watchlist":
 elif page == "Portfolio":
 
     if not _get_tt_token():
-        st.warning("Connect your Tastytrade account in Settings first.")
+        _render_welcome_page()
         st.stop()
 
     st.markdown(
@@ -5106,8 +5211,8 @@ elif page == "Portfolio":
 elif page == "Wheel Cost Basis":
 
     if not _get_tt_token():
-        st.warning("Connect your Tastytrade account in Settings first.")
-        st.stop()
+        _render_connect_prompt()
+
 
     st.markdown("")
     cost_basis = _load_portfolio_data()
@@ -5399,8 +5504,7 @@ elif page == "Wheel Cost Basis":
 elif page == "Results":
 
     if not _get_tt_token():
-        st.warning("Connect your Tastytrade account in Settings first.")
-        st.stop()
+        _render_connect_prompt()
 
     st.markdown("")
     cost_basis = _load_portfolio_data()
