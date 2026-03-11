@@ -17,7 +17,11 @@ logger = logging.getLogger(__name__)
 
 
 def _get_ibkr_client():
-    """Create an IBKRHttpClient from stored credentials."""
+    """Get or create a cached IBKRHttpClient from stored credentials."""
+    # Return cached client if available
+    if "_ibkr_client" in st.session_state:
+        return st.session_state["_ibkr_client"]
+
     from pathlib import Path
     from ibkr_web_client import IBKRConfig, IBKRHttpClient
 
@@ -31,28 +35,38 @@ def _get_ibkr_client():
     sig_path = Path(tmp_dir) / "signature.pem"
     dh_path = Path(tmp_dir) / "dhparam.pem"
 
-    enc_path.write_text(creds["ibkr_encryption_key"])
-    sig_path.write_text(creds["ibkr_signing_key"])
+    try:
+        enc_path.write_text(creds["ibkr_encryption_key"])
+        sig_path.write_text(creds["ibkr_signing_key"])
 
-    # DH params can be generated once; use a default if not provided
-    if "ibkr_dh_param" in creds:
-        dh_path.write_text(creds["ibkr_dh_param"])
-    else:
-        import subprocess
-        subprocess.run(
-            ["openssl", "dhparam", "-out", str(dh_path), "2048"],
-            capture_output=True, check=True,
+        # DH params: generate once and cache in session state
+        if "ibkr_dh_param" in creds:
+            dh_path.write_text(creds["ibkr_dh_param"])
+        elif "_ibkr_dh_param_cached" in st.session_state:
+            dh_path.write_text(st.session_state["_ibkr_dh_param_cached"])
+        else:
+            import subprocess
+            subprocess.run(
+                ["openssl", "dhparam", "-out", str(dh_path), "2048"],
+                capture_output=True, check=True,
+            )
+            st.session_state["_ibkr_dh_param_cached"] = dh_path.read_text()
+
+        config = IBKRConfig(
+            token_access=creds["ibkr_access_token"],
+            token_secret=creds["ibkr_access_token_secret"],
+            consumer_key=creds["ibkr_consumer_key"],
+            dh_param_path=dh_path,
+            dh_private_encryption_path=enc_path,
+            dh_private_signature_path=sig_path,
         )
-
-    config = IBKRConfig(
-        token_access=creds["ibkr_access_token"],
-        token_secret=creds["ibkr_access_token_secret"],
-        consumer_key=creds["ibkr_consumer_key"],
-        dh_param_path=dh_path,
-        dh_private_encryption_path=enc_path,
-        dh_private_signature_path=sig_path,
-    )
-    return IBKRHttpClient(config)
+        client = IBKRHttpClient(config)
+        st.session_state["_ibkr_client"] = client
+        return client
+    finally:
+        # Clean up temp files
+        import shutil
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def _get_account_id(client):
@@ -148,6 +162,7 @@ def fetch_account_balances():
 
 def fetch_portfolio_data():
     """Fetch IBKR positions and transactions, compute cost basis per ticker."""
+    from tastytrade_api import _detect_wheels
     try:
         client = _get_ibkr_client()
         account_id = _get_account_id(client)
@@ -200,7 +215,6 @@ def fetch_portfolio_data():
             adjusted_cost = equity_cost + option_pl
             cost_per_share = adjusted_cost / shares_held if shares_held else 0
 
-            from tastytrade_api import _detect_wheels
             wheels = _detect_wheels(trades)
 
             cost_basis[ticker] = {
@@ -546,10 +560,11 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60,
 
 def fetch_earnings_dates(tickers):
     """Fetch next earnings dates via yfinance."""
+    import yfinance as yf
+
     result = {}
     for ticker in tickers:
         try:
-            import yfinance as yf
             stock = yf.Ticker(ticker)
             cal = stock.calendar
             if cal is not None and isinstance(cal, dict):

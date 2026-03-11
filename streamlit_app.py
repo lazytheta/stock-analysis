@@ -4255,7 +4255,8 @@ with st.sidebar:
 
         if st.button("Clear Session Data", use_container_width=True, type="primary"):
             _preserve = {"dark_mode", "nav_page", "_account_page",
-                         "supabase_client", "user", "_user_id", "tt_refresh_token"}
+                         "supabase_client", "user", "_user_id", "tt_refresh_token",
+                         "ibkr_credentials", "active_broker"}
             for key in [k for k in st.session_state if k not in _preserve]:
                 del st.session_state[key]
             st.rerun()
@@ -6255,7 +6256,7 @@ elif page == "Settings":
             _ibkr_sig_key = st.text_area("Signing Key (PEM)", placeholder="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----", height=120)
             _ibkr_submitted = st.form_submit_button("Save", type="primary")
 
-        if _ibkr_submitted and _ibkr_consumer and _ibkr_token and _ibkr_secret:
+        if _ibkr_submitted and _ibkr_consumer and _ibkr_token and _ibkr_secret and _ibkr_enc_key and _ibkr_sig_key:
             _creds = {
                 "ibkr_consumer_key": _ibkr_consumer.strip(),
                 "ibkr_access_token": _ibkr_token.strip(),
