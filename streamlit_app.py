@@ -6143,16 +6143,15 @@ elif page == "Settings":
                 "We use **read-only** access — this app cannot place trades or modify your account in any way.")
         with st.expander("How to get your refresh token", expanded=True):
             st.markdown(
-                "1. Log in to [my.tastytrade.com](https://my.tastytrade.com)\n"
-                "2. Go to **My Profile > API Access** (or navigate directly to "
-                "[OAuth Applications](https://my.tastytrade.com/app.html#/manage/api-access/oauth-applications))\n"
-                "3. Click **Create OAuth Application**\n"
-                "4. Give it a name (e.g. *Stock Analysis*)\n"
-                "5. Under permissions, select only **Read** — this app does not need "
-                "and will never request write access. No trades can be placed through this app.\n"
-                "6. After creating the application, copy the **Refresh Token** "
+                "1. Go to [my.tastytrade.com](https://my.tastytrade.com) and navigate to **API Access**\n"
+                "2. Go to **OAuth Applications** — create one if you haven't already "
+                "(give it a name like *Lazy Theta*, select **Read** permissions only)\n"
+                "3. Open your application and click **Create Grant**\n"
+                "4. The grant will generate a **Refresh Token** — copy that value "
                 "(a long string starting with `eyJ...`)\n"
-                "7. Paste it below and click Save"
+                "5. Paste the refresh token below and click Save\n\n"
+                "> **Not the Client ID!** The refresh token is generated inside a *Grant*, "
+                "not shown on the application overview page."
             )
         with st.form("tt_token_form"):
             _tt_input = st.text_input(
