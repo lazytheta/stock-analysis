@@ -19,6 +19,7 @@ import re
 
 logger = logging.getLogger(__name__)
 
+from error_logger import log_error, log_error_with_trace
 from dcf_calculator import compute_wacc, compute_intrinsic_value, compute_reverse_dcf
 from config_store import save_config, load_config, list_watchlist, remove_from_watchlist, load_user_prefs, save_user_prefs, load_credential, save_credential, delete_credential
 from gather_data import (
@@ -111,7 +112,8 @@ if time.time() - _last_auth_check > 300:
         try:
             _sb_client.auth.refresh_session()
             st.session_state["_auth_checked_at"] = time.time()
-        except Exception:
+        except Exception as e2:
+            log_error("AUTH_ERROR", f"Session expired and refresh failed: {e2}")
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
@@ -1603,9 +1605,11 @@ def _watchlist_overview():
                                "ETFs, mutual funds, and indices are not supported.")
                 else:
                     logger.error("Watchlist analysis failed for %s: %s", ticker_clean, e)
+                    log_error("WATCHLIST_ERROR", str(e), page="Watchlist", metadata={"ticker": ticker_clean})
                     st.error(f"Could not analyse {ticker_clean}. Please try again. ({type(e).__name__})")
             except Exception as e:
                 logger.error("Watchlist analysis failed for %s: %s", ticker_clean, e)
+                log_error_with_trace("WATCHLIST_ERROR", e, page="Watchlist", metadata={"ticker": ticker_clean})
                 st.error(f"Could not analyse {ticker_clean}. Please try again. ({type(e).__name__})")
 
     # ── Overview table ──
@@ -4287,6 +4291,7 @@ def _load_portfolio_data():
                 st.session_state.portfolio_fetched_at = time.time()
             except Exception as e:
                 logger.error("Portfolio fetch failed: %s", e, exc_info=True)
+                log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"broker": get_active_broker()})
                 st.error(f"Failed to fetch portfolio data. Please try again. ({type(e).__name__})")
                 st.stop()
 
@@ -4423,6 +4428,23 @@ def _find_open_options(trades):
 
 GITHUB_REPO_URL = "https://github.com/lazytheta/stock-analysis"
 CONTACT_EMAIL = "security@lazytheta.io"
+
+
+def _global_exception_handler(exc_type, exc_value, exc_tb):
+    """Log any unhandled exception to Supabase before Streamlit's default handler."""
+    import traceback as _tb
+    log_error(
+        "UNHANDLED_ERROR",
+        str(exc_value),
+        page=st.session_state.get("nav_page"),
+        stack_trace="".join(_tb.format_exception(exc_type, exc_value, exc_tb)),
+    )
+    # Fall through to Streamlit's default handler
+    _original_excepthook(exc_type, exc_value, exc_tb)
+
+
+_original_excepthook = sys.excepthook
+sys.excepthook = _global_exception_handler
 
 if page == "Watchlist":
 
@@ -5006,15 +5028,18 @@ elif page == "Portfolio":
             gk, bwd = f_combo.result(timeout=30)
         except Exception as e:
             logger.warning("Greeks/BWD fetch failed: %s", e)
+            log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "greeks_bwd"})
             gk, bwd = None, None
         try:
             mi = f_mi.result(timeout=10)
         except Exception as e:
             logger.debug("Margin interest fetch failed: %s", e)
+            log_error("PORTFOLIO_ERROR", str(e), page="Portfolio", metadata={"component": "margin_interest"})
             mi = None
         executor.shutdown(wait=False, cancel_futures=True)
     except Exception as e:
         logger.warning("Risk dashboard data fetch failed: %s", e)
+        log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "risk_dashboard"})
 
     cash = st.session_state.get("_margin_cash", 0.0)
     debt = abs(cash) if cash < 0 else 0.0
@@ -5547,6 +5572,7 @@ elif page == "Results":
                 st.session_state["net_liq_all"] = fetch_net_liq_history("all", refresh_token=_get_tt_token())
         except Exception as e:
             logger.warning("Net liq history fetch failed: %s", e)
+            log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "net_liq_history"})
             st.session_state["net_liq_all"] = None
     if "yearly_transfers" not in st.session_state:
         try:
@@ -5554,6 +5580,7 @@ elif page == "Results":
                 st.session_state["yearly_transfers"] = fetch_yearly_transfers(refresh_token=_get_tt_token())
         except Exception as e:
             logger.warning("Yearly transfers fetch failed: %s", e)
+            log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "yearly_transfers"})
             st.session_state["yearly_transfers"] = {}
 
     nl_all_early = st.session_state.get("net_liq_all")

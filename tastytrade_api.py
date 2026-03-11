@@ -14,6 +14,7 @@ from decimal import Decimal
 
 logger = logging.getLogger(__name__)
 
+from error_logger import log_error
 from dotenv import load_dotenv
 from tastytrade import Session, Account, DXLinkStreamer
 from tastytrade.dxfeed import Greeks as GreeksEvent, Quote as QuoteEvent
@@ -468,6 +469,7 @@ def fetch_margin_requirements(refresh_token=None):
         return asyncio.run(_run())
     except Exception as e:
         print(f"[Margin requirements] Error: {e}")
+        log_error("TASTYTRADE_ERROR", f"fetch_margin_requirements: {e}", page="Portfolio")
         return {}
 
 
@@ -505,6 +507,7 @@ def fetch_margin_for_position(ticker, quantity, refresh_token=None):
         return asyncio.run(_run())
     except Exception as e:
         print(f"[Margin dry-run] Error for {ticker}: {e}")
+        log_error("TASTYTRADE_ERROR", f"fetch_margin_for_position ({ticker}): {e}", page="Portfolio")
         return None
 
 
@@ -723,6 +726,7 @@ def fetch_earnings_dates(tickers, refresh_token=None):
         return asyncio.run(_fetch())
     except Exception as e:
         logger.warning("Earnings dates fetch failed: %s", e)
+        log_error("TASTYTRADE_ERROR", f"fetch_earnings_dates: {e}", page="Portfolio")
         return {t: None for t in tickers}
 
 
@@ -1051,6 +1055,7 @@ def fetch_greeks_and_bwd(refresh_token=None):
         return asyncio.run(_run())
     except Exception as e:
         print(f"[Greeks+BWD] Error: {e}")
+        log_error("TASTYTRADE_ERROR", f"fetch_greeks_and_bwd: {e}", page="Portfolio")
         return _empty_greeks, _empty_bwd
 
 
@@ -1297,6 +1302,7 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_str
         return asyncio.run(_run())
     except Exception as e:
         print(f"[OptionChain] Error: {e}")
+        log_error("TASTYTRADE_ERROR", f"fetch_option_chain ({ticker}): {e}", page="Watchlist")
         return _empty
 
 
@@ -1491,5 +1497,6 @@ def fetch_beta_weighted_delta(refresh_token=None):
         return asyncio.run(_run())
     except Exception as e:
         print(f"[BWD] Error: {e}")
+        log_error("TASTYTRADE_ERROR", f"fetch_beta_weighted_delta: {e}", page="Portfolio")
         return {"positions": [], "portfolio_bwd": 0, "spy_price": 0,
                 "dollar_per_1pct": 0}

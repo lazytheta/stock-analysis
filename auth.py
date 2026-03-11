@@ -14,6 +14,8 @@ import streamlit as st
 
 logger = logging.getLogger(__name__)
 
+from error_logger import log_error
+
 
 def _get_secret(name):
     """Read a secret from Streamlit secrets or environment variables."""
@@ -53,6 +55,7 @@ def login_email_password(email, password):
         if "Email not confirmed" in msg:
             return None, None, "Please verify your email before signing in."
         logger.warning("Login failed: %s", e)
+        log_error("AUTH_ERROR", f"Login failed: {msg}", page="Login")
         return None, None, f"Login failed: {msg}"
 
 
@@ -76,6 +79,7 @@ def signup_email_password(email, password, metadata=None):
         if "already registered" in msg.lower():
             return None, None, "An account with this email already exists."
         logger.warning("Signup failed: %s", e)
+        log_error("AUTH_ERROR", f"Signup failed: {msg}", page="Signup")
         return None, None, f"Signup failed: {msg}"
 
 
@@ -152,6 +156,7 @@ def handle_oauth_callback():
         return client, user
     except Exception as e:
         logger.warning("OAuth session restore failed: %s", e)
+        log_error("AUTH_ERROR", f"OAuth callback failed: {e}", page="Login")
         st.query_params.clear()
         return None, None
 
@@ -219,6 +224,7 @@ def handle_remember_me():
         return client, user
     except Exception as e:
         logger.warning("Remember-me session restore failed: %s", e)
+        log_error("AUTH_ERROR", f"Remember-me restore failed: {e}", page="Login")
         st.query_params.clear()
         # Token is invalid/expired — clear it from browser
         clear_browser_session()
