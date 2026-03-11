@@ -4327,7 +4327,8 @@ def _load_portfolio_data():
             st.session_state.pop(k, None)
 
     if "portfolio_data" not in st.session_state:
-        with st.spinner("Fetching transactions from Tastytrade..."):
+        _broker_name = "Interactive Brokers" if get_active_broker() == "ibkr" else "Tastytrade"
+        with st.spinner(f"Fetching portfolio data from {_broker_name}..."):
             try:
                 cost_basis, acct = fetch_portfolio_data()
                 st.session_state.portfolio_data = cost_basis
