@@ -4511,14 +4511,94 @@ def _aggregate_month_trades(cost_basis, year, month):
                         if dte > 0:
                             td_obj["dte_sum"] += dte
                             td_obj["dte_count"] += 1
+                            qty = abs(int(t.get("quantity", 1))) or 1
                             if strike and strike > 0:
                                 if label == "CSP":
-                                    td_obj["collateral_sum"] += strike * 100
+                                    td_obj["collateral_sum"] += strike * 100 * qty
                                 else:
                                     price = t.get("price", 0)
-                                    td_obj["collateral_sum"] += abs(price) * 100 if price else strike * 100
+                                    td_obj["collateral_sum"] += (abs(price) * 100 * qty) if price else (strike * 100 * qty)
                     except (ValueError, TypeError):
                         pass
+
+    # ── Position value change (unrealized) per ticker ──
+    # Reconstruct shares held at start and end of month from full trade history
+    import calendar
+    import ssl as _ssl
+    import json as _json
+    import urllib.request as _urllib
+
+    last_day = calendar.monthrange(year, month)[1]
+    month_start = datetime(year, month, 1)
+    month_end = datetime(year, month, last_day)
+
+    # Calculate shares held at start and end of month per ticker
+    tickers_with_shares = {}
+    for ticker, data in cost_basis.items():
+        shares_start = 0  # shares held at end of prev month
+        shares_end = 0    # shares held at end of this month
+        for t in data.get("trades", []):
+            td = t["date"]
+            if hasattr(td, "year"):
+                tdate = datetime(td.year, td.month, td.day)
+            else:
+                tdate = datetime.strptime(str(td)[:10], "%Y-%m-%d")
+            inst = t.get("instrument_type", "")
+            label = t.get("label", "")
+            action = t.get("action", "")
+            qty = abs(t.get("quantity", 0))
+            if inst == "Equity":
+                if label == "Assignment" or "Buy" in action:
+                    if tdate < month_start:
+                        shares_start += qty
+                    if tdate <= month_end:
+                        shares_end += qty
+                elif "Sell" in action:
+                    if tdate < month_start:
+                        shares_start -= qty
+                    if tdate <= month_end:
+                        shares_end -= qty
+        if shares_start != 0 or shares_end != 0:
+            tickers_with_shares[ticker] = (int(shares_start), int(shares_end))
+
+    # Fetch monthly prices for tickers with positions
+    pos_value_change = {}
+    if tickers_with_shares:
+        ctx = _ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = _ssl.CERT_NONE
+        for ticker, (sh_start, sh_end) in tickers_with_shares.items():
+            try:
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range=5y&interval=1mo"
+                req = _urllib.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with _urllib.urlopen(req, context=ctx, timeout=10) as resp:
+                    cdata = _json.loads(resp.read())
+                result = cdata["chart"]["result"][0]
+                timestamps = result["timestamp"]
+                closes = result["indicators"]["quote"][0]["close"]
+                month_prices = {}
+                for ts, close in zip(timestamps, closes):
+                    if close is None:
+                        continue
+                    dt = datetime.utcfromtimestamp(ts)
+                    month_prices[(dt.year, dt.month)] = close
+                # Price at end of previous month and end of this month
+                prev_month = month - 1 if month > 1 else 12
+                prev_year = year if month > 1 else year - 1
+                price_start = month_prices.get((prev_year, prev_month))
+                price_end = month_prices.get((year, month))
+                if price_start and price_end:
+                    # Value change = shares_held * (price_end - price_start)
+                    # Use start-of-month shares for the held position change
+                    unrealized = sh_start * (price_end - price_start)
+                    pos_value_change[ticker] = round(unrealized, 2)
+            except Exception:
+                pass
+
+    # Merge position value change into ticker_data
+    for ticker, val_change in pos_value_change.items():
+        ticker_data[ticker]["equity_pl"] += val_change
+        ticker_data[ticker]["net_pl"] += val_change
 
     premium_list = []
     for ticker, d in ticker_data.items():
@@ -4560,6 +4640,7 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
     MONTH_NAMES = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     month_label = f"{MONTH_NAMES[month]} {year}"
+    st.markdown(f"### {month_label}")
 
     agg = _aggregate_month_trades(cost_basis, year, month)
 
@@ -4596,7 +4677,7 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
     with c1:
         st.markdown(
             f'<div class="portfolio-card" style="display:block;text-align:left;border-left:3px solid {T["accent"]}">'
-            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">&#x1f4b0; Net Premium</div>'
+            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">&#x1f4b0; Premiums Collected</div>'
             f'<div class="pf-val {prem_cls}" style="font-size:1.5rem;font-weight:700;margin:4px 0">{_fmt_k(agg["premium_total"])}</div>'
             f'<div style="font-size:0.8rem;color:{T["text_muted"]}">{agg["premium_trades"]} trades</div>'
             f'<div style="visibility:hidden;padding:3px 0">—</div>'
@@ -4658,7 +4739,7 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
             f'<th style="text-align:right;padding:8px">Contracts</th>'
             f'<th style="text-align:right;padding:8px">Avg DTE</th>'
             f'<th style="text-align:right;padding:8px">Annualized ROC</th>'
-            f'<th style="text-align:right;padding:8px">Net Premiums</th>'
+            f'<th style="text-align:right;padding:8px">Premiums</th>'
             f'</tr>{rows}</table></div>',
             unsafe_allow_html=True)
 
