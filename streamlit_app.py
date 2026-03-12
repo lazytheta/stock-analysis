@@ -4447,6 +4447,258 @@ def _global_exception_handler(exc_type, exc_value, exc_tb):
 _original_excepthook = sys.excepthook
 sys.excepthook = _global_exception_handler
 
+
+# ── Monthly detail helpers ──
+
+def _fmt_k(val):
+    """Format dollar amount: $1,234 -> '$1.2K', $500 -> '$500'."""
+    sign = "+" if val > 0 else "-" if val < 0 else ""
+    av = abs(val)
+    if av >= 1000:
+        return f"{sign}${av / 1000:.1f}K"
+    return f"{sign}${av:,.0f}"
+
+
+def _aggregate_month_trades(cost_basis, year, month):
+    """Aggregate trade data for a specific month from cost_basis.
+
+    Returns dict with:
+        premium_total, premium_trades, leaders_premium, leaders_pl, laggards_pl
+    """
+    from datetime import datetime
+
+    ticker_data = defaultdict(lambda: {
+        "cc": 0.0, "put": 0.0, "net_pl": 0.0,
+        "premium": 0.0, "premium_trades": 0, "contracts": 0,
+        "dte_sum": 0.0, "dte_count": 0, "collateral_sum": 0.0,
+    })
+
+    for ticker, data in cost_basis.items():
+        for t in data.get("trades", []):
+            td = t["date"]
+            if hasattr(td, "year"):
+                t_year, t_month = td.year, td.month
+            else:
+                dt = datetime.strptime(str(td)[:10], "%Y-%m-%d")
+                t_year, t_month = dt.year, dt.month
+            if t_year != year or t_month != month:
+                continue
+
+            label = t.get("label", "")
+            nv = t.get("net_value", 0.0)
+            td_obj = ticker_data[ticker]
+            td_obj["net_pl"] += nv
+
+            if label in ("CC", "BTC CC"):
+                td_obj["cc"] += nv
+            elif label in ("CSP", "BTC CSP"):
+                td_obj["put"] += nv
+
+            if label in ("CSP", "CC"):
+                td_obj["premium"] += nv
+                td_obj["premium_trades"] += 1
+                td_obj["contracts"] += abs(int(t.get("quantity", 0)))
+
+                strike, exp_str, cp = _parse_option_symbol(t.get("symbol"))
+                if exp_str and hasattr(td, "year"):
+                    try:
+                        exp_dt = datetime.strptime(exp_str, "%d-%m-%Y")
+                        trade_dt = datetime(td.year, td.month, td.day) if hasattr(td, "day") else datetime.strptime(str(td)[:10], "%Y-%m-%d")
+                        dte = (exp_dt - trade_dt).days
+                        if dte > 0:
+                            td_obj["dte_sum"] += dte
+                            td_obj["dte_count"] += 1
+                            if strike and strike > 0:
+                                if label == "CSP":
+                                    td_obj["collateral_sum"] += strike * 100
+                                else:
+                                    price = t.get("price", 0)
+                                    td_obj["collateral_sum"] += abs(price) * 100 if price else strike * 100
+                    except (ValueError, TypeError):
+                        pass
+
+    premium_list = []
+    for ticker, d in ticker_data.items():
+        if d["premium"] <= 0:
+            continue
+        avg_dte = int(d["dte_sum"] / d["dte_count"]) if d["dte_count"] > 0 else 0
+        est_roc = 0.0
+        if d["collateral_sum"] > 0 and avg_dte > 0:
+            est_roc = (d["premium"] / d["collateral_sum"]) * (365 / avg_dte) * 100
+        premium_list.append({
+            "ticker": ticker, "trades": d["premium_trades"],
+            "contracts": d["contracts"], "avg_dte": avg_dte,
+            "est_roc": round(est_roc, 1), "premiums": d["premium"],
+        })
+    premium_list.sort(key=lambda x: x["premiums"], reverse=True)
+
+    pl_list = [{"ticker": t, "cc": d["cc"], "put": d["put"], "net_pl": d["net_pl"]}
+               for t, d in ticker_data.items() if d["net_pl"] != 0]
+    pl_list.sort(key=lambda x: x["net_pl"], reverse=True)
+
+    total_premium = sum(d["premium"] for d in ticker_data.values())
+    total_premium_trades = sum(d["premium_trades"] for d in ticker_data.values())
+
+    return {
+        "premium_total": total_premium,
+        "premium_trades": total_premium_trades,
+        "leaders_premium": premium_list[:5],
+        "leaders_pl": [x for x in pl_list[:5] if x["net_pl"] > 0],
+        "laggards_pl": [x for x in pl_list[-5:] if x["net_pl"] < 0],
+    }
+
+
+@st.dialog("Monthly Detail", width="large")
+def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_returns, T):
+    """Render monthly detail modal with premium, P/L, benchmarks, and leaderboards."""
+    import pandas as pd
+    from collections import defaultdict
+
+    MONTH_NAMES = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    month_label = f"{MONTH_NAMES[month]} {year}"
+
+    agg = _aggregate_month_trades(cost_basis, year, month)
+
+    # Net P/L from net_liq
+    mo_ret_pct = monthly_returns.get(year, {}).get(month, 0.0)
+    net_pl_dollar = 0.0
+    if nl_all:
+        df = pd.DataFrame(nl_all)
+        df["time"] = pd.to_datetime(df["time"])
+        df = df.sort_values("time")
+        mo_data = df[(df["time"].dt.year == year) & (df["time"].dt.month == month)]
+        if not mo_data.empty:
+            end_val = mo_data["close"].iloc[-1]
+            prev = df[df["time"] < mo_data["time"].iloc[0]]
+            start_val = prev["close"].iloc[-1] if not prev.empty else end_val
+            yr_transfers = transfers.get(year, {})
+            mo_dep = yr_transfers.get("months", {}).get(month, 0) if isinstance(yr_transfers, dict) else 0
+            net_pl_dollar = end_val - start_val - mo_dep
+
+    # Benchmark monthly returns (cached)
+    if "benchmark_monthly" not in st.session_state:
+        try:
+            st.session_state["benchmark_monthly"] = fetch_benchmark_monthly_returns()
+        except Exception:
+            st.session_state["benchmark_monthly"] = {}
+    bench = st.session_state["benchmark_monthly"]
+
+    # Hero Cards
+    c1, c2, c3 = st.columns(3)
+    prem_cls = "pf-green" if agg["premium_total"] >= 0 else "pf-red"
+    pl_cls = "pf-green" if net_pl_dollar >= 0 else "pf-red"
+    ret_cls = "pf-green" if mo_ret_pct >= 0 else "pf-red"
+
+    with c1:
+        st.markdown(
+            f'<div class="portfolio-card" style="display:block;text-align:left;border-left:3px solid {T["accent"]}">'
+            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">&#x1f4b0; Premium Collected</div>'
+            f'<div class="pf-val {prem_cls}" style="font-size:1.5rem;font-weight:700;margin:4px 0">{_fmt_k(agg["premium_total"])}</div>'
+            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">{agg["premium_trades"]} trades</div>'
+            f'</div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown(
+            f'<div class="portfolio-card" style="display:block;text-align:left;border-left:3px solid {T["accent"]}">'
+            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">&#x1f4c8; Net P/L</div>'
+            f'<div class="pf-val {pl_cls}" style="font-size:1.5rem;font-weight:700;margin:4px 0">{_fmt_k(net_pl_dollar)}</div>'
+            f'<div style="font-size:0.8rem;color:{T["text_muted"]}"><span class="pf-val {ret_cls}">{mo_ret_pct:+.1f}%</span> return</div>'
+            f'</div>', unsafe_allow_html=True)
+    with c3:
+        bench_html = (
+            f'<div class="portfolio-card" style="display:block;text-align:left;border-left:3px solid {T["accent"]}">'
+            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">&#x2696; Benchmark</div>'
+            f'<div style="margin-top:6px">'
+            f'<div style="display:flex;justify-content:space-between;padding:3px 0">'
+            f'<span style="background:{T["accent"]}33;padding:1px 8px;border-radius:4px;font-weight:600">Portfolio</span>'
+            f'<span class="pf-val {ret_cls}">{mo_ret_pct:+.1f}%</span></div>'
+        )
+        for bname, bdata in bench.items():
+            b_ret = bdata.get((year, month), 0.0)
+            b_cls = "pf-green" if b_ret >= 0 else "pf-red"
+            bench_html += (
+                f'<div style="display:flex;justify-content:space-between;padding:3px 0">'
+                f'<span>{bname}</span>'
+                f'<span class="pf-val {b_cls}">{b_ret:+.1f}%</span></div>'
+            )
+        bench_html += '</div></div>'
+        st.markdown(bench_html, unsafe_allow_html=True)
+
+    st.markdown("")
+
+    # Leaders by Premium
+    if agg["leaders_premium"]:
+        rows = ""
+        for lp in agg["leaders_premium"]:
+            dte_str = f'{lp["avg_dte"]}d' if lp["avg_dte"] > 0 else "\u2014"
+            roc_cls = "pf-green" if lp["est_roc"] > 0 else ""
+            prem_display = _fmt_k(lp["premiums"])
+            rows += (
+                f'<tr style="border-bottom:1px solid {T["border"]}">'
+                f'<td style="padding:8px;font-weight:600">{lp["ticker"]}</td>'
+                f'<td style="text-align:right;padding:8px">{lp["trades"]}</td>'
+                f'<td style="text-align:right;padding:8px">{lp["contracts"]}</td>'
+                f'<td style="text-align:right;padding:8px">{dte_str}</td>'
+                f'<td style="text-align:right;padding:8px"><span class="pf-val {roc_cls}">{lp["est_roc"]:.1f}%</span></td>'
+                f'<td style="text-align:right;padding:8px"><span class="pf-val pf-green">{prem_display}</span></td>'
+                f'</tr>'
+            )
+        st.markdown(
+            f'<div class="portfolio-card" style="display:block;border-left:3px solid {T["accent"]};padding:16px">'
+            f'<div style="font-weight:600;margin-bottom:10px">&#x1f3c6; Leaders \u2014 By Premium</div>'
+            f'<table style="width:100%;border-collapse:collapse;font-size:0.85rem">'
+            f'<tr style="color:{T["text_muted"]};border-bottom:1px solid {T["border"]}">'
+            f'<th style="text-align:left;padding:8px">Ticker</th>'
+            f'<th style="text-align:right;padding:8px">Trades</th>'
+            f'<th style="text-align:right;padding:8px">Contracts</th>'
+            f'<th style="text-align:right;padding:8px">Avg DTE</th>'
+            f'<th style="text-align:right;padding:8px">Est. ROC</th>'
+            f'<th style="text-align:right;padding:8px">Premiums</th>'
+            f'</tr>{rows}</table></div>',
+            unsafe_allow_html=True)
+
+    # Leaders & Laggards by P/L
+    if agg["leaders_pl"] or agg["laggards_pl"]:
+        def _pl_table(items, color_label, color):
+            if not items:
+                return f'<div style="color:{T["text_muted"]}">\u2014</div>'
+            rows = ""
+            for it in items:
+                cc_cls = "pf-green" if it["cc"] >= 0 else "pf-red"
+                put_cls = "pf-green" if it["put"] >= 0 else "pf-red"
+                pl_cls = "pf-green" if it["net_pl"] >= 0 else "pf-red"
+                rows += (
+                    f'<tr style="border-bottom:1px solid {T["border"]}">'
+                    f'<td style="padding:6px;font-weight:600">{it["ticker"]}</td>'
+                    f'<td style="text-align:right;padding:6px"><span class="pf-val {cc_cls}">{_fmt_k(it["cc"])}</span></td>'
+                    f'<td style="text-align:right;padding:6px"><span class="pf-val {put_cls}">{_fmt_k(it["put"])}</span></td>'
+                    f'<td style="text-align:right;padding:6px"><span class="pf-val {pl_cls}">{_fmt_k(it["net_pl"])}</span></td>'
+                    f'</tr>'
+                )
+            return (
+                f'<div style="color:{color};font-weight:600;margin-bottom:6px">{color_label}</div>'
+                f'<table style="width:100%;border-collapse:collapse;font-size:0.8rem">'
+                f'<tr style="color:{T["text_muted"]};border-bottom:1px solid {T["border"]}">'
+                f'<th style="text-align:left;padding:6px">Ticker</th>'
+                f'<th style="text-align:right;padding:6px">CC</th>'
+                f'<th style="text-align:right;padding:6px">PUT</th>'
+                f'<th style="text-align:right;padding:6px">Net P/L</th>'
+                f'</tr>{rows}</table>'
+            )
+
+        left = _pl_table(agg["leaders_pl"], "Leaders", T["accent"])
+        right = _pl_table(agg["laggards_pl"], "Laggards", T["red"])
+
+        st.markdown(
+            f'<div class="portfolio-card" style="display:block;border-left:3px solid {T["accent"]};padding:16px">'
+            f'<div style="font-weight:600;margin-bottom:10px">&#x26a1; Leaders &amp; Laggards \u2014 By P/L</div>'
+            f'<div style="display:flex;gap:16px">'
+            f'<div style="flex:1">{left}</div>'
+            f'<div style="flex:1">{right}</div>'
+            f'</div></div>',
+            unsafe_allow_html=True)
+
+
 if page == "Watchlist":
 
     st.markdown(
@@ -5531,258 +5783,6 @@ elif page == "Wheel Cost Basis":
         height=0,
     )
 
-
-# ── Monthly detail helpers ──
-
-def _fmt_k(val):
-    """Format dollar amount: $1,234 -> '$1.2K', $500 -> '$500'."""
-    sign = "+" if val > 0 else "-" if val < 0 else ""
-    av = abs(val)
-    if av >= 1000:
-        return f"{sign}${av / 1000:.1f}K"
-    return f"{sign}${av:,.0f}"
-
-
-def _aggregate_month_trades(cost_basis, year, month):
-    """Aggregate trade data for a specific month from cost_basis.
-
-    Returns dict with:
-        premium_total, premium_trades, leaders_premium, leaders_pl, laggards_pl
-    """
-    from datetime import datetime
-
-    ticker_data = defaultdict(lambda: {
-        "cc": 0.0, "put": 0.0, "net_pl": 0.0,
-        "premium": 0.0, "premium_trades": 0, "contracts": 0,
-        "dte_sum": 0.0, "dte_count": 0, "collateral_sum": 0.0,
-    })
-
-    for ticker, data in cost_basis.items():
-        for t in data.get("trades", []):
-            td = t["date"]
-            if hasattr(td, "year"):
-                t_year, t_month = td.year, td.month
-            else:
-                dt = datetime.strptime(str(td)[:10], "%Y-%m-%d")
-                t_year, t_month = dt.year, dt.month
-            if t_year != year or t_month != month:
-                continue
-
-            label = t.get("label", "")
-            nv = t.get("net_value", 0.0)
-            td_obj = ticker_data[ticker]
-            td_obj["net_pl"] += nv
-
-            if label in ("CC", "BTC CC"):
-                td_obj["cc"] += nv
-            elif label in ("CSP", "BTC CSP"):
-                td_obj["put"] += nv
-
-            if label in ("CSP", "CC"):
-                td_obj["premium"] += nv
-                td_obj["premium_trades"] += 1
-                td_obj["contracts"] += abs(int(t.get("quantity", 0)))
-
-                strike, exp_str, cp = _parse_option_symbol(t.get("symbol"))
-                if exp_str and hasattr(td, "year"):
-                    try:
-                        exp_dt = datetime.strptime(exp_str, "%d-%m-%Y")
-                        trade_dt = datetime(td.year, td.month, td.day) if hasattr(td, "day") else datetime.strptime(str(td)[:10], "%Y-%m-%d")
-                        dte = (exp_dt - trade_dt).days
-                        if dte > 0:
-                            td_obj["dte_sum"] += dte
-                            td_obj["dte_count"] += 1
-                            if strike and strike > 0:
-                                if label == "CSP":
-                                    td_obj["collateral_sum"] += strike * 100
-                                else:
-                                    price = t.get("price", 0)
-                                    td_obj["collateral_sum"] += abs(price) * 100 if price else strike * 100
-                    except (ValueError, TypeError):
-                        pass
-
-    premium_list = []
-    for ticker, d in ticker_data.items():
-        if d["premium"] <= 0:
-            continue
-        avg_dte = int(d["dte_sum"] / d["dte_count"]) if d["dte_count"] > 0 else 0
-        est_roc = 0.0
-        if d["collateral_sum"] > 0 and avg_dte > 0:
-            est_roc = (d["premium"] / d["collateral_sum"]) * (365 / avg_dte) * 100
-        premium_list.append({
-            "ticker": ticker, "trades": d["premium_trades"],
-            "contracts": d["contracts"], "avg_dte": avg_dte,
-            "est_roc": round(est_roc, 1), "premiums": d["premium"],
-        })
-    premium_list.sort(key=lambda x: x["premiums"], reverse=True)
-
-    pl_list = [{"ticker": t, "cc": d["cc"], "put": d["put"], "net_pl": d["net_pl"]}
-               for t, d in ticker_data.items() if d["net_pl"] != 0]
-    pl_list.sort(key=lambda x: x["net_pl"], reverse=True)
-
-    total_premium = sum(d["premium"] for d in ticker_data.values())
-    total_premium_trades = sum(d["premium_trades"] for d in ticker_data.values())
-
-    return {
-        "premium_total": total_premium,
-        "premium_trades": total_premium_trades,
-        "leaders_premium": premium_list[:5],
-        "leaders_pl": [x for x in pl_list[:5] if x["net_pl"] > 0],
-        "laggards_pl": [x for x in pl_list[-5:] if x["net_pl"] < 0],
-    }
-
-
-@st.dialog("Monthly Detail", width="large")
-def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_returns, T):
-    """Render monthly detail modal with premium, P/L, benchmarks, and leaderboards."""
-    import pandas as pd
-    from collections import defaultdict
-
-    MONTH_NAMES = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    month_label = f"{MONTH_NAMES[month]} {year}"
-
-    agg = _aggregate_month_trades(cost_basis, year, month)
-
-    # Net P/L from net_liq
-    mo_ret_pct = monthly_returns.get(year, {}).get(month, 0.0)
-    net_pl_dollar = 0.0
-    if nl_all:
-        df = pd.DataFrame(nl_all)
-        df["time"] = pd.to_datetime(df["time"])
-        df = df.sort_values("time")
-        mo_data = df[(df["time"].dt.year == year) & (df["time"].dt.month == month)]
-        if not mo_data.empty:
-            end_val = mo_data["close"].iloc[-1]
-            prev = df[df["time"] < mo_data["time"].iloc[0]]
-            start_val = prev["close"].iloc[-1] if not prev.empty else end_val
-            yr_transfers = transfers.get(year, {})
-            mo_dep = yr_transfers.get("months", {}).get(month, 0) if isinstance(yr_transfers, dict) else 0
-            net_pl_dollar = end_val - start_val - mo_dep
-
-    # Benchmark monthly returns (cached)
-    if "benchmark_monthly" not in st.session_state:
-        try:
-            st.session_state["benchmark_monthly"] = fetch_benchmark_monthly_returns()
-        except Exception:
-            st.session_state["benchmark_monthly"] = {}
-    bench = st.session_state["benchmark_monthly"]
-
-    # Hero Cards
-    c1, c2, c3 = st.columns(3)
-    prem_cls = "pf-green" if agg["premium_total"] >= 0 else "pf-red"
-    pl_cls = "pf-green" if net_pl_dollar >= 0 else "pf-red"
-    ret_cls = "pf-green" if mo_ret_pct >= 0 else "pf-red"
-
-    with c1:
-        st.markdown(
-            f'<div class="portfolio-card" style="display:block;text-align:left;border-left:3px solid {T["accent"]}">'
-            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">&#x1f4b0; Premium Collected</div>'
-            f'<div class="pf-val {prem_cls}" style="font-size:1.5rem;font-weight:700;margin:4px 0">{_fmt_k(agg["premium_total"])}</div>'
-            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">{agg["premium_trades"]} trades</div>'
-            f'</div>', unsafe_allow_html=True)
-    with c2:
-        st.markdown(
-            f'<div class="portfolio-card" style="display:block;text-align:left;border-left:3px solid {T["accent"]}">'
-            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">&#x1f4c8; Net P/L</div>'
-            f'<div class="pf-val {pl_cls}" style="font-size:1.5rem;font-weight:700;margin:4px 0">{_fmt_k(net_pl_dollar)}</div>'
-            f'<div style="font-size:0.8rem;color:{T["text_muted"]}"><span class="pf-val {ret_cls}">{mo_ret_pct:+.1f}%</span> return</div>'
-            f'</div>', unsafe_allow_html=True)
-    with c3:
-        bench_html = (
-            f'<div class="portfolio-card" style="display:block;text-align:left;border-left:3px solid {T["accent"]}">'
-            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">&#x2696; Benchmark</div>'
-            f'<div style="margin-top:6px">'
-            f'<div style="display:flex;justify-content:space-between;padding:3px 0">'
-            f'<span style="background:{T["accent"]}33;padding:1px 8px;border-radius:4px;font-weight:600">Portfolio</span>'
-            f'<span class="pf-val {ret_cls}">{mo_ret_pct:+.1f}%</span></div>'
-        )
-        for bname, bdata in bench.items():
-            b_ret = bdata.get((year, month), 0.0)
-            b_cls = "pf-green" if b_ret >= 0 else "pf-red"
-            bench_html += (
-                f'<div style="display:flex;justify-content:space-between;padding:3px 0">'
-                f'<span>{bname}</span>'
-                f'<span class="pf-val {b_cls}">{b_ret:+.1f}%</span></div>'
-            )
-        bench_html += '</div></div>'
-        st.markdown(bench_html, unsafe_allow_html=True)
-
-    st.markdown("")
-
-    # Leaders by Premium
-    if agg["leaders_premium"]:
-        rows = ""
-        for lp in agg["leaders_premium"]:
-            dte_str = f'{lp["avg_dte"]}d' if lp["avg_dte"] > 0 else "\u2014"
-            roc_cls = "pf-green" if lp["est_roc"] > 0 else ""
-            prem_display = _fmt_k(lp["premiums"])
-            rows += (
-                f'<tr style="border-bottom:1px solid {T["border"]}">'
-                f'<td style="padding:8px;font-weight:600">{lp["ticker"]}</td>'
-                f'<td style="text-align:right;padding:8px">{lp["trades"]}</td>'
-                f'<td style="text-align:right;padding:8px">{lp["contracts"]}</td>'
-                f'<td style="text-align:right;padding:8px">{dte_str}</td>'
-                f'<td style="text-align:right;padding:8px"><span class="pf-val {roc_cls}">{lp["est_roc"]:.1f}%</span></td>'
-                f'<td style="text-align:right;padding:8px"><span class="pf-val pf-green">{prem_display}</span></td>'
-                f'</tr>'
-            )
-        st.markdown(
-            f'<div class="portfolio-card" style="display:block;border-left:3px solid {T["accent"]};padding:16px">'
-            f'<div style="font-weight:600;margin-bottom:10px">&#x1f3c6; Leaders \u2014 By Premium</div>'
-            f'<table style="width:100%;border-collapse:collapse;font-size:0.85rem">'
-            f'<tr style="color:{T["text_muted"]};border-bottom:1px solid {T["border"]}">'
-            f'<th style="text-align:left;padding:8px">Ticker</th>'
-            f'<th style="text-align:right;padding:8px">Trades</th>'
-            f'<th style="text-align:right;padding:8px">Contracts</th>'
-            f'<th style="text-align:right;padding:8px">Avg DTE</th>'
-            f'<th style="text-align:right;padding:8px">Est. ROC</th>'
-            f'<th style="text-align:right;padding:8px">Premiums</th>'
-            f'</tr>{rows}</table></div>',
-            unsafe_allow_html=True)
-
-    # Leaders & Laggards by P/L
-    if agg["leaders_pl"] or agg["laggards_pl"]:
-        def _pl_table(items, color_label, color):
-            if not items:
-                return f'<div style="color:{T["text_muted"]}">\u2014</div>'
-            rows = ""
-            for it in items:
-                cc_cls = "pf-green" if it["cc"] >= 0 else "pf-red"
-                put_cls = "pf-green" if it["put"] >= 0 else "pf-red"
-                pl_cls = "pf-green" if it["net_pl"] >= 0 else "pf-red"
-                rows += (
-                    f'<tr style="border-bottom:1px solid {T["border"]}">'
-                    f'<td style="padding:6px;font-weight:600">{it["ticker"]}</td>'
-                    f'<td style="text-align:right;padding:6px"><span class="pf-val {cc_cls}">{_fmt_k(it["cc"])}</span></td>'
-                    f'<td style="text-align:right;padding:6px"><span class="pf-val {put_cls}">{_fmt_k(it["put"])}</span></td>'
-                    f'<td style="text-align:right;padding:6px"><span class="pf-val {pl_cls}">{_fmt_k(it["net_pl"])}</span></td>'
-                    f'</tr>'
-                )
-            return (
-                f'<div style="color:{color};font-weight:600;margin-bottom:6px">{color_label}</div>'
-                f'<table style="width:100%;border-collapse:collapse;font-size:0.8rem">'
-                f'<tr style="color:{T["text_muted"]};border-bottom:1px solid {T["border"]}">'
-                f'<th style="text-align:left;padding:6px">Ticker</th>'
-                f'<th style="text-align:right;padding:6px">CC</th>'
-                f'<th style="text-align:right;padding:6px">PUT</th>'
-                f'<th style="text-align:right;padding:6px">Net P/L</th>'
-                f'</tr>{rows}</table>'
-            )
-
-        left = _pl_table(agg["leaders_pl"], "Leaders", T["accent"])
-        right = _pl_table(agg["laggards_pl"], "Laggards", T["red"])
-
-        st.markdown(
-            f'<div class="portfolio-card" style="display:block;border-left:3px solid {T["accent"]};padding:16px">'
-            f'<div style="font-weight:600;margin-bottom:10px">&#x26a1; Leaders &amp; Laggards \u2014 By P/L</div>'
-            f'<div style="display:flex;gap:16px">'
-            f'<div style="flex:1">{left}</div>'
-            f'<div style="flex:1">{right}</div>'
-            f'</div></div>',
-            unsafe_allow_html=True)
-
-
 # ══════════════════════════════════════════════════════
 #  RESULTS PAGE — P/L performance overview
 # ══════════════════════════════════════════════════════
@@ -6235,38 +6235,31 @@ elif page == "Results":
         col_ret, col_dep = st.columns(2)
 
         with col_ret:
-            returns_html = (
+            st.markdown(
                 f'<div class="section-title-bar">Returns &nbsp;<span style="font-weight:400;font-size:0.85rem;color:{T["text_muted"]}">'
                 f'Cumulative: <span class="pf-val{total_ret_cls}" style="font-size:0.85rem">{total_return:+.1f}%</span>'
-                f'</span></div>'
+                f'</span></div>',
+                unsafe_allow_html=True,
             )
             for yr in sorted(yearly_returns, reverse=True):
                 yr_ret = yearly_returns[yr]
-                yr_color = T['accent'] if yr_ret >= 0 else T['red']
-                mo_cards = '<div class="portfolio-cards">'
-                for mo in range(1, 13):
-                    mo_ret = monthly_returns.get(yr, {}).get(mo)
-                    if mo_ret is None:
-                        continue
-                    mo_cls = " pf-green" if mo_ret >= 0 else " pf-red"
-                    mo_cards += (
-                        f'<div class="portfolio-card" style="justify-content:center;text-align:center">'
-                        f'<span class="pf-ticker" style="min-width:40px">{MONTH_NAMES[mo]}</span>'
-                        f'<div class="pf-cell">'
-                        f'<span class="pf-val {mo_cls}">{mo_ret:+.1f}%</span>'
-                        f'</div>'
-                        f'</div>'
-                    )
-                mo_cards += '</div>'
-                _yr_border = T['accent'] if yr_ret >= 0 else T['red']
-                returns_html += (
-                    f'<details class="portfolio-card" style="border-left:3px solid {_yr_border};padding:12px 16px;margin-bottom:8px;display:block">'
-                    f'<summary style="cursor:pointer;font-weight:600;color:{T["text"]};list-style:none">'
-                    f'{yr} — <span style="color:{yr_color}">{yr_ret:+.1f}%</span></summary>'
-                    f'{mo_cards}'
-                    f'</details>'
-                )
-            st.markdown(returns_html, unsafe_allow_html=True)
+                with st.expander(f"{yr} — {yr_ret:+.1f}%"):
+                    for mo in range(1, 13):
+                        mo_ret = monthly_returns.get(yr, {}).get(mo)
+                        if mo_ret is None:
+                            continue
+                        mo_cls = "pf-green" if mo_ret >= 0 else "pf-red"
+                        col_name, col_val, col_btn = st.columns([2, 3, 1])
+                        with col_name:
+                            st.markdown(f"**{MONTH_NAMES[mo]}**")
+                        with col_val:
+                            st.markdown(
+                                f'<span class="pf-val {mo_cls}" style="font-size:1rem">{mo_ret:+.1f}%</span>',
+                                unsafe_allow_html=True,
+                            )
+                        with col_btn:
+                            if st.button("🔍", key=f"mo_{yr}_{mo}", help=f"Detail {MONTH_NAMES[mo]} {yr}"):
+                                _show_month_detail(yr, mo, cost_basis, nl_all, transfers, monthly_returns, T)
 
         with col_dep:
             if has_deposits:
