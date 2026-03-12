@@ -4681,25 +4681,24 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
     pl_cls = "pf-green" if net_pl_dollar >= 0 else "pf-red"
     ret_cls = "pf-green" if mo_ret_pct >= 0 else "pf-red"
 
+    _hero_style = "display:block;text-align:left;border-left:3px solid {accent};min-height:120px".format(accent=T["accent"])
     with c1:
         st.markdown(
-            f'<div class="portfolio-card" style="display:block;text-align:left;border-left:3px solid {T["accent"]}">'
+            f'<div class="portfolio-card" style="{_hero_style}">'
             f'<div style="font-size:0.8rem;color:{T["text_muted"]}">Net Premiums</div>'
             f'<div class="pf-val {prem_cls}" style="font-size:1.5rem;font-weight:700;margin:4px 0">{_fmt_k(agg["premium_total"])}</div>'
             f'<div style="font-size:0.8rem;color:{T["text_muted"]}">{agg["premium_trades"]} trades</div>'
-            f'<div style="visibility:hidden;padding:3px 0">—</div>'
             f'</div>', unsafe_allow_html=True)
     with c2:
         st.markdown(
-            f'<div class="portfolio-card" style="display:block;text-align:left;border-left:3px solid {T["accent"]}">'
+            f'<div class="portfolio-card" style="{_hero_style}">'
             f'<div style="font-size:0.8rem;color:{T["text_muted"]}">Net P/L</div>'
             f'<div class="pf-val {pl_cls}" style="font-size:1.5rem;font-weight:700;margin:4px 0">{_fmt_k(net_pl_dollar)}</div>'
             f'<div style="font-size:0.8rem;color:{T["text_muted"]}"><span class="pf-val {ret_cls}">{mo_ret_pct:+.1f}%</span> return</div>'
-            f'<div style="visibility:hidden;padding:3px 0">—</div>'
             f'</div>', unsafe_allow_html=True)
     with c3:
         bench_html = (
-            f'<div class="portfolio-card" style="display:block;text-align:left;border-left:3px solid {T["accent"]}">'
+            f'<div class="portfolio-card" style="{_hero_style}">'
             f'<div style="font-size:0.8rem;color:{T["text_muted"]}">Benchmark</div>'
             f'<div style="margin-top:6px">'
             f'<div style="display:flex;justify-content:space-between;padding:3px 0">'
