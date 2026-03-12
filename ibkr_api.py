@@ -19,6 +19,7 @@ import streamlit as st
 logger = logging.getLogger(__name__)
 
 from error_logger import log_error
+from trade_utils import detect_wheels as _detect_wheels
 
 # How long to cache the Flex statement (seconds)
 _CACHE_TTL = 300  # 5 minutes
@@ -45,6 +46,9 @@ def _patch_ibflex_parser():
     """
     from ibflex import parser, Types
 
+    if getattr(parser.parse_data_element, '_patched', False):
+        return  # Already patched
+
     _orig_parse_data_element = parser.parse_data_element
 
     def _lenient_parse_data_element(elem):
@@ -56,6 +60,7 @@ def _patch_ibflex_parser():
             del elem.attrib[k]
         return _orig_parse_data_element(elem)
 
+    _lenient_parse_data_element._patched = True
     parser.parse_data_element = _lenient_parse_data_element
 
 
@@ -188,7 +193,6 @@ def fetch_account_balances():
 
 def fetch_portfolio_data():
     """Fetch IBKR positions and trades from Flex Query, compute cost basis."""
-    from trade_utils import detect_wheels as _detect_wheels
     try:
         stmt = _get_flex_statement()
         from ibflex.enums import AssetClass
@@ -237,7 +241,6 @@ def fetch_portfolio_data():
                 "option_pl": option_pl,
                 "equity_cost": equity_cost,
                 "total_pl": total_pl,
-                "total_pl_real": total_pl,
                 "adjusted_cost": adjusted_cost,
                 "cost_per_share": cost_per_share,
                 "trades": trades,
@@ -354,10 +357,10 @@ def fetch_beta_weighted_delta():
             else:
                 ticker_positions[ticker] += qty
 
+        import yfinance as yf
         betas = {}
         for t in ticker_positions:
             try:
-                import yfinance as yf
                 info = yf.Ticker(t).info
                 price = info.get("regularMarketPrice", 0) or 0
                 beta = info.get("beta", 1.0) or 1.0
@@ -520,7 +523,10 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60,
 
 def fetch_earnings_dates(tickers):
     """Fetch next earnings dates via yfinance."""
-    import yfinance as yf
+    try:
+        import yfinance as yf
+    except ImportError:
+        return {t: None for t in tickers}
 
     result = {}
     for ticker in tickers:

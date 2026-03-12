@@ -4254,6 +4254,7 @@ with st.sidebar:
             st.session_state.pop("yearly_transfers", None)
             st.session_state.pop("benchmark_returns", None)
             st.session_state.pop("portfolio_fetched_at", None)
+            st.session_state.pop("_ibkr_flex_cache", None)
             for k in [k for k in st.session_state if k.startswith("net_liq_")]:
                 st.session_state.pop(k, None)
             st.rerun()
