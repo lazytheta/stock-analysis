@@ -577,6 +577,73 @@ def _fetch_yearly_returns(symbol):
         return {}
 
 
+def _fetch_monthly_returns(symbol):
+    """Fetch monthly returns for a Yahoo Finance symbol.
+
+    Returns:
+        Dict of {(year, month): return_pct}, e.g. {(2025, 1): 2.3, (2025, 2): -1.1}.
+    """
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=10y&interval=1mo"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+            data = json.loads(resp.read())
+        result = data["chart"]["result"][0]
+        timestamps = result["timestamp"]
+        closes = result["indicators"]["quote"][0]["close"]
+
+        from datetime import datetime as _dt
+        month_close = {}
+        for ts, close in zip(timestamps, closes):
+            if close is None:
+                continue
+            dt = _dt.utcfromtimestamp(ts)
+            month_close[(dt.year, dt.month)] = close
+
+        periods = sorted(month_close.keys())
+        returns = {}
+        for i in range(1, len(periods)):
+            prev = periods[i - 1]
+            cur = periods[i]
+            prev_close = month_close[prev]
+            if prev_close > 0:
+                returns[cur] = round((month_close[cur] - prev_close) / prev_close * 100, 1)
+        return returns
+    except Exception as e:
+        logger.debug("Monthly returns fetch failed for %s: %s", symbol, e)
+        return {}
+
+
+MONTHLY_BENCHMARKS = {
+    "S&P 500": "%5EGSPC",
+    "Nasdaq": "%5ENDX",
+}
+
+
+def fetch_benchmark_monthly_returns():
+    """Fetch monthly returns for benchmarks.
+
+    Returns:
+        Dict of {benchmark_name: {(year, month): return_pct}}.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {
+            executor.submit(_fetch_monthly_returns, symbol): name
+            for name, symbol in MONTHLY_BENCHMARKS.items()
+        }
+        for future in as_completed(futures):
+            name = futures[future]
+            results[name] = future.result()
+    return results
+
+
 def fetch_sp500_yearly_returns():
     """Fetch S&P 500 yearly returns."""
     return _fetch_yearly_returns("%5EGSPC")
