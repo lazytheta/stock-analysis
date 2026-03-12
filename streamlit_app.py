@@ -4791,6 +4791,39 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
             f'</div></div>',
             unsafe_allow_html=True)
 
+    st.markdown("")
+
+    # ── Download as PNG ──
+    import streamlit.components.v1 as components
+    components.html(
+        f"""
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+        <button id="dl-btn" style="
+            background:{T['accent']};color:#fff;border:none;padding:8px 20px;
+            border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600;
+            width:100%;margin-top:4px;">
+            Download as PNG
+        </button>
+        <script>
+        document.getElementById('dl-btn').addEventListener('click', function() {{
+            const dialog = window.parent.document.querySelector('[role="dialog"]');
+            if (!dialog) return;
+            html2canvas(dialog, {{
+                backgroundColor: '{T['bg']}',
+                scale: 2,
+                useCORS: true,
+            }}).then(function(canvas) {{
+                const link = document.createElement('a');
+                link.download = 'monthly-detail-{month_label.replace(" ", "-")}.png';
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            }});
+        }});
+        </script>
+        """,
+        height=50,
+    )
+
 
 if page == "Watchlist":
 
