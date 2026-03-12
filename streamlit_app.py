@@ -4643,11 +4643,7 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
     MONTH_NAMES = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     month_label = f"{MONTH_NAMES[month]} {year}"
-    st.markdown(
-        f'<div class="section-title-bar">Monthly Detail &nbsp;<span style="font-weight:400;font-size:0.85rem;color:{T["text_muted"]}">'
-        f'{month_label}</span></div>',
-        unsafe_allow_html=True,
-    )
+    st.caption(month_label)
 
     agg = _aggregate_month_trades(cost_basis, year, month)
 
@@ -4702,7 +4698,7 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
             f'<div style="font-size:0.8rem;color:{T["text_muted"]}">Benchmark</div>'
             f'<div style="margin-top:6px">'
             f'<div style="display:flex;justify-content:space-between;padding:3px 0">'
-            f'<span style="background:{T["accent"]}33;padding:1px 8px;border-radius:4px;font-weight:600">Portfolio</span>'
+            f'<span>Portfolio</span>'
             f'<span class="pf-val {ret_cls}">{mo_ret_pct:+.1f}%</span></div>'
         )
         for bname, bdata in bench.items():
@@ -4737,7 +4733,7 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
             )
         st.markdown(
             f'<div class="portfolio-card" style="display:block;border-left:3px solid {T["accent"]};padding:16px">'
-            f'<div style="font-weight:600;margin-bottom:10px">Leaders \u2014 By Premium</div>'
+            f'<div style="font-weight:600;margin-bottom:10px">Winners \u2014 By Premium</div>'
             f'<table style="width:100%;border-collapse:collapse;font-size:0.85rem">'
             f'<tr style="color:{T["text_muted"]};border-bottom:1px solid {T["border"]}">'
             f'<th style="text-align:left;padding:8px">Ticker</th>'
@@ -4749,7 +4745,9 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
             f'</tr>{rows}</table></div>',
             unsafe_allow_html=True)
 
-    # Leaders & Laggards by P/L
+    st.markdown("")
+
+    # Winners & Losers by P/L
     if agg["leaders_pl"] or agg["laggards_pl"]:
         def _pl_table(items, color_label, color):
             if not items:
@@ -4781,12 +4779,12 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
                 f'</tr>{rows}</table>'
             )
 
-        left = _pl_table(agg["leaders_pl"], "Leaders", T["accent"])
-        right = _pl_table(agg["laggards_pl"], "Laggards", T["red"])
+        left = _pl_table(agg["leaders_pl"], "Winners", T["accent"])
+        right = _pl_table(agg["laggards_pl"], "Losers", T["red"])
 
         st.markdown(
             f'<div class="portfolio-card" style="display:block;border-left:3px solid {T["accent"]};padding:16px">'
-            f'<div style="font-weight:600;margin-bottom:10px">Leaders &amp; Laggards \u2014 By P/L</div>'
+            f'<div style="font-weight:600;margin-bottom:10px">Winners &amp; Losers \u2014 By P/L</div>'
             f'<div style="display:flex;gap:16px">'
             f'<div style="flex:1">{left}</div>'
             f'<div style="flex:1">{right}</div>'
@@ -6338,7 +6336,20 @@ elif page == "Results":
             )
             for yr in sorted(yearly_returns, reverse=True):
                 yr_ret = yearly_returns[yr]
-                with st.expander(f"{yr} — {yr_ret:+.1f}%"):
+                yr_color = T['accent'] if yr_ret >= 0 else T['red']
+                # Inject CSS to color this expander's border
+                st.markdown(
+                    f'<div class="yr-mark-{yr}"></div>'
+                    f'<style>.yr-mark-{yr} + div[data-testid="stExpander"] '
+                    f'{{ border-left: 3px solid {yr_color} !important; border-radius: 14px; }}'
+                    f'</style>',
+                    unsafe_allow_html=True,
+                )
+                with st.expander(f"{yr}"):
+                    st.markdown(
+                        f'<span style="font-weight:600;font-size:1.05rem;color:{yr_color}">{yr_ret:+.1f}%</span>',
+                        unsafe_allow_html=True,
+                    )
                     for mo in range(1, 13):
                         mo_ret = monthly_returns.get(yr, {}).get(mo)
                         if mo_ret is None:
