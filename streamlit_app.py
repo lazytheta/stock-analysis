@@ -6367,37 +6367,52 @@ elif page == "Results":
                 f'</span></div>',
                 unsafe_allow_html=True,
             )
+            # Build returns HTML (same style as deposits)
+            returns_cards = ""
             for yr in sorted(yearly_returns, reverse=True):
                 yr_ret = yearly_returns[yr]
                 yr_color = T['accent'] if yr_ret >= 0 else T['red']
-                # Inject CSS to color this expander's border
-                st.markdown(
-                    f'<div class="yr-mark-{yr}"></div>'
-                    f'<style>.yr-mark-{yr} + div[data-testid="stExpander"] '
-                    f'{{ border-left: 3px solid {yr_color} !important; border-radius: 14px; }}'
-                    f'</style>',
-                    unsafe_allow_html=True,
-                )
-                with st.expander(f"{yr}"):
-                    st.markdown(
-                        f'<span style="font-weight:600;font-size:1.05rem;color:{yr_color}">{yr_ret:+.1f}%</span>',
-                        unsafe_allow_html=True,
+                mo_cards = '<div class="portfolio-cards">'
+                for mo in range(1, 13):
+                    mo_ret = monthly_returns.get(yr, {}).get(mo)
+                    if mo_ret is None:
+                        continue
+                    mo_cls = " pf-green" if mo_ret >= 0 else " pf-red"
+                    mo_cards += (
+                        f'<div class="portfolio-card" style="justify-content:center;text-align:center">'
+                        f'<span class="pf-ticker" style="min-width:40px">{MONTH_NAMES[mo]}</span>'
+                        f'<div class="pf-cell">'
+                        f'<span class="pf-val{mo_cls}">{mo_ret:+.1f}%</span>'
+                        f'</div>'
+                        f'</div>'
                     )
+                mo_cards += '</div>'
+                returns_cards += (
+                    f'<details class="portfolio-card" style="border-left:3px solid {yr_color};padding:12px 16px;margin-bottom:8px;display:block">'
+                    f'<summary style="cursor:pointer;font-weight:600;color:{T["text"]};list-style:none">'
+                    f'{yr} — <span style="color:{yr_color}">{yr_ret:+.1f}%</span></summary>'
+                    f'{mo_cards}'
+                    f'</details>'
+                )
+            st.markdown(returns_cards, unsafe_allow_html=True)
+
+            # Month detail buttons (below the HTML cards)
+            with st.expander("Monthly Detail"):
+                for yr in sorted(yearly_returns, reverse=True):
                     for mo in range(1, 13):
                         mo_ret = monthly_returns.get(yr, {}).get(mo)
                         if mo_ret is None:
                             continue
                         mo_cls = "pf-green" if mo_ret >= 0 else "pf-red"
-                        col_name, col_val, col_btn = st.columns([2, 3, 1])
-                        with col_name:
-                            st.markdown(f"**{MONTH_NAMES[mo]}**")
-                        with col_val:
+                        col_label, col_btn = st.columns([5, 1])
+                        with col_label:
                             st.markdown(
-                                f'<span class="pf-val {mo_cls}" style="font-size:1rem">{mo_ret:+.1f}%</span>',
+                                f'<span style="font-weight:600">{MONTH_NAMES[mo]} {yr}</span> &nbsp; '
+                                f'<span class="pf-val {mo_cls}">{mo_ret:+.1f}%</span>',
                                 unsafe_allow_html=True,
                             )
                         with col_btn:
-                            if st.button("🔍", key=f"mo_{yr}_{mo}", help=f"Detail {MONTH_NAMES[mo]} {yr}"):
+                            if st.button("View", key=f"mo_{yr}_{mo}", help=f"Detail {MONTH_NAMES[mo]} {yr}"):
                                 _show_month_detail(yr, mo, cost_basis, nl_all, transfers, monthly_returns, T)
 
         with col_dep:
