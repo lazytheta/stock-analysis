@@ -4677,7 +4677,17 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
     pl_cls = "pf-green" if net_pl_dollar >= 0 else "pf-red"
     ret_cls = "pf-green" if mo_ret_pct >= 0 else "pf-red"
 
-    _hero_style = "display:block;text-align:left;border-left:3px solid {accent};min-height:120px".format(accent=T["accent"])
+    # Force equal-height hero cards via CSS
+    st.markdown(
+        '<style>'
+        '[role="dialog"] [data-testid="stHorizontalBlock"]:first-of-type '
+        '[data-testid="stColumn"] > div { height: 100%; }'
+        '[role="dialog"] [data-testid="stHorizontalBlock"]:first-of-type '
+        '[data-testid="stColumn"] .portfolio-card { height: 100%; box-sizing: border-box; }'
+        '</style>',
+        unsafe_allow_html=True,
+    )
+    _hero_style = "display:block;text-align:left;border-left:3px solid {accent}".format(accent=T["accent"])
     with c1:
         st.markdown(
             f'<div class="portfolio-card" style="{_hero_style}">'
