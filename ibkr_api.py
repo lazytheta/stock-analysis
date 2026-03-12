@@ -24,6 +24,18 @@ from error_logger import log_error
 _CACHE_TTL = 300  # 5 minutes
 
 
+def _ssl_context():
+    """Create an SSL context, using certifi if available."""
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+
+
 def _patch_ibflex_parser():
     """Patch ibflex parser to skip unknown XML attributes instead of crashing.
 
@@ -47,7 +59,10 @@ def _patch_ibflex_parser():
     parser.parse_data_element = _lenient_parse_data_element
 
 
-_patch_ibflex_parser()
+try:
+    _patch_ibflex_parser()
+except ImportError:
+    pass  # ibflex not installed; IBKR features unavailable
 
 
 def _get_flex_statement():
@@ -173,7 +188,7 @@ def fetch_account_balances():
 
 def fetch_portfolio_data():
     """Fetch IBKR positions and trades from Flex Query, compute cost basis."""
-    from tastytrade_api import _detect_wheels
+    from trade_utils import detect_wheels as _detect_wheels
     try:
         stmt = _get_flex_statement()
         from ibflex.enums import AssetClass
@@ -316,13 +331,11 @@ def fetch_beta_weighted_delta():
     """Calculate portfolio Beta-Weighted Delta from Flex positions."""
     try:
         stmt = _get_flex_statement()
-        from ibflex.enums import AssetClass
+        from ibflex.enums import AssetClass, PutCall
 
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        ctx = _ssl_context()
 
-        spy_url = "https://query1.finance.yahoo.com/v8/finance/chart/SPY?range=1d&interval=1d"
+        spy_url = "https://query1.finance.yahoo.com/v8/finance/chart/SPY?range=5d&interval=1d"
         req = urllib.request.Request(spy_url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, context=ctx) as resp:
             spy_data = json.loads(resp.read())
@@ -334,21 +347,25 @@ def fetch_beta_weighted_delta():
             ticker = (pos.symbol or "").split(" ")[0].upper()
             qty = _dec(pos.position)
             if pos.assetCategory == AssetClass.OPTION:
-                # Without Greeks from Flex, approximate: long calls +0.5, long puts -0.5
                 multiplier = _dec(pos.multiplier, 100)
-                ticker_positions[ticker] += 0.5 * qty * multiplier  # rough estimate
+                # Approximate delta: calls +0.5, puts -0.5 (sign from qty handles long/short)
+                delta_approx = 0.5 if pos.putCall == PutCall.CALL else -0.5
+                ticker_positions[ticker] += delta_approx * qty * multiplier
             else:
                 ticker_positions[ticker] += qty
 
         betas = {}
         for t in ticker_positions:
             try:
-                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{t}?range=1d&interval=1d"
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{t}?range=5d&interval=1d"
                 req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
                 with urllib.request.urlopen(req, context=ctx) as resp:
                     data = json.loads(resp.read())
-                price = data["chart"]["result"][0]["meta"]["regularMarketPrice"]
-                betas[t] = {"beta": 1.0, "price": price}
+                meta = data["chart"]["result"][0]["meta"]
+                price = meta["regularMarketPrice"]
+                # Fetch beta from Yahoo Finance chart API
+                beta = meta.get("beta", 1.0) or 1.0
+                betas[t] = {"beta": beta, "price": price}
             except Exception:
                 betas[t] = {"beta": 1.0, "price": 0}
 

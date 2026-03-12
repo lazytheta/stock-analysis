@@ -4193,7 +4193,7 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
 # Eagerly load credentials into session_state so has_active_broker() works
 _tt = _get_tt_token()
 _ibkr = _get_ibkr_credentials()
-logger.info("Broker check: tt_token=%s ibkr_creds=%s", bool(_tt), bool(_ibkr))
+logger.debug("Broker check: tt_token=%s ibkr_creds=%s", bool(_tt), bool(_ibkr))
 
 with st.sidebar:
     st.toggle("Dark mode", key="dark_mode")
@@ -6275,14 +6275,19 @@ elif page == "Settings":
             _ibkr_submitted = st.form_submit_button("Save", type="primary")
 
         if _ibkr_submitted and _ibkr_token and _ibkr_query_id:
-            _creds = {
-                "ibkr_flex_token": _ibkr_token.strip(),
-                "ibkr_flex_query_id": _ibkr_query_id.strip(),
-            }
-            save_ibkr_credentials(_sb_client, _creds)
-            st.session_state["ibkr_credentials"] = _creds
-            st.success("Interactive Brokers connected.")
-            st.rerun()
+            if not _ibkr_query_id.strip().isdigit():
+                st.error("Flex Query ID must be numeric (e.g. 123456).")
+            else:
+                _creds = {
+                    "ibkr_flex_token": _ibkr_token.strip(),
+                    "ibkr_flex_query_id": _ibkr_query_id.strip(),
+                }
+                save_ibkr_credentials(_sb_client, _creds)
+                st.session_state["ibkr_credentials"] = _creds
+                # Clear stale Flex cache so new credentials are used immediately
+                st.session_state.pop("_ibkr_flex_cache", None)
+                st.success("Interactive Brokers connected.")
+                st.rerun()
 
 # ══════════════════════════════════════════════════════
 #  SECURITY & PRIVACY PAGE
