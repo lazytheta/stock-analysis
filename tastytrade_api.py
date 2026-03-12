@@ -15,6 +15,7 @@ from decimal import Decimal
 logger = logging.getLogger(__name__)
 
 from error_logger import log_error
+from trade_utils import detect_wheels as _detect_wheels
 from dotenv import load_dotenv
 from tastytrade import Session, Account, DXLinkStreamer
 from tastytrade.dxfeed import Greeks as GreeksEvent, Quote as QuoteEvent
@@ -215,9 +216,6 @@ def calculate_cost_basis(transactions):
         }
 
     return result
-
-
-from trade_utils import detect_wheels as _detect_wheels
 
 
 def fetch_yearly_transfers(refresh_token=None):

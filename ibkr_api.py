@@ -357,14 +357,10 @@ def fetch_beta_weighted_delta():
         betas = {}
         for t in ticker_positions:
             try:
-                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{t}?range=5d&interval=1d"
-                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, context=ctx) as resp:
-                    data = json.loads(resp.read())
-                meta = data["chart"]["result"][0]["meta"]
-                price = meta["regularMarketPrice"]
-                # Fetch beta from Yahoo Finance chart API
-                beta = meta.get("beta", 1.0) or 1.0
+                import yfinance as yf
+                info = yf.Ticker(t).info
+                price = info.get("regularMarketPrice", 0) or 0
+                beta = info.get("beta", 1.0) or 1.0
                 betas[t] = {"beta": beta, "price": price}
             except Exception:
                 betas[t] = {"beta": 1.0, "price": 0}
