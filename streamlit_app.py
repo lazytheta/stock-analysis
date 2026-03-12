@@ -4468,7 +4468,7 @@ def _aggregate_month_trades(cost_basis, year, month):
     from datetime import datetime
 
     ticker_data = defaultdict(lambda: {
-        "cc": 0.0, "put": 0.0, "net_pl": 0.0,
+        "cc": 0.0, "put": 0.0, "equity_pl": 0.0, "net_pl": 0.0,
         "premium": 0.0, "premium_trades": 0, "contracts": 0,
         "dte_sum": 0.0, "dte_count": 0, "collateral_sum": 0.0,
     })
@@ -4493,6 +4493,9 @@ def _aggregate_month_trades(cost_basis, year, month):
                 td_obj["cc"] += nv
             elif label in ("CSP", "BTC CSP"):
                 td_obj["put"] += nv
+
+            if t.get("instrument_type") == "Equity":
+                td_obj["equity_pl"] += nv
 
             if label in ("CSP", "CC"):
                 td_obj["premium"] += nv
@@ -4532,7 +4535,7 @@ def _aggregate_month_trades(cost_basis, year, month):
         })
     premium_list.sort(key=lambda x: x["premiums"], reverse=True)
 
-    pl_list = [{"ticker": t, "cc": d["cc"], "put": d["put"], "net_pl": d["net_pl"]}
+    pl_list = [{"ticker": t, "cc": d["cc"], "put": d["put"], "equity_pl": d["equity_pl"], "net_pl": d["net_pl"]}
                for t, d in ticker_data.items() if d["net_pl"] != 0]
     pl_list.sort(key=lambda x: x["net_pl"], reverse=True)
 
@@ -4593,9 +4596,10 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
     with c1:
         st.markdown(
             f'<div class="portfolio-card" style="display:block;text-align:left;border-left:3px solid {T["accent"]}">'
-            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">&#x1f4b0; Premium Collected</div>'
+            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">&#x1f4b0; Net Premium</div>'
             f'<div class="pf-val {prem_cls}" style="font-size:1.5rem;font-weight:700;margin:4px 0">{_fmt_k(agg["premium_total"])}</div>'
             f'<div style="font-size:0.8rem;color:{T["text_muted"]}">{agg["premium_trades"]} trades</div>'
+            f'<div style="visibility:hidden;padding:3px 0">—</div>'
             f'</div>', unsafe_allow_html=True)
     with c2:
         st.markdown(
@@ -4603,6 +4607,7 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
             f'<div style="font-size:0.8rem;color:{T["text_muted"]}">&#x1f4c8; Net P/L</div>'
             f'<div class="pf-val {pl_cls}" style="font-size:1.5rem;font-weight:700;margin:4px 0">{_fmt_k(net_pl_dollar)}</div>'
             f'<div style="font-size:0.8rem;color:{T["text_muted"]}"><span class="pf-val {ret_cls}">{mo_ret_pct:+.1f}%</span> return</div>'
+            f'<div style="visibility:hidden;padding:3px 0">—</div>'
             f'</div>', unsafe_allow_html=True)
     with c3:
         bench_html = (
@@ -4652,8 +4657,8 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
             f'<th style="text-align:right;padding:8px">Trades</th>'
             f'<th style="text-align:right;padding:8px">Contracts</th>'
             f'<th style="text-align:right;padding:8px">Avg DTE</th>'
-            f'<th style="text-align:right;padding:8px">Est. ROC</th>'
-            f'<th style="text-align:right;padding:8px">Premiums</th>'
+            f'<th style="text-align:right;padding:8px">Annualized ROC</th>'
+            f'<th style="text-align:right;padding:8px">Net Premiums</th>'
             f'</tr>{rows}</table></div>',
             unsafe_allow_html=True)
 
@@ -4666,12 +4671,14 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
             for it in items:
                 cc_cls = "pf-green" if it["cc"] >= 0 else "pf-red"
                 put_cls = "pf-green" if it["put"] >= 0 else "pf-red"
+                eq_cls = "pf-green" if it["equity_pl"] >= 0 else "pf-red"
                 pl_cls = "pf-green" if it["net_pl"] >= 0 else "pf-red"
                 rows += (
                     f'<tr style="border-bottom:1px solid {T["border"]}">'
                     f'<td style="padding:6px;font-weight:600">{it["ticker"]}</td>'
                     f'<td style="text-align:right;padding:6px"><span class="pf-val {cc_cls}">{_fmt_k(it["cc"])}</span></td>'
                     f'<td style="text-align:right;padding:6px"><span class="pf-val {put_cls}">{_fmt_k(it["put"])}</span></td>'
+                    f'<td style="text-align:right;padding:6px"><span class="pf-val {eq_cls}">{_fmt_k(it["equity_pl"])}</span></td>'
                     f'<td style="text-align:right;padding:6px"><span class="pf-val {pl_cls}">{_fmt_k(it["net_pl"])}</span></td>'
                     f'</tr>'
                 )
@@ -4682,6 +4689,7 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
                 f'<th style="text-align:left;padding:6px">Ticker</th>'
                 f'<th style="text-align:right;padding:6px">CC</th>'
                 f'<th style="text-align:right;padding:6px">PUT</th>'
+                f'<th style="text-align:right;padding:6px">Pos P/L</th>'
                 f'<th style="text-align:right;padding:6px">Net P/L</th>'
                 f'</tr>{rows}</table>'
             )
