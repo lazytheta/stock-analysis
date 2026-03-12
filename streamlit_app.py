@@ -4471,6 +4471,7 @@ def _aggregate_month_trades(cost_basis, year, month):
         "cc": 0.0, "put": 0.0, "equity_pl": 0.0, "net_pl": 0.0,
         "premium": 0.0, "premium_trades": 0, "contracts": 0,
         "dte_sum": 0.0, "dte_count": 0, "collateral_sum": 0.0,
+        "has_options": False, "has_equity": False,
     })
 
     for ticker, data in cost_basis.items():
@@ -4496,30 +4497,31 @@ def _aggregate_month_trades(cost_basis, year, month):
 
             if t.get("instrument_type") == "Equity":
                 td_obj["equity_pl"] += nv
+                td_obj["has_equity"] = True
+            elif "Option" in (t.get("instrument_type") or ""):
+                td_obj["has_options"] = True
 
-            if label in ("CSP", "CC"):
+            if label in ("CSP", "CC", "BTC CSP", "BTC CC"):
                 td_obj["premium"] += nv
                 td_obj["premium_trades"] += 1
                 td_obj["contracts"] += abs(int(t.get("quantity", 0)))
 
-                strike, exp_str, cp = _parse_option_symbol(t.get("symbol"))
-                if exp_str and hasattr(td, "year"):
-                    try:
-                        exp_dt = datetime.strptime(exp_str, "%d-%m-%Y")
-                        trade_dt = datetime(td.year, td.month, td.day) if hasattr(td, "day") else datetime.strptime(str(td)[:10], "%Y-%m-%d")
-                        dte = (exp_dt - trade_dt).days
-                        if dte > 0:
-                            td_obj["dte_sum"] += dte
-                            td_obj["dte_count"] += 1
-                            qty = abs(int(t.get("quantity", 1))) or 1
-                            if strike and strike > 0:
-                                if label == "CSP":
+                # DTE and collateral only for STO trades (not buybacks)
+                if label in ("CSP", "CC"):
+                    strike, exp_str, cp = _parse_option_symbol(t.get("symbol"))
+                    if exp_str and hasattr(td, "year"):
+                        try:
+                            exp_dt = datetime.strptime(exp_str, "%d-%m-%Y")
+                            trade_dt = datetime(td.year, td.month, td.day) if hasattr(td, "day") else datetime.strptime(str(td)[:10], "%Y-%m-%d")
+                            dte = (exp_dt - trade_dt).days
+                            if dte > 0:
+                                td_obj["dte_sum"] += dte
+                                td_obj["dte_count"] += 1
+                                qty = abs(int(t.get("quantity", 1))) or 1
+                                if strike and strike > 0:
                                     td_obj["collateral_sum"] += strike * 100 * qty
-                                else:
-                                    price = t.get("price", 0)
-                                    td_obj["collateral_sum"] += (abs(price) * 100 * qty) if price else (strike * 100 * qty)
-                    except (ValueError, TypeError):
-                        pass
+                        except (ValueError, TypeError):
+                            pass
 
     # ── Position value change (unrealized) per ticker ──
     # Reconstruct shares held at start and end of month from full trade history
@@ -4616,7 +4618,8 @@ def _aggregate_month_trades(cost_basis, year, month):
     premium_list.sort(key=lambda x: x["premiums"], reverse=True)
 
     pl_list = [{"ticker": t, "cc": d["cc"], "put": d["put"], "equity_pl": d["equity_pl"], "net_pl": d["net_pl"]}
-               for t, d in ticker_data.items() if d["net_pl"] != 0]
+               for t, d in ticker_data.items()
+               if d["net_pl"] != 0 and (d["has_options"] or d["has_equity"])]
     pl_list.sort(key=lambda x: x["net_pl"], reverse=True)
 
     total_premium = sum(d["premium"] for d in ticker_data.values())
@@ -4640,7 +4643,11 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
     MONTH_NAMES = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     month_label = f"{MONTH_NAMES[month]} {year}"
-    st.markdown(f"### {month_label}")
+    st.markdown(
+        f'<div class="section-title-bar">Monthly Detail &nbsp;<span style="font-weight:400;font-size:0.85rem;color:{T["text_muted"]}">'
+        f'{month_label}</span></div>',
+        unsafe_allow_html=True,
+    )
 
     agg = _aggregate_month_trades(cost_basis, year, month)
 
@@ -4677,7 +4684,7 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
     with c1:
         st.markdown(
             f'<div class="portfolio-card" style="display:block;text-align:left;border-left:3px solid {T["accent"]}">'
-            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">&#x1f4b0; Premiums Collected</div>'
+            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">Net Premiums</div>'
             f'<div class="pf-val {prem_cls}" style="font-size:1.5rem;font-weight:700;margin:4px 0">{_fmt_k(agg["premium_total"])}</div>'
             f'<div style="font-size:0.8rem;color:{T["text_muted"]}">{agg["premium_trades"]} trades</div>'
             f'<div style="visibility:hidden;padding:3px 0">—</div>'
@@ -4685,7 +4692,7 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
     with c2:
         st.markdown(
             f'<div class="portfolio-card" style="display:block;text-align:left;border-left:3px solid {T["accent"]}">'
-            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">&#x1f4c8; Net P/L</div>'
+            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">Net P/L</div>'
             f'<div class="pf-val {pl_cls}" style="font-size:1.5rem;font-weight:700;margin:4px 0">{_fmt_k(net_pl_dollar)}</div>'
             f'<div style="font-size:0.8rem;color:{T["text_muted"]}"><span class="pf-val {ret_cls}">{mo_ret_pct:+.1f}%</span> return</div>'
             f'<div style="visibility:hidden;padding:3px 0">—</div>'
@@ -4693,7 +4700,7 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
     with c3:
         bench_html = (
             f'<div class="portfolio-card" style="display:block;text-align:left;border-left:3px solid {T["accent"]}">'
-            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">&#x2696; Benchmark</div>'
+            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">Benchmark</div>'
             f'<div style="margin-top:6px">'
             f'<div style="display:flex;justify-content:space-between;padding:3px 0">'
             f'<span style="background:{T["accent"]}33;padding:1px 8px;border-radius:4px;font-weight:600">Portfolio</span>'
@@ -4731,7 +4738,7 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
             )
         st.markdown(
             f'<div class="portfolio-card" style="display:block;border-left:3px solid {T["accent"]};padding:16px">'
-            f'<div style="font-weight:600;margin-bottom:10px">&#x1f3c6; Leaders \u2014 By Premium</div>'
+            f'<div style="font-weight:600;margin-bottom:10px">Leaders \u2014 By Premium</div>'
             f'<table style="width:100%;border-collapse:collapse;font-size:0.85rem">'
             f'<tr style="color:{T["text_muted"]};border-bottom:1px solid {T["border"]}">'
             f'<th style="text-align:left;padding:8px">Ticker</th>'
@@ -4739,7 +4746,7 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
             f'<th style="text-align:right;padding:8px">Contracts</th>'
             f'<th style="text-align:right;padding:8px">Avg DTE</th>'
             f'<th style="text-align:right;padding:8px">Annualized ROC</th>'
-            f'<th style="text-align:right;padding:8px">Premiums</th>'
+            f'<th style="text-align:right;padding:8px">Net Premiums</th>'
             f'</tr>{rows}</table></div>',
             unsafe_allow_html=True)
 
@@ -4780,7 +4787,7 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
 
         st.markdown(
             f'<div class="portfolio-card" style="display:block;border-left:3px solid {T["accent"]};padding:16px">'
-            f'<div style="font-weight:600;margin-bottom:10px">&#x26a1; Leaders &amp; Laggards \u2014 By P/L</div>'
+            f'<div style="font-weight:600;margin-bottom:10px">Leaders &amp; Laggards \u2014 By P/L</div>'
             f'<div style="display:flex;gap:16px">'
             f'<div style="flex:1">{left}</div>'
             f'<div style="flex:1">{right}</div>'
