@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 from error_logger import log_error, log_error_with_trace
 from dcf_calculator import compute_wacc, compute_intrinsic_value, compute_reverse_dcf
-from config_store import save_config, load_config, list_watchlist, remove_from_watchlist, load_user_prefs, save_user_prefs, load_credential, save_credential, delete_credential
+from config_store import save_config, load_config, list_watchlist, remove_from_watchlist, load_user_prefs, save_user_prefs, load_credential, save_credential, delete_credential, load_ibkr_credentials, save_ibkr_credentials, delete_ibkr_credentials, IBKR_CREDENTIAL_KEYS
 from gather_data import (
     get_cik,
     fetch_company_submissions,
@@ -44,7 +44,15 @@ from gather_data import (
     MARGIN_OF_SAFETY_DEFAULT,
     fetch_fundamentals,
 )
-from tastytrade_api import fetch_portfolio_data, fetch_current_prices, fetch_account_balances, fetch_net_liq_history, fetch_sp500_yearly_returns, fetch_benchmark_returns, fetch_ticker_profiles, fetch_yearly_transfers, fetch_portfolio_greeks, fetch_margin_interest, fetch_margin_for_position, fetch_margin_requirements, fetch_beta_weighted_delta, fetch_greeks_and_bwd, fetch_option_chain, fetch_earnings_dates, fetch_benchmark_monthly_returns
+from broker_adapter import (
+    fetch_portfolio_data, fetch_current_prices, fetch_account_balances,
+    fetch_net_liq_history, fetch_sp500_yearly_returns, fetch_benchmark_returns,
+    fetch_ticker_profiles, fetch_yearly_transfers, fetch_portfolio_greeks,
+    fetch_margin_interest, fetch_margin_for_position, fetch_margin_requirements,
+    fetch_beta_weighted_delta, fetch_greeks_and_bwd, fetch_option_chain,
+    fetch_earnings_dates, has_active_broker, get_active_broker,
+    fetch_benchmark_monthly_returns,
+)
 import plotly.graph_objects as go
 
 # ── Input sanitization ──
@@ -127,6 +135,13 @@ def _get_tt_token():
     return st.session_state.get("tt_refresh_token")
 
 
+def _get_ibkr_credentials():
+    """Get per-user IBKR credentials from session or DB."""
+    if "ibkr_credentials" not in st.session_state:
+        st.session_state["ibkr_credentials"] = load_ibkr_credentials(_sb_client)
+    return st.session_state.get("ibkr_credentials")
+
+
 def _render_welcome_page():
     """Full welcome page for users without a Tastytrade connection."""
     st.markdown(
@@ -157,10 +172,9 @@ def _render_welcome_page():
         f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">'
         f'<div style="{_card}">'
         f'<div style="{_num};background:var(--accent)">1</div>'
-        f'<h4 style="margin:0 0 8px 0;font-size:1rem">Connect Tastytrade</h4>'
+        f'<h4 style="margin:0 0 8px 0;font-size:1rem">Connect your Broker</h4>'
         f'<p style="color:var(--text-muted);font-size:0.85rem;margin:0">'
-        f'Link your account to see positions, P&L, and wheel cycles in real-time. '
-        f'We use <b>read-only</b> access, no trades can be placed.</p>'
+        f'Link your Tastytrade or Interactive Brokers account to see positions, P&L, and wheel cycles in real-time.</p>'
         f'<p style="color:var(--accent);font-size:0.8rem;font-weight:600;margin:10px 0 0 0">'
         f'Important: please read below</p>'
         f'</div>'
@@ -200,7 +214,7 @@ def _render_welcome_page():
         '<p style="margin:0 0 6px 0;font-weight:600;font-size:0.95rem">'
         '<span style="color:var(--accent);font-weight:700">Important!</span> Read-only connection</p>'
         '<p style="margin:0;color:var(--text-muted);font-size:0.85rem;line-height:1.5">'
-        'Lazy Theta uses the Tastytrade <b>read-only</b> API. '
+        'Lazy Theta uses <b>read-only</b> API access for both Tastytrade and Interactive Brokers. '
         'We can only <b>view</b> your positions and history, '
         'we cannot place trades, move funds, or modify your account in any way. '
         'Your credentials are encrypted and stored securely. '
@@ -217,9 +231,9 @@ def _render_connect_prompt():
         '<div style="background:var(--card);border:1px solid var(--border-medium);'
         'border-radius:16px;padding:32px;text-align:center;max-width:520px;margin:80px auto">'
         '<p style="font-size:1.6rem;margin:0 0 8px 0">&#x1f512;</p>'
-        '<h3 style="margin:0 0 8px 0">Connect Tastytrade</h3>'
+        '<h3 style="margin:0 0 8px 0">Connect a Broker</h3>'
         '<p style="color:var(--text-muted);font-size:0.9rem;margin:0 0 20px 0">'
-        'This page requires a Tastytrade connection. '
+        'This page requires a broker connection (Tastytrade or Interactive Brokers). '
         'We use <b>read-only</b> access, no trades can be placed through this app.</p>'
         '</div>',
         unsafe_allow_html=True,
@@ -1525,7 +1539,7 @@ def _build_excel_bytes(cfg):
             os.remove(tmp_path)
 
 
-def _best_put_pick(ticker_sym, price, intrinsic_val, prefs=None, refresh_token=None):
+def _best_put_pick(ticker_sym, price, intrinsic_val, prefs=None):
     """Find the best put option for a ticker given user wheel prefs.
 
     Returns dict with strike, bid, ann_roc, delta, dte, dcf_mos or None.
@@ -1536,7 +1550,6 @@ def _best_put_pick(ticker_sym, price, intrinsic_val, prefs=None, refresh_token=N
         chain = fetch_option_chain(
             ticker_sym, option_type='Put', fallback_price=price,
             min_dte=prefs['dte_min'], max_dte=prefs['dte_max'],
-            refresh_token=refresh_token,
         )
     except Exception as e:
         logger.warning("Best put chain fetch failed for %s: %s", ticker_sym, e)
@@ -1746,10 +1759,10 @@ def _watchlist_overview():
     _wl_prefs = load_user_prefs(_sb_client)
 
     @st.cache_data(ttl=600, show_spinner=False)
-    def _cached_best_put(t, price_rounded, intrinsic_rounded, prefs_tuple, _tt_token=None):
+    def _cached_best_put(t, price_rounded, intrinsic_rounded, prefs_tuple):
         prefs = {'delta_min': prefs_tuple[0], 'delta_max': prefs_tuple[1],
                  'dte_min': prefs_tuple[2], 'dte_max': prefs_tuple[3]}
-        return _best_put_pick(t, price_rounded, intrinsic_rounded, prefs, refresh_token=_tt_token)
+        return _best_put_pick(t, price_rounded, intrinsic_rounded, prefs)
 
     _prefs_t = (_wl_prefs['delta_min'], _wl_prefs['delta_max'],
                 _wl_prefs['dte_min'], _wl_prefs['dte_max'])
@@ -1759,7 +1772,7 @@ def _watchlist_overview():
     with ThreadPoolExecutor(max_workers=4) as _bp_exec:
         for _r in rows:
             _bp_futures[_r['ticker']] = _bp_exec.submit(
-                _cached_best_put, _r['ticker'], round(_r['price'], 0), round(_r['intrinsic'], 0), _prefs_t, _get_tt_token())
+                _cached_best_put, _r['ticker'], round(_r['price'], 0), round(_r['intrinsic'], 0), _prefs_t)
     _bp_map = {}
     for _t, _f in _bp_futures.items():
         try:
@@ -1770,10 +1783,10 @@ def _watchlist_overview():
 
     # Fetch earnings dates (cached 5 min)
     @st.cache_data(ttl=3600, show_spinner=False)
-    def _cached_earnings(tickers_tuple, _tt_token=None):
-        return fetch_earnings_dates(list(tickers_tuple), refresh_token=_tt_token)
+    def _cached_earnings(tickers_tuple):
+        return fetch_earnings_dates(list(tickers_tuple))
 
-    _earnings_map = _cached_earnings(tuple(wl_tickers), _get_tt_token()) if wl_tickers else {}
+    _earnings_map = _cached_earnings(tuple(wl_tickers)) if wl_tickers else {}
 
     # Header
     hdr = st.columns([0.3, 1.0, 1.6, 0.8, 0.8, 0.8, 0.7, 0.6, 0.7, 0.7, 2.2, 0.3])
@@ -1928,10 +1941,10 @@ def _dcf_editor(ticker):
 
     # ── Earnings warning (hero card) ──
     @st.cache_data(ttl=300, show_spinner=False)
-    def _cached_earnings_single(t, _tt_token=None):
-        return fetch_earnings_dates([t], refresh_token=_tt_token)
+    def _cached_earnings_single(t):
+        return fetch_earnings_dates([t])
 
-    _earn_data = _cached_earnings_single(ticker, _get_tt_token()).get(ticker)
+    _earn_data = _cached_earnings_single(ticker).get(ticker)
     _days_to_earn = None
     if _earn_data and _earn_data.get('date') and _earn_data['date'] >= date.today():
         _days_to_earn = (_earn_data['date'] - date.today()).days
@@ -3595,14 +3608,13 @@ def _dcf_editor(ticker):
 
         # Cached data fetch — use user DTE range
         @st.cache_data(ttl=60, show_spinner="Loading option chain...")
-        def _cached_chain(t, opt_type, fb_price, dte_lo, dte_hi, n_strikes=8, _tt_token=None):
+        def _cached_chain(t, opt_type, fb_price, dte_lo, dte_hi, n_strikes=8):
             return fetch_option_chain(t, option_type=opt_type, fallback_price=fb_price,
-                                      min_dte=dte_lo, max_dte=dte_hi, num_strikes=n_strikes,
-                                      refresh_token=_tt_token)
+                                      min_dte=dte_lo, max_dte=dte_hi, num_strikes=n_strikes)
 
         _num_strikes = 15 if _opt_type == 'Call' else 8
 
-        _chain_data = _cached_chain(ticker, _opt_type, live_price, _usr_dte_lo, _usr_dte_hi, _num_strikes, _get_tt_token())
+        _chain_data = _cached_chain(ticker, _opt_type, live_price, _usr_dte_lo, _usr_dte_hi, _num_strikes)
         _ch_price = _chain_data['underlying_price']
         _ch_exps = _chain_data['expirations']
 
@@ -4228,6 +4240,11 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
 #  SIDEBAR — Navigation + page-specific settings
 # ══════════════════════════════════════════════════════
 
+# Eagerly load credentials into session_state so has_active_broker() works
+_tt = _get_tt_token()
+_ibkr = _get_ibkr_credentials()
+logger.debug("Broker check: tt_token=%s ibkr_creds=%s", bool(_tt), bool(_ibkr))
+
 with st.sidebar:
     st.toggle("Dark mode", key="dark_mode")
 
@@ -4243,10 +4260,42 @@ with st.sidebar:
         on_change=_on_nav_change,
     )
     page = st.session_state.get("_account_page") or _nav
+
+    # ── Broker switcher (only if multiple brokers connected) ──
+    _has_tt = bool(st.session_state.get("tt_refresh_token"))
+    _has_ibkr = bool(st.session_state.get("ibkr_credentials"))
+    if _has_tt and _has_ibkr:
+        _broker_options = ["Tastytrade", "Interactive Brokers"]
+        _broker_keys = ["tastytrade", "ibkr"]
+        _current = get_active_broker()
+        _idx = _broker_keys.index(_current) if _current in _broker_keys else 0
+        _selected = st.selectbox(
+            "Active Broker",
+            _broker_options,
+            index=_idx,
+            key="_broker_select",
+            label_visibility="collapsed",
+        )
+        _new_broker = _broker_keys[_broker_options.index(_selected)]
+        if _new_broker != _current:
+            st.session_state["active_broker"] = _new_broker
+            for k in ["portfolio_data", "portfolio_account", "portfolio_prices",
+                       "net_liq_all", "yearly_transfers", "benchmark_returns",
+                       "portfolio_fetched_at"]:
+                st.session_state.pop(k, None)
+            for k in [k for k in st.session_state if k.startswith("net_liq_")]:
+                st.session_state.pop(k, None)
+            st.rerun()
+    elif _has_tt:
+        st.session_state["active_broker"] = "tastytrade"
+    elif _has_ibkr:
+        st.session_state["active_broker"] = "ibkr"
+
     st.markdown("---")
 
     if page in ("Portfolio", "Wheel Cost Basis", "Results"):
-        st.markdown("### Tastytrade")
+        _broker_label = "Interactive Brokers" if get_active_broker() == "ibkr" else "Tastytrade"
+        st.markdown(f"### {_broker_label}")
         if st.button("Refresh Data", use_container_width=True, type="primary"):
             st.session_state.pop("portfolio_data", None)
             st.session_state.pop("portfolio_account", None)
@@ -4255,13 +4304,15 @@ with st.sidebar:
             st.session_state.pop("yearly_transfers", None)
             st.session_state.pop("benchmark_returns", None)
             st.session_state.pop("portfolio_fetched_at", None)
+            st.session_state.pop("_ibkr_flex_cache", None)
             for k in [k for k in st.session_state if k.startswith("net_liq_")]:
                 st.session_state.pop(k, None)
             st.rerun()
 
         if st.button("Clear Session Data", use_container_width=True, type="primary"):
             _preserve = {"dark_mode", "nav_page", "_account_page",
-                         "supabase_client", "user", "_user_id", "tt_refresh_token"}
+                         "supabase_client", "user", "_user_id", "tt_refresh_token",
+                         "ibkr_credentials", "active_broker"}
             for key in [k for k in st.session_state if k not in _preserve]:
                 del st.session_state[key]
             st.rerun()
@@ -4332,9 +4383,10 @@ def _load_portfolio_data():
             st.session_state.pop(k, None)
 
     if "portfolio_data" not in st.session_state:
-        with st.spinner("Fetching transactions from Tastytrade..."):
+        _broker_name = "Interactive Brokers" if get_active_broker() == "ibkr" else "Tastytrade"
+        with st.spinner(f"Fetching portfolio data from {_broker_name}..."):
             try:
-                cost_basis, acct = fetch_portfolio_data(refresh_token=_get_tt_token())
+                cost_basis, acct = fetch_portfolio_data()
                 st.session_state.portfolio_data = cost_basis
                 st.session_state.portfolio_account = acct
                 st.session_state.portfolio_fetched_at = time.time()
@@ -4962,7 +5014,7 @@ if page == "Watchlist":
 
 elif page == "Portfolio":
 
-    if not _get_tt_token():
+    if not has_active_broker():
         _render_welcome_page()
         st.stop()
 
@@ -4986,17 +5038,17 @@ elif page == "Portfolio":
 
     # ── Margin / Buying Power (with integrated simulator) ──
     @st.cache_data(ttl=60, show_spinner=False)
-    def _cached_account_balances(_tt_token=None):
-        return fetch_account_balances(refresh_token=_tt_token)
+    def _cached_account_balances():
+        return fetch_account_balances()
 
     @st.cache_data(ttl=120, show_spinner=False)
-    def _cached_margin_requirements(_tt_token=None):
-        return fetch_margin_requirements(refresh_token=_tt_token)
+    def _cached_margin_requirements():
+        return fetch_margin_requirements()
 
     def _margin_overview():
         st.markdown("")
         try:
-            bal = _cached_account_balances(_get_tt_token())
+            bal = _cached_account_balances()
         except Exception as e:
             logger.warning("Account balances fetch failed: %s", e)
             bal = None
@@ -5026,7 +5078,7 @@ elif page == "Portfolio":
                     # Fetch margin requirement for holding assigned shares
                     _amk = f"_assign_margin_{ticker.upper()}_{shares}"
                     if _amk not in st.session_state:
-                        _amr = fetch_margin_for_position(ticker, shares, refresh_token=_get_tt_token())
+                        _amr = fetch_margin_for_position(ticker, shares)
                         st.session_state[_amk] = _amr
                     _amr = st.session_state[_amk]
                     margin = abs(_amr["change_in_margin"]) if _amr else exposure * 0.50
@@ -5041,7 +5093,7 @@ elif page == "Portfolio":
                     exposure = cur_price * shares
                     _amk = f"_assign_margin_{ticker.upper()}_{shares}"
                     if _amk not in st.session_state:
-                        _amr = fetch_margin_for_position(ticker, shares, refresh_token=_get_tt_token())
+                        _amr = fetch_margin_for_position(ticker, shares)
                         st.session_state[_amk] = _amr
                     _amr = st.session_state[_amk]
                     margin = abs(_amr["change_in_margin"]) if _amr else exposure * 0.50
@@ -5072,7 +5124,7 @@ elif page == "Portfolio":
                 cost = price * shares
                 _margin_key = f"_sim_margin_{ticker.upper()}_{shares}"
                 if _margin_key not in st.session_state:
-                    _mr = fetch_margin_for_position(ticker, shares, refresh_token=_get_tt_token())
+                    _mr = fetch_margin_for_position(ticker, shares)
                     st.session_state[_margin_key] = _mr
                 _mr = st.session_state[_margin_key]
                 margin = abs(_mr["change_in_margin"]) if _mr else cost * 0.50
@@ -5211,7 +5263,7 @@ elif page == "Portfolio":
         # Fetch fresh prices + account balances
         prices = fetch_current_prices(held_tickers)
         try:
-            balances = fetch_account_balances(refresh_token=_get_tt_token())
+            balances = fetch_account_balances()
         except Exception as e:
             logger.warning("Account balances fetch failed: %s", e)
             balances = None
@@ -5359,7 +5411,7 @@ elif page == "Portfolio":
 
         # ── Per-position margin requirements ──
         try:
-            _margin_reqs = _cached_margin_requirements(_get_tt_token())
+            _margin_reqs = _cached_margin_requirements()
         except Exception as e:
             logger.debug("Margin requirements fetch failed: %s", e)
             _margin_reqs = {}
@@ -5517,8 +5569,8 @@ elif page == "Portfolio":
         # Combined greeks+BWD uses one DXLink streamer (avoids concurrent
         # websocket conflicts); margin interest runs in parallel (no streamer).
         executor = ThreadPoolExecutor(max_workers=2)
-        f_combo = executor.submit(fetch_greeks_and_bwd, refresh_token=_get_tt_token())
-        f_mi = executor.submit(fetch_margin_interest, refresh_token=_get_tt_token())
+        f_combo = executor.submit(fetch_greeks_and_bwd)
+        f_mi = executor.submit(fetch_margin_interest)
         try:
             gk, bwd = f_combo.result(timeout=30)
         except Exception as e:
@@ -5739,7 +5791,7 @@ elif page == "Portfolio":
 
 elif page == "Wheel Cost Basis":
 
-    if not _get_tt_token():
+    if not has_active_broker():
         _render_connect_prompt()
 
 
@@ -6036,7 +6088,7 @@ elif page == "Results":
         unsafe_allow_html=True,
     )
 
-    if not _get_tt_token():
+    if not has_active_broker():
         _render_connect_prompt()
 
     st.markdown("")
@@ -6068,7 +6120,7 @@ elif page == "Results":
     if "net_liq_all" not in st.session_state:
         try:
             with st.spinner("Loading full net liq history..."):
-                st.session_state["net_liq_all"] = fetch_net_liq_history("all", refresh_token=_get_tt_token())
+                st.session_state["net_liq_all"] = fetch_net_liq_history("all")
         except Exception as e:
             logger.warning("Net liq history fetch failed: %s", e)
             log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "net_liq_history"})
@@ -6076,7 +6128,7 @@ elif page == "Results":
     if "yearly_transfers" not in st.session_state:
         try:
             with st.spinner("Loading cash transfer history..."):
-                st.session_state["yearly_transfers"] = fetch_yearly_transfers(refresh_token=_get_tt_token())
+                st.session_state["yearly_transfers"] = fetch_yearly_transfers()
         except Exception as e:
             logger.warning("Yearly transfers fetch failed: %s", e)
             log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "yearly_transfers"})
@@ -6184,7 +6236,7 @@ elif page == "Results":
       if cache_key not in st.session_state:
           try:
               with st.spinner("Loading net liq history..."):
-                  st.session_state[cache_key] = fetch_net_liq_history(api_time_back, refresh_token=_get_tt_token())
+                  st.session_state[cache_key] = fetch_net_liq_history(api_time_back)
           except Exception as e:
               logger.warning("Net liq history fetch failed (%s): %s", api_time_back, e)
               st.session_state[cache_key] = None
@@ -6707,6 +6759,73 @@ elif page == "Settings":
                 save_credential(_sb_client, "tastytrade_refresh_token", _token)
                 st.session_state["tt_refresh_token"] = _token
                 st.success("Tastytrade token saved.")
+                st.rerun()
+
+    # ── Interactive Brokers connection ──
+    st.markdown("---")
+    st.markdown("### Interactive Brokers")
+    _ibkr_creds = _get_ibkr_credentials()
+    if _ibkr_creds:
+        st.success("Interactive Brokers account connected.")
+        if st.button("Disconnect Interactive Brokers", type="primary"):
+            delete_ibkr_credentials(_sb_client)
+            st.session_state.pop("ibkr_credentials", None)
+            st.session_state.pop("_ibkr_flex_cache", None)
+            if get_active_broker() == "ibkr":
+                st.session_state.pop("active_broker", None)
+            for k in ["portfolio_data", "portfolio_account", "portfolio_prices",
+                       "net_liq_all", "yearly_transfers", "benchmark_returns",
+                       "portfolio_fetched_at"]:
+                st.session_state.pop(k, None)
+            for k in [k for k in st.session_state if k.startswith("net_liq_")]:
+                st.session_state.pop(k, None)
+            st.rerun()
+    else:
+        st.info("Connect your Interactive Brokers account to view your portfolio, cost basis, and options data. "
+                "We use **read-only** Flex Query access — this app cannot place trades or modify your account in any way.")
+        with st.expander("How to set up your IBKR Flex Query", expanded=True):
+            st.markdown(
+                "**Step 1 — Create a Flex Query:**\n"
+                "1. Log in to [Client Portal](https://www.interactivebrokers.com/portal)\n"
+                "2. Go to **Performance & Reports → Flex Queries**\n"
+                "3. Click **+ Create** under Activity Flex Queries\n"
+                "4. Give it a name (e.g. *Lazy Theta*)\n"
+                "5. In **Sections**, click each of these and select all fields:\n"
+                "   - **Open Positions**\n"
+                "   - **Trades**\n"
+                "   - **Cash Transactions**\n"
+                "   - **Net Asset Value (NAV) Summary in Base**\n"
+                "   - **Change in NAV**\n"
+                "   - **Account Information**\n"
+                "6. Under **Delivery Configuration**, set the period to **Last 365 Calendar Days**\n"
+                "7. Set format to **XML**\n"
+                "8. Save the query — note the **Query ID** number\n\n"
+                "**Step 2 — Enable the Flex Web Service:**\n"
+                "1. Go to **Performance & Reports → Flex Queries**\n"
+                "2. Click the **⚙ gear icon** next to Flex Web Service\n"
+                "3. Toggle it **on** and copy the **token** shown\n\n"
+                "**Step 3 — Paste both values below:**"
+            )
+        with st.form("ibkr_creds_form"):
+            _ibkr_token = st.text_input("Flex Web Service Token", type="password",
+                                        placeholder="Your Flex Web Service token")
+            _ibkr_query_id = st.text_input("Flex Query ID",
+                                           placeholder="e.g. 123456")
+            _ibkr_submitted = st.form_submit_button("Save", type="primary")
+
+        if _ibkr_submitted and _ibkr_token and _ibkr_query_id:
+            if not _ibkr_query_id.strip().isdigit():
+                st.error("Flex Query ID must be numeric (e.g. 123456).")
+            else:
+                _creds = {
+                    "ibkr_flex_token": _ibkr_token.strip(),
+                    "ibkr_flex_query_id": _ibkr_query_id.strip(),
+                }
+                save_ibkr_credentials(_sb_client, _creds)
+                st.session_state["ibkr_credentials"] = _creds
+                # Clear stale Flex cache so new credentials are used immediately
+                st.session_state.pop("_ibkr_flex_cache", None)
+                st.success("Interactive Brokers connected.")
                 st.rerun()
 
 # ══════════════════════════════════════════════════════
