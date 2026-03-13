@@ -6176,31 +6176,42 @@ elif page == "Results":
         true_pl_sign = "+" if true_pl >= 0 else ""
         true_pl_class = "hero-green" if true_pl >= 0 else "hero-red"
 
-        # YTD return — use compounded monthly returns (same method as Returns section)
-        from datetime import datetime
-        cur_year = datetime.now().year
-        # Build monthly returns for YTD using same Simple Dietz per month
-        _df_ytd = df_cagr.copy()
-        _df_ytd["year"] = _df_ytd["time"].dt.year
-        _df_ytd["month"] = _df_ytd["time"].dt.month
-        _df_ytd = _df_ytd.sort_values("time")
-        _mc = _df_ytd.groupby(["year", "month"])["close"].last()
-        _mp = list(_mc.index)
-        _ytd_factor = 1.0
-        for _i in range(1, len(_mp)):
-            _py, _pm = _mp[_i - 1]
-            _cy, _cm = _mp[_i]
-            if _cy != cur_year:
-                continue
-            _sv = _mc[(_py, _pm)]
-            _ev = _mc[(_cy, _cm)]
-            _yt = transfers_early.get(_cy, {})
-            _md = _yt.get("months", {}).get(_cm, 0) if isinstance(_yt, dict) else 0
+        # Compute monthly & yearly returns once (reused by Returns section below)
+        from datetime import datetime as _dt_cls
+        _cur_year = _dt_cls.now().year
+        _df_mr = pd.DataFrame(nl_all_early)
+        _df_mr["time"] = pd.to_datetime(_df_mr["time"])
+        _df_mr = _df_mr.sort_values("time")
+        _df_mr["year"] = _df_mr["time"].dt.year
+        _df_mr["month"] = _df_mr["time"].dt.month
+        _month_close = _df_mr.groupby(["year", "month"])["close"].last()
+        _month_periods = list(_month_close.index)
+        _monthly_rets = {}
+        for _i in range(1, len(_month_periods)):
+            _prev_yr, _prev_mo = _month_periods[_i - 1]
+            _yr, _mo = _month_periods[_i]
+            _sv = _month_close[(_prev_yr, _prev_mo)]
+            _ev = _month_close[(_yr, _mo)]
+            _yt = transfers_early.get(_yr, {})
+            _md = _yt.get("months", {}).get(_mo, 0) if isinstance(_yt, dict) else 0
             _dn = _sv + 0.5 * _md
             if _dn > 0:
-                _ytd_factor *= (1 + (_ev - _sv - _md) / _dn)
-        ytd_ret = (_ytd_factor - 1) * 100
-        if abs(ytd_ret) > 0.01:
+                _ret = (_ev - _sv - _md) / _dn * 100
+            else:
+                _ret = 0.0
+            _monthly_rets.setdefault(_yr, {})[_mo] = _ret
+        _yearly_rets = {}
+        for _yr, _months in _monthly_rets.items():
+            _factor = 1.0
+            for _mo in sorted(_months):
+                _factor *= (1 + _months[_mo] / 100)
+            _yearly_rets[_yr] = round((_factor - 1) * 100, 1)
+        # Store for reuse in Returns section
+        st.session_state["_cached_monthly_returns"] = _monthly_rets
+        st.session_state["_cached_yearly_returns"] = _yearly_rets
+        # YTD pill from the cached yearly return
+        ytd_ret = _yearly_rets.get(_cur_year)
+        if ytd_ret is not None and abs(ytd_ret) > 0.01:
             ytd_sign = "+" if ytd_ret >= 0 else ""
             ytd_pill = f'<span class="stat-pill">YTD <b>{ytd_sign}{ytd_ret:.1f}%</b></span>'
 
@@ -6250,12 +6261,17 @@ elif page == "Results":
               df_liq = df_liq[df_liq.index >= f"{pd.Timestamp.now().year}-01-01"]
           first_close = df_liq["close"].iloc[0]
           last_close = df_liq["close"].iloc[-1]
-          pct_change = ((last_close - first_close) / first_close * 100) if first_close else 0
+          # For YTD, use the deposit-adjusted yearly return (matches hero & Returns)
+          _cached_yr = st.session_state.get("_cached_yearly_returns", {})
+          if time_back == "ytd" and pd.Timestamp.now().year in _cached_yr:
+              pct_change = _cached_yr[pd.Timestamp.now().year]
+          else:
+              pct_change = ((last_close - first_close) / first_close * 100) if first_close else 0
           pct_color = T['accent'] if pct_change >= 0 else T['red']
           pct_sign = "+" if pct_change >= 0 else ""
           st.markdown(
               f'<span style="font-size:1.3rem;font-weight:700;color:{pct_color}">'
-              f'{pct_sign}{pct_change:.2f}%</span> '
+              f'{pct_sign}{pct_change:.1f}%</span> '
               f'<span style="color:{T["text_muted"]};font-size:0.85rem">{selected_period}</span>',
               unsafe_allow_html=True,
           )
@@ -6503,38 +6519,44 @@ elif page == "Results":
                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
     if nl_all and transfers is not None:
-        df_ret = pd.DataFrame(nl_all)
-        df_ret["time"] = pd.to_datetime(df_ret["time"])
-        df_ret["year"] = df_ret["time"].dt.year
-        df_ret["month"] = df_ret["time"].dt.month
+        # Reuse cached monthly/yearly returns computed above (same data source)
+        monthly_returns = st.session_state.get("_cached_monthly_returns")
+        yearly_returns = st.session_state.get("_cached_yearly_returns")
+        if monthly_returns is None or yearly_returns is None:
+            # Fallback: compute if cache unavailable (e.g. nl_all_early was None)
+            df_ret = pd.DataFrame(nl_all)
+            df_ret["time"] = pd.to_datetime(df_ret["time"])
+            df_ret["year"] = df_ret["time"].dt.year
+            df_ret["month"] = df_ret["time"].dt.month
+            df_ret = df_ret.sort_values("time")
+            month_last_close = df_ret.groupby(["year", "month"])["close"].last()
+            month_periods = list(month_last_close.index)
+            monthly_returns = {}
+            for i in range(1, len(month_periods)):
+                prev_yr, prev_mo = month_periods[i - 1]
+                yr, mo = month_periods[i]
+                start_val = month_last_close[(prev_yr, prev_mo)]
+                end_val = month_last_close[(yr, mo)]
+                yr_transfers = transfers.get(yr, {})
+                mo_dep = yr_transfers.get("months", {}).get(mo, 0) if isinstance(yr_transfers, dict) else 0
+                denom = start_val + 0.5 * mo_dep
+                if denom > 0:
+                    ret = (end_val - start_val - mo_dep) / denom * 100
+                else:
+                    ret = 0.0
+                monthly_returns.setdefault(yr, {})[mo] = ret
+            yearly_returns = {}
+            for yr, months in monthly_returns.items():
+                factor = 1.0
+                for mo in sorted(months):
+                    factor *= (1 + months[mo] / 100)
+                yearly_returns[yr] = round((factor - 1) * 100, 1)
 
-        # Monthly returns using Simple Dietz (adjusted for deposits)
-        # Use last close of previous month as start value
-        df_ret = df_ret.sort_values("time")
-        month_last_close = df_ret.groupby(["year", "month"])["close"].last()
-        month_periods = list(month_last_close.index)
-        monthly_returns = {}
-        for i in range(1, len(month_periods)):
-            prev_yr, prev_mo = month_periods[i - 1]
-            yr, mo = month_periods[i]
-            start_val = month_last_close[(prev_yr, prev_mo)]
-            end_val = month_last_close[(yr, mo)]
-            yr_transfers = transfers.get(yr, {})
-            mo_dep = yr_transfers.get("months", {}).get(mo, 0) if isinstance(yr_transfers, dict) else 0
-            denom = start_val + 0.5 * mo_dep
-            if denom > 0:
-                ret = (end_val - start_val - mo_dep) / denom * 100
-            else:
-                ret = 0.0
-            monthly_returns.setdefault(yr, {})[mo] = round(ret, 1)
-
-        # Yearly returns from monthly compounding
-        yearly_returns = {}
-        for yr, months in monthly_returns.items():
-            factor = 1.0
-            for mo in sorted(months):
-                factor *= (1 + months[mo] / 100)
-            yearly_returns[yr] = round((factor - 1) * 100, 1)
+        # Round monthly returns for display only (work on a copy)
+        monthly_returns = {yr: dict(months) for yr, months in monthly_returns.items()}
+        for yr in monthly_returns:
+            for mo in monthly_returns[yr]:
+                monthly_returns[yr][mo] = round(monthly_returns[yr][mo], 1)
 
         total_factor = 1.0
         for yr in sorted(yearly_returns):
