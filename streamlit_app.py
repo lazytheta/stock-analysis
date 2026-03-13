@@ -558,7 +558,7 @@ st.markdown(f"""
     [data-testid="stTabs"] .stNumberInput > div > div,
     [data-testid="stTabs"] .stNumberInput [data-baseweb="input"],
     [data-testid="stTabs"] .stNumberInput [data-baseweb="input"] > div {{
-        background: var(--bg) !important;
+        background: {T['bg_secondary']} !important;
         border: none !important;
         border-radius: 4px !important;
         box-shadow: none !important;
@@ -1670,6 +1670,7 @@ def _watchlist_overview():
                     log_error("WATCHLIST_ERROR", str(e), page="Watchlist", metadata={"ticker": ticker_clean})
                     st.error(f"Could not analyse {ticker_clean}. Please try again. ({type(e).__name__})")
             except Exception as e:
+                import traceback; traceback.print_exc()
                 logger.error("Watchlist analysis failed for %s: %s", ticker_clean, e)
                 log_error_with_trace("WATCHLIST_ERROR", e, page="Watchlist", metadata={"ticker": ticker_clean})
                 st.error(f"Could not analyse {ticker_clean}. Please try again. ({type(e).__name__})")
@@ -3895,7 +3896,7 @@ def _dcf_editor(ticker):
 
     with _tab_dcf:
         # ── Valuation Bridge (inside DCF tab) ──
-        _bridge_keys = "ed_cash,ed_sec,ed_eqi,ed_debt,ed_min,ed_pen,ed_shares,ed_bb_rate,ed_mos"
+        _bridge_keys = "ed_cash,ed_sec,ed_eqi,ed_debt,ed_min,ed_pen,ed_shares,ed_mos"
         _bk = _bridge_keys.split(",")
         _sel_input = ",\n".join(f'.st-key-{k} .stNumberInput input[type="number"]' for k in _bk)
         _sel_label = ",\n".join(
@@ -3966,25 +3967,19 @@ def _dcf_editor(ticker):
                                        extra="font-weight:700;font-size:1.05rem;"), unsafe_allow_html=True)
             st.markdown(_wf_sep, unsafe_allow_html=True)
 
-            # Shares, buyback, margin of safety side by side
-            _bc7, _bc8, _bc9 = st.columns(3)
+            # Shares and margin of safety side by side
+            _bc7, _bc9 = st.columns(2)
             with _bc7:
                 cfg['shares_outstanding'] = int(st.number_input(
                     "\u00f7 Shares Outstanding (M)", value=int(cfg.get('shares_outstanding', 0)),
                     step=10, key="ed_shares",
                 ))
-            with _bc8:
-                cfg['buyback_rate'] = st.number_input(
-                    "\u00d7 Buyback Rate %", value=cfg.get('buyback_rate', 0.0) * 100,
-                    step=0.5, format="%.1f", key="ed_bb_rate",
-                ) / 100
             with _bc9:
                 cfg['margin_of_safety'] = st.number_input(
                     "\u00d7 Margin of Safety %", value=int(cfg.get('margin_of_safety', 0.20) * 100),
                     step=5, key="ed_mos",
                 ) / 100
-            _adj_shares = cfg['shares_outstanding'] * (1 - cfg['buyback_rate']) ** _n
-            _intrinsic = _equity / _adj_shares if _adj_shares > 0 else 0
+            _intrinsic = _equity / cfg['shares_outstanding'] if cfg['shares_outstanding'] > 0 else 0
             _mos = cfg['margin_of_safety']
             _buy = _intrinsic * (1 - _mos)
 

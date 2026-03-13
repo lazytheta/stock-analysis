@@ -35,7 +35,7 @@ def _calc_nopats(cfg):
     hist_oi = cfg.get('hist_operating_income', [])
     n = len(cfg['ic_years'])
     if len(hist_oi) == n:
-        return [oi * (1 - cfg['tax_rate']) for oi in hist_oi]
+        return [(oi or 0) * (1 - cfg['tax_rate']) for oi in hist_oi]
     return []
 
 
