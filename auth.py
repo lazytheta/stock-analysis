@@ -163,27 +163,25 @@ def handle_oauth_callback():
 
 def save_session_to_browser(client):
     """Store Supabase refresh token in browser localStorage for persistent login."""
-    import streamlit.components.v1 as components
     try:
         session = client.auth.get_session()
         if session and session.refresh_token:
-            components.html(f"""
+            st.html(f"""
             <script>
-                window.parent.localStorage.setItem('lt_refresh_token', '{session.refresh_token}');
+                localStorage.setItem('lt_refresh_token', '{session.refresh_token}');
             </script>
-            """, height=0)
+            """, unsafe_allow_javascript=True)
     except Exception:
         pass
 
 
 def clear_browser_session():
     """Remove stored tokens from browser localStorage."""
-    import streamlit.components.v1 as components
-    components.html("""
+    st.html("""
     <script>
-        window.parent.localStorage.removeItem('lt_refresh_token');
+        localStorage.removeItem('lt_refresh_token');
     </script>
-    """, height=0)
+    """, unsafe_allow_javascript=True)
 
 
 def inject_remember_me_handler():
@@ -191,19 +189,18 @@ def inject_remember_me_handler():
 
     Must be called early, before render_login_page().
     """
-    import streamlit.components.v1 as components
-    components.html("""
+    st.html("""
     <script>
-        const url = new URL(window.parent.location.href);
+        const url = new URL(window.location.href);
         if (!url.searchParams.has('remember_token') && !url.searchParams.has('access_token')) {
-            const token = window.parent.localStorage.getItem('lt_refresh_token');
+            const token = localStorage.getItem('lt_refresh_token');
             if (token) {
                 url.searchParams.set('remember_token', token);
-                window.parent.location.href = url.toString();
+                window.location.href = url.toString();
             }
         }
     </script>
-    """, height=0)
+    """, unsafe_allow_javascript=True)
 
 
 def handle_remember_me():

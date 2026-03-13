@@ -1274,13 +1274,26 @@ st.markdown(f"""
     .section-title-bar {{
         background: var(--card);
         border-radius: 14px;
-        padding: 12px 20px;
+        padding: 18px 20px;
         margin-bottom: 10px;
         font-family: 'DM Serif Display', Georgia, serif;
         font-size: 1.1rem;
         font-weight: 400;
         color: var(--text);
         box-shadow: var(--shadow);
+    }}
+
+    /* Returns header — selectbox overlaid on title bar */
+    .st-key-ret_pick_wrap {{
+        position: relative;
+        top: -52px;
+        margin-bottom: -66px;
+        padding-left: 55%;
+        padding-right: 16px;
+        z-index: 10;
+    }}
+    .st-key-ret_pick_wrap [data-testid="stVerticalBlock"] {{
+        gap: 0 !important;
     }}
 
     /* ── Performer block — with hover lift ── */
@@ -1300,7 +1313,14 @@ st.markdown(f"""
         font-size: 1rem !important;
     }}
     .performer-block .portfolio-cards {{
-        align-items: flex-start;
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: stretch;
+    }}
+    .performer-block .portfolio-card {{
+        flex: 1;
+        min-width: 180px;
     }}
 
     /* ── Portfolio strip cards ── */
@@ -1378,6 +1398,34 @@ st.markdown(f"""
         .performer-grid {{ flex-direction: column; gap: 24px; }}
         .portfolio-card {{ gap: 10px; padding: 10px 12px; }}
         .portfolio-card .pf-cell {{ flex: 1; }}
+    }}
+
+    /* ── CSS tooltip ── */
+    .css-tip {{
+        position: relative;
+        cursor: help;
+    }}
+    .css-tip::after {{
+        content: attr(data-tip);
+        position: absolute;
+        bottom: 130%;
+        right: 0;
+        background: var(--card);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 0.72rem;
+        font-weight: 400;
+        white-space: nowrap;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.15s;
+        z-index: 100;
+    }}
+    .css-tip:hover::after {{
+        opacity: 1;
     }}
 
     /* ── Expandable position cards ── */
@@ -4504,7 +4552,9 @@ def _aggregate_month_trades(cost_basis, year, month):
             if label in ("CSP", "CC", "BTC CSP", "BTC CC"):
                 td_obj["premium"] += nv
                 td_obj["premium_trades"] += 1
-                td_obj["contracts"] += abs(int(t.get("quantity", 0)))
+                # Only count contracts for opening trades (STO), not buybacks
+                if label in ("CSP", "CC"):
+                    td_obj["contracts"] += abs(int(t.get("quantity", 0)))
 
                 # DTE and collateral only for STO trades (not buybacks)
                 if label in ("CSP", "CC"):
@@ -4534,34 +4584,14 @@ def _aggregate_month_trades(cost_basis, year, month):
     month_start = datetime(year, month, 1)
     month_end = datetime(year, month, last_day)
 
-    # Calculate shares held at start and end of month per ticker
+    # Determine shares held using cost_basis shares_held (current holdings)
+    # For current/recent months this is accurate; for historical we approximate
     tickers_with_shares = {}
     for ticker, data in cost_basis.items():
-        shares_start = 0  # shares held at end of prev month
-        shares_end = 0    # shares held at end of this month
-        for t in data.get("trades", []):
-            td = t["date"]
-            if hasattr(td, "year"):
-                tdate = datetime(td.year, td.month, td.day)
-            else:
-                tdate = datetime.strptime(str(td)[:10], "%Y-%m-%d")
-            inst = t.get("instrument_type", "")
-            label = t.get("label", "")
-            action = t.get("action", "")
-            qty = abs(t.get("quantity", 0))
-            if inst == "Equity":
-                if label == "Assignment" or "Buy" in action:
-                    if tdate < month_start:
-                        shares_start += qty
-                    if tdate <= month_end:
-                        shares_end += qty
-                elif "Sell" in action:
-                    if tdate < month_start:
-                        shares_start -= qty
-                    if tdate <= month_end:
-                        shares_end -= qty
-        if shares_start != 0 or shares_end != 0:
-            tickers_with_shares[ticker] = (int(shares_start), int(shares_end))
+        current_shares = data.get("shares_held", 0)
+        if current_shares > 0:
+            # For the target month, use current shares as approximation
+            tickers_with_shares[ticker] = (current_shares, current_shares)
 
     # Fetch monthly prices for tickers with positions
     pos_value_change = {}
@@ -4597,10 +4627,12 @@ def _aggregate_month_trades(cost_basis, year, month):
             except Exception:
                 pass
 
-    # Merge position value change into ticker_data
+    # Merge position value change into ticker_data (only if meaningful change)
     for ticker, val_change in pos_value_change.items():
-        ticker_data[ticker]["equity_pl"] += val_change
-        ticker_data[ticker]["net_pl"] += val_change
+        if abs(val_change) >= 1.0:  # skip negligible rounding noise
+            ticker_data[ticker]["equity_pl"] += val_change
+            ticker_data[ticker]["net_pl"] += val_change
+            ticker_data[ticker]["has_equity"] = True
 
     premium_list = []
     for ticker, d in ticker_data.items():
@@ -4617,9 +4649,26 @@ def _aggregate_month_trades(cost_basis, year, month):
         })
     premium_list.sort(key=lambda x: x["premiums"], reverse=True)
 
+    # Only include tickers with actual trades in this month OR actual share holdings
+    _traded_this_month = set()
+    for ticker, data in cost_basis.items():
+        for t in data.get("trades", []):
+            td = t["date"]
+            if hasattr(td, "year"):
+                t_year, t_month = td.year, td.month
+            else:
+                dt = datetime.strptime(str(td)[:10], "%Y-%m-%d")
+                t_year, t_month = dt.year, dt.month
+            if t_year == year and t_month == month:
+                _traded_this_month.add(ticker)
+                break
+    # Use shares_held from cost_basis (source of truth) for current holdings
+    _holds_shares = {t for t, d in cost_basis.items() if d.get("shares_held", 0) > 0}
+    _valid_tickers = _traded_this_month | _holds_shares
+
     pl_list = [{"ticker": t, "cc": d["cc"], "put": d["put"], "equity_pl": d["equity_pl"], "net_pl": d["net_pl"]}
                for t, d in ticker_data.items()
-               if d["net_pl"] != 0 and (d["has_options"] or d["has_equity"])]
+               if d["net_pl"] != 0 and t in _valid_tickers]
     pl_list.sort(key=lambda x: x["net_pl"], reverse=True)
 
     total_premium = sum(d["premium"] for d in ticker_data.values())
@@ -4636,14 +4685,17 @@ def _aggregate_month_trades(cost_basis, year, month):
 
 @st.dialog("Monthly Detail", width="large")
 def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_returns, T):
-    """Render monthly detail modal with premium, P/L, benchmarks, and leaderboards."""
+    """Render monthly detail modal — polished shareable report card."""
     import pandas as pd
-    from collections import defaultdict
+    import base64 as _b64
+    import streamlit.components.v1 as components
 
-    MONTH_NAMES = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    month_label = f"{MONTH_NAMES[month]} {year}"
-    st.caption(month_label)
+    MONTH_NAMES_FULL = ["", "January", "February", "March", "April", "May", "June",
+                        "July", "August", "September", "October", "November", "December"]
+    MONTH_NAMES_SHORT = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    month_label = f"{MONTH_NAMES_SHORT[month]} {year}"
+    month_full = f"{MONTH_NAMES_FULL[month]} {year}"
 
     agg = _aggregate_month_trades(cost_basis, year, month)
 
@@ -4671,168 +4723,222 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
             st.session_state["benchmark_monthly"] = {}
     bench = st.session_state["benchmark_monthly"]
 
-    # Hero Cards
-    c1, c2, c3 = st.columns(3)
-    prem_cls = "pf-green" if agg["premium_total"] >= 0 else "pf-red"
-    pl_cls = "pf-green" if net_pl_dollar >= 0 else "pf-red"
-    ret_cls = "pf-green" if mo_ret_pct >= 0 else "pf-red"
+    # ── Color helpers ──
+    _green = T['accent']
+    _red = T['red']
+    _muted = T['text_muted']
+    _card = T['card']
+    _border = T['border']
+    _text = T['text']
+    _bg = T['bg']
 
-    # Force equal-height hero cards via CSS
-    st.markdown(
-        '<style>'
-        '[role="dialog"] [data-testid="stHorizontalBlock"]:first-of-type '
-        '[data-testid="stColumn"] > div { height: 100%; }'
-        '[role="dialog"] [data-testid="stHorizontalBlock"]:first-of-type '
-        '[data-testid="stColumn"] .portfolio-card { height: 100%; box-sizing: border-box; }'
-        '</style>',
-        unsafe_allow_html=True,
+    def _c(val):
+        return _green if val >= 0 else _red
+
+    # ── Build entire report as one HTML string ──
+    # Benchmark rows
+    bench_rows_html = (
+        f'<div class="bench-row">'
+        f'<span>Portfolio</span><span style="color:{_c(mo_ret_pct)}">{mo_ret_pct:+.1f}%</span></div>'
     )
-    _hero_style = "display:block;text-align:left;border-left:3px solid {accent}".format(accent=T["accent"])
-    with c1:
-        st.markdown(
-            f'<div class="portfolio-card" style="{_hero_style}">'
-            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">Net Premiums</div>'
-            f'<div class="pf-val {prem_cls}" style="font-size:1.5rem;font-weight:700;margin:4px 0">{_fmt_k(agg["premium_total"])}</div>'
-            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">{agg["premium_trades"]} trades</div>'
-            f'</div>', unsafe_allow_html=True)
-    with c2:
-        st.markdown(
-            f'<div class="portfolio-card" style="{_hero_style}">'
-            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">Net P/L</div>'
-            f'<div class="pf-val {pl_cls}" style="font-size:1.5rem;font-weight:700;margin:4px 0">{_fmt_k(net_pl_dollar)}</div>'
-            f'<div style="font-size:0.8rem;color:{T["text_muted"]}"><span class="pf-val {ret_cls}">{mo_ret_pct:+.1f}%</span> return</div>'
-            f'</div>', unsafe_allow_html=True)
-    with c3:
-        bench_html = (
-            f'<div class="portfolio-card" style="{_hero_style}">'
-            f'<div style="font-size:0.8rem;color:{T["text_muted"]}">Benchmark</div>'
-            f'<div style="margin-top:6px">'
-            f'<div style="display:flex;justify-content:space-between;padding:3px 0">'
-            f'<span>Portfolio</span>'
-            f'<span class="pf-val {ret_cls}">{mo_ret_pct:+.1f}%</span></div>'
+    for bname, bdata in bench.items():
+        b_ret = bdata.get((year, month), 0.0)
+        bench_rows_html += (
+            f'<div class="bench-row">'
+            f'<span>{bname}</span><span style="color:{_c(b_ret)}">{b_ret:+.1f}%</span></div>'
         )
-        for bname, bdata in bench.items():
-            b_ret = bdata.get((year, month), 0.0)
-            b_cls = "pf-green" if b_ret >= 0 else "pf-red"
-            bench_html += (
-                f'<div style="display:flex;justify-content:space-between;padding:3px 0">'
-                f'<span>{bname}</span>'
-                f'<span class="pf-val {b_cls}">{b_ret:+.1f}%</span></div>'
-            )
-        bench_html += '</div></div>'
-        st.markdown(bench_html, unsafe_allow_html=True)
 
-    st.markdown("")
-
-    # Leaders by Premium
+    # Premium table rows
+    prem_rows = ""
     if agg["leaders_premium"]:
-        rows = ""
         for lp in agg["leaders_premium"]:
             dte_str = f'{lp["avg_dte"]}d' if lp["avg_dte"] > 0 else "\u2014"
-            roc_cls = "pf-green" if lp["est_roc"] > 0 else ""
-            prem_display = _fmt_k(lp["premiums"])
-            rows += (
-                f'<tr style="border-bottom:1px solid {T["border"]}">'
-                f'<td style="padding:8px;font-weight:600">{lp["ticker"]}</td>'
-                f'<td style="text-align:right;padding:8px">{lp["trades"]}</td>'
-                f'<td style="text-align:right;padding:8px">{lp["contracts"]}</td>'
-                f'<td style="text-align:right;padding:8px">{dte_str}</td>'
-                f'<td style="text-align:right;padding:8px"><span class="pf-val {roc_cls}">{lp["est_roc"]:.1f}%</span></td>'
-                f'<td style="text-align:right;padding:8px"><span class="pf-val pf-green">{prem_display}</span></td>'
-                f'</tr>'
-            )
-        st.markdown(
-            f'<div class="portfolio-card" style="display:block;border-left:3px solid {T["accent"]};padding:16px">'
-            f'<div style="font-weight:600;margin-bottom:10px">Winners \u2014 By Premium</div>'
-            f'<table style="width:100%;border-collapse:collapse;font-size:0.85rem">'
-            f'<tr style="color:{T["text_muted"]};border-bottom:1px solid {T["border"]}">'
-            f'<th style="text-align:left;padding:8px">Ticker</th>'
-            f'<th style="text-align:right;padding:8px">Trades</th>'
-            f'<th style="text-align:right;padding:8px">Contracts</th>'
-            f'<th style="text-align:right;padding:8px">Avg DTE</th>'
-            f'<th style="text-align:right;padding:8px">Annualized ROC</th>'
-            f'<th style="text-align:right;padding:8px">Net Premiums</th>'
-            f'</tr>{rows}</table></div>',
-            unsafe_allow_html=True)
-
-    st.markdown("")
-
-    # Winners & Losers by P/L
-    if agg["leaders_pl"] or agg["laggards_pl"]:
-        def _pl_table(items, color_label, color):
-            if not items:
-                return f'<div style="color:{T["text_muted"]}">\u2014</div>'
-            rows = ""
-            for it in items:
-                cc_cls = "pf-green" if it["cc"] >= 0 else "pf-red"
-                put_cls = "pf-green" if it["put"] >= 0 else "pf-red"
-                eq_cls = "pf-green" if it["equity_pl"] >= 0 else "pf-red"
-                pl_cls = "pf-green" if it["net_pl"] >= 0 else "pf-red"
-                rows += (
-                    f'<tr style="border-bottom:1px solid {T["border"]}">'
-                    f'<td style="padding:6px;font-weight:600">{it["ticker"]}</td>'
-                    f'<td style="text-align:right;padding:6px"><span class="pf-val {cc_cls}">{_fmt_k(it["cc"])}</span></td>'
-                    f'<td style="text-align:right;padding:6px"><span class="pf-val {put_cls}">{_fmt_k(it["put"])}</span></td>'
-                    f'<td style="text-align:right;padding:6px"><span class="pf-val {eq_cls}">{_fmt_k(it["equity_pl"])}</span></td>'
-                    f'<td style="text-align:right;padding:6px"><span class="pf-val {pl_cls}">{_fmt_k(it["net_pl"])}</span></td>'
-                    f'</tr>'
-                )
-            return (
-                f'<div style="color:{color};font-weight:600;margin-bottom:6px">{color_label}</div>'
-                f'<table style="width:100%;border-collapse:collapse;font-size:0.8rem">'
-                f'<tr style="color:{T["text_muted"]};border-bottom:1px solid {T["border"]}">'
-                f'<th style="text-align:left;padding:6px">Ticker</th>'
-                f'<th style="text-align:right;padding:6px">CC</th>'
-                f'<th style="text-align:right;padding:6px">PUT</th>'
-                f'<th style="text-align:right;padding:6px">Pos P/L</th>'
-                f'<th style="text-align:right;padding:6px">Net P/L</th>'
-                f'</tr>{rows}</table>'
+            prem_rows += (
+                f'<tr><td class="tk">{lp["ticker"]}</td><td>{lp["trades"]}</td>'
+                f'<td>{lp["contracts"]}</td><td>{dte_str}</td>'
+                f'<td style="color:{_c(lp["est_roc"])}">{lp["est_roc"]:.1f}%</td>'
+                f'<td style="color:{_green}">{_fmt_k(lp["premiums"])}</td></tr>'
             )
 
-        left = _pl_table(agg["leaders_pl"], "Winners", T["accent"])
-        right = _pl_table(agg["laggards_pl"], "Losers", T["red"])
+    # P/L table rows
+    def _pl_html(items):
+        if not items:
+            return f'<tr><td colspan="5" style="text-align:center;color:{_muted};padding:20px">\u2014</td></tr>'
+        r = ""
+        for it in items:
+            r += (
+                f'<tr><td class="tk">{it["ticker"]}</td>'
+                f'<td style="color:{_c(it["cc"])}">{_fmt_k(it["cc"])}</td>'
+                f'<td style="color:{_c(it["put"])}">{_fmt_k(it["put"])}</td>'
+                f'<td style="color:{_c(it["equity_pl"])}">{_fmt_k(it["equity_pl"])}</td>'
+                f'<td style="color:{_c(it["net_pl"])};font-weight:700">{_fmt_k(it["net_pl"])}</td></tr>'
+            )
+        return r
 
-        st.markdown(
-            f'<div class="portfolio-card" style="display:block;border-left:3px solid {T["accent"]};padding:16px">'
-            f'<div style="font-weight:600;margin-bottom:10px">Winners &amp; Losers \u2014 By P/L</div>'
-            f'<div style="display:flex;gap:16px">'
-            f'<div style="flex:1">{left}</div>'
-            f'<div style="flex:1">{right}</div>'
-            f'</div></div>',
-            unsafe_allow_html=True)
+    w_rows = _pl_html(agg["leaders_pl"])
+    l_rows = _pl_html(agg["laggards_pl"])
 
-    st.markdown("")
+    # Logo
+    with open("assets/logo_footer.png", "rb") as _lf:
+        _logo_b64 = _b64.b64encode(_lf.read()).decode()
 
-    # ── Download as PNG ──
-    import streamlit.components.v1 as components
-    components.html(
-        f"""
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-        <button id="dl-btn" style="
-            background:{T['accent']};color:#fff;border:none;padding:8px 20px;
-            border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600;
-            width:100%;margin-top:4px;">
-            Download as PNG
-        </button>
-        <script>
-        document.getElementById('dl-btn').addEventListener('click', function() {{
-            const dialog = window.parent.document.querySelector('[role="dialog"]');
-            if (!dialog) return;
-            html2canvas(dialog, {{
-                backgroundColor: '{T['bg']}',
-                scale: 2,
-                useCORS: true,
-            }}).then(function(canvas) {{
-                const link = document.createElement('a');
-                link.download = 'monthly-detail-{month_label.replace(" ", "-")}.png';
-                link.href = canvas.toDataURL('image/png');
-                link.click();
-            }});
-        }});
-        </script>
-        """,
-        height=50,
-    )
+    # Sections visibility
+    has_premium = bool(agg["leaders_premium"])
+    has_pl = bool(agg["leaders_pl"] or agg["laggards_pl"])
+
+    premium_section = ""
+    if has_premium:
+        premium_section = f'''
+        <div class="section">
+            <div class="section-title">Winners — By Premium</div>
+            <table>
+                <tr><th class="left">Ticker</th><th>Trades</th><th>Contracts</th><th>Avg DTE</th><th>Ann. ROC</th><th>Net Premiums</th></tr>
+                {prem_rows}
+            </table>
+        </div>'''
+
+    pl_section = ""
+    if has_pl:
+        pl_section = f'''
+        <div class="section">
+            <div class="section-title">Winners &amp; Losers — By P/L</div>
+            <div class="pl-grid">
+                <div class="pl-half">
+                    <div class="pl-label" style="color:{_green}">Winners</div>
+                    <table>
+                        <tr><th class="left">Ticker</th><th>CC</th><th>PUT</th><th>Pos P/L</th><th>Net P/L</th></tr>
+                        {w_rows}
+                    </table>
+                </div>
+                <div class="pl-divider"></div>
+                <div class="pl-half">
+                    <div class="pl-label" style="color:{_red}">Losers</div>
+                    <table>
+                        <tr><th class="left">Ticker</th><th>CC</th><th>PUT</th><th>Pos P/L</th><th>Net P/L</th></tr>
+                        {l_rows}
+                    </table>
+                </div>
+            </div>
+        </div>'''
+
+    report_html = f'''<!DOCTYPE html>
+<html><head>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+body {{ font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif; background:{_bg}; color:{_text}; }}
+#report {{ padding: 32px; max-width: 800px; margin: 0 auto; }}
+
+.header {{ text-align:center; padding-bottom:20px; border-bottom:1px solid {_border}; margin-bottom:24px; }}
+.header h1 {{ font-size:1.5rem; font-weight:700; letter-spacing:-0.01em; margin-bottom:2px; }}
+.header .sub {{ font-size:0.82rem; color:{_muted}; }}
+
+.heroes {{ display:flex; gap:12px; margin-bottom:24px; }}
+.hero {{ flex:1; background:{_card}; border-radius:12px; padding:20px; border:1px solid {_border}; border-top:3px solid {_green}; display:flex; flex-direction:column; }}
+.hero-label {{ font-size:0.7rem; color:{_muted}; text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin-bottom:8px; }}
+.hero-val {{ font-size:1.7rem; font-weight:700; line-height:1.15; }}
+.hero-detail {{ font-size:0.8rem; color:{_muted}; margin-top:4px; }}
+
+.bench-row {{ display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid {_border}; font-size:0.82rem; }}
+.bench-row:last-child {{ border-bottom:none; }}
+.bench-row span:last-child {{ font-weight:600; }}
+
+.section {{ background:{_card}; border-radius:12px; padding:20px; border:1px solid {_border}; border-top:3px solid {_green}; margin-bottom:16px; }}
+.section-title {{ font-size:0.82rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding-bottom:10px; margin-bottom:14px; border-bottom:1px solid {_border}; }}
+
+table {{ width:100%; border-collapse:collapse; font-size:0.8rem; }}
+th {{ text-align:right; padding:8px 10px; color:{_muted}; font-weight:600; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.04em; border-bottom:2px solid {_border}; }}
+th.left {{ text-align:left; }}
+td {{ padding:10px 10px; border-bottom:1px solid {_border}; text-align:right; }}
+td.tk {{ text-align:left; font-weight:600; }}
+tr:last-child td {{ border-bottom:none; }}
+
+.pl-grid {{ display:flex; gap:0; }}
+.pl-half {{ flex:1; }}
+.pl-divider {{ width:1px; background:{_border}; margin:0 16px; }}
+.pl-label {{ font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:10px; }}
+
+.footer {{ display:flex; align-items:center; justify-content:center; gap:10px; padding:20px 0 8px 0; border-top:1px solid {_border}; margin-top:8px; }}
+.footer img {{ height:28px; opacity:0.7; }}
+.footer span {{ font-size:0.8rem; color:{_muted}; letter-spacing:0.02em; }}
+
+#dl-btn {{ background:{_green}; color:#fff; border:none; padding:12px 24px; border-radius:10px; cursor:pointer; font-size:0.85rem; font-weight:600; width:100%; margin-top:16px; letter-spacing:0.02em; }}
+#dl-btn:hover {{ opacity:0.9; }}
+</style></head><body>
+<div id="report">
+    <div class="header">
+        <h1>{month_full}</h1>
+        <div class="sub">Monthly Performance Report</div>
+    </div>
+
+    <div class="heroes">
+        <div class="hero">
+            <div class="hero-label">Net Premiums</div>
+            <div class="hero-val" style="color:{_c(agg["premium_total"])}">{_fmt_k(agg["premium_total"])}</div>
+            <div class="hero-detail">{agg["premium_trades"]} trades</div>
+        </div>
+        <div class="hero">
+            <div class="hero-label">Net P/L</div>
+            <div class="hero-val" style="color:{_c(net_pl_dollar)}">{_fmt_k(net_pl_dollar)}</div>
+            <div class="hero-detail"><span style="color:{_c(mo_ret_pct)};font-weight:600">{mo_ret_pct:+.1f}%</span> return</div>
+        </div>
+        <div class="hero">
+            <div class="hero-label">Benchmark</div>
+            <div style="margin-top:4px">{bench_rows_html}</div>
+        </div>
+    </div>
+
+    {premium_section}
+    {pl_section}
+
+    <div class="footer" id="logo-footer">
+        <img src="data:image/png;base64,{_logo_b64}">
+        <span>lazytheta.io</span>
+    </div>
+
+    <button id="dl-btn">Download as PNG</button>
+</div>
+
+<script>
+document.getElementById('dl-btn').addEventListener('click', function() {{
+    const btn = this;
+    btn.textContent = 'Generating...';
+    btn.style.opacity = '0.6';
+    const report = document.getElementById('report');
+    btn.style.display = 'none';
+
+    html2canvas(report, {{
+        backgroundColor: '{_bg}',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+    }}).then(function(canvas) {{
+        btn.style.display = 'block';
+        btn.textContent = 'Download as PNG';
+        btn.style.opacity = '1';
+        const link = document.createElement('a');
+        link.download = 'lazytheta-{month_label.replace(" ", "-")}.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    }}).catch(function() {{
+        btn.style.display = 'block';
+        btn.textContent = 'Download as PNG';
+        btn.style.opacity = '1';
+    }});
+}});
+</script>
+</body></html>'''
+
+    # Calculate approximate height based on content
+    _h = 400  # header + heroes
+    if has_premium:
+        _h += 60 + len(agg["leaders_premium"]) * 42
+    if has_pl:
+        _h += 80 + max(len(agg["leaders_pl"]), len(agg["laggards_pl"]), 1) * 42
+    _h += 80  # button + padding
+
+    components.html(report_html, height=_h, scrolling=True)
 
 
 if page == "Watchlist":
@@ -5844,7 +5950,7 @@ elif page == "Wheel Cost Basis":
 
     # ── Two-column card layout ──
     st.markdown(
-        "<style>.block-container { max-width: 1400px; margin: auto; }</style>",
+        "<style>.block-container { max-width: 1200px; margin: auto; }</style>",
         unsafe_allow_html=True,
     )
 
@@ -5924,6 +6030,11 @@ elif page == "Wheel Cost Basis":
 # ══════════════════════════════════════════════════════
 
 elif page == "Results":
+
+    st.markdown(
+        "<style>.block-container { max-width: 1200px; margin: auto; }</style>",
+        unsafe_allow_html=True,
+    )
 
     if not _get_tt_token():
         _render_connect_prompt()
@@ -6013,20 +6124,33 @@ elif page == "Results":
         true_pl_sign = "+" if true_pl >= 0 else ""
         true_pl_class = "hero-green" if true_pl >= 0 else "hero-red"
 
-        # YTD return from last close of previous year to current
+        # YTD return — use compounded monthly returns (same method as Returns section)
         from datetime import datetime
         cur_year = datetime.now().year
-        yr_close = df_cagr.groupby("year")["close"].last()
-        if cur_year - 1 in yr_close.index:
-            ytd_start = yr_close[cur_year - 1]
-            ytd_end = pv
-            yr_dep = transfers_early.get(cur_year, {})
-            ytd_dep = yr_dep["total"] if isinstance(yr_dep, dict) and "total" in yr_dep else 0.0
-            ytd_denom = ytd_start + 0.5 * ytd_dep
-            if ytd_denom > 0:
-                ytd_ret = (ytd_end - ytd_start - ytd_dep) / ytd_denom * 100
-                ytd_sign = "+" if ytd_ret >= 0 else ""
-                ytd_pill = f'<span class="stat-pill">YTD <b>{ytd_sign}{ytd_ret:.1f}%</b></span>'
+        # Build monthly returns for YTD using same Simple Dietz per month
+        _df_ytd = df_cagr.copy()
+        _df_ytd["year"] = _df_ytd["time"].dt.year
+        _df_ytd["month"] = _df_ytd["time"].dt.month
+        _df_ytd = _df_ytd.sort_values("time")
+        _mc = _df_ytd.groupby(["year", "month"])["close"].last()
+        _mp = list(_mc.index)
+        _ytd_factor = 1.0
+        for _i in range(1, len(_mp)):
+            _py, _pm = _mp[_i - 1]
+            _cy, _cm = _mp[_i]
+            if _cy != cur_year:
+                continue
+            _sv = _mc[(_py, _pm)]
+            _ev = _mc[(_cy, _cm)]
+            _yt = transfers_early.get(_cy, {})
+            _md = _yt.get("months", {}).get(_cm, 0) if isinstance(_yt, dict) else 0
+            _dn = _sv + 0.5 * _md
+            if _dn > 0:
+                _ytd_factor *= (1 + (_ev - _sv - _md) / _dn)
+        ytd_ret = (_ytd_factor - 1) * 100
+        if abs(ytd_ret) > 0.01:
+            ytd_sign = "+" if ytd_ret >= 0 else ""
+            ytd_pill = f'<span class="stat-pill">YTD <b>{ytd_sign}{ytd_ret:.1f}%</b></span>'
 
     hero_pl = true_pl if nl_all_early else total_pl_real
     hero_pl_class = true_pl_class if nl_all_early else pl_color_class
@@ -6229,6 +6353,13 @@ elif page == "Results":
                                 f'<span class="pf-val">\u2014</span>'
                                 f'</div>'
                             )
+                    # Add info icon after last benchmark cell
+                    cells += (
+                        f'<div class="pf-cell" style="flex:0;min-width:auto;padding:0 4px">'
+                        f'<span class="css-tip" data-tip="Green = beat your portfolio · Red = underperformed" '
+                        f'style="font-size:0.75rem;color:{T["text_muted"]}">&#9432;</span>'
+                        f'</div>'
+                    )
                     cards_html += (
                         f'<div class="portfolio-card" style="justify-content:center;text-align:center">'
                         f'<span class="pf-ticker">{row["year"]}</span>'
@@ -6307,11 +6438,8 @@ elif page == "Results":
                     '<h4>Cumulative Returns vs Benchmarks</h4>',
                     unsafe_allow_html=True,
                 )
-                col_chart, col_cards = st.columns([3, 1])
-                with col_chart:
-                    st.plotly_chart(fig_yr, use_container_width=True)
-                with col_cards:
-                    st.markdown(cards_html, unsafe_allow_html=True)
+                st.plotly_chart(fig_yr, use_container_width=True)
+                st.markdown(cards_html, unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
                 st.info("Not enough history for yearly returns.")
@@ -6371,95 +6499,95 @@ elif page == "Results":
         col_ret, col_dep = st.columns(2)
 
         with col_ret:
+            # Build month options for report picker
+            _rpt_opts = []
+            _rpt_map = {}
+            for _yr in sorted(yearly_returns, reverse=True):
+                for _mo in range(12, 0, -1):
+                    _mr = monthly_returns.get(_yr, {}).get(_mo)
+                    if _mr is not None:
+                        _lbl = f"{MONTH_NAMES[_mo]} {_yr}"
+                        _rpt_opts.append(_lbl)
+                        _rpt_map[_lbl] = (_yr, _mo)
+
+            # Returns header with inline report picker
             st.markdown(
-                f'<div class="section-title-bar">Returns &nbsp;<span style="font-weight:400;font-size:0.85rem;color:{T["text_muted"]}">'
+                f'<div class="section-title-bar" style="margin-bottom:0">Returns &nbsp;<span style="font-weight:400;font-size:0.85rem;color:{T["text_muted"]}">'
                 f'Cumulative: <span class="pf-val{total_ret_cls}" style="font-size:0.85rem">{total_return:+.1f}%</span>'
                 f'</span></div>',
                 unsafe_allow_html=True,
             )
-            # Build returns HTML (same style as deposits)
-            returns_cards = ""
+            with st.container(key="ret_pick_wrap"):
+                @st.fragment
+                def _report_picker():
+                    sel = st.selectbox(
+                        "report", _rpt_opts, index=None,
+                        placeholder="View monthly report...",
+                        label_visibility="collapsed",
+                    )
+                    if sel:
+                        _yr, _mo = _rpt_map[sel]
+                        _show_month_detail(_yr, _mo, cost_basis, nl_all, transfers, monthly_returns, T)
+                _report_picker()
+
+            # Returns: HTML <details> per year (identical to deposits)
             for yr in sorted(yearly_returns, reverse=True):
                 yr_ret = yearly_returns[yr]
                 yr_color = T['accent'] if yr_ret >= 0 else T['red']
-                mo_cards = '<div class="portfolio-cards">'
+                mo_html = ""
                 for mo in range(1, 13):
                     mo_ret = monthly_returns.get(yr, {}).get(mo)
                     if mo_ret is None:
                         continue
-                    mo_cls = " pf-green" if mo_ret >= 0 else " pf-red"
-                    mo_cards += (
-                        f'<div class="portfolio-card" style="justify-content:center;text-align:center">'
-                        f'<span class="pf-ticker" style="min-width:40px">{MONTH_NAMES[mo]}</span>'
-                        f'<div class="pf-cell">'
-                        f'<span class="pf-val{mo_cls}">{mo_ret:+.1f}%</span>'
-                        f'</div>'
+                    mo_color = T['accent'] if mo_ret >= 0 else T['red']
+                    mo_html += (
+                        f'<div style="border-left:3px solid {mo_color};padding:6px 12px;margin-bottom:2px">'
+                        f'<span style="font-weight:600;color:{T["text"]}">{MONTH_NAMES[mo]}</span> &nbsp; '
+                        f'<span style="color:{mo_color};font-weight:600">{mo_ret:+.1f}%</span>'
                         f'</div>'
                     )
-                mo_cards += '</div>'
-                returns_cards += (
-                    f'<details class="portfolio-card" style="border-left:3px solid {yr_color};padding:12px 16px;margin-bottom:8px;display:block">'
-                    f'<summary style="cursor:pointer;font-weight:600;color:{T["text"]};list-style:none">'
-                    f'{yr} — <span style="color:{yr_color}">{yr_ret:+.1f}%</span></summary>'
-                    f'{mo_cards}'
-                    f'</details>'
-                )
-            st.markdown(returns_cards, unsafe_allow_html=True)
+                st.markdown(
+                    f'<details class="yr-details" style="background:{T["card"]};border:1px solid {T["border"]};border-left:3px solid {yr_color};'
+                    f'border-radius:8px;padding:10px 14px;margin-bottom:6px">'
+                    f'<summary style="font-weight:600;color:{T["text"]}">'
+                    f'{yr} \u2014 <span style="color:{yr_color}">{yr_ret:+.1f}%</span></summary>'
+                    f'<div style="margin-top:8px">{mo_html}</div>'
+                    f'</details>',
+                    unsafe_allow_html=True)
 
-            # Month detail buttons (below the HTML cards)
-            with st.expander("Monthly Detail"):
-                for yr in sorted(yearly_returns, reverse=True):
-                    for mo in range(1, 13):
-                        mo_ret = monthly_returns.get(yr, {}).get(mo)
-                        if mo_ret is None:
-                            continue
-                        mo_cls = "pf-green" if mo_ret >= 0 else "pf-red"
-                        col_label, col_btn = st.columns([5, 1])
-                        with col_label:
-                            st.markdown(
-                                f'<span style="font-weight:600">{MONTH_NAMES[mo]} {yr}</span> &nbsp; '
-                                f'<span class="pf-val {mo_cls}">{mo_ret:+.1f}%</span>',
-                                unsafe_allow_html=True,
-                            )
-                        with col_btn:
-                            if st.button("View", key=f"mo_{yr}_{mo}", help=f"Detail {MONTH_NAMES[mo]} {yr}"):
-                                _show_month_detail(yr, mo, cost_basis, nl_all, transfers, monthly_returns, T)
 
         with col_dep:
             if has_deposits:
-                dep_html = (
-                    f'<div class="section-title-bar">Deposits &nbsp;<span style="font-weight:400;font-size:0.85rem;color:{T["text_muted"]}">'
+                st.markdown(
+                    f'<div class="section-title-bar dep-title-bar">Deposits &nbsp;<span style="font-weight:400;font-size:0.85rem;color:{T["text_muted"]}">'
                     f'Total: <span class="pf-val{total_dep_cls}" style="font-size:0.85rem">${total_deposited:+,.0f}</span>'
-                    f'</span></div>'
+                    f'</span></div>',
+                    unsafe_allow_html=True,
                 )
                 for yr, yr_data in sorted_transfers:
                     amount = yr_data["total"]
                     months = yr_data.get("months", {})
                     dep_color = T['accent'] if amount >= 0 else T['red']
-                    _dep_border = T['accent'] if amount >= 0 else T['red']
-                    month_cards = '<div class="portfolio-cards">'
+                    mo_html = ""
                     for mo in range(1, 13):
                         mo_val = months.get(mo)
                         if mo_val is None:
                             continue
-                        mo_cls = " pf-green" if mo_val >= 0 else " pf-red"
-                        month_cards += (
-                            f'<div class="portfolio-card" style="justify-content:center;text-align:center">'
-                            f'<span class="pf-ticker" style="min-width:40px">{MONTH_NAMES[mo]}</span>'
-                            f'<div class="pf-cell">'
-                            f'<span class="pf-val{mo_cls}">${mo_val:+,.0f}</span>'
-                            f'</div>'
+                        mo_color = T['accent'] if mo_val >= 0 else T['red']
+                        mo_html += (
+                            f'<div style="border-left:3px solid {mo_color};padding:6px 12px;margin-bottom:2px">'
+                            f'<span style="font-weight:600;color:{T["text"]}">{MONTH_NAMES[mo]}</span> &nbsp; '
+                            f'<span style="color:{mo_color};font-weight:600">${mo_val:+,.0f}</span>'
                             f'</div>'
                         )
-                    month_cards += '</div>'
-                    dep_html += (
-                        f'<details class="portfolio-card" style="border-left:3px solid {_dep_border};padding:12px 16px;margin-bottom:8px;display:block">'
-                        f'<summary style="cursor:pointer;font-weight:600;color:{T["text"]};list-style:none">'
-                        f'{yr} — <span style="color:{dep_color}">${amount:+,.0f}</span></summary>'
-                        f'{month_cards}'
-                        f'</details>'
-                    )
-                st.markdown(dep_html, unsafe_allow_html=True)
+                    st.markdown(
+                        f'<details class="yr-details" style="background:{T["card"]};border:1px solid {T["border"]};border-left:3px solid {dep_color};'
+                        f'border-radius:8px;padding:10px 14px;margin-bottom:6px">'
+                        f'<summary style="font-weight:600;color:{T["text"]}">'
+                        f'{yr} \u2014 <span style="color:{dep_color}">${amount:+,.0f}</span></summary>'
+                        f'<div style="margin-top:8px">{mo_html}</div>'
+                        f'</details>',
+                        unsafe_allow_html=True)
 
     st.markdown("")
 
