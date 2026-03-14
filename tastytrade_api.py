@@ -409,8 +409,9 @@ def fetch_margin_for_position(ticker, quantity, refresh_token=None):
     try:
         return asyncio.run(_run())
     except Exception as e:
-        print(f"[Margin dry-run] Error for {ticker}: {e}")
-        log_error("TASTYTRADE_ERROR", f"fetch_margin_for_position ({ticker}): {e}", page="Portfolio")
+        detail = str(e) or f"{type(e).__name__}: {repr(e)}"
+        print(f"[Margin dry-run] Error for {ticker}: {detail}")
+        log_error("TASTYTRADE_ERROR", f"fetch_margin_for_position ({ticker}): {detail}", page="Portfolio")
         return None
 
 

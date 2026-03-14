@@ -882,16 +882,132 @@ st.markdown(f"""
     .stSelectbox > div > div > div {{
         color: var(--text) !important;
     }}
-    /* Selectbox / multiselect dropdown list */
-    [data-baseweb="popover"] {{
+    /* Selectbox placeholder text */
+    .stSelectbox [data-baseweb="select"] [data-testid="stMarkdownContainer"],
+    .stSelectbox [data-baseweb="select"] span[aria-live="polite"] {{
+        color: var(--text-muted) !important;
+    }}
+    /* Selectbox / multiselect dropdown list — cover all Streamlit/BaseWeb variants */
+    [data-baseweb="popover"],
+    [data-baseweb="popover"] > div,
+    [data-baseweb="menu"],
+    [data-baseweb="menu"] > div,
+    [data-baseweb="list"],
+    [data-baseweb="list"] > div,
+    [role="listbox"],
+    ul[id^="bui-"] {{
         background-color: var(--card) !important;
         border: 1px solid var(--border-medium) !important;
-    }}
-    [data-baseweb="popover"] li {{
         color: var(--text) !important;
     }}
-    [data-baseweb="popover"] li:hover {{
+    [data-baseweb="popover"] li,
+    [data-baseweb="menu"] li,
+    [data-baseweb="list"] li,
+    [role="listbox"] li,
+    [role="option"],
+    ul[id^="bui-"] li {{
+        color: var(--text) !important;
+        background-color: var(--card) !important;
+    }}
+    [data-baseweb="popover"] li:hover,
+    [data-baseweb="menu"] li:hover,
+    [data-baseweb="list"] li:hover,
+    [role="option"]:hover,
+    ul[id^="bui-"] li:hover {{
         background-color: var(--accent-light) !important;
+        color: var(--text) !important;
+    }}
+    /* Highlighted/focused/selected option in dropdown —
+       BaseWeb sets inline styles on focused items; override every possible state */
+    [data-baseweb="menu"] li[aria-selected="true"],
+    [data-baseweb="list"] li[aria-selected="true"],
+    [role="option"][aria-selected="true"],
+    [role="option"][data-highlighted="true"],
+    [data-baseweb="menu"] [data-highlighted="true"],
+    [data-baseweb="list"] [data-highlighted="true"],
+    [role="option"]:focus,
+    [role="option"]:focus-visible,
+    [role="option"][aria-current="true"],
+    li[aria-selected="true"],
+    li[data-highlighted="true"] {{
+        background-color: var(--accent-light) !important;
+        color: var(--text) !important;
+    }}
+    /* Force all selectbox dropdown overlay elements dark */
+    div[data-baseweb="popover"] *,
+    div[data-baseweb="select"] [role="listbox"] *,
+    .stSelectbox div[data-baseweb] ul,
+    .stSelectbox div[data-baseweb] ul li,
+    .stMultiSelect div[data-baseweb] ul,
+    .stMultiSelect div[data-baseweb] ul li {{
+        background-color: var(--card) !important;
+        color: var(--text) !important;
+    }}
+    .stSelectbox div[data-baseweb] ul li:hover,
+    .stMultiSelect div[data-baseweb] ul li:hover {{
+        background-color: var(--accent-light) !important;
+        color: var(--text) !important;
+    }}
+    /* Nuclear override: BaseWeb applies inline background-color on highlighted
+       items via style attribute. Target every possible li inside dropdown
+       containers with attribute selectors to beat inline specificity. */
+    [data-baseweb="popover"] li[style],
+    [data-baseweb="menu"] li[style],
+    [data-baseweb="list"] li[style],
+    [role="listbox"] li[style],
+    ul[id^="bui-"] li[style] {{
+        background-color: var(--card) !important;
+        color: var(--text) !important;
+    }}
+    [data-baseweb="popover"] li[style]:hover,
+    [data-baseweb="menu"] li[style]:hover,
+    [data-baseweb="list"] li[style]:hover,
+    [role="listbox"] li[style]:hover,
+    ul[id^="bui-"] li[style]:hover,
+    [data-baseweb="popover"] li[style][aria-selected="true"],
+    [data-baseweb="menu"] li[style][aria-selected="true"],
+    [data-baseweb="list"] li[style][aria-selected="true"],
+    [role="listbox"] li[style][aria-selected="true"],
+    ul[id^="bui-"] li[style][aria-selected="true"] {{
+        background-color: var(--accent-light) !important;
+        color: var(--text) !important;
+    }}
+    /* Ultra-aggressive: target Streamlit emotion-cache classes inside dropdowns.
+       Streamlit injects CSS-in-JS classes (st-emotion-cache-*) that set white
+       backgrounds on highlighted items. Boost specificity with :where(:root) hack. */
+    :root [data-baseweb="popover"] [class*="st-emotion-cache"],
+    :root [data-baseweb="menu"] [class*="st-emotion-cache"],
+    :root [data-baseweb="list"] [class*="st-emotion-cache"],
+    :root [role="listbox"] [class*="st-emotion-cache"],
+    :root ul[id^="bui-"] [class*="st-emotion-cache"] {{
+        background-color: var(--card) !important;
+        color: var(--text) !important;
+    }}
+    :root [data-baseweb="popover"] [class*="st-emotion-cache"]:hover,
+    :root [data-baseweb="menu"] [class*="st-emotion-cache"]:hover,
+    :root [data-baseweb="list"] [class*="st-emotion-cache"]:hover,
+    :root [role="listbox"] [class*="st-emotion-cache"]:hover {{
+        background-color: var(--accent-light) !important;
+        color: var(--text) !important;
+    }}
+    /* Also target Streamlit's auto-generated st-XX classes on option items */
+    :root [role="option"][class*="st-"] {{
+        background-color: var(--card) !important;
+        color: var(--text) !important;
+    }}
+    :root [role="option"][class*="st-"]:hover,
+    :root [role="option"][class*="st-"][aria-selected="true"] {{
+        background-color: var(--accent-light) !important;
+        color: var(--text) !important;
+    }}
+    /* Final fallback: any element inside a popover/listbox with white-ish bg */
+    :root :is([data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"]) li {{
+        background-color: var(--card) !important;
+        color: var(--text) !important;
+    }}
+    :root :is([data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"]) li:hover {{
+        background-color: var(--accent-light) !important;
+        color: var(--text) !important;
     }}
     /* Streamlit popover (st.popover) button & content */
     [data-testid="stPopover"] button,
@@ -1308,6 +1424,19 @@ st.markdown(f"""
     }}
     .st-key-ret_pick_wrap [data-testid="stVerticalBlock"] {{
         gap: 0 !important;
+    }}
+    /* Returns selectbox — ensure dark-mode readability */
+    .st-key-ret_pick_wrap [data-baseweb="select"] {{
+        background-color: var(--card) !important;
+        border-color: var(--border-medium) !important;
+        border-radius: 12px !important;
+    }}
+    .st-key-ret_pick_wrap [data-baseweb="select"] * {{
+        color: var(--text) !important;
+    }}
+    .st-key-ret_pick_wrap [data-baseweb="select"] [data-testid="stMarkdownContainer"],
+    .st-key-ret_pick_wrap [data-baseweb="select"] input::placeholder {{
+        color: var(--text-muted) !important;
     }}
 
     /* ── Performer block — with hover lift ── */
@@ -4730,6 +4859,411 @@ def _aggregate_month_trades(cost_basis, year, month):
     }
 
 
+def _aggregate_week_trades(cost_basis, wk_start, wk_end):
+    """Aggregate trade data for a specific week from cost_basis.
+
+    Returns dict with same structure as _aggregate_month_trades.
+    """
+    from datetime import datetime
+
+    ticker_data = defaultdict(lambda: {
+        "cc": 0.0, "put": 0.0, "equity_pl": 0.0, "net_pl": 0.0,
+        "premium": 0.0, "premium_trades": 0, "contracts": 0,
+        "dte_sum": 0.0, "dte_count": 0, "collateral_sum": 0.0,
+        "has_options": False, "has_equity": False,
+    })
+
+    wk_start_dt = wk_start if isinstance(wk_start, datetime) else datetime.combine(wk_start, datetime.min.time())
+    wk_end_dt = wk_end if isinstance(wk_end, datetime) else datetime.combine(wk_end, datetime.max.time())
+    # Normalize to date for comparison
+    wk_start_d = wk_start_dt.date() if hasattr(wk_start_dt, 'date') else wk_start_dt
+    wk_end_d = wk_end_dt.date() if hasattr(wk_end_dt, 'date') else wk_end_dt
+
+    _traded_tickers = set()
+    for ticker, data in cost_basis.items():
+        for t in data.get("trades", []):
+            td = t["date"]
+            if hasattr(td, "date"):
+                t_date = td.date() if hasattr(td, "date") and callable(td.date) else td
+            elif hasattr(td, "year"):
+                t_date = datetime(td.year, td.month, td.day).date()
+            else:
+                t_date = datetime.strptime(str(td)[:10], "%Y-%m-%d").date()
+            if t_date < wk_start_d or t_date > wk_end_d:
+                continue
+            _traded_tickers.add(ticker)
+
+            label = t.get("label", "")
+            nv = t.get("net_value", 0.0)
+            td_obj = ticker_data[ticker]
+            td_obj["net_pl"] += nv
+
+            if label in ("CC", "BTC CC"):
+                td_obj["cc"] += nv
+            elif label in ("CSP", "BTC CSP"):
+                td_obj["put"] += nv
+
+            if t.get("instrument_type") == "Equity":
+                td_obj["equity_pl"] += nv
+                td_obj["has_equity"] = True
+            elif "Option" in (t.get("instrument_type") or ""):
+                td_obj["has_options"] = True
+
+            if label in ("CSP", "CC", "BTC CSP", "BTC CC"):
+                td_obj["premium"] += nv
+                td_obj["premium_trades"] += 1
+                if label in ("CSP", "CC"):
+                    td_obj["contracts"] += abs(int(t.get("quantity", 0)))
+                if label in ("CSP", "CC"):
+                    strike, exp_str, cp = _parse_option_symbol(t.get("symbol"))
+                    if exp_str and hasattr(td, "year"):
+                        try:
+                            exp_dt = datetime.strptime(exp_str, "%d-%m-%Y")
+                            trade_dt = datetime(td.year, td.month, td.day) if hasattr(td, "day") else datetime.strptime(str(td)[:10], "%Y-%m-%d")
+                            dte = (exp_dt - trade_dt).days
+                            if dte > 0:
+                                td_obj["dte_sum"] += dte
+                                td_obj["dte_count"] += 1
+                                qty = abs(int(t.get("quantity", 1))) or 1
+                                if strike and strike > 0:
+                                    td_obj["collateral_sum"] += strike * 100 * qty
+                        except (ValueError, TypeError):
+                            pass
+
+    # ── Position value change (unrealized) per ticker ──
+    import ssl as _ssl
+    import json as _json
+    import urllib.request as _urllib
+
+    tickers_with_shares = {}
+    for ticker, data in cost_basis.items():
+        current_shares = data.get("shares_held", 0)
+        if current_shares > 0:
+            tickers_with_shares[ticker] = current_shares
+
+    if tickers_with_shares:
+        # Fetch daily prices to cover the week range
+        _days_back = (datetime.now() - datetime(wk_start_d.year, wk_start_d.month, wk_start_d.day)).days + 14
+        _range = "1mo" if _days_back < 25 else ("3mo" if _days_back < 80 else ("1y" if _days_back < 350 else "5y"))
+        ctx = _ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = _ssl.CERT_NONE
+        for ticker, shares in tickers_with_shares.items():
+            try:
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range={_range}&interval=1d"
+                req = _urllib.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with _urllib.urlopen(req, context=ctx, timeout=10) as resp:
+                    cdata = _json.loads(resp.read())
+                result = cdata["chart"]["result"][0]
+                timestamps = result["timestamp"]
+                closes = result["indicators"]["quote"][0]["close"]
+                # Build date→price map
+                daily_prices = []
+                for ts, close in zip(timestamps, closes):
+                    if close is None:
+                        continue
+                    dt = datetime.utcfromtimestamp(ts).date()
+                    daily_prices.append((dt, close))
+                daily_prices.sort()
+                # Find price at end of day before week start and at week end
+                price_before = None
+                price_end = None
+                for dt, close in daily_prices:
+                    if dt < wk_start_d:
+                        price_before = close
+                    if dt <= wk_end_d:
+                        price_end = close
+                if price_before and price_end:
+                    unrealized = shares * (price_end - price_before)
+                    if abs(unrealized) >= 1.0:
+                        ticker_data[ticker]["equity_pl"] += unrealized
+                        ticker_data[ticker]["net_pl"] += unrealized
+                        ticker_data[ticker]["has_equity"] = True
+            except Exception:
+                pass
+
+    premium_list = []
+    for ticker, d in ticker_data.items():
+        if d["premium"] <= 0:
+            continue
+        avg_dte = int(d["dte_sum"] / d["dte_count"]) if d["dte_count"] > 0 else 0
+        est_roc = 0.0
+        if d["collateral_sum"] > 0 and avg_dte > 0:
+            est_roc = (d["premium"] / d["collateral_sum"]) * (365 / avg_dte) * 100
+        premium_list.append({
+            "ticker": ticker, "trades": d["premium_trades"],
+            "contracts": d["contracts"], "avg_dte": avg_dte,
+            "est_roc": round(est_roc, 1), "premiums": d["premium"],
+        })
+    premium_list.sort(key=lambda x: x["premiums"], reverse=True)
+
+    _holds_shares = {t for t, d in cost_basis.items() if d.get("shares_held", 0) > 0}
+    _valid_tickers = _traded_tickers | _holds_shares
+
+    pl_list = [{"ticker": t, "cc": d["cc"], "put": d["put"], "equity_pl": d["equity_pl"], "net_pl": d["net_pl"]}
+               for t, d in ticker_data.items()
+               if d["net_pl"] != 0 and t in _valid_tickers]
+    pl_list.sort(key=lambda x: x["net_pl"], reverse=True)
+
+    total_premium = sum(d["premium"] for d in ticker_data.values())
+    total_premium_trades = sum(d["premium_trades"] for d in ticker_data.values())
+
+    return {
+        "premium_total": total_premium,
+        "premium_trades": total_premium_trades,
+        "leaders_premium": premium_list[:5],
+        "leaders_pl": [x for x in pl_list[:5] if x["net_pl"] > 0],
+        "laggards_pl": [x for x in pl_list[-5:] if x["net_pl"] < 0],
+    }
+
+
+@st.dialog("Weekly Detail", width="large")
+def _show_week_detail(year, iso_wk, wk_start, wk_end, cost_basis, nl_all, transfers, weekly_returns, T):
+    """Render weekly detail modal — same format as monthly report."""
+    import pandas as pd
+    import base64 as _b64
+    import streamlit.components.v1 as components
+
+    wk_label = f"W{iso_wk} · {wk_start.strftime('%b %d')}–{wk_end.strftime('%b %d, %Y')}"
+
+    agg = _aggregate_week_trades(cost_basis, wk_start, wk_end)
+
+    # Weekly return %
+    _wk_key = (year, wk_start.month)
+    wk_ret_pct = 0.0
+    for _wiso, _wret, _ws, _we in weekly_returns.get(_wk_key, []):
+        if _wiso == iso_wk:
+            wk_ret_pct = _wret
+            break
+
+    # Net P/L from net_liq
+    net_pl_dollar = 0.0
+    if nl_all:
+        df = pd.DataFrame(nl_all)
+        df["time"] = pd.to_datetime(df["time"])
+        df = df.sort_values("time")
+        # Normalize timezone: strip tz from df if wk_start is naive, or vice versa
+        _wk_s = pd.Timestamp(wk_start)
+        _wk_e = pd.Timestamp(wk_end) + pd.Timedelta(days=1)
+        if df["time"].dt.tz is not None and _wk_s.tz is None:
+            _wk_s = _wk_s.tz_localize(df["time"].dt.tz)
+            _wk_e = _wk_e.tz_localize(df["time"].dt.tz)
+        elif df["time"].dt.tz is None and _wk_s.tz is not None:
+            _wk_s = _wk_s.tz_localize(None)
+            _wk_e = _wk_e.tz_localize(None)
+        wk_data = df[(df["time"] >= _wk_s) & (df["time"] <= _wk_e)]
+        if not wk_data.empty:
+            end_val = wk_data["close"].iloc[-1]
+            prev = df[df["time"] < wk_data["time"].iloc[0]]
+            start_val = prev["close"].iloc[-1] if not prev.empty else end_val
+            # Approximate deposits for this week
+            _wk_yr, _wk_mo = wk_start.year, wk_start.month
+            yr_tr = transfers.get(_wk_yr, {})
+            mo_dep_total = yr_tr.get("months", {}).get(_wk_mo, 0) if isinstance(yr_tr, dict) else 0
+            import calendar as _cal
+            _days_in_mo = _cal.monthrange(_wk_yr, _wk_mo)[1]
+            _wk_days = (wk_end - wk_start).days + 1
+            wk_dep = mo_dep_total * (_wk_days / _days_in_mo) if _days_in_mo > 0 else 0
+            net_pl_dollar = end_val - start_val - wk_dep
+
+    # ── Colors ──
+    _green = T['accent']
+    _red = T['red']
+    _muted = T['text_muted']
+    _card = T['card']
+    _border = T['border']
+    _text = T['text']
+    _bg = T['bg']
+
+    def _c(val):
+        return _green if val >= 0 else _red
+
+    # Premium table rows
+    prem_rows = ""
+    if agg["leaders_premium"]:
+        for lp in agg["leaders_premium"]:
+            dte_str = f'{lp["avg_dte"]}d' if lp["avg_dte"] > 0 else "\u2014"
+            prem_rows += (
+                f'<tr><td class="tk">{lp["ticker"]}</td><td>{lp["trades"]}</td>'
+                f'<td>{lp["contracts"]}</td><td>{dte_str}</td>'
+                f'<td style="color:{_c(lp["est_roc"])}">{lp["est_roc"]:.1f}%</td>'
+                f'<td style="color:{_green}">{_fmt_k(lp["premiums"])}</td></tr>'
+            )
+
+    # P/L table rows
+    def _pl_html(items):
+        if not items:
+            return f'<tr><td colspan="5" style="text-align:center;color:{_muted};padding:20px">\u2014</td></tr>'
+        r = ""
+        for it in items:
+            r += (
+                f'<tr><td class="tk">{it["ticker"]}</td>'
+                f'<td style="color:{_c(it["cc"])}">{_fmt_k(it["cc"])}</td>'
+                f'<td style="color:{_c(it["put"])}">{_fmt_k(it["put"])}</td>'
+                f'<td style="color:{_c(it["equity_pl"])}">{_fmt_k(it["equity_pl"])}</td>'
+                f'<td style="color:{_c(it["net_pl"])};font-weight:700">{_fmt_k(it["net_pl"])}</td></tr>'
+            )
+        return r
+
+    w_rows = _pl_html(agg["leaders_pl"])
+    l_rows = _pl_html(agg["laggards_pl"])
+
+    # Logo
+    with open("assets/logo_footer.png", "rb") as _lf:
+        _logo_b64 = _b64.b64encode(_lf.read()).decode()
+
+    has_premium = bool(agg["leaders_premium"])
+    has_pl = bool(agg["leaders_pl"] or agg["laggards_pl"])
+
+    premium_section = ""
+    if has_premium:
+        premium_section = f'''
+        <div class="section">
+            <div class="section-title">Winners — By Premium</div>
+            <table>
+                <tr><th class="left">Ticker</th><th>Trades</th><th>Contracts</th><th>Avg DTE</th><th>Ann. ROC</th><th>Net Premiums</th></tr>
+                {prem_rows}
+            </table>
+        </div>'''
+
+    pl_section = ""
+    if has_pl:
+        pl_section = f'''
+        <div class="section">
+            <div class="section-title">Winners &amp; Losers — By P/L</div>
+            <div class="pl-grid">
+                <div class="pl-half">
+                    <div class="pl-label" style="color:{_green}">Winners</div>
+                    <table>
+                        <tr><th class="left">Ticker</th><th>CC</th><th>PUT</th><th>Pos P/L</th><th>Net P/L</th></tr>
+                        {w_rows}
+                    </table>
+                </div>
+                <div class="pl-divider"></div>
+                <div class="pl-half">
+                    <div class="pl-label" style="color:{_red}">Losers</div>
+                    <table>
+                        <tr><th class="left">Ticker</th><th>CC</th><th>PUT</th><th>Pos P/L</th><th>Net P/L</th></tr>
+                        {l_rows}
+                    </table>
+                </div>
+            </div>
+        </div>'''
+
+    _dl_name = f'lazytheta-W{iso_wk}-{year}'
+
+    report_html = f'''<!DOCTYPE html>
+<html><head>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+body {{ font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif; background:{_bg}; color:{_text}; }}
+#report {{ padding: 32px; max-width: 800px; margin: 0 auto; }}
+
+.header {{ text-align:center; padding-bottom:20px; border-bottom:1px solid {_border}; margin-bottom:24px; }}
+.header h1 {{ font-size:1.5rem; font-weight:700; letter-spacing:-0.01em; margin-bottom:2px; }}
+.header .sub {{ font-size:0.82rem; color:{_muted}; }}
+
+.heroes {{ display:flex; gap:12px; margin-bottom:24px; }}
+.hero {{ flex:1; background:{_card}; border-radius:12px; padding:20px; border:1px solid {_border}; border-top:3px solid {_green}; display:flex; flex-direction:column; }}
+.hero-label {{ font-size:0.7rem; color:{_muted}; text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin-bottom:8px; }}
+.hero-val {{ font-size:1.7rem; font-weight:700; line-height:1.15; }}
+.hero-detail {{ font-size:0.8rem; color:{_muted}; margin-top:4px; }}
+
+.section {{ background:{_card}; border-radius:12px; padding:20px; border:1px solid {_border}; border-top:3px solid {_green}; margin-bottom:16px; }}
+.section-title {{ font-size:0.82rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding-bottom:10px; margin-bottom:14px; border-bottom:1px solid {_border}; }}
+
+table {{ width:100%; border-collapse:collapse; font-size:0.8rem; }}
+th {{ text-align:right; padding:8px 10px; color:{_muted}; font-weight:600; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.04em; border-bottom:2px solid {_border}; }}
+th.left {{ text-align:left; }}
+td {{ padding:10px 10px; border-bottom:1px solid {_border}; text-align:right; }}
+td.tk {{ text-align:left; font-weight:600; }}
+tr:last-child td {{ border-bottom:none; }}
+
+.pl-grid {{ display:flex; gap:0; }}
+.pl-half {{ flex:1; }}
+.pl-divider {{ width:1px; background:{_border}; margin:0 16px; }}
+.pl-label {{ font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:10px; }}
+
+.footer {{ display:flex; align-items:center; justify-content:center; gap:10px; padding:20px 0 8px 0; border-top:1px solid {_border}; margin-top:8px; }}
+.footer img {{ height:28px; opacity:0.7; }}
+.footer span {{ font-size:0.8rem; color:{_muted}; letter-spacing:0.02em; }}
+
+#dl-btn {{ background:{_green}; color:#fff; border:none; padding:12px 24px; border-radius:10px; cursor:pointer; font-size:0.85rem; font-weight:600; width:100%; margin-top:16px; letter-spacing:0.02em; }}
+#dl-btn:hover {{ opacity:0.9; }}
+</style></head><body>
+<div id="report">
+    <div class="header">
+        <h1>Week {iso_wk}</h1>
+        <div class="sub">{wk_start.strftime('%B %d')} – {wk_end.strftime('%B %d, %Y')} · Weekly Performance Report</div>
+    </div>
+
+    <div class="heroes">
+        <div class="hero">
+            <div class="hero-label">Net Premiums</div>
+            <div class="hero-val" style="color:{_c(agg["premium_total"])}">{_fmt_k(agg["premium_total"])}</div>
+            <div class="hero-detail">{agg["premium_trades"]} trades</div>
+        </div>
+        <div class="hero">
+            <div class="hero-label">Net P/L</div>
+            <div class="hero-val" style="color:{_c(net_pl_dollar)}">{_fmt_k(net_pl_dollar)}</div>
+            <div class="hero-detail"><span style="color:{_c(wk_ret_pct)};font-weight:600">{wk_ret_pct:+.1f}%</span> return</div>
+        </div>
+    </div>
+
+    {premium_section}
+    {pl_section}
+
+    <div class="footer" id="logo-footer">
+        <img src="data:image/png;base64,{_logo_b64}">
+        <span>lazytheta.io</span>
+    </div>
+
+    <button id="dl-btn">Download as PNG</button>
+</div>
+
+<script>
+document.getElementById('dl-btn').addEventListener('click', function() {{
+    const btn = this;
+    btn.textContent = 'Generating...';
+    btn.style.opacity = '0.6';
+    const report = document.getElementById('report');
+    btn.style.display = 'none';
+
+    html2canvas(report, {{
+        backgroundColor: '{_bg}',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+    }}).then(function(canvas) {{
+        btn.style.display = 'block';
+        btn.textContent = 'Download as PNG';
+        btn.style.opacity = '1';
+        const link = document.createElement('a');
+        link.download = '{_dl_name}.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    }}).catch(function() {{
+        btn.style.display = 'block';
+        btn.textContent = 'Download as PNG';
+        btn.style.opacity = '1';
+    }});
+}});
+</script>
+</body></html>'''
+
+    _h = 350  # header + heroes
+    if has_premium:
+        _h += 60 + len(agg["leaders_premium"]) * 42
+    if has_pl:
+        _h += 80 + max(len(agg["leaders_pl"]), len(agg["laggards_pl"]), 1) * 42
+    _h += 80
+
+    components.html(report_html, height=_h, scrolling=True)
+
+
+
 @st.dialog("Monthly Detail", width="large")
 def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_returns, T):
     """Render monthly detail modal — polished shareable report card."""
@@ -6553,6 +7087,46 @@ elif page == "Results":
             for mo in monthly_returns[yr]:
                 monthly_returns[yr][mo] = round(monthly_returns[yr][mo], 1)
 
+        # ── Weekly returns (TWR, deposit-adjusted like monthly) ──
+        _df_wk = pd.DataFrame(nl_all)
+        _df_wk["time"] = pd.to_datetime(_df_wk["time"])
+        _df_wk = _df_wk.sort_values("time")
+        _df_wk["iso_yr"] = _df_wk["time"].dt.isocalendar().year.astype(int)
+        _df_wk["iso_wk"] = _df_wk["time"].dt.isocalendar().week.astype(int)
+        _wk_last = _df_wk.groupby(["iso_yr", "iso_wk"]).agg(
+            close=("close", "last"),
+        )
+        _wk_periods = list(_wk_last.index)
+        weekly_returns = {}  # {(year, month): [(iso_wk, ret, wk_start, wk_end), ...]}
+        for i in range(1, len(_wk_periods)):
+            prev_iso = _wk_periods[i - 1]
+            cur_iso = _wk_periods[i]
+            start_val = _wk_last.loc[prev_iso, "close"]
+            end_val = _wk_last.loc[cur_iso, "close"]
+            # Use actual ISO week boundaries (Monday–Sunday) instead of data points
+            from datetime import datetime as _dt_cls, timedelta as _td_cls
+            _iso_year, _iso_week = cur_iso
+            wk_start = _dt_cls.strptime(f"{_iso_year}-W{_iso_week:02d}-1", "%G-W%V-%u")
+            wk_end = wk_start + _td_cls(days=6)  # Sunday
+            # Approximate weekly deposits from monthly data
+            _wk_yr, _wk_mo = wk_start.year, wk_start.month
+            yr_tr = transfers.get(_wk_yr, {})
+            mo_dep_total = yr_tr.get("months", {}).get(_wk_mo, 0) if isinstance(yr_tr, dict) else 0
+            # Spread monthly deposits evenly across ~4.3 weeks
+            import calendar as _cal
+            _days_in_mo = _cal.monthrange(_wk_yr, _wk_mo)[1]
+            _wk_days = (wk_end - wk_start).days + 1
+            wk_dep = mo_dep_total * (_wk_days / _days_in_mo) if _days_in_mo > 0 else 0
+            denom = start_val + 0.5 * wk_dep
+            if denom > 0:
+                ret = (end_val - start_val - wk_dep) / denom * 100
+            else:
+                ret = 0.0
+            key = (_wk_yr, _wk_mo)
+            weekly_returns.setdefault(key, []).append((
+                cur_iso[1], round(ret, 1), wk_start, wk_end
+            ))
+
         total_factor = 1.0
         for yr in sorted(yearly_returns):
             total_factor *= (1 + yearly_returns[yr] / 100)
@@ -6568,16 +7142,23 @@ elif page == "Results":
         col_ret, col_dep = st.columns(2)
 
         with col_ret:
-            # Build month options for report picker
+            # Build month + week options for report picker
             _rpt_opts = []
-            _rpt_map = {}
+            _rpt_map = {}  # label → ("month", yr, mo) or ("week", yr, mo, iso_wk, wk_start, wk_end)
             for _yr in sorted(yearly_returns, reverse=True):
                 for _mo in range(12, 0, -1):
                     _mr = monthly_returns.get(_yr, {}).get(_mo)
                     if _mr is not None:
-                        _lbl = f"{MONTH_NAMES[_mo]} {_yr}"
+                        # Month entry (uppercase to distinguish)
+                        _lbl = f"▸ {MONTH_NAMES[_mo]} {_yr}"
                         _rpt_opts.append(_lbl)
-                        _rpt_map[_lbl] = (_yr, _mo)
+                        _rpt_map[_lbl] = ("month", _yr, _mo)
+                        # Week entries under this month
+                        _wks = weekly_returns.get((_yr, _mo), [])
+                        for _iso_wk, _wk_ret, _ws, _we in sorted(_wks, key=lambda x: x[2], reverse=True):
+                            _wk_lbl = f"    W{_iso_wk}: {_ws.strftime('%b %d')}–{_we.strftime('%d')}"
+                            _rpt_opts.append(_wk_lbl)
+                            _rpt_map[_wk_lbl] = ("week", _yr, _mo, _iso_wk, _ws, _we)
 
             # Returns header with inline report picker
             st.markdown(
@@ -6591,12 +7172,16 @@ elif page == "Results":
                 def _report_picker():
                     sel = st.selectbox(
                         "report", _rpt_opts, index=None,
-                        placeholder="View monthly report...",
+                        placeholder="View report...",
                         label_visibility="collapsed",
                     )
                     if sel:
-                        _yr, _mo = _rpt_map[sel]
-                        _show_month_detail(_yr, _mo, cost_basis, nl_all, transfers, monthly_returns, T)
+                        _entry = _rpt_map[sel]
+                        if _entry[0] == "month":
+                            _show_month_detail(_entry[1], _entry[2], cost_basis, nl_all, transfers, monthly_returns, T)
+                        else:
+                            _, _yr, _mo, _iso_wk, _ws, _we = _entry
+                            _show_week_detail(_yr, _iso_wk, _ws, _we, cost_basis, nl_all, transfers, weekly_returns, T)
                 _report_picker()
 
             # Returns: HTML <details> per year (identical to deposits)

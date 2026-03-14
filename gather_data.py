@@ -1519,17 +1519,17 @@ def fetch_peer_data(peer_tickers):
             # Get stock price
             price, mkt_cap, shares = fetch_stock_price(pticker)
 
-            if not fin["revenue"] or fin["revenue"][-1] == 0:
+            if not fin["revenue"] or not fin["revenue"][-1]:
                 print(f"  Skipping {pticker}: no revenue data")
                 continue
 
-            # Latest year values
-            rev = fin["revenue"][-1]
-            oi = fin["operating_income"][-1] if fin["operating_income"] else 0
-            ni = fin["net_income"][-1] if fin["net_income"] else 0
-            cogs = fin["cost_of_revenue"][-1] if fin["cost_of_revenue"] else 0
-            debt = fin["lt_debt_latest"]
-            cash_val = fin["cash"][-1] if fin["cash"] else 0
+            # Latest year values (guard against None from _to_millions)
+            rev = fin["revenue"][-1] or 0
+            oi = (fin["operating_income"][-1] or 0) if fin["operating_income"] else 0
+            ni = (fin["net_income"][-1] or 0) if fin["net_income"] else 0
+            cogs = (fin["cost_of_revenue"][-1] or 0) if fin["cost_of_revenue"] else 0
+            debt = fin["lt_debt_latest"] or 0
+            cash_val = (fin["cash"][-1] or 0) if fin["cash"] else 0
 
             # Use EDGAR shares if Yahoo didn't provide
             if shares == 0 and fin["shares"] and fin["shares"][-1] > 0:
@@ -1552,10 +1552,10 @@ def fetch_peer_data(peer_tickers):
 
             # ROIC estimate: NOPAT / Invested Capital
             # Invested Capital ≈ total assets - cash - current liabilities (rough)
-            ca = fin["current_assets"][-1] if fin["current_assets"] else 0
-            cl = fin["current_liabilities"][-1] if fin["current_liabilities"] else 0
-            ppe = fin["net_ppe"][-1] if fin["net_ppe"] else 0
-            gi = fin["goodwill_intang"][-1] if fin["goodwill_intang"] else 0
+            ca = (fin["current_assets"][-1] or 0) if fin["current_assets"] else 0
+            cl = (fin["current_liabilities"][-1] or 0) if fin["current_liabilities"] else 0
+            ppe = (fin["net_ppe"][-1] or 0) if fin["net_ppe"] else 0
+            gi = (fin["goodwill_intang"][-1] or 0) if fin["goodwill_intang"] else 0
             invested_capital = (ca - cash_val) + ppe + gi - (cl - fin["st_debt_latest"])
             tax_rate = 0.21  # Statutory default for ROIC calc
             nopat = oi * (1 - tax_rate)
@@ -1625,9 +1625,9 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
 
     # Base year = most recent
     base_year = years[-1]
-    base_revenue = rev[-1]
-    base_oi = oi[-1] if oi[-1] else 0
-    base_op_margin = round(base_oi / base_revenue, 3) if base_revenue > 0 else 0
+    base_revenue = rev[-1] or 0
+    base_oi = (oi[-1] or 0) if oi[-1] else 0
+    base_op_margin = round(base_oi / base_revenue, 3) if base_revenue and base_revenue > 0 else 0
 
     # Shares: prefer EDGAR diluted, fall back to Yahoo
     shares = financials["shares"][-1] if financials["shares"] and financials["shares"][-1] and financials["shares"][-1] > 0 else shares_yahoo
@@ -1645,9 +1645,9 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
     print("  [Growth] Deriving revenue growth curve...")
 
     # Historical CAGRs at different horizons
-    cagr_1y = (rev[-1] / rev[-2] - 1) if len(rev) >= 2 and rev[-2] > 0 else 0.05
-    cagr_3y = ((rev[-1] / rev[-4]) ** (1/3) - 1) if len(rev) >= 4 and rev[-4] > 0 else cagr_1y
-    cagr_5y = ((rev[-1] / rev[-6]) ** (1/5) - 1) if len(rev) >= 6 and rev[-6] > 0 else cagr_3y
+    cagr_1y = (rev[-1] / rev[-2] - 1) if len(rev) >= 2 and rev[-2] and rev[-2] > 0 and rev[-1] else 0.05
+    cagr_3y = ((rev[-1] / rev[-4]) ** (1/3) - 1) if len(rev) >= 4 and rev[-4] and rev[-4] > 0 and rev[-1] else cagr_1y
+    cagr_5y = ((rev[-1] / rev[-6]) ** (1/5) - 1) if len(rev) >= 6 and rev[-6] and rev[-6] > 0 and rev[-1] else cagr_3y
 
     # Detect acceleration/deceleration trend
     if cagr_1y > cagr_3y > 0:
