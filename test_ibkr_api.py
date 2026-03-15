@@ -132,17 +132,18 @@ _mock_ibflex_parser.parse_data_element = MagicMock()
 _mock_ibflex_types = MagicMock()
 
 import sys
-sys.modules.setdefault("streamlit", _mock_st)
-sys.modules.setdefault("ibflex", MagicMock())
-sys.modules.setdefault("ibflex.enums", _mock_ibflex_enums)
-sys.modules.setdefault("ibflex.parser", _mock_ibflex_parser)
-sys.modules.setdefault("ibflex.Types", _mock_ibflex_types)
-sys.modules.setdefault("ibflex.client", MagicMock())
+# Force-replace modules so mocks work even when run after other test files
+sys.modules["streamlit"] = _mock_st
+sys.modules["ibflex"] = MagicMock()
+sys.modules["ibflex.enums"] = _mock_ibflex_enums
+sys.modules["ibflex.parser"] = _mock_ibflex_parser
+sys.modules["ibflex.Types"] = _mock_ibflex_types
+sys.modules["ibflex.client"] = MagicMock()
+sys.modules["error_logger"] = SimpleNamespace(log_error=lambda *a, **kw: None)
 
-# Mock error_logger
-sys.modules.setdefault("error_logger", SimpleNamespace(log_error=lambda *a, **kw: None))
-
-# Now import
+# Force reimport with mocks in place
+if "ibkr_api" in sys.modules:
+    del sys.modules["ibkr_api"]
 import ibkr_api
 from trade_utils import detect_wheels
 
