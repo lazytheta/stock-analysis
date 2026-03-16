@@ -4749,33 +4749,26 @@ def _aggregate_month_trades(cost_basis, year, month):
                         except (ValueError, TypeError):
                             pass
 
-    # ── Position value change (unrealized) per ticker ──
-    # Reconstruct shares held at start and end of month from full trade history
+    # ── Unrealized equity P/L for tickers with shares held and NO equity trades this month ──
     import calendar
     import ssl as _ssl
     import json as _json
     import urllib.request as _urllib
 
-    last_day = calendar.monthrange(year, month)[1]
-    month_start = datetime(year, month, 1)
-    month_end = datetime(year, month, last_day)
+    # Tickers that had equity (stock buy/sell) trades this month — already have realized P/L
+    _equity_traded = {t for t, d in ticker_data.items() if d["has_equity"]}
 
-    # Determine shares held using cost_basis shares_held (current holdings)
-    # For current/recent months this is accurate; for historical we approximate
     tickers_with_shares = {}
     for ticker, data in cost_basis.items():
         current_shares = data.get("shares_held", 0)
-        if current_shares > 0:
-            # For the target month, use current shares as approximation
-            tickers_with_shares[ticker] = (current_shares, current_shares)
+        if current_shares > 0 and ticker not in _equity_traded:
+            tickers_with_shares[ticker] = current_shares
 
-    # Fetch monthly prices for tickers with positions
-    pos_value_change = {}
     if tickers_with_shares:
         ctx = _ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = _ssl.CERT_NONE
-        for ticker, (sh_start, sh_end) in tickers_with_shares.items():
+        for ticker, shares in tickers_with_shares.items():
             try:
                 url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range=5y&interval=1mo"
                 req = _urllib.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -4790,25 +4783,18 @@ def _aggregate_month_trades(cost_basis, year, month):
                         continue
                     dt = datetime.utcfromtimestamp(ts)
                     month_prices[(dt.year, dt.month)] = close
-                # Price at end of previous month and end of this month
                 prev_month = month - 1 if month > 1 else 12
                 prev_year = year if month > 1 else year - 1
                 price_start = month_prices.get((prev_year, prev_month))
                 price_end = month_prices.get((year, month))
                 if price_start and price_end:
-                    # Value change = shares_held * (price_end - price_start)
-                    # Use start-of-month shares for the held position change
-                    unrealized = sh_start * (price_end - price_start)
-                    pos_value_change[ticker] = round(unrealized, 2)
+                    unrealized = shares * (price_end - price_start)
+                    if abs(unrealized) >= 1.0:
+                        ticker_data[ticker]["equity_pl"] += unrealized
+                        ticker_data[ticker]["net_pl"] += unrealized
+                        ticker_data[ticker]["has_equity"] = True
             except Exception:
                 pass
-
-    # Merge position value change into ticker_data (only if meaningful change)
-    for ticker, val_change in pos_value_change.items():
-        if abs(val_change) >= 1.0:  # skip negligible rounding noise
-            ticker_data[ticker]["equity_pl"] += val_change
-            ticker_data[ticker]["net_pl"] += val_change
-            ticker_data[ticker]["has_equity"] = True
 
     premium_list = []
     for ticker, d in ticker_data.items():
@@ -4919,10 +4905,13 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
     import json as _json
     import urllib.request as _urllib
 
+    # Only add unrealized for tickers with shares held and NO equity trades this week
+    _equity_traded_wk = {t for t, d in ticker_data.items() if d["has_equity"]}
+
     tickers_with_shares = {}
     for ticker, data in cost_basis.items():
         current_shares = data.get("shares_held", 0)
-        if current_shares > 0:
+        if current_shares > 0 and ticker not in _equity_traded_wk:
             tickers_with_shares[ticker] = current_shares
 
     if tickers_with_shares:
