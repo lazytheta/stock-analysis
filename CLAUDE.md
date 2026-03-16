@@ -1,32 +1,25 @@
-# Stock Analysis — DCF Valuation Models
+# Stock Analysis — Lazy Theta
 
-## Project Overview
-Automated DCF valuation tool for public companies. Uses Damodaran methodology with Sales-to-Capital reinvestment, mid-year discounting, weighted sector betas, SBC deduction, and buyback-adjusted shares.
+Options portfolio tracker + DCF valuation tool. Streamlit app at lazytheta.io.
 
-## Key Files
-- `dcf_template.py` — Main template (~1500 lines). Call `build_dcf_model(config, output_path)` to generate Excel.
-- `SKILL.md` — Full methodology, config reference, and workflow documentation. **Read this before building any DCF.**
-- `configs/` — Saved company configs (reuse instead of re-extracting data).
-- `msft_config.py` — Example config file.
+## Quick Reference
 
-## Quick Start
-```python
-exec(open('dcf_template.py').read())
-config = { ... }  # See SKILL.md for full config reference
-build_dcf_model(config, "output/TICKER_dcf.xlsx")
-```
+| What | Where |
+|------|-------|
+| Architecture & module map | `docs/architecture.md` |
+| Coding standards & lint rules | `docs/coding-standards.md` |
+| Testing guide | `docs/testing.md` |
+| DCF methodology & config reference | `SKILL.md` |
+| Saved company configs | `configs/` |
 
-## Workflow
-1. Check `configs/` for existing config → reuse if available
-2. If new company: gather data (10-K, web search for betas/rates/peers)
-3. Build config dict per SKILL.md reference
-4. Run `build_dcf_model(config, path)`
-5. Save config to `configs/<ticker>_config.py`
+## Enforced Rules
 
-## Rules
-- All Excel values must use formulas, never hardcoded Python values
-- SBC deducted from FCFF → use GROSS buyback rate for shares
-- Blue font = editable inputs, Black = formulas, Green = notes
-- Always include Peer Comparison tab (needs `peers` in config)
-- Dynamic Bull/Bear scenarios linked by formulas to Base Case
-- Margin of Safety default: 20%
+1. **Lint before commit**: `python3 -m ruff check .` must pass (config in `ruff.toml`)
+2. **Tests before commit**: `python3 -m pytest test_tastytrade_api.py test_ibkr_api.py -v` — 81 tests, all must pass
+3. **No secrets in code**: `.env` is gitignored. Use `os.environ` or `st.secrets`
+4. **Read-only broker access**: Never request write/trade permissions
+
+## Hooks (automatic)
+
+- **On file edit**: ruff lints the changed file
+- **On session stop**: ruff lints full repo + runs test suite

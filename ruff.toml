@@ -1,0 +1,56 @@
+# Ruff linter config — focus on bugs & correctness, not style nits
+target-version = "py311"
+line-length = 150  # pragmatic for this codebase
+
+[lint]
+# F = Pyflakes (unused imports, undefined names, etc.)
+# E7 = statement errors (multiple statements on one line)
+# W6 = deprecated features
+# UP = pyupgrade (outdated syntax)
+# B = bugbear (likely bugs & design problems)
+# SIM = simplify (unnecessary complexity)
+# RUF = ruff-specific rules
+select = ["F", "E7", "W6", "UP", "B", "SIM", "RUF"]
+
+# Ignore rules that conflict with this codebase's style
+ignore = [
+    "F541",    # f-string without placeholders (too many HTML templates)
+    "E741",    # ambiguous variable names — common in finance code
+    "E701",    # multiple statements on one line (colon) — used for compact HTML builders
+    "E702",    # multiple statements on one line (semicolon) — used for compact one-liners
+    "UP015",   # redundant open mode
+    "UP041",   # timeout-error-alias
+    "SIM105",  # suppressible-exception — contextlib.suppress not always clearer
+    "SIM108",  # ternary instead of if-else
+    "SIM110",  # reimplemented builtin — often clearer as loop
+    "SIM114",  # if-with-same-arms — intentional for readability
+    "SIM115",  # open-file-with-context-handler
+    "SIM117",  # multiple-with-statements
+    "SIM300",  # yoda conditions
+    "RUF001",  # ambiguous unicode in string — intentional (currency symbols, etc.)
+    "RUF002",  # ambiguous unicode in docstring
+    "RUF003",  # ambiguous unicode in comment
+    "RUF012",  # mutable class attributes
+    "RUF015",  # unnecessary-iterable-allocation-for-first-element
+    "B007",    # unused loop control variable — common pattern
+    "B023",    # function binding loop variable
+    "B905",    # zip-without-explicit-strict — not needed here
+]
+
+# Never touch these files
+exclude = [
+    ".claude/",
+    "__pycache__/",
+    "output/",
+    "oauth-server/",
+    ".superpowers/",
+    "docs/",
+    "configs/",
+    "assets/",
+]
+
+[lint.per-file-ignores]
+# Test files can have unused variables, broad exceptions, etc.
+"test_*.py" = ["F841", "B018", "SIM"]
+# Main app is huge — relax some rules
+"streamlit_app.py" = ["F841"]
