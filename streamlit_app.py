@@ -4699,7 +4699,57 @@ def _aggregate_month_trades(cost_basis, year, month):
     })
 
     for ticker, data in cost_basis.items():
+        # ── First: compute realized equity P/L via average cost basis ──
+        # Walk ALL equity trades chronologically to build running avg cost,
+        # then capture realized P/L for sells in target month.
+        eq_trades = sorted(
+            [t for t in data.get("trades", []) if t.get("instrument_type") == "Equity"],
+            key=lambda t: t["date"],
+        )
+        _running_shares = 0.0
+        _running_cost = 0.0  # total cost of shares held (positive = money spent)
+        _month_equity_pl = 0.0
+        _had_equity_trade = False
+        for t in eq_trades:
+            nv = t.get("net_value", 0.0)
+            qty = abs(t.get("quantity", 0.0))
+            td = t["date"]
+            if hasattr(td, "year"):
+                t_year, t_month = td.year, td.month
+            else:
+                _dt = datetime.strptime(str(td)[:10], "%Y-%m-%d")
+                t_year, t_month = _dt.year, _dt.month
+
+            if nv < 0:
+                # Buy: increase position and cost
+                _running_shares += qty
+                _running_cost += abs(nv)
+            elif nv > 0 and _running_shares > 0:
+                # Sell: compute realized P/L based on avg cost
+                avg_cost = _running_cost / _running_shares if _running_shares > 0 else 0
+                sell_qty = min(qty, _running_shares)
+                realized = nv - (avg_cost * sell_qty)
+                _running_shares -= sell_qty
+                _running_cost -= avg_cost * sell_qty
+                if _running_cost < 0:
+                    _running_cost = 0
+                # Only count if this sell is in the target month
+                if t_year == year and t_month == month:
+                    _month_equity_pl += realized
+                    _had_equity_trade = True
+            # Mark buys in target month too (for has_equity flag)
+            if t_year == year and t_month == month and nv < 0:
+                _had_equity_trade = True
+
+        if _had_equity_trade:
+            ticker_data[ticker]["equity_pl"] += _month_equity_pl
+            ticker_data[ticker]["net_pl"] += _month_equity_pl
+            ticker_data[ticker]["has_equity"] = True
+
+        # ── Then: process non-equity trades in target month ──
         for t in data.get("trades", []):
+            if t.get("instrument_type") == "Equity":
+                continue  # already handled above
             td = t["date"]
             if hasattr(td, "year"):
                 t_year, t_month = td.year, td.month
@@ -4719,20 +4769,14 @@ def _aggregate_month_trades(cost_basis, year, month):
             elif label in ("CSP", "BTC CSP"):
                 td_obj["put"] += nv
 
-            if t.get("instrument_type") == "Equity":
-                td_obj["equity_pl"] += nv
-                td_obj["has_equity"] = True
-            elif "Option" in (t.get("instrument_type") or ""):
+            if "Option" in (t.get("instrument_type") or ""):
                 td_obj["has_options"] = True
 
             if label in ("CSP", "CC", "BTC CSP", "BTC CC"):
                 td_obj["premium"] += nv
                 td_obj["premium_trades"] += 1
-                # Only count contracts for opening trades (STO), not buybacks
                 if label in ("CSP", "CC"):
                     td_obj["contracts"] += abs(int(t.get("quantity", 0)))
-
-                # DTE and collateral only for STO trades (not buybacks)
                 if label in ("CSP", "CC"):
                     strike, exp_str, cp = _parse_option_symbol(t.get("symbol"))
                     if exp_str and hasattr(td, "year"):
@@ -4849,16 +4893,56 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
     wk_start_d = wk_start_dt.date() if hasattr(wk_start_dt, 'date') else wk_start_dt
     wk_end_d = wk_end_dt.date() if hasattr(wk_end_dt, 'date') else wk_end_dt
 
+    def _to_date(td):
+        if hasattr(td, "date") and callable(td.date):
+            return td.date()
+        elif hasattr(td, "year"):
+            return datetime(td.year, td.month, td.day).date()
+        return datetime.strptime(str(td)[:10], "%Y-%m-%d").date()
+
     _traded_tickers = set()
     for ticker, data in cost_basis.items():
+        # ── Realized equity P/L via average cost basis ──
+        eq_trades = sorted(
+            [t for t in data.get("trades", []) if t.get("instrument_type") == "Equity"],
+            key=lambda t: t["date"],
+        )
+        _running_shares = 0.0
+        _running_cost = 0.0
+        _wk_equity_pl = 0.0
+        _had_equity_trade = False
+        for t in eq_trades:
+            nv = t.get("net_value", 0.0)
+            qty = abs(t.get("quantity", 0.0))
+            t_date = _to_date(t["date"])
+            if nv < 0:
+                _running_shares += qty
+                _running_cost += abs(nv)
+            elif nv > 0 and _running_shares > 0:
+                avg_cost = _running_cost / _running_shares if _running_shares > 0 else 0
+                sell_qty = min(qty, _running_shares)
+                realized = nv - (avg_cost * sell_qty)
+                _running_shares -= sell_qty
+                _running_cost -= avg_cost * sell_qty
+                if _running_cost < 0:
+                    _running_cost = 0
+                if wk_start_d <= t_date <= wk_end_d:
+                    _wk_equity_pl += realized
+                    _had_equity_trade = True
+            if wk_start_d <= t_date <= wk_end_d and nv < 0:
+                _had_equity_trade = True
+
+        if _had_equity_trade:
+            ticker_data[ticker]["equity_pl"] += _wk_equity_pl
+            ticker_data[ticker]["net_pl"] += _wk_equity_pl
+            ticker_data[ticker]["has_equity"] = True
+            _traded_tickers.add(ticker)
+
+        # ── Non-equity trades in this week ──
         for t in data.get("trades", []):
-            td = t["date"]
-            if hasattr(td, "date"):
-                t_date = td.date() if hasattr(td, "date") and callable(td.date) else td
-            elif hasattr(td, "year"):
-                t_date = datetime(td.year, td.month, td.day).date()
-            else:
-                t_date = datetime.strptime(str(td)[:10], "%Y-%m-%d").date()
+            if t.get("instrument_type") == "Equity":
+                continue
+            t_date = _to_date(t["date"])
             if t_date < wk_start_d or t_date > wk_end_d:
                 continue
             _traded_tickers.add(ticker)
@@ -4873,10 +4957,7 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
             elif label in ("CSP", "BTC CSP"):
                 td_obj["put"] += nv
 
-            if t.get("instrument_type") == "Equity":
-                td_obj["equity_pl"] += nv
-                td_obj["has_equity"] = True
-            elif "Option" in (t.get("instrument_type") or ""):
+            if "Option" in (t.get("instrument_type") or ""):
                 td_obj["has_options"] = True
 
             if label in ("CSP", "CC", "BTC CSP", "BTC CC"):
@@ -4885,6 +4966,7 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
                 if label in ("CSP", "CC"):
                     td_obj["contracts"] += abs(int(t.get("quantity", 0)))
                 if label in ("CSP", "CC"):
+                    td = t["date"]
                     strike, exp_str, cp = _parse_option_symbol(t.get("symbol"))
                     if exp_str and hasattr(td, "year"):
                         try:
