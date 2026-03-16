@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 from error_logger import log_error, log_error_with_trace
 from dcf_calculator import compute_wacc, compute_intrinsic_value, compute_reverse_dcf
-from config_store import save_config, load_config, list_watchlist, remove_from_watchlist, load_user_prefs, save_user_prefs, load_credential, save_credential, delete_credential, load_ibkr_credentials, save_ibkr_credentials, delete_ibkr_credentials, IBKR_CREDENTIAL_KEYS
+from config_store import save_config, load_config, list_watchlist, remove_from_watchlist, load_user_prefs, save_user_prefs, load_credential, save_credential, delete_credential, load_ibkr_credentials, save_ibkr_credentials, delete_ibkr_credentials, IBKR_CREDENTIAL_KEYS, log_page_view
 from gather_data import (
     get_cik,
     fetch_company_submissions,
@@ -4414,6 +4414,11 @@ with st.sidebar:
         st.session_state["_account_page"] = "Connect your Broker"
 
     page = st.session_state.get("_account_page") or _nav
+
+    # ── Page view tracking ──
+    if st.session_state.get("_last_page") != page:
+        st.session_state["_last_page"] = page
+        log_page_view(_sb_client, page)
 
     # ── Broker switcher (only if multiple brokers connected) ──
     _has_tt = bool(st.session_state.get("tt_refresh_token"))

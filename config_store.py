@@ -230,3 +230,19 @@ def delete_ibkr_credentials(client):
             delete_credential(client, key)
         except Exception:
             pass
+
+
+# ---------------------------------------------------------------------------
+# Page view analytics
+# ---------------------------------------------------------------------------
+
+def log_page_view(client, page_name):
+    """Log a page view. Silently ignores errors."""
+    try:
+        user_id = _get_user_id(client)
+        client.table("page_views").insert({
+            "user_id": user_id,
+            "page": page_name,
+        }).execute()
+    except Exception:
+        pass
