@@ -4383,6 +4383,12 @@ with st.sidebar:
         key="nav_page",
         on_change=_on_nav_change,
     )
+    # ── Handle OAuth redirect (before page routing) ──
+    _tt_connected = st.query_params.get("tt_connected")
+    _tt_error = st.query_params.get("tt_error")
+    if _tt_connected or _tt_error:
+        st.session_state["_account_page"] = "Settings"
+
     page = st.session_state.get("_account_page") or _nav
 
     # ── Broker switcher (only if multiple brokers connected) ──
