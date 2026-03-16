@@ -242,7 +242,7 @@ def logout():
 
 
 def render_login_page():
-    """Render the full login/signup UI with tabs and Google OAuth button."""
+    """Render the full login/signup UI with hero section and tabs."""
     st.markdown(
         """
         <style>
@@ -252,11 +252,6 @@ def render_login_page():
             padding: 40px;
             border-radius: 16px;
             box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-        }
-        .auth-title {
-            text-align: center;
-            font-size: 1.8rem;
-            margin-bottom: 8px;
         }
         .auth-subtitle {
             text-align: center;
@@ -279,24 +274,110 @@ def render_login_page():
         .auth-divider span {
             padding: 0 12px;
         }
+        .hero-section {
+            text-align: center;
+            padding: 60px 20px 40px;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+        .hero-title {
+            font-size: 2.8rem;
+            font-weight: 800;
+            line-height: 1.15;
+            margin: 0 0 16px 0;
+        }
+        .hero-accent {
+            color: #81b29a;
+        }
+        .hero-sub {
+            font-size: 1.1rem;
+            color: #86868b;
+            line-height: 1.6;
+            margin: 0 0 32px 0;
+            max-width: 520px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .features-row {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 40px;
+        }
+        .feature-chip {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 18px;
+            border-radius: 40px;
+            border: 1px solid rgba(129, 178, 154, 0.3);
+            background: rgba(129, 178, 154, 0.06);
+            font-size: 0.88rem;
+            color: inherit;
+        }
+        .feature-chip .f-icon {
+            font-size: 1.1rem;
+        }
+        .trust-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 24px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+            font-size: 0.82rem;
+            color: #86868b;
+        }
+        .trust-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .trust-icon {
+            font-size: 1rem;
+        }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
+    # ── Hero section ──
+    st.markdown(
+        '<div class="hero-section">'
+        '<p class="hero-title">Track Your Options.<br>'
+        '<span class="hero-accent">Optimize Your Income.</span></p>'
+        '<p class="hero-sub">'
+        'Connect your broker and get instant insights into your wheel strategy, '
+        'P&L, Greeks, and portfolio performance — all in one place.</p>'
+        '<div class="features-row">'
+        '<span class="feature-chip"><span class="f-icon">&#x1f4c8;</span> Real-time portfolio</span>'
+        '<span class="feature-chip"><span class="f-icon">&#x1f3af;</span> Wheel tracking</span>'
+        '<span class="feature-chip"><span class="f-icon">&#x1f4b0;</span> P&L reports</span>'
+        '<span class="feature-chip"><span class="f-icon">&#x1f50d;</span> DCF valuations</span>'
+        '</div>'
+        '<div class="trust-bar">'
+        '<span class="trust-item"><span class="trust-icon">&#x1f512;</span> Read-only access</span>'
+        '<span class="trust-item"><span class="trust-icon">&#x26a1;</span> Tastytrade & IBKR</span>'
+        '<span class="trust-item"><span class="trust-icon">&#x2705;</span> Free to use</span>'
+        '</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Login form ──
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         try:
             from assets.logo_b64 import LOGO_B64
             st.markdown(
                 f'<div style="text-align:center;">'
-                f'<img src="data:image/png;base64,{LOGO_B64}" style="width: 160px;" />'
+                f'<img src="data:image/png;base64,{LOGO_B64}" style="width: 120px;" />'
                 f'</div>',
                 unsafe_allow_html=True,
             )
         except ImportError:
             pass
-        st.markdown('<p class="auth-subtitle">Sign in to access your watchlist and portfolio</p>', unsafe_allow_html=True)
 
         tab_login, tab_signup = st.tabs(["Sign In", "Create Account"])
 
