@@ -1,5 +1,5 @@
 """
-Streamlit web app for Stock Analysis tools.
+Streamlit web app for Stock Analysis tools — v2.
 - DCF Valuation Model Generator
 - Portfolio Cost Basis Tracker (Tastytrade)
 """
@@ -5094,6 +5094,7 @@ def _show_week_detail(year, iso_wk, wk_start, wk_end, cost_basis, nl_all, transf
 
     # Net P/L from net_liq
     net_pl_dollar = 0.0
+    _period_capital = 0.0
     if nl_all:
         df = pd.DataFrame(nl_all)
         df["time"] = pd.to_datetime(df["time"])
@@ -5112,6 +5113,7 @@ def _show_week_detail(year, iso_wk, wk_start, wk_end, cost_basis, nl_all, transf
             end_val = wk_data["close"].iloc[-1]
             prev = df[df["time"] < wk_data["time"].iloc[0]]
             start_val = prev["close"].iloc[-1] if not prev.empty else end_val
+            _period_capital = start_val
             # Approximate deposits for this week
             _wk_yr, _wk_mo = wk_start.year, wk_start.month
             yr_tr = transfers.get(_wk_yr, {})
@@ -5121,6 +5123,9 @@ def _show_week_detail(year, iso_wk, wk_start, wk_end, cost_basis, nl_all, transf
             _wk_days = (wk_end - wk_start).days + 1
             wk_dep = mo_dep_total * (_wk_days / _days_in_mo) if _days_in_mo > 0 else 0
             net_pl_dollar = end_val - start_val - wk_dep
+
+    # Premium ROC
+    _prem_roc = (agg["premium_total"] / _period_capital * 100) if _period_capital > 0 else 0.0
 
     # ── Colors ──
     _green = T['accent']
@@ -5259,7 +5264,7 @@ tr:last-child td {{ border-bottom:none; }}
         <div class="hero">
             <div class="hero-label">Net Premiums</div>
             <div class="hero-val" style="color:{_c(agg["premium_total"])}">{_fmt_k(agg["premium_total"])}</div>
-            <div class="hero-detail">{agg["premium_trades"]} trades</div>
+            <div class="hero-detail"><span style="color:{_c(_prem_roc)};font-weight:600">{_prem_roc:+.1f}%</span> ROC</div>
         </div>
         <div class="hero">
             <div class="hero-label">Net P/L</div>
@@ -5339,6 +5344,7 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
     # Net P/L from net_liq
     mo_ret_pct = monthly_returns.get(year, {}).get(month, 0.0)
     net_pl_dollar = 0.0
+    _period_capital = 0.0
     if nl_all:
         df = pd.DataFrame(nl_all)
         df["time"] = pd.to_datetime(df["time"])
@@ -5348,9 +5354,13 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
             end_val = mo_data["close"].iloc[-1]
             prev = df[df["time"] < mo_data["time"].iloc[0]]
             start_val = prev["close"].iloc[-1] if not prev.empty else end_val
+            _period_capital = start_val
             yr_transfers = transfers.get(year, {})
             mo_dep = yr_transfers.get("months", {}).get(month, 0) if isinstance(yr_transfers, dict) else 0
             net_pl_dollar = end_val - start_val - mo_dep
+
+    # Premium ROC
+    _prem_roc = (agg["premium_total"] / _period_capital * 100) if _period_capital > 0 else 0.0
 
     # Benchmark monthly returns (cached)
     if "benchmark_monthly" not in st.session_state:
@@ -5513,7 +5523,7 @@ tr:last-child td {{ border-bottom:none; }}
         <div class="hero">
             <div class="hero-label">Net Premiums</div>
             <div class="hero-val" style="color:{_c(agg["premium_total"])}">{_fmt_k(agg["premium_total"])}</div>
-            <div class="hero-detail">{agg["premium_trades"]} trades</div>
+            <div class="hero-detail"><span style="color:{_c(_prem_roc)};font-weight:600">{_prem_roc:+.1f}%</span> ROC</div>
         </div>
         <div class="hero">
             <div class="hero-label">Net P/L</div>
