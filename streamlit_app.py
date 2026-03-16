@@ -199,7 +199,7 @@ def _render_welcome_page():
     with btn1:
         st.button("Connect Account", type="primary", use_container_width=True,
                    key="welcome_connect",
-                   on_click=lambda: st.session_state.update({"_account_page": "Settings"}))
+                   on_click=lambda: st.session_state.update({"_account_page": "Connect your Broker"}))
     with btn2:
         st.button("Explore Watchlist", type="primary", use_container_width=True,
                    key="welcome_watchlist",
@@ -218,7 +218,7 @@ def _render_welcome_page():
         'We can only <b>view</b> your positions and history, '
         'we cannot place trades, move funds, or modify your account in any way. '
         'Your credentials are encrypted and stored securely. '
-        'You can disconnect at any time in Settings.</p>'
+        'You can disconnect at any time in Connect your Broker.</p>'
         '</div>'
         '</div>',
         unsafe_allow_html=True,
@@ -240,9 +240,9 @@ def _render_connect_prompt():
     )
     _, btn_col, _ = st.columns([1, 1, 1])
     with btn_col:
-        st.button("Go to Settings", type="primary", use_container_width=True,
+        st.button("Connect your Broker", type="primary", use_container_width=True,
                    key=f"connect_btn_{st.session_state.get('nav_page', '')}",
-                   on_click=lambda: st.session_state.update({"_account_page": "Settings"}))
+                   on_click=lambda: st.session_state.update({"_account_page": "Connect your Broker"}))
     st.stop()
 
 
@@ -4387,7 +4387,7 @@ with st.sidebar:
     _tt_connected = st.query_params.get("tt_connected")
     _tt_error = st.query_params.get("tt_error")
     if _tt_connected or _tt_error:
-        st.session_state["_account_page"] = "Settings"
+        st.session_state["_account_page"] = "Connect your Broker"
 
     page = st.session_state.get("_account_page") or _nav
 
@@ -4452,8 +4452,8 @@ with st.sidebar:
     def _on_acct_change():
         """Map account radio selection to _account_page."""
         sel = st.session_state.get("_acct_radio")
-        if sel == "Settings":
-            st.session_state["_account_page"] = "Settings"
+        if sel == "Connect your Broker":
+            st.session_state["_account_page"] = "Connect your Broker"
         elif sel == "Security & Privacy":
             st.session_state["_account_page"] = "🔒 Security & Privacy"
         elif sel == "Sign Out":
@@ -4461,14 +4461,14 @@ with st.sidebar:
 
     _acct_default = None
     _active_acct = st.session_state.get("_account_page", "")
-    if _active_acct == "Settings":
+    if _active_acct == "Connect your Broker":
         _acct_default = 0
     elif _active_acct == "🔒 Security & Privacy":
         _acct_default = 1
 
     st.radio(
         "Account",
-        ["Settings", "Security & Privacy", "Sign Out"],
+        ["Connect your Broker", "Security & Privacy", "Sign Out"],
         index=_acct_default,
         label_visibility="collapsed",
         key="_acct_radio",
@@ -7361,13 +7361,13 @@ elif page == "Results":
 #  SETTINGS PAGE — Per-user configuration
 # ══════════════════════════════════════════════════════
 
-elif page == "Settings":
+elif page == "Connect your Broker":
 
     st.markdown(
         "<style>.block-container { max-width: 700px; margin: auto; }</style>",
         unsafe_allow_html=True,
     )
-    st.markdown("## Settings")
+    st.markdown("## Connect your Broker")
 
     # ── Tastytrade connection ──
     st.markdown("### Tastytrade")
@@ -7672,7 +7672,7 @@ elif page == "🔒 Security & Privacy":
             "- You authenticate directly with Tastytrade (we never see your password)\n"
             "- We store a **read-only** refresh token, encrypted in Supabase with per-user isolation\n"
             "- The token only grants read access — this app cannot place trades or modify your account\n"
-            "- You can revoke access at any time from your Tastytrade account or disconnect in Settings\n\n"
+            "- You can revoke access at any time from your Tastytrade account or disconnect in Connect your Broker\n\n"
             "We will never request write/trade permissions unless you explicitly enable this."
         )
 
@@ -7844,7 +7844,7 @@ Contact: <a href="mailto:info@lazytheta.io">info@lazytheta.io</a></p>
 <h4>6. Your rights</h4>
 <p>You can at any time:</p>
 <ul>
-<li><strong>View</strong> your data in the app (Settings page)</li>
+<li><strong>View</strong> your data in the app (Connect your Broker page)</li>
 <li><strong>Delete</strong> your session data (Clear Session Data button)</li>
 <li><strong>Revoke</strong> Tastytrade access from your Tastytrade account</li>
 <li><strong>Request deletion</strong> of your account and all data by emailing <a href="mailto:info@lazytheta.io">info@lazytheta.io</a></li>
