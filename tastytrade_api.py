@@ -410,8 +410,10 @@ def fetch_margin_for_position(ticker, quantity, refresh_token=None):
         return asyncio.run(_run())
     except Exception as e:
         detail = str(e) or f"{type(e).__name__}: {repr(e)}"
-        print(f"[Margin dry-run] Error for {ticker}: {detail}")
-        log_error("TASTYTRADE_ERROR", f"fetch_margin_for_position ({ticker}): {detail}", page="Portfolio")
+        # Don't spam error logs for empty TastytradeErrors (common outside market hours)
+        if detail and detail.strip("' "):
+            logger.debug("Margin dry-run failed for %s: %s", ticker, detail)
+            log_error("TASTYTRADE_ERROR", f"fetch_margin_for_position ({ticker}): {detail}", page="Portfolio")
         return None
 
 
@@ -1221,13 +1223,16 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_str
                             if len(received) >= len(all_symbols):
                                 break
 
-                # Collect quotes and greeks in parallel to halve wait time
-                _q_task = asyncio.wait_for(_collect_option_quotes(), timeout=10)
-                _g_task = asyncio.wait_for(_collect_option_greeks(), timeout=10)
-                _results = await asyncio.gather(_q_task, _g_task, return_exceptions=True)
-                for _r in _results:
-                    if isinstance(_r, Exception) and not isinstance(_r, asyncio.TimeoutError):
-                        logger.warning("Option stream error: %s", _r)
+                # Collect quotes then greeks sequentially (DXLink doesn't
+                # support concurrent subscribe/listen on the same streamer)
+                try:
+                    await asyncio.wait_for(_collect_option_quotes(), timeout=10)
+                except asyncio.TimeoutError:
+                    pass
+                try:
+                    await asyncio.wait_for(_collect_option_greeks(), timeout=10)
+                except asyncio.TimeoutError:
+                    pass
 
             # Populate results from streamed data
             for ss, (exp_idx, strike_idx) in strike_lookup.items():
