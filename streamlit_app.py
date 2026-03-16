@@ -4825,26 +4825,10 @@ def _aggregate_month_trades(cost_basis, year, month):
         })
     premium_list.sort(key=lambda x: x["premiums"], reverse=True)
 
-    # Only include tickers with actual trades in this month OR actual share holdings
-    _traded_this_month = set()
-    for ticker, data in cost_basis.items():
-        for t in data.get("trades", []):
-            td = t["date"]
-            if hasattr(td, "year"):
-                t_year, t_month = td.year, td.month
-            else:
-                dt = datetime.strptime(str(td)[:10], "%Y-%m-%d")
-                t_year, t_month = dt.year, dt.month
-            if t_year == year and t_month == month:
-                _traded_this_month.add(ticker)
-                break
-    # Use shares_held from cost_basis (source of truth) for current holdings
-    _holds_shares = {t for t, d in cost_basis.items() if d.get("shares_held", 0) > 0}
-    _valid_tickers = _traded_this_month | _holds_shares
-
+    # P/L list: only tickers where we hold shares or traded equity (not pure-option positions)
     pl_list = [{"ticker": t, "cc": d["cc"], "put": d["put"], "equity_pl": d["equity_pl"], "net_pl": d["net_pl"]}
                for t, d in ticker_data.items()
-               if d["net_pl"] != 0 and t in _valid_tickers]
+               if d["net_pl"] != 0 and d["has_equity"]]
     pl_list.sort(key=lambda x: x["net_pl"], reverse=True)
 
     total_premium = sum(d["premium"] for d in ticker_data.values())
@@ -4930,7 +4914,7 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
                         except (ValueError, TypeError):
                             pass
 
-    # ── Position value change (unrealized) per ticker ──
+    # ── Unrealized equity P/L for tickers where we hold shares ──
     import ssl as _ssl
     import json as _json
     import urllib.request as _urllib
@@ -4942,7 +4926,6 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
             tickers_with_shares[ticker] = current_shares
 
     if tickers_with_shares:
-        # Fetch daily prices to cover the week range
         _days_back = (datetime.now() - datetime(wk_start_d.year, wk_start_d.month, wk_start_d.day)).days + 14
         _range = "1mo" if _days_back < 25 else ("3mo" if _days_back < 80 else ("1y" if _days_back < 350 else "5y"))
         ctx = _ssl.create_default_context()
@@ -4957,7 +4940,6 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
                 result = cdata["chart"]["result"][0]
                 timestamps = result["timestamp"]
                 closes = result["indicators"]["quote"][0]["close"]
-                # Build date→price map
                 daily_prices = []
                 for ts, close in zip(timestamps, closes):
                     if close is None:
@@ -4965,7 +4947,6 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
                     dt = datetime.utcfromtimestamp(ts).date()
                     daily_prices.append((dt, close))
                 daily_prices.sort()
-                # Find price at end of day before week start and at week end
                 price_before = None
                 price_end = None
                 for dt, close in daily_prices:
@@ -4997,12 +4978,10 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
         })
     premium_list.sort(key=lambda x: x["premiums"], reverse=True)
 
-    _holds_shares = {t for t, d in cost_basis.items() if d.get("shares_held", 0) > 0}
-    _valid_tickers = _traded_tickers | _holds_shares
-
+    # P/L list: only tickers where we hold shares or traded equity (not pure-option positions)
     pl_list = [{"ticker": t, "cc": d["cc"], "put": d["put"], "equity_pl": d["equity_pl"], "net_pl": d["net_pl"]}
                for t, d in ticker_data.items()
-               if d["net_pl"] != 0 and t in _valid_tickers]
+               if d["net_pl"] != 0 and d["has_equity"]]
     pl_list.sort(key=lambda x: x["net_pl"], reverse=True)
 
     total_premium = sum(d["premium"] for d in ticker_data.values())
