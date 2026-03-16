@@ -242,144 +242,147 @@ def logout():
 
 
 def render_login_page():
-    """Render the full login/signup UI with hero section and tabs."""
-    st.markdown(
-        """
-        <style>
-        .auth-container {
-            max-width: 400px;
-            margin: 80px auto;
-            padding: 40px;
-            border-radius: 16px;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-        }
-        .auth-subtitle {
-            text-align: center;
-            color: #86868b;
-            font-size: 0.95rem;
-            margin-bottom: 24px;
-        }
-        .auth-divider {
-            display: flex;
-            align-items: center;
-            margin: 20px 0;
-            color: #86868b;
-            font-size: 0.85rem;
-        }
-        .auth-divider::before, .auth-divider::after {
-            content: "";
-            flex: 1;
-            border-bottom: 1px solid #e5e5ea;
-        }
-        .auth-divider span {
-            padding: 0 12px;
-        }
-        .hero-section {
-            text-align: center;
-            padding: 60px 20px 40px;
-            max-width: 700px;
-            margin: 0 auto;
-        }
-        .hero-title {
-            font-size: 2.8rem;
-            font-weight: 800;
-            line-height: 1.15;
-            margin: 0 0 16px 0;
-        }
-        .hero-accent {
-            color: #81b29a;
-        }
-        .hero-sub {
-            font-size: 1.1rem;
-            color: #86868b;
-            line-height: 1.6;
-            margin: 0 0 32px 0;
-            max-width: 520px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-        .features-row {
-            display: flex;
-            gap: 16px;
-            justify-content: center;
-            flex-wrap: wrap;
-            margin-bottom: 40px;
-        }
-        .feature-chip {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 10px 18px;
-            border-radius: 40px;
-            border: 1px solid rgba(129, 178, 154, 0.3);
-            background: rgba(129, 178, 154, 0.06);
-            font-size: 0.88rem;
-            color: inherit;
-        }
-        .feature-chip .f-icon {
-            font-size: 1.1rem;
-        }
-        .trust-bar {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 24px;
-            flex-wrap: wrap;
-            margin-bottom: 8px;
-            font-size: 0.82rem;
-            color: #86868b;
-        }
-        .trust-item {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .trust-icon {
-            font-size: 1rem;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    """Render the full login/signup UI with hero landing page."""
 
-    # ── Hero section ──
+    # ── Load logo ──
+    _logo_b64 = None
+    try:
+        from assets.logo_b64 import LOGO_B64
+        _logo_b64 = LOGO_B64
+    except ImportError:
+        pass
+
+    _logo_html = (
+        f'<img src="data:image/png;base64,{_logo_b64}" '
+        f'style="width:80px;margin-bottom:24px;filter:drop-shadow(0 2px 8px rgba(0,0,0,0.1))" />'
+    ) if _logo_b64 else ''
+
+    # ── Full landing page via single markdown block ──
     st.markdown(
-        '<div class="hero-section">'
-        '<p class="hero-title">Track Your Options.<br>'
-        '<span class="hero-accent">Optimize Your Income.</span></p>'
-        '<p class="hero-sub">'
-        'Connect your broker and get instant insights into your wheel strategy, '
-        'P&L, Greeks, and portfolio performance — all in one place.</p>'
-        '<div class="features-row">'
-        '<span class="feature-chip"><span class="f-icon">&#x1f4c8;</span> Real-time portfolio</span>'
-        '<span class="feature-chip"><span class="f-icon">&#x1f3af;</span> Wheel tracking</span>'
-        '<span class="feature-chip"><span class="f-icon">&#x1f4b0;</span> P&L reports</span>'
-        '<span class="feature-chip"><span class="f-icon">&#x1f50d;</span> DCF valuations</span>'
-        '</div>'
-        '<div class="trust-bar">'
-        '<span class="trust-item"><span class="trust-icon">&#x1f512;</span> Read-only access</span>'
-        '<span class="trust-item"><span class="trust-icon">&#x26a1;</span> Tastytrade & IBKR</span>'
-        '<span class="trust-item"><span class="trust-icon">&#x2705;</span> Free to use</span>'
-        '</div>'
-        '</div>',
+        f"""
+<style>
+/* Hero */
+.lt-hero {{
+    text-align: center;
+    padding: 48px 24px 32px;
+    max-width: 640px;
+    margin: 0 auto;
+}}
+.lt-hero h1 {{
+    font-size: 2.6rem;
+    font-weight: 800;
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    margin: 0 0 16px;
+}}
+.lt-hero h1 .accent {{
+    background: linear-gradient(135deg, #81b29a, #5a9178);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}}
+.lt-hero .subtitle {{
+    font-size: 1.05rem;
+    color: #6e6e73;
+    line-height: 1.65;
+    margin: 0 auto 36px;
+    max-width: 480px;
+}}
+/* Feature grid */
+.lt-features {{
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    max-width: 600px;
+    margin: 0 auto 28px;
+}}
+.lt-feat {{
+    text-align: center;
+    padding: 16px 8px;
+    border-radius: 12px;
+    border: 1px solid rgba(129,178,154,0.2);
+    background: rgba(129,178,154,0.04);
+    transition: border-color 0.2s, background 0.2s;
+}}
+.lt-feat:hover {{
+    border-color: rgba(129,178,154,0.45);
+    background: rgba(129,178,154,0.08);
+}}
+.lt-feat .icon {{
+    font-size: 1.3rem;
+    display: block;
+    margin-bottom: 6px;
+    color: #81b29a;
+}}
+.lt-feat .label {{
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #48484a;
+    letter-spacing: 0.01em;
+}}
+/* Trust bar */
+.lt-trust {{
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}}
+.lt-trust span {{
+    font-size: 0.78rem;
+    color: #8e8e93;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}}
+/* Dark mode overrides */
+@media (prefers-color-scheme: dark) {{
+    .lt-hero h1 {{ color: #f5f5f7; }}
+    .lt-hero h1 .accent {{
+        background: linear-gradient(135deg, #81b29a, #a8d5ba);
+        -webkit-background-clip: text;
+        background-clip: text;
+    }}
+    .lt-hero .subtitle {{ color: #98989d; }}
+    .lt-feat {{ border-color: rgba(129,178,154,0.15); background: rgba(129,178,154,0.05); }}
+    .lt-feat:hover {{ border-color: rgba(129,178,154,0.35); background: rgba(129,178,154,0.10); }}
+    .lt-feat .label {{ color: #d1d1d6; }}
+    .lt-trust span {{ color: #8e8e93; }}
+}}
+/* Responsive */
+@media (max-width: 500px) {{
+    .lt-features {{ grid-template-columns: repeat(2, 1fr); }}
+    .lt-hero h1 {{ font-size: 2rem; }}
+}}
+</style>
+
+<div class="lt-hero">
+    {_logo_html}
+    <h1>Track your options.<br><span class="accent">Optimize your income.</span></h1>
+    <p class="subtitle">
+        Connect your Tastytrade or IBKR account and get instant insights
+        into your wheel strategy, P&amp;L, and portfolio performance.
+    </p>
+    <div class="lt-features">
+        <div class="lt-feat"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span><span class="label">Real-time portfolio</span></div>
+        <div class="lt-feat"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></span><span class="label">Wheel tracking</span></div>
+        <div class="lt-feat"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span class="label">P&amp;L reports</span></div>
+        <div class="lt-feat"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span class="label">DCF valuations</span></div>
+    </div>
+    <div class="lt-trust">
+        <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Read-only access</span>
+        <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg> Tastytrade &amp; IBKR</span>
+        <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Free to use</span>
+    </div>
+</div>
+        """,
         unsafe_allow_html=True,
     )
 
     # ── Login form ──
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        try:
-            from assets.logo_b64 import LOGO_B64
-            st.markdown(
-                f'<div style="text-align:center;">'
-                f'<img src="data:image/png;base64,{LOGO_B64}" style="width: 120px;" />'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        except ImportError:
-            pass
-
-        tab_login, tab_signup = st.tabs(["Sign In", "Create Account"])
+        tab_login, tab_signup = st.tabs(["Sign in", "Create account"])
 
         with tab_login:
             with st.form("login_form"):
