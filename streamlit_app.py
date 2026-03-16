@@ -7055,7 +7055,7 @@ elif page == "Results":
                     )
                 cards_html += '</div>'
 
-                # ── Cumulative line chart ──
+                # ── Total Profit line chart ──
                 chart_years = [row["year"] for row in rows_yr]
                 LINE_COLORS = ["#81b29a", "#86868b", "#e07a5f", "#f2cc8f"]
 
@@ -7217,10 +7217,11 @@ elif page == "Results":
                 cur_iso[1], round(ret, 1), wk_start, wk_end
             ))
 
-        total_factor = 1.0
-        for yr in sorted(yearly_returns):
-            total_factor *= (1 + yearly_returns[yr] / 100)
-        total_return = round((total_factor - 1) * 100, 1)
+        # Compound annual returns — same method as benchmark lines in the chart
+        _cum_factor = 1.0
+        for yr in sorted(port_returns):
+            _cum_factor *= (1 + port_returns[yr] / 100)
+        total_return = round((_cum_factor - 1) * 100, 1)
         total_ret_cls = " pf-green" if total_return >= 0 else " pf-red"
 
         # ── Returns & Deposits side by side ──
