@@ -3744,12 +3744,20 @@ def _dcf_editor(ticker):
 
         _num_strikes = 15 if _opt_type == 'Call' else 8
 
-        _chain_data = _cached_chain(ticker, _opt_type, live_price, _usr_dte_lo, _usr_dte_hi, _num_strikes)
+        try:
+            _chain_data = _cached_chain(ticker, _opt_type, live_price, _usr_dte_lo, _usr_dte_hi, _num_strikes)
+        except Exception as _chain_err:
+            st.error(f"Failed to load option chain: {_chain_err}")
+            _chain_data = {'underlying_price': 0, 'expirations': []}
         _ch_price = _chain_data['underlying_price']
         _ch_exps = _chain_data['expirations']
 
         if not _ch_exps:
-            st.info("No option chain data available. Market may be closed or no strikes found.")
+            st.info(
+                "No option chain data available. This usually means the market is closed "
+                "or the streaming connection timed out. Try again during US market hours "
+                "(9:30 AM – 4:00 PM ET)."
+            )
         else:
             # DCF intrinsic value for MoS calculation
             _dcf_intrinsic = val['intrinsic_value'] if val and val.get('intrinsic_value', 0) > 0 else 0
@@ -3863,7 +3871,23 @@ def _dcf_editor(ticker):
                 _picks['recommended'] = _best_rec
 
             if not _picks:
-                st.info("No suitable strikes found for recommendations.")
+                # Diagnose why no strikes passed the filter
+                _n_total = len(_all_rows)
+                _n_cost = sum(1 for r in _all_rows if _opt_type == 'Call' and _call_cost_basis > 0 and r['strike'] < _call_cost_basis)
+                _n_delta = sum(1 for r in _all_rows if not (_usr_dlo <= abs(r['delta']) <= _usr_dhi))
+                _hints = []
+                if _n_total == 0:
+                    _hints.append("No strikes with valid bids were found in the chain.")
+                else:
+                    if _n_cost > 0:
+                        _hints.append(f"{_n_cost}/{_n_total} strikes filtered by min strike (${_call_cost_basis:.0f}).")
+                    if _n_delta > 0:
+                        _deltas = [abs(r['delta']) for r in _all_rows if r['delta'] != 0]
+                        _drange = f"{min(_deltas):.2f}–{max(_deltas):.2f}" if _deltas else "n/a"
+                        _hints.append(f"{_n_delta}/{_n_total} strikes outside delta range "
+                                      f"{_usr_dlo:.2f}–{_usr_dhi:.2f} (available: {_drange}).")
+                _hint_text = " ".join(_hints) if _hints else "Try widening your delta or DTE range."
+                st.info(f"No suitable strikes match your filters. {_hint_text}")
             else:
                 # ── Recommendation card builder ──
                 _pill = (

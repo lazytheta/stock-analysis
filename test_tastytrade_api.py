@@ -842,29 +842,32 @@ class TestFetchOptionChain(unittest.TestCase):
         )
         chain = SimpleNamespace(expirations=[valid_exp, far_exp])
 
-        # Streamer for underlying quote
+        # Single streamer for option quotes + greeks (parallel)
         mock_streamer = AsyncMock()
         mock_streamer.__aenter__ = AsyncMock(return_value=mock_streamer)
         mock_streamer.__aexit__ = AsyncMock(return_value=False)
         mock_streamer.subscribe = AsyncMock()
 
-        call_count = [0]
+        # Route listen() based on event_type parameter
+        from tastytrade_api import QuoteEvent, GreeksEvent
+
         async def _listen(event_type):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                # Underlying quote
-                yield _make_quote("AAPL", bid=150, ask=150)
-            elif call_count[0] == 2:
-                # Option quotes
+            if event_type is QuoteEvent:
                 yield _make_quote(".AAPL250715P145", bid=2.0, ask=2.5)
-            elif call_count[0] == 3:
-                # Option greeks
+            elif event_type is GreeksEvent:
                 yield _make_greek(".AAPL250715P145", delta=-0.3, volatility=0.25)
 
         mock_streamer.listen = MagicMock(side_effect=_listen)
 
+        # Mock Yahoo Finance for underlying price
+        _yf_response = json.dumps({"chart": {"result": [{"meta": {"regularMarketPrice": 150.0}}]}}).encode()
+        mock_urlopen = MagicMock()
+        mock_urlopen.__enter__ = MagicMock(return_value=SimpleNamespace(read=lambda: _yf_response))
+        mock_urlopen.__exit__ = MagicMock(return_value=False)
+
         with patch("tastytrade_api.NestedOptionChain") as MockChain, \
-             patch("tastytrade_api.DXLinkStreamer", return_value=mock_streamer):
+             patch("tastytrade_api.DXLinkStreamer", return_value=mock_streamer), \
+             patch("tastytrade_api.urllib.request.urlopen", return_value=mock_urlopen):
             MockChain.get = AsyncMock(return_value=[chain])
             result = tastytrade_api.fetch_option_chain(
                 "AAPL", option_type="Put", min_dte=7, max_dte=60, num_strikes=3)

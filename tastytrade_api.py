@@ -1075,49 +1075,33 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_str
                 e.expiration_date,
             ))
 
-            # Stream underlying quote to get current price
             _ctx = ssl.create_default_context()
             _ctx.check_hostname = False
             _ctx.verify_mode = ssl.CERT_NONE
 
+            # Get underlying price — try Yahoo Finance first (fast, no streaming needed),
+            # then DXLink streaming, then caller-provided fallback.
             underlying_price = 0.0
 
-            # Collect streamer symbols for selected strikes (will be filled after we get price)
-            # First pass: get underlying price
-            async with DXLinkStreamer(session, ssl_context=_ctx) as streamer:
-                # Get underlying price
-                await streamer.subscribe(QuoteEvent, [ticker])
-                try:
-                    async def _get_underlying():
-                        async for quote in streamer.listen(QuoteEvent):
-                            if quote.event_symbol == ticker:
-                                bid = float(quote.bid_price) if quote.bid_price else 0
-                                ask = float(quote.ask_price) if quote.ask_price else 0
-                                return (bid + ask) / 2 if bid and ask else bid or ask
-                    underlying_price = await asyncio.wait_for(_get_underlying(), timeout=8)
-                except asyncio.TimeoutError:
-                    pass
+            # Yahoo Finance — works outside market hours too
+            try:
+                _yf_req = urllib.request.Request(
+                    f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+                    "?range=1d&interval=1d",
+                    headers={"User-Agent": "Mozilla/5.0"},
+                )
+                _yf_ctx = ssl.create_default_context()
+                _yf_ctx.check_hostname = False
+                _yf_ctx.verify_mode = ssl.CERT_NONE
+                with urllib.request.urlopen(_yf_req, context=_yf_ctx, timeout=5) as _yf_resp:
+                    _yf = json.loads(_yf_resp.read())
+                    _sp = _yf["chart"]["result"][0]["meta"]["regularMarketPrice"]
+                    if _sp and float(_sp) > 0:
+                        underlying_price = float(_sp)
+            except Exception as e:
+                logger.debug("YF price failed for %s: %s", ticker, e)
 
-            # Fallback: Yahoo Finance last close price
-            if underlying_price <= 0:
-                try:
-                    _yf_req = urllib.request.Request(
-                        f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
-                        "?range=1d&interval=1d",
-                        headers={"User-Agent": "Mozilla/5.0"},
-                    )
-                    _yf_ctx = ssl.create_default_context()
-                    _yf_ctx.check_hostname = False
-                    _yf_ctx.verify_mode = ssl.CERT_NONE
-                    with urllib.request.urlopen(_yf_req, context=_yf_ctx, timeout=5) as _yf_resp:
-                        _yf = json.loads(_yf_resp.read())
-                        _sp = _yf["chart"]["result"][0]["meta"]["regularMarketPrice"]
-                        if _sp and float(_sp) > 0:
-                            underlying_price = float(_sp)
-                except Exception as e:
-                    logger.debug("YF price fallback failed for %s: %s", ticker, e)
-
-            # Last resort: use caller-provided fallback
+            # Fallback: caller-provided price
             if underlying_price <= 0:
                 underlying_price = fallback_price
 
@@ -1129,6 +1113,10 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_str
             result_exps = []
             total_symbols = 0
             max_symbols = 80 if option_type == 'Call' else 50
+
+            # Distribute strikes evenly across all valid expirations
+            _n_exps = len(valid_exps)
+            _strikes_per_exp = max(3, min(num_strikes, max_symbols // max(_n_exps, 1)))
 
             for exp in valid_exps:
                 if total_symbols >= max_symbols:
@@ -1145,13 +1133,13 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_str
                     itm = [s for s in exp.strikes if float(s.strike_price) < underlying_price * 0.97]
                     atm_and_otm.sort(key=lambda s: float(s.strike_price))
                     itm.sort(key=lambda s: float(s.strike_price), reverse=True)
-                    selected = atm_and_otm[:num_strikes] + itm[:max(2, num_strikes // 5)]
+                    selected = atm_and_otm[:_strikes_per_exp] + itm[:max(1, _strikes_per_exp // 5)]
                 else:
                     sorted_strikes = sorted(
                         exp.strikes,
                         key=lambda s: abs(float(s.strike_price) - underlying_price),
                     )
-                    selected = sorted_strikes[:num_strikes]
+                    selected = sorted_strikes[:_strikes_per_exp]
                 remaining = max_symbols - total_symbols
                 if len(selected) > remaining:
                     selected = selected[:remaining]
@@ -1201,10 +1189,21 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_str
 
             async with DXLinkStreamer(session, ssl_context=_ctx) as streamer:
                 async def _collect_option_quotes():
-                    await streamer.subscribe(QuoteEvent, all_symbols)
+                    # Also subscribe to underlying ticker for live price update
+                    _sub_symbols = all_symbols + [ticker]
+                    await streamer.subscribe(QuoteEvent, _sub_symbols)
                     received = set()
                     async for quote in streamer.listen(QuoteEvent):
                         sym = quote.event_symbol
+                        # Capture underlying live price
+                        if sym == ticker:
+                            bid = float(quote.bid_price) if quote.bid_price else 0
+                            ask = float(quote.ask_price) if quote.ask_price else 0
+                            mid = (bid + ask) / 2 if bid and ask else bid or ask
+                            if mid > 0:
+                                nonlocal underlying_price
+                                underlying_price = mid
+                            continue
                         if sym in symbol_map and sym not in received:
                             quotes_received[sym] = quote
                             received.add(sym)
@@ -1222,14 +1221,13 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_str
                             if len(received) >= len(all_symbols):
                                 break
 
-                try:
-                    await asyncio.wait_for(_collect_option_quotes(), timeout=10)
-                except asyncio.TimeoutError:
-                    pass
-                try:
-                    await asyncio.wait_for(_collect_option_greeks(), timeout=10)
-                except asyncio.TimeoutError:
-                    pass
+                # Collect quotes and greeks in parallel to halve wait time
+                _q_task = asyncio.wait_for(_collect_option_quotes(), timeout=10)
+                _g_task = asyncio.wait_for(_collect_option_greeks(), timeout=10)
+                _results = await asyncio.gather(_q_task, _g_task, return_exceptions=True)
+                for _r in _results:
+                    if isinstance(_r, Exception) and not isinstance(_r, asyncio.TimeoutError):
+                        logger.warning("Option stream error: %s", _r)
 
             # Populate results from streamed data
             for ss, (exp_idx, strike_idx) in strike_lookup.items():
@@ -1257,6 +1255,7 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_str
                             entry['ask'] = _gp
 
             # Remove streamer_symbol from output; keep strikes that have any price data
+            _total_before = sum(len(e['strikes']) for e in result_exps)
             for exp_entry in result_exps:
                 exp_entry['strikes'] = [
                     {k: v for k, v in s.items() if k != 'streamer_symbol'}
@@ -1266,13 +1265,20 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_str
 
             # Remove expirations with no valid strikes
             result_exps = [e for e in result_exps if e['strikes']]
+            _total_after = sum(len(e['strikes']) for e in result_exps)
+
+            logger.info(
+                "Option chain %s: price=%.2f, quotes=%d/%d, greeks=%d/%d, strikes=%d→%d",
+                ticker, underlying_price, len(quotes_received), len(all_symbols),
+                len(greeks_received), len(all_symbols), _total_before, _total_after,
+            )
 
             return {'underlying_price': underlying_price, 'expirations': result_exps}
 
     try:
         return asyncio.run(_run())
     except Exception as e:
-        print(f"[OptionChain] Error: {e}")
+        logger.error("fetch_option_chain(%s) failed: %s", ticker, e, exc_info=True)
         log_error("TASTYTRADE_ERROR", f"fetch_option_chain ({ticker}): {e}", page="Watchlist")
         return _empty
 
