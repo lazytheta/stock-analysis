@@ -7365,13 +7365,31 @@ elif page == "Settings":
 
     # ── Tastytrade connection ──
     st.markdown("### Tastytrade")
+
+    # Handle OAuth redirect results
+    _tt_connected = st.query_params.get("tt_connected")
+    _tt_error = st.query_params.get("tt_error")
+    if _tt_connected == "true":
+        st.success("Tastytrade connected successfully!")
+        st.query_params.clear()
+        st.session_state.pop("tt_refresh_token", None)  # force reload from DB
+        st.rerun()
+    elif _tt_error == "access_denied":
+        st.error("Connection was cancelled. Click 'Connect with Tastytrade' to try again.")
+        st.query_params.clear()
+    elif _tt_error == "connection_failed":
+        st.error("Could not connect to Tastytrade. Please try again.")
+        st.query_params.clear()
+    elif _tt_error == "session_expired":
+        st.error("Session expired. Please try connecting again.")
+        st.query_params.clear()
+
     _existing_token = _get_tt_token()
     if _existing_token:
         st.success("Tastytrade account connected.")
         if st.button("Disconnect Tastytrade", type="primary"):
             delete_credential(_sb_client, "tastytrade_refresh_token")
             st.session_state.pop("tt_refresh_token", None)
-            # Clear cached portfolio data
             for k in ["portfolio_data", "portfolio_account", "portfolio_prices",
                        "net_liq_all", "yearly_transfers", "benchmark_returns",
                        "portfolio_fetched_at"]:
@@ -7381,37 +7399,45 @@ elif page == "Settings":
             st.rerun()
     else:
         st.info("Connect your Tastytrade account to view your portfolio, cost basis, and options data. "
-                "We use **read-only** access — this app cannot place trades or modify your account in any way.")
-        with st.expander("How to get your refresh token", expanded=True):
+                "Click the button below to log in securely via Tastytrade — we only request **read-only** access.")
+
+        # OAuth connect button
+        _oauth_url = os.environ.get("OAUTH_SERVER_URL", "http://localhost:8000")
+        _user = st.session_state.get("user")
+        _user_id = _user["id"] if _user and isinstance(_user, dict) else ""
+        if _user_id:
+            _connect_url = f"{_oauth_url}/auth/tastytrade/login?user_id={_user_id}"
+            st.link_button("Connect with Tastytrade", _connect_url, type="primary")
+            st.caption("You'll be redirected to Tastytrade to log in. We never see your password.")
+
+        # Manual token fallback
+        with st.expander("Advanced: Connect manually with refresh token"):
             st.markdown(
-                "1. Go to [my.tastytrade.com](https://my.tastytrade.com), open **My Profile** and navigate to **API**\n"
-                "2. Go to **OAuth Applications** — create one if you haven't already "
-                "(give it a name like *Lazy Theta*, select **Read** permissions only)\n"
+                "If the button above doesn't work, you can connect manually:\n\n"
+                "1. Go to [my.tastytrade.com](https://my.tastytrade.com) → **My Profile** → **API**\n"
+                "2. Go to **OAuth Applications** — create one if you haven't already\n"
                 "3. Open your application and click **Create Grant**\n"
-                "4. The grant will generate a **Refresh Token** — copy that value "
-                "(a long string starting with `eyJ...`)\n"
-                "5. Paste the refresh token below and click Save\n\n"
-                "> **Not the Client ID!** The refresh token is generated inside a *Grant*, "
-                "not shown on the application overview page."
+                "4. Copy the generated **Refresh Token** (starts with `eyJ...`)\n"
+                "5. Paste it below and click Save"
             )
-        with st.form("tt_token_form"):
-            _tt_input = st.text_input(
-                "Refresh Token",
-                type="password",
-                placeholder="Paste your Tastytrade refresh token",
-            )
-            _tt_submitted = st.form_submit_button("Save", type="primary")
-        if _tt_submitted and _tt_input:
-            _token = _tt_input.strip()
-            if not _token.startswith("eyJ") or len(_token) < 200:
-                st.error("This doesn't look like a refresh token. "
-                         "Make sure you copy the token from a **Grant** inside your OAuth Application, "
-                         "not the Client ID from the application overview.")
-            else:
-                save_credential(_sb_client, "tastytrade_refresh_token", _token)
-                st.session_state["tt_refresh_token"] = _token
-                st.success("Tastytrade token saved.")
-                st.rerun()
+            with st.form("tt_token_form"):
+                _tt_input = st.text_input(
+                    "Refresh Token",
+                    type="password",
+                    placeholder="Paste your Tastytrade refresh token",
+                )
+                _tt_submitted = st.form_submit_button("Save", type="primary")
+            if _tt_submitted and _tt_input:
+                _token = _tt_input.strip()
+                if not _token.startswith("eyJ") or len(_token) < 200:
+                    st.error("This doesn't look like a refresh token. "
+                             "Make sure you copy the token from a **Grant** inside your OAuth Application, "
+                             "not the Client ID from the application overview.")
+                else:
+                    save_credential(_sb_client, "tastytrade_refresh_token", _token)
+                    st.session_state["tt_refresh_token"] = _token
+                    st.success("Tastytrade token saved.")
+                    st.rerun()
 
     # ── Interactive Brokers connection ──
     st.markdown("---")
