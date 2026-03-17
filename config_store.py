@@ -9,8 +9,6 @@ the RLS WITH CHECK clause is satisfied.
 
 import logging
 
-import streamlit as st
-
 logger = logging.getLogger(__name__)
 
 
@@ -20,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 def _get_user_id(client):
     """Get user_id, cached per-request via session_state."""
+    import streamlit as st
     if "_user_id" not in st.session_state:
         st.session_state["_user_id"] = str(client.auth.get_user().user.id)
     return st.session_state["_user_id"]
@@ -47,13 +46,14 @@ def _restore_tuples(cfg):
 # Watchlist config CRUD
 # ---------------------------------------------------------------------------
 
-def save_config(client, ticker, cfg):
+def save_config(client, ticker, cfg, user_id=None):
     """Upsert a DCF config dict to Supabase."""
     from datetime import datetime, timezone
 
     ticker = ticker.upper()
     data = _prepare_for_json(cfg)
-    user_id = _get_user_id(client)
+    if user_id is None:
+        user_id = _get_user_id(client)
 
     row = {
         "user_id": user_id,
@@ -66,32 +66,35 @@ def save_config(client, ticker, cfg):
     client.table("watchlist_configs").upsert(row).execute()
 
 
-def load_config(client, ticker):
+def load_config(client, ticker, user_id=None):
     """Load a DCF config dict. Returns dict or None."""
     ticker = ticker.upper()
-    resp = (
+    query = (
         client.table("watchlist_configs")
         .select("config")
         .eq("ticker", ticker)
-        .single()
-        .execute()
     )
+    if user_id is not None:
+        query = query.eq("user_id", user_id)
+    resp = query.single().execute()
     if resp and resp.data:
         return _restore_tuples(resp.data["config"])
     return None
 
 
-def list_watchlist(client):
+def list_watchlist(client, user_id=None):
     """Return list of dicts with ticker metadata.
 
     Each entry: {ticker, company, updated, stock_price}
-    RLS automatically scopes to the current user.
+    RLS automatically scopes to the current user when user_id is None.
     """
-    resp = (
+    query = (
         client.table("watchlist_configs")
         .select("ticker, company, stock_price, updated_at")
-        .execute()
     )
+    if user_id is not None:
+        query = query.eq("user_id", user_id)
+    resp = query.execute()
     if resp and resp.data:
         return [
             {
