@@ -244,5 +244,5 @@ def log_page_view(client, page_name):
             "user_id": user_id,
             "page": page_name,
         }).execute()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("page_view insert failed: %s", e)
