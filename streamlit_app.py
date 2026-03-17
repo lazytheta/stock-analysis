@@ -142,6 +142,15 @@ def _get_ibkr_credentials():
     return st.session_state.get("ibkr_credentials")
 
 
+def _is_auth_error(exc):
+    """Detect if an exception is a broker authentication/token error."""
+    msg = str(exc).lower()
+    return any(p in msg for p in (
+        "401", "unauthorized", "invalid_token", "token expired",
+        "refresh_token", "authentication", "forbidden",
+    ))
+
+
 def _render_welcome_page():
     """Full welcome page for users without a Tastytrade connection."""
     st.markdown(
@@ -4550,9 +4559,16 @@ def _load_portfolio_data():
                 st.session_state.portfolio_account = acct
                 st.session_state.portfolio_fetched_at = time.time()
             except Exception as e:
-                logger.error("Portfolio fetch failed: %s", e, exc_info=True)
-                log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"broker": get_active_broker()})
-                st.error(f"Failed to fetch portfolio data. Please try again. ({type(e).__name__})")
+                if _is_auth_error(e):
+                    logger.warning("Broker auth failed — clearing token so user can reconnect")
+                    log_error("AUTH_ERROR", "Broker session expired", page="Portfolio", metadata={"broker": get_active_broker()})
+                    st.session_state.pop("tt_refresh_token", None)
+                    st.session_state.pop("portfolio_data", None)
+                    st.error("Your broker session has expired. Please reconnect via **Account > Broker Connections**.")
+                else:
+                    logger.error("Portfolio fetch failed: %s", e, exc_info=True)
+                    log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"broker": get_active_broker()})
+                    st.error(f"Failed to fetch portfolio data. Please try again. ({type(e).__name__})")
                 st.stop()
 
     cost_basis = st.session_state.portfolio_data
@@ -6198,19 +6214,24 @@ elif page == "Portfolio":
         try:
             gk, bwd = f_combo.result(timeout=30)
         except Exception as e:
-            logger.warning("Greeks/BWD fetch failed: %s", e)
-            log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "greeks_bwd"})
+            if not _is_auth_error(e):
+                logger.warning("Greeks/BWD fetch failed: %s", e)
+                log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "greeks_bwd"})
+            else:
+                logger.debug("Greeks/BWD skipped — broker auth expired")
             gk, bwd = None, None
         try:
             mi = f_mi.result(timeout=10)
         except Exception as e:
-            logger.debug("Margin interest fetch failed: %s", e)
-            log_error("PORTFOLIO_ERROR", str(e), page="Portfolio", metadata={"component": "margin_interest"})
+            if not _is_auth_error(e):
+                logger.debug("Margin interest fetch failed: %s", e)
+                log_error("PORTFOLIO_ERROR", str(e), page="Portfolio", metadata={"component": "margin_interest"})
             mi = None
         executor.shutdown(wait=False, cancel_futures=True)
     except Exception as e:
-        logger.warning("Risk dashboard data fetch failed: %s", e)
-        log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "risk_dashboard"})
+        if not _is_auth_error(e):
+            logger.warning("Risk dashboard data fetch failed: %s", e)
+            log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "risk_dashboard"})
 
     cash = st.session_state.get("_margin_cash", 0.0)
     debt = abs(cash) if cash < 0 else 0.0
@@ -6746,16 +6767,18 @@ elif page == "Results":
             with st.spinner("Loading full net liq history..."):
                 st.session_state["net_liq_all"] = fetch_net_liq_history("all")
         except Exception as e:
-            logger.warning("Net liq history fetch failed: %s", e)
-            log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "net_liq_history"})
+            if not _is_auth_error(e):
+                logger.warning("Net liq history fetch failed: %s", e)
+                log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "net_liq_history"})
             st.session_state["net_liq_all"] = None
     if "yearly_transfers" not in st.session_state:
         try:
             with st.spinner("Loading cash transfer history..."):
                 st.session_state["yearly_transfers"] = fetch_yearly_transfers()
         except Exception as e:
-            logger.warning("Yearly transfers fetch failed: %s", e)
-            log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "yearly_transfers"})
+            if not _is_auth_error(e):
+                logger.warning("Yearly transfers fetch failed: %s", e)
+                log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "yearly_transfers"})
             st.session_state["yearly_transfers"] = {}
 
     nl_all_early = st.session_state.get("net_liq_all")

@@ -409,11 +409,15 @@ def fetch_margin_for_position(ticker, quantity, refresh_token=None):
     try:
         return asyncio.run(_run())
     except Exception as e:
-        detail = str(e) or f"{type(e).__name__}: {repr(e)}"
-        # Don't spam error logs for empty TastytradeErrors (common outside market hours)
-        if detail and detail.strip("' "):
-            logger.debug("Margin dry-run failed for %s: %s", ticker, detail)
-            log_error("TASTYTRADE_ERROR", f"fetch_margin_for_position ({ticker}): {detail}", page="Portfolio")
+        # Extract the real message — TastytradeError wraps itself: "TastytradeError('')"
+        inner = getattr(e, 'args', ())
+        inner_msg = str(inner[0]).strip() if inner else ""
+        # Strip nested class name wrappers like TastytradeError('')
+        if inner_msg.startswith("TastytradeError(") or not inner_msg or inner_msg in ("''", '""'):
+            logger.debug("Margin dry-run returned empty error for %s (likely outside market hours)", ticker)
+        else:
+            logger.debug("Margin dry-run failed for %s: %s", ticker, inner_msg)
+            log_error("TASTYTRADE_ERROR", f"fetch_margin_for_position ({ticker}): {inner_msg}", page="Portfolio")
         return None
 
 
