@@ -2338,33 +2338,35 @@ def _dcf_editor(ticker):
         st.markdown(f'<p style="color:{T["text_muted"]};font-size:0.85rem">In millions</p>', unsafe_allow_html=True)
 
         _n = len(growth)
+        growth = [float(g) for g in growth]
+        margins = [float(m) for m in margins]
         _base_rev = cfg.get('base_revenue', 0)
         _base_oi = cfg.get('base_oi', 0)
-        _tg = cfg.get('terminal_growth', 0.03)
-        _tm = cfg.get('terminal_margin', margins[-1] if margins else 0.30)
+        _tg = float(cfg.get('terminal_growth', 0.03))
+        _tm = float(cfg.get('terminal_margin', margins[-1] if margins else 0.30))
 
-        # Expand single-value assumptions to per-year lists
-        _default_wacc = compute_wacc(cfg) if cfg.get('equity_market_value', 0) + cfg.get('debt_market_value', 0) > 0 else 0.08
-        _wacc_list = list(cfg.get('wacc_per_year', [_default_wacc] * _n))
+        # Expand single-value assumptions to per-year lists (all floats)
+        _default_wacc = float(compute_wacc(cfg) if cfg.get('equity_market_value', 0) + cfg.get('debt_market_value', 0) > 0 else 0.08)
+        _wacc_list = [float(x) for x in cfg.get('wacc_per_year', [_default_wacc] * _n)]
         if len(_wacc_list) < _n:
             _wacc_list.extend([_wacc_list[-1] if _wacc_list else _default_wacc] * (_n - len(_wacc_list)))
-        _default_tax = cfg.get('tax_rate', 0.21)
-        _tax_list = list(cfg.get('tax_per_year', [_default_tax] * _n))
+        _default_tax = float(cfg.get('tax_rate', 0.21))
+        _tax_list = [float(x) for x in cfg.get('tax_per_year', [_default_tax] * _n)]
         if len(_tax_list) < _n:
             _tax_list.extend([_tax_list[-1] if _tax_list else _default_tax] * (_n - len(_tax_list)))
         _default_stc = float(cfg.get('sales_to_capital', 1.0))
         _stc_list = [float(x) for x in cfg.get('stc_per_year', [_default_stc] * _n)]
         if len(_stc_list) < _n:
             _stc_list.extend([_stc_list[-1] if _stc_list else _default_stc] * (_n - len(_stc_list)))
-        _default_sbc = cfg.get('sbc_pct', 0.004)
-        _sbc_list = list(cfg.get('sbc_per_year', [_default_sbc] * _n))
+        _default_sbc = float(cfg.get('sbc_pct', 0.004))
+        _sbc_list = [float(x) for x in cfg.get('sbc_per_year', [_default_sbc] * _n)]
         if len(_sbc_list) < _n:
             _sbc_list.extend([_sbc_list[-1] if _sbc_list else _default_sbc] * (_n - len(_sbc_list)))
 
         # Terminal column editable values (defaults from config or last year)
-        _tv_tax_default = cfg.get('terminal_tax', _tax_list[-1] if _tax_list else _default_tax)
-        _tv_stc_default = cfg.get('terminal_stc', _stc_list[-1] if _stc_list else _default_stc)
-        _tv_sbc_default = cfg.get('terminal_sbc', _sbc_list[-1] if _sbc_list else _default_sbc)
+        _tv_tax_default = float(cfg.get('terminal_tax', _tax_list[-1] if _tax_list else _default_tax))
+        _tv_stc_default = float(cfg.get('terminal_stc', _stc_list[-1] if _stc_list else _default_stc))
+        _tv_sbc_default = float(cfg.get('terminal_sbc', _sbc_list[-1] if _sbc_list else _default_sbc))
         # Pre-read terminal WACC from session state (widget rendered after TV calc)
         _tv_wacc_default = cfg.get('terminal_wacc', _wacc_list[-1] if _wacc_list else _default_wacc)
         _tv_wacc = st.session_state.get("ed_w_tv", _tv_wacc_default * 100) / 100
