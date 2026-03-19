@@ -1825,6 +1825,10 @@ def _watchlist_overview():
         return {t: (p["price"] if p else 0.0) for t, p in prices.items()}
 
     # Load all configs once (avoid redundant load_config calls)
+    # Clear cache if returning from editor
+    if st.session_state.pop("_wl_config_dirty", False):
+        st.cache_data.clear()
+
     @st.cache_data(ttl=300, show_spinner=False)
     def _load_all_configs(user_id, tickers_tuple):
         from concurrent.futures import ThreadPoolExecutor
@@ -2077,6 +2081,7 @@ def _dcf_editor(ticker):
 
     # ── Back button ──
     if st.button("\u2190 Watchlist", key="editor_back"):
+        st.session_state["_wl_config_dirty"] = True
         del st.query_params["edit"]
         st.rerun()
 
