@@ -1888,6 +1888,7 @@ def _watchlist_overview():
             'ticker': t,
             'company': cfg_wl.get('company', t),
             'notes': cfg_wl.get('notes', ''),
+            'category': cfg_wl.get('category', 'Uncategorized'),
             'price': live_price,
             'intrinsic': val['intrinsic_value'],
             'buy_price': val['buy_price'],
@@ -1931,15 +1932,18 @@ def _watchlist_overview():
 
     _earnings_map = _cached_earnings(tuple(wl_tickers)) if wl_tickers else {}
 
-    # Header
-    hdr = st.columns([0.3, 1.0, 1.6, 0.8, 0.8, 0.8, 0.7, 0.6, 0.7, 0.7, 2.2, 0.3])
-    _wl_hdr = ["", "Ticker", "Company", "Price", "Intrinsic", "Buy Price", "Upside", "P/E", "FCF Yield", "Earnings", "Best Put", ""]
-    for col, label in zip(hdr, _wl_hdr):
-        if label:
-            col.markdown(f"**{label}**")
+    # ── Category definitions ──
+    _categories = ["Yes", "Maybe", "Watch Later", "No", "Uncategorized"]
+    _cat_icons = {"Yes": "✅", "Maybe": "🤔", "Watch Later": "⏳", "No": "❌", "Uncategorized": ""}
 
-    # Rows — edit icon navigates to editor
-    for row in rows:
+    def _render_wl_header():
+        hdr = st.columns([0.3, 1.0, 1.6, 0.8, 0.8, 0.8, 0.7, 0.6, 0.7, 0.7, 2.2, 0.3])
+        _wl_hdr = ["", "Ticker", "Company", "Price", "Intrinsic", "Buy Price", "Upside", "P/E", "FCF Yield", "Earnings", "Best Put", ""]
+        for col, label in zip(hdr, _wl_hdr):
+            if label:
+                col.markdown(f"**{label}**")
+
+    def _render_wl_row(row):
         t = row['ticker']
         up_color = "green" if row['upside'] > 0 else "red"
         cols = st.columns([0.3, 1.0, 1.6, 0.8, 0.8, 0.8, 0.7, 0.6, 0.7, 0.7, 2.2, 0.3], vertical_alignment="center")
@@ -1952,7 +1956,6 @@ def _watchlist_overview():
             f'<img src="{logo_url}" style="width:24px;height:24px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:6px" onerror="this.style.display=\'none\'"><strong>{t}</strong>',
             unsafe_allow_html=True,
         )
-        # Company name + note preview
         _note = row.get('notes', '')
         if _note:
             _note_preview = _note[:50].replace('\n', ' ') + ('...' if len(_note) > 50 else '')
@@ -1968,12 +1971,10 @@ def _watchlist_overview():
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
         cols[7].markdown(f"{row['pe']:.1f}x" if row['pe'] else "—")
         cols[8].markdown(f"{row['fcf_yield']:.1%}" if row['fcf_yield'] else "—")
-        # Earnings column
         _earn = _earnings_map.get(t)
         if _earn and _earn.get('date'):
             _days_to_earn = (_earn['date'] - date.today()).days
             if _days_to_earn >= 0:
-                # Future earnings
                 _earn_est = " (est)" if _earn.get('estimated') else ""
                 if _days_to_earn <= 7:
                     _earn_col = T['red']
@@ -1986,7 +1987,6 @@ def _watchlist_overview():
                     unsafe_allow_html=True,
                 )
             else:
-                # Past earnings — estimate next as ~90 days later
                 _next_est = _earn['date'] + timedelta(days=91)
                 cols[9].markdown(
                     f'<span style="color:{T["text_muted"]};font-size:0.85rem">~{_next_est.strftime("%b %d")}</span>',
@@ -2020,6 +2020,47 @@ def _watchlist_overview():
             if st.button("", key=f"wl_rm_row_{t}", icon=":material/close:"):
                 remove_from_watchlist(_sb_client, t)
                 st.rerun()
+
+    # ── Group rows by category and render ──
+    _grouped = {c: [] for c in _categories}
+    for row in rows:
+        _cat = row.get('category', 'Uncategorized')
+        if _cat not in _grouped:
+            _cat = 'Uncategorized'
+        _grouped[_cat].append(row)
+
+    # Hero-card style per category
+    _cat_keys = {_cat: f"wl_cat_{i}" for i, _cat in enumerate(_categories)}
+    _active_cats = [c for c in _categories if _grouped[c]]
+    st.markdown(
+        '<style>'
+        + ''.join(
+            f'.st-key-{_cat_keys[c]} {{'
+            f'  background: {T["card"]};'
+            f'  border-radius: 24px;'
+            f'  border-top: 3px solid {T["accent"]};'
+            f'  padding: 32px;'
+            f'  box-shadow: {T["shadow"]};'
+            f'  margin-bottom: 20px;'
+            f'}}'
+            for c in _active_cats
+        )
+        + '</style>',
+        unsafe_allow_html=True,
+    )
+
+    for _cat in _active_cats:
+        _cat_rows = _grouped[_cat]
+        with st.container(key=_cat_keys[_cat]):
+            st.markdown(
+                f'<div style="font-size:0.95rem;font-weight:700;color:{T["text"]};margin-bottom:4px">'
+                f'{_cat} <span style="font-weight:400;color:{T["text_muted"]};font-size:0.85rem">'
+                f'{len(_cat_rows)}</span></div>',
+                unsafe_allow_html=True,
+            )
+            _render_wl_header()
+            for row in _cat_rows:
+                _render_wl_row(row)
 
     st.markdown("")
 
@@ -2081,6 +2122,19 @@ def _dcf_editor(ticker):
         f'</div>',
         unsafe_allow_html=True,
     )
+
+    # ── Status pills (inside hero card area) ──
+    _cat_options = ["Uncategorized", "Yes", "Maybe", "Watch Later", "No"]
+    _cur_cat = cfg.get('category', 'Uncategorized')
+    _cat_idx = _cat_options.index(_cur_cat) if _cur_cat in _cat_options else 0
+    _new_cat = st.pills(
+        "Status", _cat_options, default=_cat_options[_cat_idx],
+        key="dcf_category",
+    )
+    if _new_cat and _new_cat != _cur_cat:
+        cfg['category'] = _new_cat
+        save_config(_sb_client, ticker, cfg)
+        st.rerun()
 
     # ── Earnings warning (hero card) ──
     @st.cache_data(ttl=300, show_spinner=False)
