@@ -2394,8 +2394,8 @@ def _dcf_editor(ticker):
 
         def _dcf_row_input(cols, idx, key, value, step, fmt, is_pct=True):
             with cols[idx]:
-                v = st.number_input(key, value=value * 100 if is_pct else value,
-                                    step=step, format=fmt, key=key, label_visibility="collapsed")
+                v = st.number_input(key, value=float(value * 100) if is_pct else float(value),
+                                    step=float(step), format=fmt, key=key, label_visibility="collapsed")
                 return v / 100 if is_pct else v
 
         def _dcf_divider():
