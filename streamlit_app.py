@@ -2352,8 +2352,8 @@ def _dcf_editor(ticker):
         _tax_list = list(cfg.get('tax_per_year', [_default_tax] * _n))
         if len(_tax_list) < _n:
             _tax_list.extend([_tax_list[-1] if _tax_list else _default_tax] * (_n - len(_tax_list)))
-        _default_stc = cfg.get('sales_to_capital', 1.0)
-        _stc_list = list(cfg.get('stc_per_year', [_default_stc] * _n))
+        _default_stc = float(cfg.get('sales_to_capital', 1.0))
+        _stc_list = [float(x) for x in cfg.get('stc_per_year', [_default_stc] * _n)]
         if len(_stc_list) < _n:
             _stc_list.extend([_stc_list[-1] if _stc_list else _default_stc] * (_n - len(_stc_list)))
         _default_sbc = cfg.get('sbc_pct', 0.004)
@@ -2394,8 +2394,10 @@ def _dcf_editor(ticker):
 
         def _dcf_row_input(cols, idx, key, value, step, fmt, is_pct=True):
             with cols[idx]:
-                v = st.number_input(key, value=float(value * 100) if is_pct else float(value),
-                                    step=float(step), format=fmt, key=key, label_visibility="collapsed")
+                val = round(float(value) * 100, 6) if is_pct else round(float(value), 6)
+                stp = round(float(step), 6)
+                v = st.number_input(key, value=val, step=stp, format=fmt,
+                                    key=key, label_visibility="collapsed")
                 return v / 100 if is_pct else v
 
         def _dcf_divider():
