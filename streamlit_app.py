@@ -2109,7 +2109,7 @@ def _dcf_editor(ticker):
     margins = list(cfg.get('op_margins', []))
 
     # ── Tabs: DCF / Reverse DCF / Peer Comparison ──
-    _tab_dcf, _tab_rdcf, _tab_peers, _tab_fundamentals, _tab_chain, _tab_notes = st.tabs(["DCF", "Reverse DCF", "Peer Comparison", "Fundamentals", "Recommended Option", "Notes"])
+    _tab_dcf, _tab_rdcf, _tab_peers, _tab_fundamentals, _tab_notes = st.tabs(["DCF", "Reverse DCF", "Peer Comparison", "Fundamentals", "Notes"])
 
     with _tab_dcf:
         st.markdown("#### Discounting Cash Flows")
@@ -3685,375 +3685,6 @@ def _dcf_editor(ticker):
         else:
             st.info("Insufficient data for FCF Yield")
 
-    # ── Chain Tab — Option Chain with Wheel Metrics ──
-    with _tab_chain:
-        # Load persisted user wheel preferences
-        _uprefs = load_user_prefs(_sb_client)
-
-        # One-time migration: reset stale 0-20 DTE range to proper defaults
-        if _uprefs.get('dte_min') == 0 and _uprefs.get('dte_max') == 20:
-            _uprefs['dte_min'] = 25
-            _uprefs['dte_max'] = 45
-            save_user_prefs(_sb_client, _uprefs)
-
-        # Preference sliders
-        _sl1, _sl2 = st.columns(2)
-        with _sl1:
-            _delta_range = st.slider(
-                "Delta range", 0.10, 0.50, (_uprefs['delta_min'], _uprefs['delta_max']),
-                step=0.05, format="%.2f", key="wheel_delta_range",
-            )
-        with _sl2:
-            _dte_range = st.slider(
-                "DTE range", 0, 90, (_uprefs['dte_min'], _uprefs['dte_max']),
-                step=1, key="wheel_dte_range",
-            )
-
-        # Persist if changed
-        if (_delta_range[0] != _uprefs['delta_min'] or _delta_range[1] != _uprefs['delta_max']
-                or _dte_range[0] != _uprefs['dte_min'] or _dte_range[1] != _uprefs['dte_max']):
-            save_user_prefs(_sb_client, {
-                'delta_min': _delta_range[0], 'delta_max': _delta_range[1],
-                'dte_min': _dte_range[0], 'dte_max': _dte_range[1],
-            })
-
-        _usr_dlo, _usr_dhi = _delta_range
-        _usr_dte_lo, _usr_dte_hi = _dte_range
-
-        # Strategy toggle
-        _chain_param = st.query_params.get("chain", "put")
-        _chain_default = "Write Call" if _chain_param == "call" else "Sell Put"
-        _chain_strategy = st.pills(
-            "Strategy", ["Sell Put", "Write Call"], default=_chain_default,
-            key="chain_strategy",
-        )
-        _opt_type = "Call" if _chain_strategy == "Write Call" else "Put"
-        _opt_label = "Put" if _opt_type == "Put" else "Call"
-
-        # Cost basis input for Write Call — don't sell below cost
-        _call_cost_basis = 0.0
-        if _chain_strategy == "Write Call":
-            # Try to auto-fill from portfolio data (prefer wheel basis over broker cost)
-            _default_cb = cfg.get('call_cost_basis', 0.0)
-            if _default_cb == 0.0 and 'portfolio_data' in st.session_state:
-                _pf = st.session_state.portfolio_data.get(ticker, {})
-                _pf_shares = _pf.get('shares_held', 0)
-                _pf_wheels = _pf.get('wheels', [])
-                if _pf_wheels and _pf_shares > 0:
-                    _w = _pf_wheels[-1]
-                    _w_eq_cost = sum(t['net_value'] for t in _w['trades'] if t['instrument_type'] == 'Equity')
-                    _w_opt_pl = sum(t['net_value'] for t in _w['trades'] if 'Option' in t['instrument_type'])
-                    _default_cb = max((_w_eq_cost + _w_opt_pl) / _pf_shares, 0.0)
-                else:
-                    _default_cb = max(_pf.get('cost_per_share', 0.0), 0.0)
-            _call_cost_basis = st.number_input(
-                "Cost basis (min. strike)", value=_default_cb, min_value=0.0,
-                step=1.0, format="%.2f", key="call_cost_basis",
-                help="Strikes below your cost basis are excluded from recommendations.",
-            )
-            # Persist if changed
-            if _call_cost_basis != cfg.get('call_cost_basis', 0.0):
-                cfg['call_cost_basis'] = _call_cost_basis
-                save_config(_sb_client, ticker, cfg)
-
-        # Cached data fetch — use user DTE range
-        @st.cache_data(ttl=60, show_spinner="Loading option chain...")
-        def _cached_chain(t, opt_type, fb_price, dte_lo, dte_hi, n_strikes=8):
-            return fetch_option_chain(t, option_type=opt_type, fallback_price=fb_price,
-                                      min_dte=dte_lo, max_dte=dte_hi, num_strikes=n_strikes)
-
-        _num_strikes = 15 if _opt_type == 'Call' else 8
-
-        try:
-            _chain_data = _cached_chain(ticker, _opt_type, live_price, _usr_dte_lo, _usr_dte_hi, _num_strikes)
-        except Exception as _chain_err:
-            st.error(f"Failed to load option chain: {_chain_err}")
-            _chain_data = {'underlying_price': 0, 'expirations': []}
-        _ch_price = _chain_data['underlying_price']
-        _ch_exps = _chain_data['expirations']
-
-        if not _ch_exps:
-            st.info(
-                "No option chain data available. This usually means the market is closed "
-                "or the streaming connection timed out. Try again during US market hours "
-                "(9:30 AM – 4:00 PM ET)."
-            )
-        else:
-            # DCF intrinsic value for MoS calculation
-            _dcf_intrinsic = val['intrinsic_value'] if val and val.get('intrinsic_value', 0) > 0 else 0
-
-            # Build ALL rows across ALL expirations for recommendation picking
-            _all_rows = []
-            _rows_by_exp = {}  # exp_idx -> list of rows
-            for _ei, _exp in enumerate(_ch_exps):
-                _dte = _exp['dte']
-                _rows_by_exp[_ei] = []
-                for _s in _exp['strikes']:
-                    _strike = _s['strike']
-                    _bid = _s['bid']
-                    _delta = _s['delta']
-
-                    if _dte <= 0 or _bid <= 0:
-                        continue
-
-                    _prem_day = _bid / _dte
-
-                    if _opt_type == 'Put':
-                        _ann_roc = (_bid / _strike) * (365 / _dte) * 100 if _strike > 0 else 0
-                        _breakeven = _strike - _bid
-                        _dist = (_ch_price - _strike) / _ch_price * 100 if _ch_price > 0 else 0
-                    else:
-                        _ann_roc = (_bid / _ch_price) * (365 / _dte) * 100 if _ch_price > 0 else 0
-                        _breakeven = _strike + _bid
-                        _dist = (_strike - _ch_price) / _ch_price * 100 if _ch_price > 0 else 0
-
-                    if _opt_type == 'Put' and _dcf_intrinsic > 0:
-                        _dcf_mos = (_dcf_intrinsic - _breakeven) / _dcf_intrinsic * 100
-                    else:
-                        _dcf_mos = 0.0
-
-                    _row = {
-                        'strike': _strike, 'bid': _bid, 'ask': _s['ask'], 'mid': _s['mid'],
-                        'delta': _delta, 'theta': _s['theta'], 'gamma': _s['gamma'],
-                        'vega': _s['vega'], 'iv': _s['iv'],
-                        'prem_day': _prem_day, 'ann_roc': _ann_roc,
-                        'breakeven': _breakeven, 'dist': _dist, 'dcf_mos': _dcf_mos,
-                        'dte': _dte, 'exp_date': _exp['expiration_date'],
-                        'exp_type': _exp['expiration_type'],
-                    }
-                    _all_rows.append(_row)
-                    _rows_by_exp[_ei].append(_row)
-
-            # ── Recommendation engine ──
-            # Filter to user's delta range + cost-basis constraint
-            _eligible = []
-            for _r in _all_rows:
-                if _opt_type == 'Call' and _call_cost_basis > 0 and _r['strike'] < _call_cost_basis:
-                    continue
-                _ad = abs(_r['delta'])
-                if _ad < _usr_dlo or _ad > _usr_dhi:
-                    continue
-                _eligible.append(_r)
-
-            # Group eligible rows by expiration date
-            _by_exp = {}
-            for _r in _eligible:
-                _by_exp.setdefault(_r['exp_date'], []).append(_r)
-
-            _picks = {}
-            if _eligible and _by_exp:
-                # Sort expirations by DTE
-                _exp_dates_sorted = sorted(_by_exp.keys(), key=lambda e: _by_exp[e][0]['dte'])
-                _longest_exp = _exp_dates_sorted[-1]
-                _shortest_exp = _exp_dates_sorted[0]
-
-                # Conservative: longest DTE, lowest abs(delta)
-                _cons_candidates = sorted(_by_exp[_longest_exp], key=lambda r: abs(r['delta']))
-                _picks['conservative'] = _cons_candidates[0]
-
-                # Aggressive: shortest DTE, highest abs(delta)
-                _aggr_candidates = sorted(_by_exp[_shortest_exp], key=lambda r: abs(r['delta']), reverse=True)
-                _picks['aggressive'] = _aggr_candidates[0]
-
-                # Fallback: if same expiration (narrow DTE range), differentiate by delta
-                if _longest_exp == _shortest_exp:
-                    _all_sorted_delta = sorted(_by_exp[_longest_exp], key=lambda r: abs(r['delta']))
-                    _picks['conservative'] = _all_sorted_delta[0]
-                    _picks['aggressive'] = _all_sorted_delta[-1]
-
-                # Recommended: best scored option (excluding cons/aggr picks)
-                # Normalize components to 0-1 scale
-                _max_roc = max((r['ann_roc'] for r in _eligible), default=1) or 1
-                _max_mos = max((r['dcf_mos'] for r in _eligible), default=1) or 1
-                _max_ppd = max((r['prem_day'] for r in _eligible), default=1) or 1
-
-                def _rec_score(r):
-                    _roc_n = min(r['ann_roc'], 60) / min(_max_roc, 60) if _max_roc > 0 else 0
-                    _mos_n = max(min(r['dcf_mos'], 40), 0) / min(_max_mos, 40) if _dcf_intrinsic > 0 and _max_mos > 0 else 0
-                    _delta_n = 1 - abs(r['delta'])
-                    _ppd_n = r['prem_day'] / _max_ppd if _max_ppd > 0 else 0
-                    return _roc_n * 0.4 + _mos_n * 0.3 + _delta_n * 0.2 + _ppd_n * 0.1
-
-                _cons_pick = _picks.get('conservative')
-                _aggr_pick = _picks.get('aggressive')
-                _best_rec = None
-                _best_rec_sc = -999
-                for _r in _eligible:
-                    if _r is _cons_pick or _r is _aggr_pick:
-                        continue
-                    _sc = _rec_score(_r)
-                    if _sc > _best_rec_sc:
-                        _best_rec_sc = _sc
-                        _best_rec = _r
-                # If no different option exists, allow same as one of them
-                if _best_rec is None:
-                    _best_rec = max(_eligible, key=_rec_score)
-                _picks['recommended'] = _best_rec
-
-            if not _picks:
-                # Diagnose why no strikes passed the filter
-                _n_total = len(_all_rows)
-                _n_cost = sum(1 for r in _all_rows if _opt_type == 'Call' and _call_cost_basis > 0 and r['strike'] < _call_cost_basis)
-                _n_delta = sum(1 for r in _all_rows if not (_usr_dlo <= abs(r['delta']) <= _usr_dhi))
-                _hints = []
-                if _n_total == 0:
-                    _hints.append("No strikes with valid bids were found in the chain.")
-                else:
-                    if _n_cost > 0:
-                        _hints.append(f"{_n_cost}/{_n_total} strikes filtered by min strike (${_call_cost_basis:.0f}).")
-                    if _n_delta > 0:
-                        _deltas = [abs(r['delta']) for r in _all_rows if r['delta'] != 0]
-                        _drange = f"{min(_deltas):.2f}–{max(_deltas):.2f}" if _deltas else "n/a"
-                        _hints.append(f"{_n_delta}/{_n_total} strikes outside delta range "
-                                      f"{_usr_dlo:.2f}–{_usr_dhi:.2f} (available: {_drange}).")
-                _hint_text = " ".join(_hints) if _hints else "Try widening your delta or DTE range."
-                st.info(f"No suitable strikes match your filters. {_hint_text}")
-            else:
-                # ── Recommendation card builder ──
-                _pill = (
-                    'display:inline-block;padding:4px 10px;border-radius:6px;'
-                    f'background:{T["pill_bg"]};border:1px solid {T["pill_border"]};'
-                    'margin:3px 4px 3px 0;font-size:0.88rem;white-space:nowrap;'
-                )
-
-                def _metric_pills(r):
-                    _mos_pill = (
-                        f'<span style="{_pill}color:{T["accent"] if r["dcf_mos"] > 10 else (T["red"] if r["dcf_mos"] < 0 else T["text"])}">'
-                        f'DCF MoS <b>{r["dcf_mos"]:.1f}%</b></span>'
-                    ) if _dcf_intrinsic > 0 else ''
-                    # Earnings warning: show if earnings fall within this option's DTE
-                    _earn_pill = ''
-                    if _days_to_earn is not None and _days_to_earn <= r['dte']:
-                        _earn_pill = (
-                            f'<span style="{_pill}color:{T["red"]};border-color:{T["red"]}">'
-                            f'Earnings in <b>{_days_to_earn}d</b></span>'
-                        )
-                    return (
-                        f'<div style="display:flex;flex-wrap:wrap;margin-top:8px">'
-                        f'<span style="{_pill}color:{T["text"]}">Premium <b>${r["bid"]:.2f}</b></span>'
-                        f'<span style="{_pill}color:{T["text"]}">$/Day <b>${r["prem_day"]:.2f}</b></span>'
-                        f'<span style="{_pill}color:{T["accent"] if r["ann_roc"] >= 15 else T["text"]}">'
-                        f'Ann. ROC <b>{r["ann_roc"]:.1f}%</b></span>'
-                        f'<span style="{_pill}color:{T["text"]}">Delta <b>{abs(r["delta"]):.2f}</b></span>'
-                        f'<span style="{_pill}color:{T["text"]}">Buffer <b>{r["dist"]:.1f}%</b></span>'
-                        f'<span style="{_pill}color:{T["text"]}">Breakeven <b>${r["breakeven"]:.2f}</b></span>'
-                        f'{_mos_pill}'
-                        f'{_earn_pill}'
-                        f'</div>'
-                    )
-
-                # Primary recommendation
-                if 'recommended' in _picks:
-                    _rec = _picks['recommended']
-                    _note = (
-                        'Balances premium income with margin of safety based on your DCF inputs.'
-                        if _dcf_intrinsic > 0 else
-                        'Based on delta targeting (0.20\u20130.35) and annualized return.'
-                    )
-                    _html = (
-                        f'<div style="background:{T["accent_light"]};border:1px solid {T["accent"]};'
-                        f'border-radius:10px;padding:18px 22px;margin-bottom:14px">'
-                        f'<div style="font-weight:700;font-size:1.15rem;color:{T["text"]}">'
-                        f'Recommended: ${_rec["strike"]:.0f} {_opt_label} \u2014 {_rec["dte"]}d</div>'
-                        f'{_metric_pills(_rec)}'
-                        f'<div style="font-size:0.83rem;color:{T["text_muted"]};margin-top:10px">{_note}</div>'
-                        f'</div>'
-                    )
-                    st.markdown(_html, unsafe_allow_html=True)
-
-                # Conservative + Aggressive side by side
-                _alt_cards = []
-                if 'conservative' in _picks and _picks['conservative'] != _picks.get('recommended'):
-                    _c = _picks['conservative']
-                    _alt_cards.append((
-                        f'<div style="background:{T["card_alt"]};border:1px solid {T["border_medium"]};'
-                        f'border-radius:10px;padding:14px 18px">'
-                        f'<div style="font-weight:700;font-size:0.97rem;color:{T["text"]}">'
-                        f'Conservative: ${_c["strike"]:.0f} {_opt_label} \u2014 {_c["dte"]}d</div>'
-                        f'{_metric_pills(_c)}'
-                        f'<div style="font-size:0.8rem;color:{T["text_muted"]};margin-top:8px">'
-                        f'Lower delta, more downside buffer, less premium.</div>'
-                        f'</div>'
-                    ))
-                if 'aggressive' in _picks and _picks['aggressive'] != _picks.get('recommended'):
-                    _a = _picks['aggressive']
-                    _alt_cards.append((
-                        f'<div style="background:{T["card_alt"]};border:1px solid {T["border_medium"]};'
-                        f'border-radius:10px;padding:14px 18px">'
-                        f'<div style="font-weight:700;font-size:0.97rem;color:{T["text"]}">'
-                        f'Aggressive: ${_a["strike"]:.0f} {_opt_label} \u2014 {_a["dte"]}d</div>'
-                        f'{_metric_pills(_a)}'
-                        f'<div style="font-size:0.8rem;color:{T["text_muted"]};margin-top:8px">'
-                        f'Higher delta, more premium, tighter buffer.</div>'
-                        f'</div>'
-                    ))
-
-                if _alt_cards:
-                    _cols = st.columns(len(_alt_cards))
-                    for _ci, _ch in enumerate(_alt_cards):
-                        with _cols[_ci]:
-                            st.markdown(_ch, unsafe_allow_html=True)
-
-            # ── Full chain expander ──
-            st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
-            with st.expander("Show full chain"):
-                # Expiration pills
-                _exp_labels = []
-                for _e in _ch_exps:
-                    _lbl = f"{_e['expiration_date']} · {_e['dte']}d"
-                    if _e['expiration_type'] != 'Regular':
-                        _lbl += " (W)"
-                    _exp_labels.append(_lbl)
-
-                _sel_exp = st.pills(
-                    "Expiration", _exp_labels, default=_exp_labels[0],
-                    key="chain_expiration",
-                )
-                _exp_idx = _exp_labels.index(_sel_exp) if _sel_exp in _exp_labels else 0
-                _chain_rows = _rows_by_exp.get(_exp_idx, [])
-                _dte = _ch_exps[_exp_idx]['dte']
-
-                if not _chain_rows:
-                    st.info("No strikes with valid bids for this expiration.")
-                else:
-                    # Find recommended strike for this expiration to highlight
-                    _rec_strike = _picks.get('recommended', {}).get('strike')
-                    _rec_dte = _picks.get('recommended', {}).get('dte')
-
-                    _th = f'padding:8px 10px;text-align:right;color:{T["text_muted"]};font-weight:600;white-space:nowrap'
-                    _ct_hdr = (
-                        f'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:0.85rem">'
-                        f'<thead><tr style="border-bottom:2px solid {T["border_medium"]}">'
-                    )
-                    for _col in ["Strike", "Bid", "Premium", "Delta", "$/Day", "Ann. ROC", "Breakeven", "Distance", "DCF MoS"]:
-                        _ct_hdr += f'<th style="{_th}">{_col}</th>'
-                    _ct_hdr += '</tr></thead><tbody>'
-
-                    _td = 'padding:8px 10px;text-align:right;white-space:nowrap;'
-                    _ct_body = ''
-                    for _r in _chain_rows:
-                        _is_rec = (_r['strike'] == _rec_strike and _r['dte'] == _rec_dte)
-                        _row_bg = f'background:{T["accent_light"]};' if _is_rec else ''
-                        _row_fw = 'font-weight:700;' if _is_rec else ''
-                        _roc_color = T['accent'] if _r['ann_roc'] >= 15 else (T['red'] if _r['ann_roc'] < 8 else T['text'])
-                        _mos_color = T['accent'] if _r['dcf_mos'] > 10 else (T['red'] if _r['dcf_mos'] < 0 else T['text'])
-                        _mos_val = f"{_r['dcf_mos']:.1f}%%" if _dcf_intrinsic > 0 else "—"
-
-                        _ct_body += f'<tr style="{_row_bg}border-bottom:1px solid {T["border"]}">'
-                        _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">${_r["strike"]:.0f}</td>'
-                        _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">${_r["bid"]:.2f}</td>'
-                        _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">${_r["mid"]:.2f}</td>'
-                        _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">{_r["delta"]:.2f}</td>'
-                        _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">${_r["prem_day"]:.2f}</td>'
-                        _ct_body += f'<td style="{_td}{_row_fw}color:{_roc_color}">{_r["ann_roc"]:.1f}%%</td>'
-                        _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">${_r["breakeven"]:.2f}</td>'
-                        _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">{_r["dist"]:.1f}%%</td>'
-                        _ct_body += f'<td style="{_td}{_row_fw}color:{_mos_color}">{_mos_val}</td>'
-                        _ct_body += '</tr>'
-
-                    _ct_html = _ct_hdr + _ct_body + '</tbody></table></div>'
-                    st.markdown(_ct_html, unsafe_allow_html=True)
-
     with _tab_notes:
         _notes_val = cfg.get('notes', '')
         _new_notes = st.text_area(
@@ -4422,7 +4053,7 @@ with st.sidebar:
 
     _nav = st.radio(
         "Navigate",
-        ["Portfolio", "Watchlist", "Wheel Cost Basis", "Results"],
+        ["Portfolio", "Watchlist", "Option Finder", "Wheel Cost Basis", "Results"],
         label_visibility="collapsed",
         key="nav_page",
         on_change=_on_nav_change,
@@ -6439,6 +6070,380 @@ elif page == "Portfolio":
 
     with st.container(key="allocation_block"):
         _portfolio_exposure()
+
+
+# ══════════════════════════════════════════════════════
+#  OPTION FINDER PAGE — Standalone option recommendation
+# ══════════════════════════════════════════════════════
+
+elif page == "Option Finder":
+
+    st.markdown(
+        "<style>.block-container { max-width: 900px; margin: auto; }</style>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Ticker input ──
+    _of_raw = st.text_input("Ticker", placeholder="e.g. AAPL", key="of_ticker_input")
+    _of_ticker = sanitize_ticker(_of_raw) if _of_raw else None
+
+    if _of_ticker:
+        if not rate_limited_lookup():
+            st.stop()
+
+        # ── Live price ──
+        @st.cache_data(ttl=30)
+        def _of_price(t):
+            try:
+                p, _, _ = fetch_stock_price(t)
+                return p
+            except Exception:
+                return 0.0
+
+        _of_live_price = _of_price(_of_ticker)
+        if _of_live_price <= 0:
+            st.error(f"Could not fetch price for {_of_ticker}. Check the ticker and try again.")
+            st.stop()
+
+        _of_logo_url = f"https://assets.parqet.com/logos/symbol/{_of_ticker}"
+        st.markdown(
+            f'<div style="text-align:center;margin-bottom:20px">'
+            f'<img src="{_of_logo_url}" style="width:48px;height:48px;border-radius:50%%;object-fit:cover;clip-path:circle();margin-bottom:8px" '
+            f'onerror="this.style.display=\'none\'">'
+            f'<div style="font-size:1.3rem;font-weight:700;color:{T["text"]}">'
+            f'{_of_ticker} <span style="color:{T["text_muted"]};font-weight:400">${_of_live_price:.2f}</span></div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── Earnings check ──
+        @st.cache_data(ttl=300, show_spinner=False)
+        def _of_earnings(t):
+            return fetch_earnings_dates([t])
+
+        _of_earn_data = _of_earnings(_of_ticker).get(_of_ticker)
+        _of_days_to_earn = None
+        if _of_earn_data and _of_earn_data.get('date') and _of_earn_data['date'] >= date.today():
+            _of_days_to_earn = (_of_earn_data['date'] - date.today()).days
+            if _of_days_to_earn <= 14:
+                _earn_color = T['red'] if _of_days_to_earn <= 7 else T['text_muted']
+                _earn_label = "Earnings" if not _of_earn_data.get('estimated') else "Earnings (est)"
+                _earn_time = " BMO" if _of_earn_data.get('time') == 'bmo' else (" AMC" if _of_earn_data.get('time') == 'amc' else "")
+                st.markdown(
+                    f'<span style="display:inline-block;padding:4px 10px;border-radius:6px;'
+                    f'border:1px solid {_earn_color};color:{_earn_color};font-size:0.88rem">'
+                    f'{_earn_label}: {_of_earn_data["date"].strftime("%b %d")}{_earn_time} ({_of_days_to_earn}d)</span>',
+                    unsafe_allow_html=True,
+                )
+
+        # ── User preferences ──
+        _uprefs = load_user_prefs(_sb_client)
+        if _uprefs.get('dte_min') == 0 and _uprefs.get('dte_max') == 20:
+            _uprefs['dte_min'] = 25
+            _uprefs['dte_max'] = 45
+            save_user_prefs(_sb_client, _uprefs)
+
+        _sl1, _sl2 = st.columns(2)
+        with _sl1:
+            _delta_range = st.slider(
+                "Delta range", 0.10, 0.50, (_uprefs['delta_min'], _uprefs['delta_max']),
+                step=0.05, format="%.2f", key="of_delta_range",
+            )
+        with _sl2:
+            _dte_range = st.slider(
+                "DTE range", 0, 90, (_uprefs['dte_min'], _uprefs['dte_max']),
+                step=1, key="of_dte_range",
+            )
+
+        if (_delta_range[0] != _uprefs['delta_min'] or _delta_range[1] != _uprefs['delta_max']
+                or _dte_range[0] != _uprefs['dte_min'] or _dte_range[1] != _uprefs['dte_max']):
+            save_user_prefs(_sb_client, {
+                'delta_min': _delta_range[0], 'delta_max': _delta_range[1],
+                'dte_min': _dte_range[0], 'dte_max': _dte_range[1],
+            })
+
+        _usr_dlo, _usr_dhi = _delta_range
+        _usr_dte_lo, _usr_dte_hi = _dte_range
+
+        # ── Strategy toggle ──
+        _chain_strategy = st.pills(
+            "Strategy", ["Sell Put", "Write Call"], default="Sell Put",
+            key="of_strategy",
+        )
+        _opt_type = "Call" if _chain_strategy == "Write Call" else "Put"
+        _opt_label = "Put" if _opt_type == "Put" else "Call"
+
+        # ── Cost basis for Write Call ──
+        _call_cost_basis = 0.0
+        if _chain_strategy == "Write Call":
+            _call_cost_basis = st.number_input(
+                "Min. strike price", value=0.0, min_value=0.0,
+                step=1.0, key="of_cost_basis",
+                help="Strikes below this price are excluded from recommendations.",
+            )
+
+        # ── Fetch option chain ──
+        @st.cache_data(ttl=60, show_spinner="Loading option chain...")
+        def _of_cached_chain(t, opt_type, fb_price, dte_lo, dte_hi, n_strikes=8):
+            return fetch_option_chain(t, option_type=opt_type, fallback_price=fb_price,
+                                      min_dte=dte_lo, max_dte=dte_hi, num_strikes=n_strikes)
+
+        _num_strikes = 15 if _opt_type == 'Call' else 8
+
+        try:
+            _chain_data = _of_cached_chain(_of_ticker, _opt_type, _of_live_price, _usr_dte_lo, _usr_dte_hi, _num_strikes)
+        except Exception as _chain_err:
+            st.error(f"Failed to load option chain: {_chain_err}")
+            _chain_data = {'underlying_price': 0, 'expirations': []}
+        _ch_price = _chain_data['underlying_price']
+        _ch_exps = _chain_data['expirations']
+
+        if not _ch_exps:
+            st.info(
+                "No option chain data available. This usually means the market is closed "
+                "or the streaming connection timed out. Try again during US market hours "
+                "(9:30 AM \u2013 4:00 PM ET)."
+            )
+        else:
+            # Build ALL rows across ALL expirations
+            _all_rows = []
+            _rows_by_exp = {}
+            for _ei, _exp in enumerate(_ch_exps):
+                _dte = _exp['dte']
+                _rows_by_exp[_ei] = []
+                for _s in _exp['strikes']:
+                    _strike = _s['strike']
+                    _bid = _s['bid']
+                    _delta = _s['delta']
+
+                    if _dte <= 0 or _bid <= 0:
+                        continue
+
+                    _prem_day = _bid / _dte
+
+                    if _opt_type == 'Put':
+                        _ann_roc = (_bid / _strike) * (365 / _dte) * 100 if _strike > 0 else 0
+                        _breakeven = _strike - _bid
+                        _dist = (_ch_price - _strike) / _ch_price * 100 if _ch_price > 0 else 0
+                    else:
+                        _ann_roc = (_bid / _ch_price) * (365 / _dte) * 100 if _ch_price > 0 else 0
+                        _breakeven = _strike + _bid
+                        _dist = (_strike - _ch_price) / _ch_price * 100 if _ch_price > 0 else 0
+
+                    _row = {
+                        'strike': _strike, 'bid': _bid, 'ask': _s['ask'], 'mid': _s['mid'],
+                        'delta': _delta, 'theta': _s['theta'], 'gamma': _s['gamma'],
+                        'vega': _s['vega'], 'iv': _s['iv'],
+                        'prem_day': _prem_day, 'ann_roc': _ann_roc,
+                        'breakeven': _breakeven, 'dist': _dist,
+                        'dte': _dte, 'exp_date': _exp['expiration_date'],
+                        'exp_type': _exp['expiration_type'],
+                    }
+                    _all_rows.append(_row)
+                    _rows_by_exp[_ei].append(_row)
+
+            # ── Recommendation engine ──
+            _eligible = []
+            for _r in _all_rows:
+                if _opt_type == 'Call' and _call_cost_basis > 0 and _r['strike'] < _call_cost_basis:
+                    continue
+                _ad = abs(_r['delta'])
+                if _ad < _usr_dlo or _ad > _usr_dhi:
+                    continue
+                _eligible.append(_r)
+
+            _by_exp = {}
+            for _r in _eligible:
+                _by_exp.setdefault(_r['exp_date'], []).append(_r)
+
+            _picks = {}
+            if _eligible and _by_exp:
+                _exp_dates_sorted = sorted(_by_exp.keys(), key=lambda e: _by_exp[e][0]['dte'])
+                _longest_exp = _exp_dates_sorted[-1]
+                _shortest_exp = _exp_dates_sorted[0]
+
+                _cons_candidates = sorted(_by_exp[_longest_exp], key=lambda r: abs(r['delta']))
+                _picks['conservative'] = _cons_candidates[0]
+
+                _aggr_candidates = sorted(_by_exp[_shortest_exp], key=lambda r: abs(r['delta']), reverse=True)
+                _picks['aggressive'] = _aggr_candidates[0]
+
+                if _longest_exp == _shortest_exp:
+                    _all_sorted_delta = sorted(_by_exp[_longest_exp], key=lambda r: abs(r['delta']))
+                    _picks['conservative'] = _all_sorted_delta[0]
+                    _picks['aggressive'] = _all_sorted_delta[-1]
+
+                # Scoring: no DCF MoS in standalone mode
+                _max_roc = max((r['ann_roc'] for r in _eligible), default=1) or 1
+                _max_ppd = max((r['prem_day'] for r in _eligible), default=1) or 1
+
+                def _rec_score(r):
+                    _roc_n = min(r['ann_roc'], 60) / min(_max_roc, 60) if _max_roc > 0 else 0
+                    _delta_n = 1 - abs(r['delta'])
+                    _ppd_n = r['prem_day'] / _max_ppd if _max_ppd > 0 else 0
+                    return _roc_n * 0.50 + _delta_n * 0.30 + _ppd_n * 0.20
+
+                _cons_pick = _picks.get('conservative')
+                _aggr_pick = _picks.get('aggressive')
+                _best_rec = None
+                _best_rec_sc = -999
+                for _r in _eligible:
+                    if _r is _cons_pick or _r is _aggr_pick:
+                        continue
+                    _sc = _rec_score(_r)
+                    if _sc > _best_rec_sc:
+                        _best_rec_sc = _sc
+                        _best_rec = _r
+                if _best_rec is None:
+                    _best_rec = max(_eligible, key=_rec_score)
+                _picks['recommended'] = _best_rec
+
+            if not _picks:
+                _n_total = len(_all_rows)
+                _n_cost = sum(1 for r in _all_rows if _opt_type == 'Call' and _call_cost_basis > 0 and r['strike'] < _call_cost_basis)
+                _n_delta = sum(1 for r in _all_rows if not (_usr_dlo <= abs(r['delta']) <= _usr_dhi))
+                _hints = []
+                if _n_total == 0:
+                    _hints.append("No strikes with valid bids were found in the chain.")
+                else:
+                    if _n_cost > 0:
+                        _hints.append(f"{_n_cost}/{_n_total} strikes filtered by min strike (${_call_cost_basis:.0f}).")
+                    if _n_delta > 0:
+                        _deltas = [abs(r['delta']) for r in _all_rows if r['delta'] != 0]
+                        _drange = f"{min(_deltas):.2f}\u2013{max(_deltas):.2f}" if _deltas else "n/a"
+                        _hints.append(f"{_n_delta}/{_n_total} strikes outside delta range "
+                                      f"{_usr_dlo:.2f}\u2013{_usr_dhi:.2f} (available: {_drange}).")
+                _hint_text = " ".join(_hints) if _hints else "Try widening your delta or DTE range."
+                st.info(f"No suitable strikes match your filters. {_hint_text}")
+            else:
+                # ── Recommendation cards ──
+                _pill = (
+                    'display:inline-block;padding:4px 10px;border-radius:6px;'
+                    f'background:{T["pill_bg"]};border:1px solid {T["pill_border"]};'
+                    'margin:3px 4px 3px 0;font-size:0.88rem;white-space:nowrap;'
+                )
+
+                def _metric_pills(r):
+                    _earn_pill = ''
+                    if _of_days_to_earn is not None and _of_days_to_earn <= r['dte']:
+                        _earn_pill = (
+                            f'<span style="{_pill}color:{T["red"]};border-color:{T["red"]}">'
+                            f'Earnings in <b>{_of_days_to_earn}d</b></span>'
+                        )
+                    return (
+                        f'<div style="display:flex;flex-wrap:wrap;margin-top:8px">'
+                        f'<span style="{_pill}color:{T["text"]}">Premium <b>${r["bid"]:.2f}</b></span>'
+                        f'<span style="{_pill}color:{T["text"]}">$/Day <b>${r["prem_day"]:.2f}</b></span>'
+                        f'<span style="{_pill}color:{T["accent"] if r["ann_roc"] >= 15 else T["text"]}">'
+                        f'Ann. ROC <b>{r["ann_roc"]:.1f}%%</b></span>'
+                        f'<span style="{_pill}color:{T["text"]}">Delta <b>{abs(r["delta"]):.2f}</b></span>'
+                        f'<span style="{_pill}color:{T["text"]}">Buffer <b>{r["dist"]:.1f}%%</b></span>'
+                        f'<span style="{_pill}color:{T["text"]}">Breakeven <b>${r["breakeven"]:.2f}</b></span>'
+                        f'{_earn_pill}'
+                        f'</div>'
+                    )
+
+                # Primary recommendation
+                if 'recommended' in _picks:
+                    _rec = _picks['recommended']
+                    _html = (
+                        f'<div style="background:{T["accent_light"]};border:1px solid {T["accent"]};'
+                        f'border-radius:10px;padding:18px 22px;margin-bottom:14px">'
+                        f'<div style="font-weight:700;font-size:1.15rem;color:{T["text"]}">'
+                        f'Recommended: ${_rec["strike"]:.0f} {_opt_label} \u2014 {_rec["dte"]}d</div>'
+                        f'{_metric_pills(_rec)}'
+                        f'<div style="font-size:0.83rem;color:{T["text_muted"]};margin-top:10px">'
+                        f'Based on delta targeting and annualized return.</div>'
+                        f'</div>'
+                    )
+                    st.markdown(_html, unsafe_allow_html=True)
+
+                # Conservative + Aggressive side by side
+                _alt_cards = []
+                if 'conservative' in _picks and _picks['conservative'] != _picks.get('recommended'):
+                    _c = _picks['conservative']
+                    _alt_cards.append((
+                        f'<div style="background:{T["card_alt"]};border:1px solid {T["border_medium"]};'
+                        f'border-radius:10px;padding:14px 18px">'
+                        f'<div style="font-weight:700;font-size:0.97rem;color:{T["text"]}">'
+                        f'Conservative: ${_c["strike"]:.0f} {_opt_label} \u2014 {_c["dte"]}d</div>'
+                        f'{_metric_pills(_c)}'
+                        f'<div style="font-size:0.8rem;color:{T["text_muted"]};margin-top:8px">'
+                        f'Lower delta, more downside buffer, less premium.</div>'
+                        f'</div>'
+                    ))
+                if 'aggressive' in _picks and _picks['aggressive'] != _picks.get('recommended'):
+                    _a = _picks['aggressive']
+                    _alt_cards.append((
+                        f'<div style="background:{T["card_alt"]};border:1px solid {T["border_medium"]};'
+                        f'border-radius:10px;padding:14px 18px">'
+                        f'<div style="font-weight:700;font-size:0.97rem;color:{T["text"]}">'
+                        f'Aggressive: ${_a["strike"]:.0f} {_opt_label} \u2014 {_a["dte"]}d</div>'
+                        f'{_metric_pills(_a)}'
+                        f'<div style="font-size:0.8rem;color:{T["text_muted"]};margin-top:8px">'
+                        f'Higher delta, more premium, tighter buffer.</div>'
+                        f'</div>'
+                    ))
+
+                if _alt_cards:
+                    _cols = st.columns(len(_alt_cards))
+                    for _ci, _ch in enumerate(_alt_cards):
+                        with _cols[_ci]:
+                            st.markdown(_ch, unsafe_allow_html=True)
+
+            # ── Full chain expander ──
+            st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+            with st.expander("Show full chain"):
+                _exp_labels = []
+                for _e in _ch_exps:
+                    _lbl = f"{_e['expiration_date']} \u00b7 {_e['dte']}d"
+                    if _e['expiration_type'] != 'Regular':
+                        _lbl += " (W)"
+                    _exp_labels.append(_lbl)
+
+                _sel_exp = st.pills(
+                    "Expiration", _exp_labels, default=_exp_labels[0],
+                    key="of_chain_expiration",
+                )
+                _exp_idx = _exp_labels.index(_sel_exp) if _sel_exp in _exp_labels else 0
+                _chain_rows = _rows_by_exp.get(_exp_idx, [])
+
+                if not _chain_rows:
+                    st.info("No strikes with valid bids for this expiration.")
+                else:
+                    _rec_strike = _picks.get('recommended', {}).get('strike')
+                    _rec_dte = _picks.get('recommended', {}).get('dte')
+
+                    _th = f'padding:8px 10px;text-align:right;color:{T["text_muted"]};font-weight:600;white-space:nowrap'
+                    _ct_hdr = (
+                        f'<div style="overflow-x:auto"><table style="width:100%%;border-collapse:collapse;font-size:0.85rem">'
+                        f'<thead><tr style="border-bottom:2px solid {T["border_medium"]}">'
+                    )
+                    for _col in ["Strike", "Bid", "Mid", "Delta", "$/Day", "Ann. ROC", "Breakeven", "Distance"]:
+                        _ct_hdr += f'<th style="{_th}">{_col}</th>'
+                    _ct_hdr += '</tr></thead><tbody>'
+
+                    _td = 'padding:8px 10px;text-align:right;white-space:nowrap;'
+                    _ct_body = ''
+                    for _r in _chain_rows:
+                        _is_rec = (_r['strike'] == _rec_strike and _r['dte'] == _rec_dte)
+                        _row_bg = f'background:{T["accent_light"]};' if _is_rec else ''
+                        _row_fw = 'font-weight:700;' if _is_rec else ''
+                        _roc_color = T['accent'] if _r['ann_roc'] >= 15 else (T['red'] if _r['ann_roc'] < 8 else T['text'])
+
+                        _ct_body += f'<tr style="{_row_bg}border-bottom:1px solid {T["border"]}">'
+                        _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">${_r["strike"]:.0f}</td>'
+                        _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">${_r["bid"]:.2f}</td>'
+                        _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">${_r["mid"]:.2f}</td>'
+                        _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">{_r["delta"]:.2f}</td>'
+                        _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">${_r["prem_day"]:.2f}</td>'
+                        _ct_body += f'<td style="{_td}{_row_fw}color:{_roc_color}">{_r["ann_roc"]:.1f}%%</td>'
+                        _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">${_r["breakeven"]:.2f}</td>'
+                        _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">{_r["dist"]:.1f}%%</td>'
+                        _ct_body += '</tr>'
+
+                    _ct_html = _ct_hdr + _ct_body + '</tbody></table></div>'
+                    st.markdown(_ct_html, unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════
