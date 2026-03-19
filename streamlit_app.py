@@ -2398,6 +2398,9 @@ def _dcf_editor(ticker):
             with cols[idx]:
                 val = round(float(value) * 100, 6) if is_pct else round(float(value), 6)
                 stp = round(float(step), 6)
+                # Force session state to float to prevent type mismatch on re-render
+                if key in st.session_state and not isinstance(st.session_state[key], float):
+                    st.session_state[key] = float(st.session_state[key])
                 v = st.number_input(key, value=val, step=stp, format=fmt,
                                     key=key, label_visibility="collapsed")
                 return v / 100 if is_pct else v
