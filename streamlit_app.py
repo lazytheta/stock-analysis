@@ -1819,19 +1819,23 @@ def _watchlist_overview():
         st.info("Your watchlist is empty. Add a ticker above or use 'Add to Watchlist' on the DCF page.")
         return
 
-    @st.cache_data(ttl=30)
+    @st.cache_data(ttl=60)
     def _fetch_prices_batch(tickers_tuple):
         prices = fetch_current_prices(list(tickers_tuple))
         return {t: (p["price"] if p else 0.0) for t, p in prices.items()}
 
     # Load all configs once (avoid redundant load_config calls)
-    @st.cache_data(ttl=10, show_spinner=False)
+    @st.cache_data(ttl=300, show_spinner=False)
     def _load_all_configs(user_id, tickers_tuple):
-        cfgs = {}
-        for t in tickers_tuple:
+        from concurrent.futures import ThreadPoolExecutor
+        def _load_one(t):
             c = load_config(_sb_client, t)
-            if c is not None:
-                cfgs[t] = c
+            return (t, c) if c is not None else None
+        cfgs = {}
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            for result in ex.map(_load_one, tickers_tuple):
+                if result:
+                    cfgs[result[0]] = result[1]
         return cfgs
 
     _wl_configs = _load_all_configs(st.session_state["user"]["id"], tuple(item['ticker'] for item in watchlist))
