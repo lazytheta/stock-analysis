@@ -6371,13 +6371,34 @@ elif page == "Option Finder":
                     'margin:3px 4px 3px 0;font-size:0.88rem;white-space:nowrap;'
                 )
 
-                def _metric_pills(r):
-                    _earn_pill = ''
+                # CSS tooltip for earnings warning — inject once
+                st.markdown(
+                    f'<style>'
+                    f'.earn-warn {{position:relative;display:inline-flex;align-items:center;'
+                    f'justify-content:center;width:22px;height:22px;border-radius:50%;'
+                    f'background:#fde68a;color:#92400e;font-weight:700;font-size:0.8rem;'
+                    f'margin-left:8px;cursor:help;vertical-align:middle;flex-shrink:0}}'
+                    f'.earn-warn .earn-tip {{display:none;position:absolute;bottom:130%;'
+                    f'left:50%;transform:translateX(-50%);background:{T["card"]};'
+                    f'color:{T["text"]};border:1px solid {T["border_medium"]};'
+                    f'border-radius:6px;padding:4px 10px;font-size:0.78rem;font-weight:400;'
+                    f'white-space:nowrap;z-index:10;box-shadow:{T["shadow"]}}}'
+                    f'.earn-warn:hover .earn-tip {{display:block}}'
+                    f'</style>',
+                    unsafe_allow_html=True,
+                )
+
+                def _earn_icon(r):
                     if _of_days_to_earn is not None and _of_days_to_earn <= r['dte']:
-                        _earn_pill = (
-                            f'<span style="{_pill}color:{T["red"]};border-color:{T["red"]}">'
-                            f'Earnings in <b>{_of_days_to_earn}d</b></span>'
+                        _earn_date = _of_earn_data['date'].strftime('%b %d')
+                        return (
+                            f'<span class="earn-warn">!'
+                            f'<span class="earn-tip">Earnings on {_earn_date} ({_of_days_to_earn}d)</span>'
+                            f'</span>'
                         )
+                    return ''
+
+                def _metric_pills(r):
                     return (
                         f'<div style="display:flex;flex-wrap:wrap;margin-top:8px">'
                         f'<span style="{_pill}color:{T["text"]}">Premium <b>${r["bid"]:.2f}</b></span>'
@@ -6387,7 +6408,6 @@ elif page == "Option Finder":
                         f'<span style="{_pill}color:{T["text"]}">Delta <b>{abs(r["delta"]):.2f}</b></span>'
                         f'<span style="{_pill}color:{T["text"]}">Buffer <b>{r["dist"]:.1f}%%</b></span>'
                         f'<span style="{_pill}color:{T["text"]}">Breakeven <b>${r["breakeven"]:.2f}</b></span>'
-                        f'{_earn_pill}'
                         f'</div>'
                     )
 
@@ -6397,8 +6417,8 @@ elif page == "Option Finder":
                     _html = (
                         f'<div style="background:{T["accent_light"]};border:1px solid {T["accent"]};'
                         f'border-radius:10px;padding:18px 22px;margin-bottom:14px">'
-                        f'<div style="font-weight:700;font-size:1.15rem;color:{T["text"]}">'
-                        f'Recommended: ${_rec["strike"]:.0f} {_opt_label} \u2014 {_rec["dte"]}d</div>'
+                        f'<div style="display:flex;align-items:center;font-weight:700;font-size:1.15rem;color:{T["text"]}">'
+                        f'Recommended: ${_rec["strike"]:.0f} {_opt_label} \u2014 {datetime.strptime(_rec["exp_date"], "%Y-%m-%d").strftime("%d %b %Y")} ({_rec["dte"]}d){_earn_icon(_rec)}</div>'
                         f'{_metric_pills(_rec)}'
                         f'<div style="font-size:0.83rem;color:{T["text_muted"]};margin-top:10px">'
                         f'Based on delta targeting and annualized return.</div>'
@@ -6413,8 +6433,8 @@ elif page == "Option Finder":
                     _alt_cards.append((
                         f'<div style="background:{T["card_alt"]};border:1px solid {T["border_medium"]};'
                         f'border-radius:10px;padding:14px 18px">'
-                        f'<div style="font-weight:700;font-size:0.97rem;color:{T["text"]}">'
-                        f'Conservative: ${_c["strike"]:.0f} {_opt_label} \u2014 {_c["dte"]}d</div>'
+                        f'<div style="display:flex;align-items:center;font-weight:700;font-size:0.97rem;color:{T["text"]}">'
+                        f'Conservative: ${_c["strike"]:.0f} {_opt_label} \u2014 {datetime.strptime(_c["exp_date"], "%Y-%m-%d").strftime("%d %b %Y")} ({_c["dte"]}d){_earn_icon(_c)}</div>'
                         f'{_metric_pills(_c)}'
                         f'<div style="font-size:0.8rem;color:{T["text_muted"]};margin-top:8px">'
                         f'Lower delta, more downside buffer, less premium.</div>'
@@ -6425,8 +6445,8 @@ elif page == "Option Finder":
                     _alt_cards.append((
                         f'<div style="background:{T["card_alt"]};border:1px solid {T["border_medium"]};'
                         f'border-radius:10px;padding:14px 18px">'
-                        f'<div style="font-weight:700;font-size:0.97rem;color:{T["text"]}">'
-                        f'Aggressive: ${_a["strike"]:.0f} {_opt_label} \u2014 {_a["dte"]}d</div>'
+                        f'<div style="display:flex;align-items:center;font-weight:700;font-size:0.97rem;color:{T["text"]}">'
+                        f'Aggressive: ${_a["strike"]:.0f} {_opt_label} \u2014 {datetime.strptime(_a["exp_date"], "%Y-%m-%d").strftime("%d %b %Y")} ({_a["dte"]}d){_earn_icon(_a)}</div>'
                         f'{_metric_pills(_a)}'
                         f'<div style="font-size:0.8rem;color:{T["text_muted"]};margin-top:8px">'
                         f'Higher delta, more premium, tighter buffer.</div>'
@@ -6467,7 +6487,10 @@ elif page == "Option Finder":
                         f'<div style="overflow-x:auto"><table style="width:100%%;border-collapse:collapse;font-size:0.85rem">'
                         f'<thead><tr style="border-bottom:2px solid {T["border_medium"]}">'
                     )
-                    for _col in ["Strike", "Bid", "Mid", "Delta", "$/Day", "Ann. ROC", "Breakeven", "Distance"]:
+                    _chain_cols = ["Strike", "Bid", "Mid", "Delta", "$/Day", "Ann. ROC", "Breakeven", "Distance"]
+                    if _of_days_to_earn is not None:
+                        _chain_cols.append("")
+                    for _col in _chain_cols:
                         _ct_hdr += f'<th style="{_th}">{_col}</th>'
                     _ct_hdr += '</tr></thead><tbody>'
 
@@ -6488,6 +6511,8 @@ elif page == "Option Finder":
                         _ct_body += f'<td style="{_td}{_row_fw}color:{_roc_color}">{_r["ann_roc"]:.1f}%%</td>'
                         _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">${_r["breakeven"]:.2f}</td>'
                         _ct_body += f'<td style="{_td}{_row_fw}color:{T["text"]}">{_r["dist"]:.1f}%%</td>'
+                        if _of_days_to_earn is not None:
+                            _ct_body += f'<td style="{_td}text-align:center">{_earn_icon(_r)}</td>'
                         _ct_body += '</tr>'
 
                     _ct_html = _ct_hdr + _ct_body + '</tbody></table></div>'
