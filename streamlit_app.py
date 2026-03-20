@@ -1829,7 +1829,7 @@ def _watchlist_overview():
     if st.session_state.pop("_wl_config_dirty", False):
         st.cache_data.clear()
 
-    @st.cache_data(ttl=300, show_spinner=False)
+    @st.cache_data(ttl=30, show_spinner=False)
     def _load_all_configs(user_id, tickers_tuple):
         from concurrent.futures import ThreadPoolExecutor
         def _load_one(t):
@@ -1872,8 +1872,15 @@ def _watchlist_overview():
             live_price = batch_prices.get(t, 0.0)
             if live_price > 0:
                 cfg_wl['stock_price'] = live_price
-            val = compute_intrinsic_value(cfg_wl)
-            upside = (val['intrinsic_value'] / live_price - 1) if live_price > 0 else 0
+            # Use Valuation Bridge values if available, otherwise compute
+            if '_computed_intrinsic' in cfg_wl:
+                _wl_intrinsic = cfg_wl['_computed_intrinsic']
+                _wl_buy = cfg_wl['_computed_buy']
+            else:
+                val = compute_intrinsic_value(cfg_wl)
+                _wl_intrinsic = val['intrinsic_value']
+                _wl_buy = val['buy_price']
+            upside = (_wl_intrinsic / live_price - 1) if live_price > 0 else 0
             ni = cfg_wl.get('hist_net_income', [])
             sh = cfg_wl.get('shares_outstanding', 0)
             eps = ni[-1] / sh if ni and sh else 0
@@ -1894,8 +1901,8 @@ def _watchlist_overview():
             'notes': cfg_wl.get('notes', ''),
             'category': cfg_wl.get('category', 'Uncategorized'),
             'price': live_price,
-            'intrinsic': val['intrinsic_value'],
-            'buy_price': val['buy_price'],
+            'intrinsic': _wl_intrinsic,
+            'buy_price': _wl_buy,
             'upside': upside,
             'pe': pe,
             'fcf_yield': fcf_yield_val,
@@ -2099,34 +2106,9 @@ def _dcf_editor(ticker):
     if live_price > 0:
         cfg['stock_price'] = live_price
 
-    # ── Valuation summary (hero card) ──
-    val = compute_intrinsic_value(cfg)
-    upside = (val['intrinsic_value'] / live_price - 1) if live_price > 0 else 0
-    up_color = T['accent'] if upside >= 0 else T['red']
-    up_sign = "+" if upside >= 0 else ""
-
-    st.markdown(
-        f'<div class="hero-card">'
-        f'<p class="hero-label">{cfg.get("company", ticker)}</p>'
-        f'<div style="display:flex;align-items:center;justify-content:center;gap:12px">'
-        f'<img src="https://assets.parqet.com/logos/symbol/{ticker}" '
-        f'style="width:36px;height:36px;border-radius:50%;object-fit:cover" '
-        f'onerror="this.style.display=\'none\'">'
-        f'<p class="hero-value" style="font-size:2rem;margin:0">{ticker}</p>'
-        f'</div>'
-        f'<div class="stat-row">'
-        f'<span class="stat-pill">Price <b>${live_price:.2f}</b></span>'
-        f'<span class="stat-pill">Intrinsic Value <b>${val["intrinsic_value"]:.2f}</b></span>'
-        f'<span class="stat-pill">Buy Price <b>${val["buy_price"]:.2f}</b></span>'
-        f'<span class="stat-pill">Upside <b style="color:{up_color}">{up_sign}{upside:.1%}</b></span>'
-        f'<span class="stat-pill">WACC <b>{val["wacc"]:.1%}</b></span>'
-        f'<span class="stat-pill">EV <b>${val["enterprise_value"]:,.0f}M</b></span>'
-        f'<span class="stat-pill">Equity Value <b>${val["equity_value"]:,.0f}M</b></span>'
-        f'<span class="stat-pill">TV % of EV <b>{val["tv_pct"]:.0%}</b></span>'
-        f'</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+    # ── Valuation summary (hero card) — placeholder, filled after tabs with updated values ──
+    val = compute_intrinsic_value(cfg)  # initial calc for tabs that need it
+    _hero_placeholder = st.empty()
 
     # ── Status pills (inside hero card area) ──
     _cat_options = ["Uncategorized", "Yes", "Maybe", "Watch Later", "No"]
@@ -2653,7 +2635,15 @@ def _dcf_editor(ticker):
             for i in range(_n + 1):
                 _dcf_row_val(ev_row, i + 2, "")
 
-        # Write back edited values
+        # Write back edited values and auto-save
+        _prev_snapshot = (
+            tuple(cfg.get('revenue_growth', [])), tuple(cfg.get('op_margins', [])),
+            tuple(cfg.get('wacc_per_year', [])), tuple(cfg.get('tax_per_year', [])),
+            tuple(cfg.get('stc_per_year', [])), tuple(cfg.get('sbc_per_year', [])),
+            cfg.get('terminal_growth'), cfg.get('terminal_margin'),
+            cfg.get('terminal_tax'), cfg.get('terminal_stc'),
+            cfg.get('terminal_wacc'), cfg.get('terminal_sbc'),
+        )
         cfg['revenue_growth'] = growth
         cfg['op_margins'] = margins
         cfg['wacc_per_year'] = _wacc_list
@@ -2666,6 +2656,14 @@ def _dcf_editor(ticker):
         cfg['terminal_stc'] = _tv_stc
         cfg['terminal_wacc'] = _tv_wacc
         cfg['terminal_sbc'] = _tv_sbc_pct
+        _new_snapshot = (
+            tuple(growth), tuple(margins),
+            tuple(_wacc_list), tuple(_tax_list),
+            tuple(_stc_list), tuple(_sbc_list),
+            _tg, _tm, _tv_tax, _tv_stc, _tv_wacc, _tv_sbc_pct,
+        )
+        if _new_snapshot != _prev_snapshot:
+            save_config(_sb_client, ticker, cfg)
 
     with _tab_rdcf:
         import pandas as pd
@@ -3846,6 +3844,12 @@ def _dcf_editor(ticker):
             _mos = cfg['margin_of_safety']
             _buy = _intrinsic * (1 - _mos)
 
+            # Store computed values for hero card and watchlist
+            cfg['_computed_intrinsic'] = _intrinsic
+            cfg['_computed_buy'] = _buy
+            cfg['_computed_ev'] = _ev
+            cfg['_computed_equity'] = _equity
+
             # Results summary
             _cur_price = cfg.get('stock_price', 0)
             _upside = (_intrinsic / _cur_price - 1) * 100 if _cur_price > 0 else 0
@@ -3905,6 +3909,42 @@ def _dcf_editor(ticker):
             remove_from_watchlist(_sb_client, ticker)
             del st.query_params["edit"]
             st.rerun()
+
+    # Auto-save config at end of every editor render
+    save_config(_sb_client, ticker, cfg)
+
+    # ── Fill hero card placeholder with Valuation Bridge values ──
+    _h_intrinsic = cfg.get('_computed_intrinsic', val['intrinsic_value'])
+    _h_buy = cfg.get('_computed_buy', val['buy_price'])
+    _h_ev = cfg.get('_computed_ev', val['enterprise_value'])
+    _h_equity = cfg.get('_computed_equity', val['equity_value'])
+    _h_upside = (_h_intrinsic / live_price - 1) if live_price > 0 else 0
+    _h_up_color = T['accent'] if _h_upside >= 0 else T['red']
+    _h_up_sign = "+" if _h_upside >= 0 else ""
+    _h_wacc = val['wacc']
+    _h_tv_pct = val['tv_pct']
+    _hero_placeholder.markdown(
+        f'<div class="hero-card">'
+        f'<p class="hero-label">{cfg.get("company", ticker)}</p>'
+        f'<div style="display:flex;align-items:center;justify-content:center;gap:12px">'
+        f'<img src="https://assets.parqet.com/logos/symbol/{ticker}" '
+        f'style="width:36px;height:36px;border-radius:50%;object-fit:cover" '
+        f'onerror="this.style.display=\'none\'">'
+        f'<p class="hero-value" style="font-size:2rem;margin:0">{ticker}</p>'
+        f'</div>'
+        f'<div class="stat-row">'
+        f'<span class="stat-pill">Price <b>${live_price:.2f}</b></span>'
+        f'<span class="stat-pill">Intrinsic Value <b>${_h_intrinsic:.2f}</b></span>'
+        f'<span class="stat-pill">Buy Price <b>${_h_buy:.2f}</b></span>'
+        f'<span class="stat-pill">Upside <b style="color:{_h_up_color}">{_h_up_sign}{_h_upside:.1%}</b></span>'
+        f'<span class="stat-pill">WACC <b>{_h_wacc:.1%}</b></span>'
+        f'<span class="stat-pill">EV <b>${_h_ev:,.0f}M</b></span>'
+        f'<span class="stat-pill">Equity Value <b>${_h_equity:,.0f}M</b></span>'
+        f'<span class="stat-pill">TV % of EV <b>{_h_tv_pct:.0%}</b></span>'
+        f'</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_growth, n_peers):
