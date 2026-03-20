@@ -110,8 +110,7 @@ def compute_intrinsic_value(cfg, wacc=None):
               - cfg['debt_market_value']
               - cfg.get('minority_interest', 0)
               - cfg.get('unfunded_pension', 0))
-    adj_shares = cfg['shares_outstanding'] * (1 - cfg['buyback_rate']) ** n_p
-    intrinsic = equity / adj_shares if adj_shares > 0 else 0
+    intrinsic = equity / cfg['shares_outstanding'] if cfg['shares_outstanding'] > 0 else 0
 
     mos = cfg.get('margin_of_safety', 0.20)
 

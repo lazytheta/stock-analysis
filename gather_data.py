@@ -1794,34 +1794,6 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
     else:
         sbc_pct = 0.004
 
-    # ── Buyback rate ──
-    # Divide each year's buyback by that year's *estimated* market cap
-    # (using current P/E applied to historical earnings as proxy)
-    buyback_vals = financials["buyback"]
-    hist_shares = financials["shares"]
-    if buyback_vals and market_cap > 0 and ni and ni[-1] and ni[-1] > 0:
-        current_pe = market_cap / ni[-1]
-        yearly_rates = []
-        for i in range(len(buyback_vals)):
-            bb = abs(buyback_vals[i] or 0)
-            if bb > 0 and i < len(ni) and ni[i] and ni[i] > 0:
-                est_mc = ni[i] * current_pe
-                yearly_rates.append(bb / est_mc)
-            elif bb > 0 and i < len(rev) and rev[i] and rev[i] > 0:
-                # Fallback: use revenue-based proxy (P/S) if earnings negative
-                current_ps = market_cap / rev[-1]
-                est_mc = rev[i] * current_ps
-                yearly_rates.append(bb / est_mc)
-        if yearly_rates:
-            # Use last 3 years if available
-            recent_rates = yearly_rates[-3:] if len(yearly_rates) >= 3 else yearly_rates
-            buyback_rate = round(sum(recent_rates) / len(recent_rates), 3)
-            buyback_rate = min(buyback_rate, 0.05)  # Cap at 5%
-        else:
-            buyback_rate = 0.01
-    else:
-        buyback_rate = 0.01
-
     # ── Tax rate ──
     tax_prov = financials["tax_provision"]
     pretax = financials["pretax_income"]
@@ -1927,7 +1899,7 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
         "sbc_pct": sbc_pct,
 
         "shares_outstanding": shares,
-        "buyback_rate": buyback_rate,
+        "buyback_rate": 0,
         "margin_of_safety": margin_of_safety or MARGIN_OF_SAFETY_DEFAULT,
 
         "cash_bridge": cash_bridge,
@@ -1972,7 +1944,6 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
     print(f"  Credit Rating:      {credit_rating} (spread: {credit_spread:.2%})")
     print(f"  Tax Rate:           {tax_rate:.1%}")
     print(f"  SBC %:              {sbc_pct:.2%}")
-    print(f"  Buyback Rate:       {buyback_rate:.1%}")
     print(f"  Sales/Capital:      {sales_to_capital:.2f}")
     print(f"  Starting Growth:    {revenue_growth[0]:.1%} → Terminal: {term_growth:.1%}")
     print(f"  Starting Margin:    {op_margins[0]:.1%} → Terminal: {term_margin:.1%}")
@@ -2126,12 +2097,11 @@ def write_config(cfg, output_path):
     lines.append(f"    'sbc_pct': {cfg['sbc_pct']},")
     lines.append(f"")
 
-    # Shares & Buybacks
+    # Shares
     lines.append(f"    # {'─' * 46}")
-    lines.append(f"    # SHARES & BUYBACKS")
+    lines.append(f"    # SHARES")
     lines.append(f"    # {'─' * 46}")
     lines.append(f"    'shares_outstanding': {_fmt_val(cfg['shares_outstanding'])},")
-    lines.append(f"    'buyback_rate': {cfg['buyback_rate']},")
     lines.append(f"    'margin_of_safety': {cfg['margin_of_safety']},")
     lines.append(f"")
 

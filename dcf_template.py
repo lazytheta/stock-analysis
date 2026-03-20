@@ -389,13 +389,7 @@ def build_dcf_model(cfg, output_path):
     lb(R_SHR_BASE, 2, "Shares Outstanding (current)")
     sc(R_SHR_BASE, YR0, cfg['shares_outstanding'], BLUE, None, '#,##0')
 
-    R_BUY_RT = R_SHR_BASE + 1
-    lb(R_BUY_RT, 2, "Annual Buyback Reduction")
-    sc(R_BUY_RT, YR0, cfg['buyback_rate'], BLUE, None, '0.0%')
-
-    R_SHR_ADJ = R_BUY_RT + 1
-    lb(R_SHR_ADJ, 2, f"Adj. Shares Outstanding ({cfg['base_year']+n_proj})", BLK_B)
-    sc(R_SHR_ADJ, YR0, f'={cl(YR0)}{R_SHR_BASE}*(1-{cl(YR0)}{R_BUY_RT})^{n_proj}', BLK_B, INP, '#,##0')
+    R_SHR_ADJ = R_SHR_BASE
 
     R_PRC = R_SHR_ADJ + 2
     lb(R_PRC, 2, "Share Price", BLK_B)
@@ -456,8 +450,7 @@ def build_dcf_model(cfg, output_path):
                   - cfg['debt_market_value']
                   - cfg.get('minority_interest', 0)
                   - cfg.get('unfunded_pension', 0))
-        adj_shares = cfg['shares_outstanding'] * (1 - cfg['buyback_rate']) ** n_p
-        return equity / adj_shares if adj_shares > 0 else 0
+        return equity / cfg['shares_outstanding'] if cfg['shares_outstanding'] > 0 else 0
 
     base_growth = cfg['revenue_growth']
     base_margins = cfg['op_margins']
@@ -1876,7 +1869,7 @@ def build_peer_comparison_sheet(wb, cfg):
     peer_ebitda_vals = [p.get('ev_ebitda') for p in peers if p.get('ev_ebitda')]
     if peer_ebitda_vals and ebitda_est:
         avg_mult = sum(peer_ebitda_vals) / len(peer_ebitda_vals)
-        shares_adj = cfg['shares_outstanding'] * (1 - cfg['buyback_rate']) ** len(cfg['revenue_growth'])
+        shares_adj = cfg['shares_outstanding']
 
         scenarios = [("At Peer Average", avg_mult)]
         # Add highest and lowest peer

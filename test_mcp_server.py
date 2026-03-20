@@ -165,7 +165,7 @@ def test_calculate_valuation_tool():
         "sales_to_capital": 0.65,
         "sbc_pct": 0.04,
         "shares_outstanding": 7000,
-        "buyback_rate": 0.01,
+        "buyback_rate": 0,
         "margin_of_safety": 0.20,
         "cash_bridge": 50_000,
         "stock_price": 300.0,
