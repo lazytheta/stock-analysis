@@ -5993,11 +5993,14 @@ elif page == "Portfolio":
     has_greeks = gk and gk["positions"]
     has_bwd = bwd and bwd["spy_price"] > 0
     has_interest = debt > 0 or (mi and mi["total"] < 0)
+    _broker_active = has_active_broker()
+    greeks_unavailable = not has_greeks and _broker_active
+    bwd_unavailable = not has_bwd and _broker_active
 
     _cards = []
-    if has_greeks:
+    if has_greeks or greeks_unavailable:
         _cards.append("greeks")
-    if has_bwd:
+    if has_bwd or bwd_unavailable:
         _cards.append("bwd")
     if has_interest:
         _cards.append("interest")
@@ -6025,6 +6028,17 @@ elif page == "Portfolio":
                 f'<span class="stat-pill">Vega <b>${vega:,.0f}</b>'
                 f'  <span style="font-size:0.7rem;color:{T["text_muted"]}">per 1%% IV</span></span>'
                 f'</div>'
+                f'</div>'
+            )
+        elif greeks_unavailable:
+            _card_htmls.append(
+                f'<div class="hero-card">'
+                f'<h4>Portfolio Greeks</h4>'
+                f'<div style="text-align:center;margin-bottom:16px">'
+                f'  <span style="font-size:1.1rem;color:{T["text_muted"]}">Market closed</span>'
+                f'</div>'
+                f'<div style="text-align:center;font-size:0.83rem;color:{T["text_muted"]}">'
+                f'Live Greeks available during US market hours<br>(9:30 AM \u2013 4:00 PM ET)</div>'
                 f'</div>'
             )
 
@@ -6073,6 +6087,17 @@ elif page == "Portfolio":
                 f'<tbody>{_bwd_rows}</tbody>'
                 f'</table>'
                 f'</details>'
+                f'</div>'
+            )
+        elif bwd_unavailable:
+            _card_htmls.append(
+                f'<div class="hero-card">'
+                f'<h4>Beta-Weighted Delta</h4>'
+                f'<div style="text-align:center;margin-bottom:16px">'
+                f'  <span style="font-size:1.1rem;color:{T["text_muted"]}">Market closed</span>'
+                f'</div>'
+                f'<div style="text-align:center;font-size:0.83rem;color:{T["text_muted"]}">'
+                f'Live BWD available during US market hours<br>(9:30 AM \u2013 4:00 PM ET)</div>'
                 f'</div>'
             )
 
