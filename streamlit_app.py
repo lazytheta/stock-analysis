@@ -6175,13 +6175,13 @@ elif page == "Portfolio":
                         legend=dict(
                             orientation="h",
                             yanchor="top",
-                            y=-0.02,
+                            y=-0.12,
                             xanchor="center",
                             x=0.5,
                             font=dict(size=12, color=T['chart_font']),
                         ),
-                        margin=dict(t=40, b=20, l=20, r=20),
-                        height=480,
+                        margin=dict(t=40, b=60, l=20, r=20),
+                        height=520,
                         font=dict(
                             family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
                             color=T['chart_font'],
