@@ -212,7 +212,7 @@ def _render_welcome_page():
     with btn2:
         st.button("Explore Watchlist", type="primary", use_container_width=True,
                    key="welcome_watchlist",
-                   on_click=lambda: st.session_state.update({"_active_nav": "Watchlist", "_account_page": None}))
+                   on_click=lambda: st.session_state.update({"nav_radio": "Watchlist", "_account_page": None}))
 
     st.markdown(
         '<div style="background:var(--card);border:1px solid var(--border-medium);'
@@ -250,7 +250,7 @@ def _render_connect_prompt():
     _, btn_col, _ = st.columns([1, 1, 1])
     with btn_col:
         st.button("Connect your Broker", type="primary", use_container_width=True,
-                   key=f"connect_btn_{st.session_state.get('_active_nav', '')}",
+                   key=f"connect_btn_{st.session_state.get('nav_radio', '')}",
                    on_click=lambda: st.session_state.update({"_account_page": "Connect your Broker"}))
     st.stop()
 
@@ -4150,50 +4150,27 @@ with st.sidebar:
         """Clear account page override when user clicks a main nav item."""
         st.session_state.pop("_account_page", None)
 
-    _top_pages = ["Portfolio", "Wheel Cost Basis", "Results"]
-    _bottom_pages = ["Watchlist", "Option Finder"]
+    _all_pages = ["Portfolio", "Wheel Cost Basis", "Results", "Watchlist", "Option Finder"]
 
-    def _sync_nav():
-        """Keep the two radio groups in sync — only one active at a time."""
-        if st.session_state.get("_nav_top_radio"):
-            st.session_state.pop("_nav_bottom_radio", None)
-            st.session_state["_active_nav"] = st.session_state["_nav_top_radio"]
-        st.session_state.pop("_account_page", None)
-
-    def _sync_nav_bottom():
-        if st.session_state.get("_nav_bottom_radio"):
-            st.session_state.pop("_nav_top_radio", None)
-            st.session_state["_active_nav"] = st.session_state["_nav_bottom_radio"]
-        st.session_state.pop("_account_page", None)
-
-    _active = st.session_state.get("_active_nav", "Portfolio")
-    _top_idx = _top_pages.index(_active) if _active in _top_pages else None
-    _bot_idx = _bottom_pages.index(_active) if _active in _bottom_pages else None
-
-    st.radio(
-        "Navigate",
-        _top_pages,
-        index=_top_idx if _top_idx is not None else 0,
-        label_visibility="collapsed",
-        key="_nav_top_radio",
-        on_change=_sync_nav,
-    )
-
+    # CSS to add a visual separator after "Results" (3rd item)
     st.markdown(
-        f'<div style="border-top:1px solid {T["separator"]};margin:4px 0 4px 0"></div>',
+        '<style>'
+        '.st-key-nav_radio [role="radiogroup"] > label:nth-child(3) {'
+        f'  border-bottom: 1px solid {T["separator"]};'
+        '  padding-bottom: 8px;'
+        '  margin-bottom: 4px;'
+        '}'
+        '</style>',
         unsafe_allow_html=True,
     )
 
-    st.radio(
-        "Research",
-        _bottom_pages,
-        index=_bot_idx if _bot_idx is not None else None,
+    _nav = st.radio(
+        "Navigate",
+        _all_pages,
         label_visibility="collapsed",
-        key="_nav_bottom_radio",
-        on_change=_sync_nav_bottom,
+        key="nav_radio",
+        on_change=_on_nav_change,
     )
-
-    _nav = st.session_state.get("_active_nav", "Portfolio")
     # ── Handle OAuth redirect (before page routing) ──
     _tt_connected = st.query_params.get("tt_connected")
     _tt_error = st.query_params.get("tt_error")
@@ -4256,7 +4233,7 @@ with st.sidebar:
             st.rerun()
 
         if st.button("Clear Session Data", use_container_width=True, type="primary"):
-            _preserve = {"dark_mode", "_active_nav", "_nav_top_radio", "_nav_bottom_radio", "_account_page",
+            _preserve = {"dark_mode", "nav_radio", "_account_page",
                          "supabase_client", "user", "_user_id", "tt_refresh_token",
                          "ibkr_credentials", "active_broker"}
             for key in [k for k in st.session_state if k not in _preserve]:
@@ -4490,7 +4467,7 @@ def _global_exception_handler(exc_type, exc_value, exc_tb):
     log_error(
         "UNHANDLED_ERROR",
         str(exc_value),
-        page=st.session_state.get("_active_nav"),
+        page=st.session_state.get("nav_radio"),
         stack_trace="".join(_tb.format_exception(exc_type, exc_value, exc_tb)),
     )
     # Fall through to Streamlit's default handler
@@ -5962,7 +5939,7 @@ elif page == "Portfolio":
                     if st.button(f"{_ql_t} Sell Put", key=f"ql_put_{_ql_t}", use_container_width=True):
                         st.query_params["edit"] = _ql_t
                         st.query_params["chain"] = "put"
-                        st.session_state["_active_nav"] = "Watchlist"
+                        st.session_state["nav_radio"] = "Watchlist"
                         st.rerun()
                 _col_idx += 1
             if _has_shares and _col_idx < len(_ql_cols):
@@ -5970,7 +5947,7 @@ elif page == "Portfolio":
                     if st.button(f"{_ql_t} Write Call", key=f"ql_call_{_ql_t}", use_container_width=True):
                         st.query_params["edit"] = _ql_t
                         st.query_params["chain"] = "call"
-                        st.session_state["_active_nav"] = "Watchlist"
+                        st.session_state["nav_radio"] = "Watchlist"
                         st.rerun()
                 _col_idx += 1
 
