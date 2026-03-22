@@ -7629,17 +7629,21 @@ elif page == "Connect your Broker":
     _tt_connected = st.query_params.get("tt_connected")
     _tt_error = st.query_params.get("tt_error")
     if _tt_connected == "true":
+        log_page_view(_sb_client, "broker_connect:tastytrade:success")
         st.success("Tastytrade connected successfully!")
         st.query_params.clear()
         st.session_state.pop("tt_refresh_token", None)  # force reload from DB
         st.rerun()
     elif _tt_error == "access_denied":
+        log_page_view(_sb_client, f"broker_connect:tastytrade:error:{_tt_error}")
         st.error("Connection was cancelled. Click 'Connect with Tastytrade' to try again.")
         st.query_params.clear()
     elif _tt_error == "connection_failed":
+        log_page_view(_sb_client, f"broker_connect:tastytrade:error:{_tt_error}")
         st.error("Could not connect to Tastytrade. Please try again.")
         st.query_params.clear()
     elif _tt_error == "session_expired":
+        log_page_view(_sb_client, f"broker_connect:tastytrade:error:{_tt_error}")
         st.error("Session expired. Please try connecting again.")
         st.query_params.clear()
 
@@ -7689,12 +7693,14 @@ elif page == "Connect your Broker":
             if _tt_submitted and _tt_input:
                 _token = _tt_input.strip()
                 if not _token.startswith("eyJ") or len(_token) < 200:
+                    log_page_view(_sb_client, "broker_connect:tastytrade:error:invalid_token")
                     st.error("This doesn't look like a refresh token. "
                              "Make sure you copy the token from a **Grant** inside your OAuth Application, "
                              "not the Client ID from the application overview.")
                 else:
                     save_credential(_sb_client, "tastytrade_refresh_token", _token)
                     st.session_state["tt_refresh_token"] = _token
+                    log_page_view(_sb_client, "broker_connect:tastytrade:manual_success")
                     st.success("Tastytrade token saved.")
                     st.rerun()
 
@@ -7752,6 +7758,7 @@ elif page == "Connect your Broker":
 
         if _ibkr_submitted and _ibkr_token and _ibkr_query_id:
             if not _ibkr_query_id.strip().isdigit():
+                log_page_view(_sb_client, "broker_connect:ibkr:error:invalid_query_id")
                 st.error("Flex Query ID must be numeric (e.g. 123456).")
             else:
                 _creds = {
@@ -7762,6 +7769,7 @@ elif page == "Connect your Broker":
                 st.session_state["ibkr_credentials"] = _creds
                 # Clear stale Flex cache so new credentials are used immediately
                 st.session_state.pop("_ibkr_flex_cache", None)
+                log_page_view(_sb_client, "broker_connect:ibkr:success")
                 st.success("Interactive Brokers connected.")
                 st.rerun()
 
