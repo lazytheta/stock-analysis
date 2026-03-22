@@ -58,7 +58,18 @@ def _patch_ibflex_parser():
         unknown = [k for k in elem.attrib if k not in known]
         for k in unknown:
             del elem.attrib[k]
-        return _orig_parse_data_element(elem)
+        try:
+            return _orig_parse_data_element(elem)
+        except (ValueError, TypeError):
+            # Some fields (e.g. Trade.notes='FP;P') can't be converted to
+            # the expected type (tuple). Remove problematic fields and retry.
+            import dataclasses, typing
+            for field in dataclasses.fields(Class):
+                if field.name in elem.attrib:
+                    origin = getattr(typing, 'get_origin', lambda x: None)(field.type)
+                    if origin is tuple or field.type is tuple:
+                        del elem.attrib[field.name]
+            return _orig_parse_data_element(elem)
 
     _lenient_parse_data_element._patched = True
     parser.parse_data_element = _lenient_parse_data_element
