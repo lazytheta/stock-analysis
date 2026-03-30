@@ -4176,6 +4176,13 @@ with st.sidebar:
     _tt_error = st.query_params.get("tt_error")
     if _tt_connected or _tt_error:
         st.session_state["_account_page"] = "Connect your Broker"
+        # Persist OAuth result in session state so it survives the rerun
+        # triggered by st.query_params.clear() (Streamlit ≥1.37)
+        if _tt_connected:
+            st.session_state["_tt_oauth_result"] = "success"
+        else:
+            st.session_state["_tt_oauth_result"] = _tt_error
+        st.query_params.clear()
 
     page = st.session_state.get("_account_page") or _nav
 
@@ -7625,27 +7632,31 @@ elif page == "Connect your Broker":
     # ── Tastytrade connection ──
     st.markdown("### Tastytrade")
 
-    # Handle OAuth redirect results
-    _tt_connected = st.query_params.get("tt_connected")
-    _tt_error = st.query_params.get("tt_error")
-    if _tt_connected == "true":
+    # Handle OAuth redirect results (read from session state — query params
+    # were already captured and cleared in the nav section to avoid the rerun
+    # race that st.query_params.clear() triggers in Streamlit ≥1.37).
+    _oauth_result = st.session_state.pop("_tt_oauth_result", None)
+    if _oauth_result == "success":
         log_page_view(_sb_client, "broker_connect:tastytrade:success")
         st.success("Tastytrade connected successfully!")
-        st.query_params.clear()
         st.session_state.pop("tt_refresh_token", None)  # force reload from DB
+        st.session_state.pop("_account_page", None)
         st.rerun()
-    elif _tt_error == "access_denied":
-        log_page_view(_sb_client, f"broker_connect:tastytrade:error:{_tt_error}")
+    elif _oauth_result == "access_denied":
+        log_page_view(_sb_client, "broker_connect:tastytrade:error:access_denied")
         st.error("Connection was cancelled. Click 'Connect with Tastytrade' to try again.")
-        st.query_params.clear()
-    elif _tt_error == "connection_failed":
-        log_page_view(_sb_client, f"broker_connect:tastytrade:error:{_tt_error}")
+    elif _oauth_result == "connection_failed":
+        log_page_view(_sb_client, "broker_connect:tastytrade:error:connection_failed")
         st.error("Could not connect to Tastytrade. Please try again.")
-        st.query_params.clear()
-    elif _tt_error == "session_expired":
-        log_page_view(_sb_client, f"broker_connect:tastytrade:error:{_tt_error}")
-        st.error("Session expired. Please try connecting again.")
-        st.query_params.clear()
+    elif _oauth_result == "session_expired":
+        log_page_view(_sb_client, "broker_connect:tastytrade:error:session_expired")
+        st.error("Your login session timed out. Please try connecting again.")
+    elif _oauth_result == "token_exchange_failed":
+        log_page_view(_sb_client, "broker_connect:tastytrade:error:token_exchange_failed")
+        st.error("Tastytrade rejected the connection request. Please try again.")
+    elif _oauth_result == "storage_failed":
+        log_page_view(_sb_client, "broker_connect:tastytrade:error:storage_failed")
+        st.error("Connected to Tastytrade but failed to save credentials. Please try again.")
 
     _existing_token = _get_tt_token()
     if _existing_token:
