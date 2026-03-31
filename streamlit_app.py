@@ -5950,7 +5950,21 @@ elif page == "Portfolio":
             _ql_items.append(_call_label)
             _ql_map[_call_label] = (_ql_t, "Write Call")
     if _ql_items:
-        _ql_pick = st.pills("Find options", _ql_items, default=None, key="ql_pills")
+        st.markdown(
+            '<style>'
+            '.st-key-ql_pills { display:flex; justify-content:center }'
+            '.st-key-ql_pills [role="radiogroup"] { justify-content:center }'
+            '.st-key-ql_pills button[data-baseweb="tab"] {'
+            '  background:var(--accent) !important; color:#fff !important;'
+            '  border-radius:20px !important; border:none !important;'
+            '  font-weight:600 !important; opacity:0.75'
+            '}'
+            '.st-key-ql_pills button[aria-selected="true"] { opacity:1 }'
+            '</style>',
+            unsafe_allow_html=True,
+        )
+        _ql_pick = st.pills("Find options", _ql_items, default=None, key="ql_pills",
+                            label_visibility="collapsed")
         if _ql_pick and _ql_pick in _ql_map:
             _ql_t, _ql_strat = _ql_map[_ql_pick]
             st.session_state["of_ticker_input"] = _ql_t
