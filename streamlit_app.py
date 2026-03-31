@@ -5938,18 +5938,7 @@ elif page == "Portfolio":
     _portfolio_cards()
 
     # ── Quick-Links — jump to Option Finder for held tickers ──
-    _ql_items = []
-    _ql_map = {}
-    for _ql_t in held_tickers:
-        _pf_data = cost_basis.get(_ql_t, {})
-        _put_label = f"{_ql_t} Sell Put"
-        _ql_items.append(_put_label)
-        _ql_map[_put_label] = (_ql_t, "Sell Put")
-        if _pf_data.get("shares_held", 0) > 0:
-            _call_label = f"{_ql_t} Write Call"
-            _ql_items.append(_call_label)
-            _ql_map[_call_label] = (_ql_t, "Write Call")
-    if _ql_items:
+    if held_tickers:
         if st.session_state.pop("_reset_ql_pills", False):
             st.session_state["ql_pills"] = None
         st.markdown(
@@ -5968,12 +5957,10 @@ elif page == "Portfolio":
             '</style>',
             unsafe_allow_html=True,
         )
-        _ql_pick = st.pills("Find options", _ql_items, default=None, key="ql_pills",
-                            label_visibility="collapsed")
-        if _ql_pick and _ql_pick in _ql_map:
-            _ql_t, _ql_strat = _ql_map[_ql_pick]
-            st.session_state["of_ticker_input"] = _ql_t
-            st.session_state["of_strategy"] = _ql_strat
+        _ql_pick = st.pills("Find options", held_tickers, default=None,
+                            key="ql_pills", label_visibility="collapsed")
+        if _ql_pick:
+            st.session_state["of_ticker_input"] = _ql_pick
             st.session_state["_pending_nav"] = "Option Finder"
             st.session_state["_reset_ql_pills"] = True
             st.rerun()
