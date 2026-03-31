@@ -6339,8 +6339,10 @@ elif page == "Option Finder":
         _usr_dte_lo, _usr_dte_hi = _dte_range
 
         # ── Strategy toggle ──
+        if "of_strategy" not in st.session_state:
+            st.session_state["of_strategy"] = "Sell Put"
         _chain_strategy = st.pills(
-            "Strategy", ["Sell Put", "Write Call"], default="Sell Put",
+            "Strategy", ["Sell Put", "Write Call"],
             key="of_strategy",
         )
         _opt_type = "Call" if _chain_strategy == "Write Call" else "Put"
