@@ -5937,31 +5937,35 @@ elif page == "Portfolio":
 
     _portfolio_cards()
 
-    # ── Chain Quick-Links — jump to option chain for watchlist tickers ──
-    _wl_tickers_set = {item['ticker'] for item in list_watchlist(_sb_client)}
-    _chain_link_tickers = [t for t in held_tickers if t in _wl_tickers_set]
-    if _chain_link_tickers:
-        _ql_cols = st.columns(min(len(_chain_link_tickers) * 2, 8))
-        _col_idx = 0
-        for _ql_t in _chain_link_tickers[:4]:
-            _pf_data = cost_basis.get(_ql_t, {})
-            _has_shares = _pf_data.get("shares_held", 0) > 0
-            if _col_idx < len(_ql_cols):
-                with _ql_cols[_col_idx]:
-                    if st.button(f"{_ql_t} Sell Put", key=f"ql_put_{_ql_t}", use_container_width=True):
-                        st.query_params["edit"] = _ql_t
-                        st.query_params["chain"] = "put"
-                        st.session_state["_pending_nav"] = "Watchlist"
+    # ── Quick-Links — jump to Option Finder for held tickers ──
+    _ql_items = []
+    for _ql_t in held_tickers:
+        _pf_data = cost_basis.get(_ql_t, {})
+        _ql_items.append((_ql_t, "Sell Put", "sell_put"))
+        if _pf_data.get("shares_held", 0) > 0:
+            _ql_items.append((_ql_t, "Write Call", "write_call"))
+    if _ql_items:
+        st.markdown(
+            '<style>'
+            '.st-key-ql_row { margin-top:4px }'
+            '.st-key-ql_row [data-testid="stHorizontalBlock"] { gap:0.4rem; flex-wrap:wrap }'
+            '.st-key-ql_row button {'
+            '  border-radius:20px !important; padding:4px 14px !important;'
+            '  font-size:0.82rem !important; font-weight:600 !important;'
+            '  white-space:nowrap !important'
+            '}'
+            '</style>',
+            unsafe_allow_html=True,
+        )
+        with st.container(key="ql_row"):
+            _ql_cols = st.columns(len(_ql_items))
+            for i, (_ql_t, _ql_label, _ql_action) in enumerate(_ql_items):
+                with _ql_cols[i]:
+                    if st.button(f"{_ql_t} {_ql_label}", key=f"ql_{_ql_action}_{_ql_t}"):
+                        st.session_state["of_ticker_input"] = _ql_t
+                        st.session_state["of_strategy"] = "Write Call" if _ql_action == "write_call" else "Sell Put"
+                        st.session_state["_pending_nav"] = "Option Finder"
                         st.rerun()
-                _col_idx += 1
-            if _has_shares and _col_idx < len(_ql_cols):
-                with _ql_cols[_col_idx]:
-                    if st.button(f"{_ql_t} Write Call", key=f"ql_call_{_ql_t}", use_container_width=True):
-                        st.query_params["edit"] = _ql_t
-                        st.query_params["chain"] = "call"
-                        st.session_state["_pending_nav"] = "Watchlist"
-                        st.rerun()
-                _col_idx += 1
 
     st.markdown("<br>", unsafe_allow_html=True)
     with st.container(key="margin_block"):
