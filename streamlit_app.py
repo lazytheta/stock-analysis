@@ -4164,6 +4164,11 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
+    # Apply pending navigation from quick-link buttons (can't set widget key
+    # after the widget is rendered, so we apply it before via default)
+    if "_pending_nav" in st.session_state:
+        st.session_state["nav_radio"] = st.session_state.pop("_pending_nav")
+
     _nav = st.radio(
         "Navigate",
         _all_pages,
@@ -5946,7 +5951,7 @@ elif page == "Portfolio":
                     if st.button(f"{_ql_t} Sell Put", key=f"ql_put_{_ql_t}", use_container_width=True):
                         st.query_params["edit"] = _ql_t
                         st.query_params["chain"] = "put"
-                        st.session_state["nav_radio"] = "Watchlist"
+                        st.session_state["_pending_nav"] = "Watchlist"
                         st.rerun()
                 _col_idx += 1
             if _has_shares and _col_idx < len(_ql_cols):
@@ -5954,7 +5959,7 @@ elif page == "Portfolio":
                     if st.button(f"{_ql_t} Write Call", key=f"ql_call_{_ql_t}", use_container_width=True):
                         st.query_params["edit"] = _ql_t
                         st.query_params["chain"] = "call"
-                        st.session_state["nav_radio"] = "Watchlist"
+                        st.session_state["_pending_nav"] = "Watchlist"
                         st.rerun()
                 _col_idx += 1
 
