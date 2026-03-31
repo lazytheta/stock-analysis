@@ -5957,11 +5957,14 @@ elif page == "Portfolio":
             '.st-key-ql_pills { display:flex; justify-content:center }'
             '.st-key-ql_pills [role="radiogroup"] { justify-content:center }'
             '.st-key-ql_pills button[data-baseweb="tab"] {'
-            '  background:var(--accent) !important; color:#fff !important;'
-            '  border-radius:20px !important; border:none !important;'
-            '  font-weight:600 !important; transition:filter 0.15s'
+            '  border-radius:20px !important; border:1px solid var(--accent) !important;'
+            '  color:var(--accent) !important; background:transparent !important;'
+            '  font-weight:600 !important; transition:all 0.15s'
             '}'
-            '.st-key-ql_pills button[data-baseweb="tab"]:hover { filter:brightness(0.85) }'
+            '.st-key-ql_pills button[data-baseweb="tab"]:hover,'
+            '.st-key-ql_pills button[aria-selected="true"] {'
+            '  background:var(--accent) !important; color:#fff !important'
+            '}'
             '</style>',
             unsafe_allow_html=True,
         )
