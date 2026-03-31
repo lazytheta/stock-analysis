@@ -5960,7 +5960,7 @@ elif page == "Portfolio":
             '.st-key-ql_pills button * {'
             '  border-radius:20px !important;'
             '  color:var(--text) !important; background:transparent !important;'
-            '  font-weight:600 !important; transition:all 0.15s'
+            '  font-weight:400 !important; transition:all 0.15s'
             '}'
             '.st-key-ql_pills button { border:1px solid var(--border-medium) !important }'
             '.st-key-ql_pills button:hover,'
