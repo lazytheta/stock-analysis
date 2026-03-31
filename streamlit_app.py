@@ -5950,6 +5950,8 @@ elif page == "Portfolio":
             _ql_items.append(_call_label)
             _ql_map[_call_label] = (_ql_t, "Write Call")
     if _ql_items:
+        if st.session_state.pop("_reset_ql_pills", False):
+            st.session_state["ql_pills"] = None
         st.markdown(
             '<style>'
             '.st-key-ql_pills { display:flex; justify-content:center }'
@@ -5970,7 +5972,7 @@ elif page == "Portfolio":
             st.session_state["of_ticker_input"] = _ql_t
             st.session_state["of_strategy"] = _ql_strat
             st.session_state["_pending_nav"] = "Option Finder"
-            st.session_state["ql_pills"] = None
+            st.session_state["_reset_ql_pills"] = True
             st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
