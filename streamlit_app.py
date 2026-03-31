@@ -5939,40 +5939,25 @@ elif page == "Portfolio":
 
     # ── Quick-Links — jump to Option Finder for held tickers ──
     _ql_items = []
+    _ql_map = {}
     for _ql_t in held_tickers:
         _pf_data = cost_basis.get(_ql_t, {})
-        _ql_items.append((_ql_t, "Sell Put", "sell_put"))
+        _put_label = f"{_ql_t} Sell Put"
+        _ql_items.append(_put_label)
+        _ql_map[_put_label] = (_ql_t, "Sell Put")
         if _pf_data.get("shares_held", 0) > 0:
-            _ql_items.append((_ql_t, "Write Call", "write_call"))
+            _call_label = f"{_ql_t} Write Call"
+            _ql_items.append(_call_label)
+            _ql_map[_call_label] = (_ql_t, "Write Call")
     if _ql_items:
-        st.markdown(
-            '<style>'
-            '.st-key-ql_row [data-testid="stHorizontalBlock"] {'
-            '  gap:0.5rem; flex-wrap:wrap; justify-content:center'
-            '}'
-            '.st-key-ql_row [data-testid="stColumn"] {'
-            '  flex:0 0 auto !important; width:auto !important; min-width:0 !important'
-            '}'
-            '.st-key-ql_row button {'
-            '  border-radius:20px !important; padding:6px 16px !important;'
-            '  font-size:0.82rem !important; white-space:nowrap !important'
-            '}'
-            '</style>',
-            unsafe_allow_html=True,
-        )
-        _PER_ROW = 4
-        with st.container(key="ql_row"):
-            for _row_start in range(0, len(_ql_items), _PER_ROW):
-                _row_slice = _ql_items[_row_start:_row_start + _PER_ROW]
-                _ql_cols = st.columns(len(_row_slice))
-                for i, (_ql_t, _ql_label, _ql_action) in enumerate(_row_slice):
-                    with _ql_cols[i]:
-                        if st.button(f"{_ql_t} {_ql_label}", key=f"ql_{_ql_action}_{_ql_t}",
-                                     type="primary", use_container_width=True):
-                            st.session_state["of_ticker_input"] = _ql_t
-                            st.session_state["of_strategy"] = "Write Call" if _ql_action == "write_call" else "Sell Put"
-                            st.session_state["_pending_nav"] = "Option Finder"
-                            st.rerun()
+        _ql_pick = st.pills("Find options", _ql_items, default=None, key="ql_pills")
+        if _ql_pick and _ql_pick in _ql_map:
+            _ql_t, _ql_strat = _ql_map[_ql_pick]
+            st.session_state["of_ticker_input"] = _ql_t
+            st.session_state["of_strategy"] = _ql_strat
+            st.session_state["_pending_nav"] = "Option Finder"
+            st.session_state["ql_pills"] = None
+            st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
     with st.container(key="margin_block"):
