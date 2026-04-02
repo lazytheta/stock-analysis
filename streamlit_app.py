@@ -7711,36 +7711,7 @@ elif page == "Connect your Broker":
             st.link_button("Connect with Tastytrade", _connect_url, type="primary")
             st.caption("You'll be redirected to Tastytrade to log in. We never see your password.")
 
-        # Manual token fallback
-        with st.expander("Advanced: Connect manually with refresh token"):
-            st.markdown(
-                "If the button above doesn't work, you can connect manually:\n\n"
-                "1. Go to [my.tastytrade.com](https://my.tastytrade.com) → **My Profile** → **API**\n"
-                "2. Go to **OAuth Applications** — create one if you haven't already\n"
-                "3. Open your application and click **Create Grant**\n"
-                "4. Copy the generated **Refresh Token** (starts with `eyJ...`)\n"
-                "5. Paste it below and click Save"
-            )
-            with st.form("tt_token_form"):
-                _tt_input = st.text_input(
-                    "Refresh Token",
-                    type="password",
-                    placeholder="Paste your Tastytrade refresh token",
-                )
-                _tt_submitted = st.form_submit_button("Save", type="primary")
-            if _tt_submitted and _tt_input:
-                _token = _tt_input.strip()
-                if not _token.startswith("eyJ") or len(_token) < 200:
-                    log_page_view(_sb_client, "broker_connect:tastytrade:error:invalid_token")
-                    st.error("This doesn't look like a refresh token. "
-                             "Make sure you copy the token from a **Grant** inside your OAuth Application, "
-                             "not the Client ID from the application overview.")
-                else:
-                    save_credential(_sb_client, "tastytrade_refresh_token", _token)
-                    st.session_state["tt_refresh_token"] = _token
-                    log_page_view(_sb_client, "broker_connect:tastytrade:manual_success")
-                    st.success("Tastytrade token saved.")
-                    st.rerun()
+        st.caption("Having trouble? Contact us at support@lazytheta.io")
 
     # ── Interactive Brokers connection ──
     st.markdown("---")

@@ -37,6 +37,19 @@ def _get_secret(key):
         raise KeyError(key)
 
 
+class _RotationAwareSession(Session):
+    """Session subclass that detects refresh token rotation."""
+
+    _new_refresh_token: str | None = None
+
+    async def _refresh(self) -> None:
+        old_token = self.refresh_token
+        await super()._refresh()
+        # Check if the SDK updated the refresh token (future-proofing)
+        if self.refresh_token != old_token:
+            self._new_refresh_token = self.refresh_token
+
+
 def _get_session(refresh_token=None):
     """Create a Tastytrade Session.
 
@@ -45,7 +58,7 @@ def _get_session(refresh_token=None):
     """
     if refresh_token is None:
         refresh_token = _get_secret("TASTYTRADE_REFRESH_TOKEN")
-    return Session(
+    return _RotationAwareSession(
         provider_secret=_get_secret("TASTYTRADE_CLIENT_SECRET"),
         refresh_token=refresh_token,
     )
