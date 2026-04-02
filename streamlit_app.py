@@ -148,6 +148,7 @@ def _is_auth_error(exc):
     return any(p in msg for p in (
         "401", "unauthorized", "invalid_token", "token expired",
         "refresh_token", "authentication", "forbidden",
+        "invalid_grant", "grant revoked",
     ))
 
 
