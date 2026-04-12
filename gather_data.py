@@ -364,7 +364,8 @@ def parse_financials(facts, n_years=6):
                                "NetIncomeLossAvailableToCommonStockholdersBasic"])
     cost_of_revenue = _get_values(["CostOfGoodsAndServicesSold",
                                     "CostOfRevenue",
-                                    "CostOfGoodsSold"])
+                                    "CostOfGoodsSold",
+                                    "CostsAndExpenses"])
     sbc = _get_values(["ShareBasedCompensation",
                         "AllocatedShareBasedCompensationExpense",
                         "ShareBasedCompensationExpenseAfterTax"])
