@@ -1553,7 +1553,7 @@ def fetch_peer_data(peer_tickers):
             cash_val = (fin["cash"][-1] or 0) if fin["cash"] else 0
 
             # Use EDGAR shares if Yahoo didn't provide
-            if shares == 0 and fin["shares"] and fin["shares"][-1] > 0:
+            if shares == 0 and fin["shares"] and fin["shares"][-1] and fin["shares"][-1] > 0:
                 shares = fin["shares"][-1]
                 mkt_cap = shares * price
 

@@ -4025,7 +4025,7 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
             _cr = credit_rating
 
             if market_cap == 0 and stock_price > 0:
-                edgar_shares = financials["shares"][-1] if financials["shares"] and financials["shares"][-1] > 0 else 0
+                edgar_shares = financials["shares"][-1] if financials["shares"] and financials["shares"][-1] and financials["shares"][-1] > 0 else 0
                 if edgar_shares > 0:
                     market_cap = round(stock_price * edgar_shares, 0)
 
