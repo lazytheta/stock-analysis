@@ -3006,21 +3006,24 @@ def _dcf_editor(ticker):
         rev_g = _pct_growth(fund['revenue'])
         oi_g = _pct_growth(fund['operating_income'])
         if _n >= 3:
-            # Chart: Revenue Growth vs OI Growth
+            # Chart: DOL (Degree of Operating Leverage)
+            dol_values = []
+            for r, o in zip(rev_g[1:], oi_g[1:]):
+                if r is not None and o is not None and r != 0:
+                    dol_values.append(round(o / r, 2))
+                else:
+                    dol_values.append(None)
             fig = go.Figure()
             fig.add_trace(go.Scatter(
-                x=_yrs[1:], y=[r * 100 if r is not None else None for r in rev_g[1:]],
-                name='Revenue Growth',
-                line=dict(color=_COLORS['primary'], width=2.5),
-                hovertemplate='%{y:.1f}%<extra>Rev Growth</extra>',
-            ))
-            fig.add_trace(go.Scatter(
-                x=_yrs[1:], y=[o * 100 if o is not None else None for o in oi_g[1:]],
-                name='OI Growth',
+                x=_yrs[1:], y=dol_values,
+                name='DOL',
                 line=dict(color=_COLORS['accent'], width=2.5),
-                hovertemplate='%{y:.1f}%<extra>OI Growth</extra>',
+                hovertemplate='%{y:.1f}x<extra>DOL</extra>',
             ))
-            fig.update_yaxes(ticksuffix='%')
+            # Reference line at 1.0x
+            fig.add_hline(y=1.0, line_dash="dot", line_color=_COLORS['text_muted'],
+                          annotation_text="1.0x", annotation_position="right")
+            fig.update_yaxes(ticksuffix='x')
             _base_layout(fig)
             st.plotly_chart(fig, use_container_width=True)
 
