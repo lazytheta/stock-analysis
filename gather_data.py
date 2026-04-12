@@ -1372,7 +1372,7 @@ def _fetch_sic_companies(sic_code, max_companies=200):
             # Parse Atom XML — extract CIK and company name
             ns = "http://www.w3.org/2005/Atom"
             entries = re.findall(
-                rf"<entry>.*?</entry>", text, re.DOTALL
+                rf"<entry[^>]*>.*?</entry>", text, re.DOTALL
             )
             if not entries:
                 break
