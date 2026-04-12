@@ -371,6 +371,26 @@ def parse_financials(facts, n_years=6):
     shares = _get_values(["WeightedAverageNumberOfDilutedSharesOutstanding",
                            "CommonStockSharesOutstanding"], "shares")
 
+    # Fallback: if no shares found, try DEI tags
+    entity_public_float = 0
+    if not shares or all(v is None for v in shares):
+        dei_facts = facts.get("facts", {}).get("dei", {})
+        # Always capture EntityPublicFloat as backup
+        epf = dei_facts.get("EntityPublicFloat", {}).get("units", {}).get("USD", [])
+        epf_10k = [e for e in epf if e.get("form") in ("10-K", "10-K/A") and e.get("val")]
+        if epf_10k:
+            entity_public_float = epf_10k[-1]["val"]
+        # Try EntityCommonStockSharesOutstanding (only if recent enough)
+        ecso = dei_facts.get("EntityCommonStockSharesOutstanding", {})
+        dei_entries = ecso.get("units", {}).get("shares", [])
+        dei_10k = [e for e in dei_entries if e.get("form") in ("10-K", "10-K/A") and e.get("val")]
+        if dei_10k:
+            # Only use if data is from within the last 3 years
+            latest_end = dei_10k[-1].get("end", "")
+            latest_year = int(latest_end[:4]) if latest_end else 0
+            if latest_year >= years[-1] - 3:
+                shares = [None] * (len(years) - 1) + [dei_10k[-1]["val"]]
+
     # Balance sheet items (point-in-time, not duration-based)
     current_assets = _get_values(["AssetsCurrent"])
     cash = _get_values(["CashAndCashEquivalentsAtCarryingValue",
@@ -447,6 +467,7 @@ def parse_financials(facts, n_years=6):
         "minority_interest_latest": round(minority_interest[-1] / M, 0) if minority_interest and minority_interest[-1] else 0,
         "equity_investments_latest": round(equity_investments[-1] / M, 0) if equity_investments and equity_investments[-1] else 0,
         "unfunded_pension_latest": round(abs(unfunded_pension[-1]) / M, 0) if unfunded_pension and unfunded_pension[-1] else 0,
+        "entity_public_float": round(entity_public_float / M, 0) if entity_public_float else 0,
         "buyback": _to_millions(buyback),
         "tax_provision": _to_millions(tax_provision),
         "pretax_income": _to_millions(pretax_income),
@@ -1632,11 +1653,19 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
     # Shares: prefer EDGAR diluted, fall back to Yahoo
     shares = financials["shares"][-1] if financials["shares"] and financials["shares"][-1] and financials["shares"][-1] > 0 else shares_yahoo
     if shares == 0:
-        shares = market_cap / stock_price if stock_price > 0 else 0
+        shares = market_cap / stock_price if stock_price > 0 and market_cap > 0 else 0
 
     # Recalculate market cap if needed
     if market_cap == 0 and stock_price > 0 and shares > 0:
         market_cap = stock_price * shares
+
+    # Last resort: estimate shares from EntityPublicFloat if still zero
+    if shares == 0 and stock_price > 0:
+        public_float = financials.get("entity_public_float", 0)
+        if public_float > 0:
+            shares = round(public_float / stock_price, 0)  # both in $M
+            market_cap = round(stock_price * shares, 0)
+            print(f"  [Shares] Estimated from EntityPublicFloat: {shares:,.0f}M shares")
 
     term_growth = terminal_growth or TERMINAL_GROWTH_DEFAULT
     consensus = consensus or {}
