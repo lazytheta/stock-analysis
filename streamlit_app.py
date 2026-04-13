@@ -97,26 +97,33 @@ def _groq_call(prompt: str) -> tuple[str, str | None]:
     key = _groq_api_key()
     if not key:
         return "", "GROQ_API_KEY niet ingesteld."
+    import urllib.request
+    import urllib.error
+    import json as _json
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/chat/completions",
+        data=_json.dumps({
+            "model": "llama-3.3-70b-versatile",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+        }).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {key.strip()}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
     try:
-        import urllib.request
-        import json as _json
-        req = urllib.request.Request(
-            "https://api.groq.com/openai/v1/chat/completions",
-            data=_json.dumps({
-                "model": "llama-3.3-70b-versatile",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
-            }).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
         with urllib.request.urlopen(req, timeout=120) as resp:
             data = _json.loads(resp.read().decode("utf-8"))
         text = data["choices"][0]["message"]["content"].strip()
         return (text, None) if text else ("", "groq: empty response")
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        return "", f"groq: HTTP {e.code} {e.reason} — {body[:500]}"
     except Exception as e:
         return "", f"groq: {e}"
 
