@@ -79,10 +79,11 @@ def _gemini_ready() -> bool:
     return bool(_gemini_api_key())
 
 
-def _gemini_run(prompt: str) -> tuple[str, str | None]:
+def _gemini_run(prompt: str, prefer_pro: bool = False) -> tuple[str, str | None]:
     """Run a prompt against Gemini. Returns (text, error).
 
-    Tries gemini-2.5-pro first, falls back to gemini-2.5-flash on rate limits.
+    Default order: flash → pro (ruimere free tier). Als prefer_pro=True
+    wordt 2.5 Pro eerst geprobeerd, flash als fallback bij rate limits.
     """
     key = _gemini_api_key()
     if not key:
@@ -92,7 +93,10 @@ def _gemini_run(prompt: str) -> tuple[str, str | None]:
     except ImportError:
         return "", "google-genai pakket niet geïnstalleerd."
     client = genai.Client(api_key=key)
-    for model in ("gemini-2.5-pro", "gemini-2.5-flash"):
+    _order = ("gemini-2.5-pro", "gemini-2.5-flash") if prefer_pro else (
+        "gemini-2.5-flash", "gemini-2.5-pro"
+    )
+    for model in _order:
         try:
             resp = client.models.generate_content(model=model, contents=prompt)
             text = (getattr(resp, "text", "") or "").strip()
