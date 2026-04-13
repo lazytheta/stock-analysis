@@ -5076,69 +5076,7 @@ def _dcf_editor(ticker):
             _prefs['ai_prompts'] = _library
             save_user_prefs(_sb_client, _prefs)
 
-        # ── Prompt Library management ──
-        with st.expander("📚 Prompt Library (shared across all tickers)", expanded=False):
-            st.caption(
-                "Hier beheer je de prompts. Wijzigingen zijn zichtbaar voor "
-                "alle tickers. Resultaten worden per ticker opgeslagen."
-            )
-            _lib_changed = False
-            _lib_del = None
-            for _li, _lp in enumerate(_library):
-                _lt = _lp.get('title', '')
-                _lpr = _lp.get('prompt', '')
-                _ltc1, _ltc2 = st.columns([5, 1])
-                with _ltc1:
-                    _new_lt = st.text_input(
-                        "Title", value=_lt, key=f"ed_lib_title_{_li}",
-                        label_visibility="collapsed",
-                    )
-                with _ltc2:
-                    if st.button("Delete", key=f"ed_lib_del_{_li}", use_container_width=True):
-                        _lib_del = _li
-                _new_lpr = st.text_area(
-                    "Prompt", value=_lpr, key=f"ed_lib_prompt_{_li}",
-                    height=180, label_visibility="collapsed",
-                    placeholder="Prompt template (markdown)...",
-                )
-                if _new_lt != _lt and _new_lt.strip():
-                    _library[_li]['title'] = _new_lt.strip()
-                    _lib_changed = True
-                if _new_lpr != _lpr:
-                    _library[_li]['prompt'] = _new_lpr
-                    _lib_changed = True
-                st.markdown("---")
-
-            # Add new library prompt
-            with st.form("ai_add_lib_form", clear_on_submit=True):
-                _lac1, _lac2 = st.columns([5, 1])
-                with _lac1:
-                    _new_lib_title = st.text_input(
-                        "New prompt title",
-                        key="ed_lib_new_title",
-                        placeholder="e.g. Business Overview, Moat, Risks, Bear Case",
-                    )
-                with _lac2:
-                    st.markdown('<div style="height:28px"></div>', unsafe_allow_html=True)
-                    _add_lib = st.form_submit_button("+ Add prompt", use_container_width=True)
-            if _add_lib and _new_lib_title.strip():
-                _library.append({"title": _new_lib_title.strip(), "prompt": ""})
-                _prefs['ai_prompts'] = _library
-                save_user_prefs(_sb_client, _prefs)
-                st.rerun()
-
-            if _lib_del is not None:
-                _library.pop(_lib_del)
-                _prefs['ai_prompts'] = _library
-                save_user_prefs(_sb_client, _prefs)
-                st.rerun()
-            elif _lib_changed:
-                _prefs['ai_prompts'] = _library
-                save_user_prefs(_sb_client, _prefs)
-
         # ── Per-ticker: render each library prompt with Run + result ──
-        if not _library:
-            st.info("Nog geen prompts. Voeg er één toe in de Prompt Library hierboven.")
         _results_changed = False
         for _li, _lp in enumerate(_library):
             _title = _lp.get('title', f'Prompt {_li + 1}')
