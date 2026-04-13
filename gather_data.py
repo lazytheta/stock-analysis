@@ -2354,6 +2354,8 @@ def fetch_fundamentals(ticker, n_years=10):
             ("net_income", "NetIncomeLoss", "USD"),
             ("cost_of_revenue", "CostOfGoodsAndServicesSold", "USD"),
             ("cost_of_revenue", "CostOfRevenue", "USD"),
+            ("cost_of_revenue", "CostOfGoodsSold", "USD"),
+            ("cost_of_revenue", "CostsAndExpenses", "USD"),
             ("pretax_income", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest", "USD"),
             ("tax_provision", "IncomeTaxExpenseBenefit", "USD"),
         ]
