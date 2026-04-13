@@ -1310,10 +1310,14 @@ Read all the prior research below for this company and produce a concise, decisi
 
 ## OUTPUT TEMPLATE
 
-# 🎯 Investment Verdict: [Company Name] ([Ticker])
+# 🎯 Prescan Verdict: [Company Name] ([Ticker])
 
-## ⭐ Overall Rating
-**[🟢 BUY / 🟡 HOLD / 🔴 AVOID]** — Conviction: [High / Medium / Low]
+## ⭐ Verdict
+**[🟢 DEEP DIVE / 🟡 REVISIT / 🔴 PASS]** — Conviction: [High / Medium / Low]
+
+- **DEEP DIVE:** Worth investing hours in full due diligence right now.
+- **REVISIT:** Not compelling enough now — park it and come back when something changes (valuation pullback, earnings confirmation, improving fundamentals, catalyst).
+- **PASS:** Move on; unlikely to be worth the time unless the thesis fundamentally changes.
 
 **One-line thesis:** [Single sentence capturing the core investment case.]
 
@@ -1341,14 +1345,13 @@ Read all the prior research below for this company and produce a concise, decisi
 | Valuation | 🟢/🟡/🔴 | [1-line] |
 | AI Resilience | 🟢/🟡/🔴 | [1-line] |
 
-## 🎯 Recommended Action
-- **For long-term investors:** [Buy / Hold / Avoid + reasoning, 1-2 sentences]
-- **Entry approach:** [DCA / wait for pullback / immediate / skip]
-- **Position sizing hint:** [Core holding / starter position / small speculative / not applicable]
+## 🎯 Recommended Next Step
+- **Action:** [Deep dive now / Add to revisit list / Skip + reasoning, 1-2 sentences]
+- **If REVISIT, what to wait for:** [Specific condition, e.g. "P/E below 25", "Q3 earnings", "margin stabilization"]
 
-## 🚨 What Would Change Your Mind
-- **Bull → Bear:** [Single most important development that would invalidate the thesis]
-- **Bear → Bull:** [Single most important development that would unlock value]
+## 🚨 Thesis Triggers
+- **DEEP DIVE → PASS:** [Single most important development that would invalidate the thesis]
+- **REVISIT → DEEP DIVE:** [Single most important development that would unlock value]
 
 ## 📋 Watch List
 3 specific metrics or events to monitor over the next 12 months:
