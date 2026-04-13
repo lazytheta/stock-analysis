@@ -4194,19 +4194,14 @@ def _dcf_editor(ticker):
         else:
             _results = dict(_raw)
 
-        # ── Load shipped defaults into library ──
+        # ── Auto-load shipped defaults into library ──
         _lib_titles = {p.get('title', '') for p in _library}
         _missing_defaults = [p for p in DEFAULT_AI_PROMPTS if p['title'] not in _lib_titles]
         if _missing_defaults:
-            if st.button(
-                f"Load {len(_missing_defaults)} default prompt(s) into library",
-                key="ed_ai_load_defaults",
-            ):
-                for p in _missing_defaults:
-                    _library.append({"title": p['title'], "prompt": p['prompt']})
-                _prefs['ai_prompts'] = _library
-                save_user_prefs(_sb_client, _prefs)
-                st.rerun()
+            for p in _missing_defaults:
+                _library.append({"title": p['title'], "prompt": p['prompt']})
+            _prefs['ai_prompts'] = _library
+            save_user_prefs(_sb_client, _prefs)
 
         # ── Prompt Library management ──
         with st.expander("📚 Prompt Library (shared across all tickers)", expanded=False):
