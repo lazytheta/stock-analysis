@@ -3275,10 +3275,10 @@ def _dcf_editor(ticker):
                 line=dict(color=_COLORS['primary'], width=2.5),
                 hovertemplate='%{y:.0f}%<extra>FCF Conversion</extra>',
             ))
-            fig.add_hline(y=100, line_dash="dash", line_color=_COLORS['accent'],
-                          annotation_text="100%", annotation_position="top right")
-            fig.add_hline(y=70, line_dash="dot", line_color=_COLORS['secondary'],
-                          annotation_text="70%", annotation_position="bottom right")
+            fig.add_hline(y=80, line_dash="dash", line_color=_COLORS['accent'],
+                          annotation_text="80% (high quality)", annotation_position="top right")
+            fig.add_hline(y=50, line_dash="dot", line_color=_COLORS['secondary'],
+                          annotation_text="50% (red flag)", annotation_position="bottom right")
             fig.update_yaxes(ticksuffix='%')
             _base_layout(fig)
             st.plotly_chart(fig, use_container_width=True)
