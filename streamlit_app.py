@@ -5057,6 +5057,8 @@ def _dcf_editor(ticker):
                         disabled=not _content,
                     )
 
+                _widget_key = f"ed_ai_res_{_li}"
+
                 if _run_clicked:
                     import re as _re
                     def _sub_prior(_m):
@@ -5079,12 +5081,14 @@ def _dcf_editor(ticker):
                         _results[_title] = _ans
                         cfg['ai_notes'] = _results
                         save_config(_sb_client, ticker, cfg)
+                        st.session_state.pop(_widget_key, None)
                         st.rerun()
 
                 if _clear_clicked:
                     _results.pop(_title, None)
                     cfg['ai_notes'] = _results
                     save_config(_sb_client, ticker, cfg)
+                    st.session_state.pop(_widget_key, None)
                     st.rerun()
 
                 if _content.strip():
@@ -5092,11 +5096,14 @@ def _dcf_editor(ticker):
                 else:
                     st.caption("_Nog geen output. Klik ▶ Run of plak handmatig via Edit._")
                 with st.expander("Edit / paste", expanded=False):
+                    # Sync widget state to saved content when they diverge
+                    # (e.g. after Run or a switch between tickers)
+                    if _widget_key not in st.session_state:
+                        st.session_state[_widget_key] = _content
                     _new_content = st.text_area(
                         "Content",
-                        value=_content,
                         height=280,
-                        key=f"ed_ai_res_{_li}",
+                        key=_widget_key,
                         label_visibility="collapsed",
                         placeholder="Plak of bewerk output hier (markdown)...",
                     )
