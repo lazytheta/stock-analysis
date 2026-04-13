@@ -5022,8 +5022,7 @@ def _dcf_editor(ticker):
         with _ai_h1:
             st.markdown("#### AI Research Sections")
             st.caption(
-                "Run prompts tegen Groq Llama 3.3 70B (met fallback naar Gemini 2.5 Flash) "
-                "of plak handmatig output. Output is markdown."
+                "Run prompts on Groq Llama 3.3 70B (with fallback to Gemini 2.5 Flash)."
             )
         with _ai_h2:
             _gem_ok = _gemini_ready()
