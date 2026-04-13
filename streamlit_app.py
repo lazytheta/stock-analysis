@@ -5065,6 +5065,7 @@ def _dcf_editor(ticker):
                 _widget_key = f"ed_ai_res_{_li}"
 
                 if _run_clicked:
+                    st.toast(f"🚀 Run clicked: {_title}")
                     if not _prompt.strip():
                         st.error("Prompt is leeg. Vul 'm in via de 📚 Prompt Library expander bovenaan.")
                         st.stop()
@@ -5081,11 +5082,14 @@ def _dcf_editor(ticker):
                     )
                     if "{ticker}" not in _prompt and "{company}" not in _prompt and "{prior:" not in _prompt:
                         _filled = f"Company to analyze: {_company_name} ({ticker}).\n\n{_filled}"
-                    with st.spinner(f"AI aan het werk ({_title})..."):
+                    with st.spinner(f"AI aan het werk ({_title})... (filled prompt: {len(_filled)} chars)"):
                         _ans, _err = _gemini_run(_filled)
                     if _err:
-                        st.error(_err)
+                        st.error(f"AI call failed:\n\n{_err}")
+                    elif not _ans or not _ans.strip():
+                        st.warning(f"AI call returned empty response for {_title}")
                     else:
+                        st.toast(f"✅ Saved {_title} ({len(_ans)} chars)")
                         _results[_title] = _ans
                         cfg['ai_notes'] = _results
                         save_config(_sb_client, ticker, cfg)
