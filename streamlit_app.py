@@ -100,10 +100,13 @@ def _gemini_run(prompt: str) -> tuple[str, str | None]:
                 return text, None
         except Exception as e:
             msg = str(e).lower()
-            if "rate" in msg or "quota" in msg or "429" in msg or "resource_exhausted" in msg:
+            if any(s in msg for s in (
+                "rate", "quota", "429", "resource_exhausted",
+                "503", "unavailable", "overloaded", "high demand",
+            )):
                 continue
             return "", f"Gemini error ({model}): {e}"
-    return "", "Gemini rate limit bereikt op beide modellen. Probeer later opnieuw."
+    return "", "Gemini is tijdelijk niet beschikbaar op beide modellen (rate limit / overload). Probeer zo opnieuw."
 
 
 # Default AI research prompts loaded via "Load default prompts" button
