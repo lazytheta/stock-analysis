@@ -3037,9 +3037,18 @@ def _dcf_editor(ticker):
         )
         if _n >= 3:
             rev = fund['revenue']
-            gross_m = [(rev[i] - fund['cost_of_revenue'][i]) / rev[i] * 100
-                       if rev[i] and fund['cost_of_revenue'][i] is not None else None
-                       for i in range(_n)]
+            _gp = fund.get('gross_profit') or [None] * _n
+            _cor = fund.get('cost_of_revenue') or [None] * _n
+            gross_m = []
+            for i in range(_n):
+                if not rev[i]:
+                    gross_m.append(None)
+                elif _gp[i] is not None:
+                    gross_m.append(_gp[i] / rev[i] * 100)
+                elif _cor[i] is not None:
+                    gross_m.append((rev[i] - _cor[i]) / rev[i] * 100)
+                else:
+                    gross_m.append(None)
             op_m = [fund['operating_income'][i] / rev[i] * 100
                     if rev[i] and fund['operating_income'][i] is not None else None
                     for i in range(_n)]
