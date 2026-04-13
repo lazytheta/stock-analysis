@@ -3780,6 +3780,19 @@ def _dcf_editor(ticker):
     btn1, btn2, btn3 = st.columns(3)
     with btn1:
         if st.button("Save", key="ed_save", use_container_width=True, type="primary"):
+            # Pick up any unsubmitted peer ticker from the add-peer text field
+            _pending_peer = (st.session_state.get("ed_add_peer") or "").strip()
+            if _pending_peer:
+                _pending = [t for t in (sanitize_ticker(x) for x in _pending_peer.split(",")) if t]
+                _existing_t = {p.get("ticker") for p in cfg.get('peers', [])}
+                _to_fetch_t = [t for t in _pending if t not in _existing_t and t != ticker]
+                if _to_fetch_t:
+                    with st.spinner(f"Fetching data for {', '.join(_to_fetch_t)}..."):
+                        _added = fetch_peer_data(_to_fetch_t)
+                    if _added:
+                        cfg.setdefault('peers', []).extend(_added)
+                        st.session_state.pop("ed_add_peer", None)
+                        st.session_state.pop("ed_peer_select", None)
             save_config(_sb_client, ticker, cfg)
             st.success(f"{ticker} saved")
             st.rerun()
