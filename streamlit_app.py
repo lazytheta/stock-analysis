@@ -3365,9 +3365,19 @@ def _dcf_editor(ticker):
             unsafe_allow_html=True,
         )
         if _n >= 3:
-            rps = [fund['revenue'][i] * 1e6 / fund['shares'][i]
-                   if fund['shares'][i] and fund['shares'][i] > 0
-                      and fund['revenue'][i] is not None
+            # Derive shares from EPS / Net Income when the direct share tags
+            # are missing (e.g. Visa only reports shares in non-standard tags)
+            _shares_eff = []
+            _eps_l = fund.get('eps') or [None] * _n
+            _ni_l = fund.get('net_income') or [None] * _n
+            for i in range(_n):
+                s = fund['shares'][i]
+                if not s or s <= 0:
+                    if _eps_l[i] and _ni_l[i] is not None and _eps_l[i] != 0:
+                        s = (_ni_l[i] * 1e6) / _eps_l[i]
+                _shares_eff.append(s if s and s > 0 else None)
+            rps = [fund['revenue'][i] * 1e6 / _shares_eff[i]
+                   if _shares_eff[i] and fund['revenue'][i] is not None
                    else None
                    for i in range(_n)]
             rps_g = _pct_growth(rps)
@@ -3416,7 +3426,7 @@ def _dcf_editor(ticker):
                 _rps_html += '</tr>'
 
                 # Shares row
-                _sh_vals = [fund['shares'][i] / 1e6 if fund['shares'][i] else None for i in range(_n)]
+                _sh_vals = [_shares_eff[i] / 1e6 if _shares_eff[i] else None for i in range(_n)]
                 _sh_valid = [v for v in _sh_vals if v is not None]
                 _sh_avg = sum(_sh_valid) / len(_sh_valid) if _sh_valid else None
                 _rps_html += f'<tr><td style="{_rps_label}">Shares (M)</td>'
