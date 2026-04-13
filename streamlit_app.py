@@ -110,6 +110,8 @@ def _groq_call(prompt: str) -> tuple[str, str | None]:
         headers={
             "Authorization": f"Bearer {key.strip()}",
             "Content-Type": "application/json",
+            "User-Agent": "lazytheta-stock-analysis/1.0",
+            "Accept": "application/json",
         },
         method="POST",
     )
