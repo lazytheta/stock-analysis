@@ -3342,7 +3342,7 @@ def _dcf_editor(ticker):
     margins = list(cfg.get('op_margins', []))
 
     # ── Tabs: DCF / Reverse DCF / Peer Comparison ──
-    _tab_dcf, _tab_rdcf, _tab_peers, _tab_fundamentals, _tab_notes = st.tabs(["DCF", "Reverse DCF", "Peer Comparison", "Fundamentals", "Notes"])
+    _tab_dcf, _tab_rdcf, _tab_peers, _tab_fundamentals, _tab_notes = st.tabs(["DCF", "Reverse DCF", "Peer Comparison", "Fundamentals", "Pre-Scan"])
 
     with _tab_dcf:
         st.markdown("#### Discounting Cash Flows")
