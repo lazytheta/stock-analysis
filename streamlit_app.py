@@ -2780,22 +2780,30 @@ def _dcf_editor(ticker):
         st.markdown(_ptable, unsafe_allow_html=True)
 
         # ── Manage peers ──
-        st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+        st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
         _peer_tickers = [p.get("ticker", "") for p in peers]
-        _kept = st.multiselect("Peers", options=_peer_tickers, default=_peer_tickers,
-                               key="ed_peer_select", label_visibility="collapsed")
-        if set(_kept) != set(_peer_tickers):
-            cfg['peers'] = [p for p in peers if p.get("ticker") in _kept]
-            save_config(_sb_client, ticker, cfg)
-            st.rerun()
+        if _peer_tickers:
+            _kept = st.multiselect(
+                "Remove peers (deselect to remove)",
+                options=_peer_tickers, default=_peer_tickers,
+                key="ed_peer_select",
+                help="Deselect a ticker to remove it from this peer group.",
+            )
+            if set(_kept) != set(_peer_tickers):
+                cfg['peers'] = [p for p in peers if p.get("ticker") in _kept]
+                save_config(_sb_client, ticker, cfg)
+                st.rerun()
 
         with st.form("add_peer_form"):
             _ac1, _ac2 = st.columns([5, 1])
             with _ac1:
-                _new_peer = st.text_input("Add peer", key="ed_add_peer",
-                                          placeholder="Add peer — e.g. MSFT, GOOG",
-                                          label_visibility="collapsed")
+                _new_peer = st.text_input(
+                    "Add peer ticker",
+                    key="ed_add_peer",
+                    placeholder="e.g. MSFT, GOOG",
+                )
             with _ac2:
+                st.markdown('<div style="height:28px"></div>', unsafe_allow_html=True)
                 _add_clicked = st.form_submit_button("+ Add", use_container_width=True)
         if _add_clicked and _new_peer:
             _new_tickers = [t for t in (sanitize_ticker(t) for t in _new_peer.split(",")) if t]
