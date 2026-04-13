@@ -3701,12 +3701,91 @@ def _dcf_editor(ticker):
         _new_notes = st.text_area(
             "Investment notes",
             value=_notes_val,
-            height=300,
+            height=200,
             key="ed_notes",
             placeholder="Investment thesis, key risks, catalysts, reminders...",
         )
         if _new_notes != _notes_val:
             cfg['notes'] = _new_notes
+            save_config(_sb_client, ticker, cfg)
+
+        st.markdown("---")
+        st.markdown("#### AI Research Sections")
+        st.caption(
+            "Plak hier output van AI-prompts (bv. uit de Long Term Mindset "
+            "Notion pagina). Elke sectie heeft een titel, een bewerker en "
+            "een live markdown-preview."
+        )
+
+        _ai_sections = list(cfg.get('ai_notes') or [])
+
+        # ── Add new section ──
+        with st.form("ai_add_section_form", clear_on_submit=True):
+            _add_c1, _add_c2 = st.columns([5, 1])
+            with _add_c1:
+                _new_title = st.text_input(
+                    "New section title",
+                    key="ed_ai_new_title",
+                    placeholder="e.g. Business Overview, Moat, Risks, Bear Case",
+                )
+            with _add_c2:
+                st.markdown('<div style="height:28px"></div>', unsafe_allow_html=True)
+                _add_sec = st.form_submit_button("+ Add", use_container_width=True)
+        if _add_sec and _new_title.strip():
+            _ai_sections.append({"title": _new_title.strip(), "content": ""})
+            cfg['ai_notes'] = _ai_sections
+            save_config(_sb_client, ticker, cfg)
+            st.rerun()
+
+        # ── Render existing sections ──
+        _changed = False
+        _delete_idx = None
+        for _idx, _sec in enumerate(_ai_sections):
+            _title = _sec.get('title', f'Section {_idx + 1}')
+            _content = _sec.get('content', '')
+            with st.expander(_title, expanded=not _content):
+                _ec1, _ec2 = st.columns(2, gap="small")
+                with _ec1:
+                    st.markdown(f"**Edit** — _{_title}_")
+                    _new_content = st.text_area(
+                        "Content",
+                        value=_content,
+                        height=320,
+                        key=f"ed_ai_sec_{_idx}",
+                        label_visibility="collapsed",
+                        placeholder="Paste AI output here (markdown supported)...",
+                    )
+                with _ec2:
+                    st.markdown("**Preview**")
+                    if _new_content.strip():
+                        st.markdown(_new_content)
+                    else:
+                        st.caption("_(preview verschijnt hier)_")
+                _rc1, _rc2 = st.columns([5, 1])
+                with _rc1:
+                    _rename = st.text_input(
+                        "Rename section",
+                        value=_title,
+                        key=f"ed_ai_title_{_idx}",
+                        label_visibility="collapsed",
+                    )
+                with _rc2:
+                    if st.button("Delete", key=f"ed_ai_del_{_idx}", use_container_width=True):
+                        _delete_idx = _idx
+                if _new_content != _content:
+                    _ai_sections[_idx]['content'] = _new_content
+                    _changed = True
+                if _rename.strip() and _rename.strip() != _title:
+                    _ai_sections[_idx]['title'] = _rename.strip()
+                    _changed = True
+
+        if _delete_idx is not None:
+            _ai_sections.pop(_delete_idx)
+            cfg['ai_notes'] = _ai_sections
+            save_config(_sb_client, ticker, cfg)
+            st.rerun()
+        elif _changed:
+            cfg['ai_notes'] = _ai_sections
             save_config(_sb_client, ticker, cfg)
 
     with _tab_dcf:
