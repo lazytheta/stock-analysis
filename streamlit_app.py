@@ -5048,7 +5048,7 @@ def _dcf_editor(ticker):
                     _run_clicked = st.button(
                         "▶ Run", key=f"ed_ai_run_{_li}",
                         use_container_width=True, type="primary",
-                        disabled=not (_gem_ok and _prompt.strip()),
+                        disabled=not _gem_ok,
                     )
                 with _rb2:
                     _clear_clicked = st.button(
@@ -5056,10 +5056,18 @@ def _dcf_editor(ticker):
                         use_container_width=True,
                         disabled=not _content,
                     )
+                with _rb3:
+                    st.caption(
+                        f"_prompt length: {len(_prompt)} chars_"
+                        + (" ⚠️ empty" if not _prompt.strip() else "")
+                    )
 
                 _widget_key = f"ed_ai_res_{_li}"
 
                 if _run_clicked:
+                    if not _prompt.strip():
+                        st.error("Prompt is leeg. Vul 'm in via de 📚 Prompt Library expander bovenaan.")
+                        st.stop()
                     import re as _re
                     def _sub_prior(_m):
                         _t = _m.group(1).strip()
