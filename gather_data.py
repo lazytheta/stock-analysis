@@ -2368,6 +2368,19 @@ def fetch_fundamentals(ticker, n_years=10):
                 if our_key not in d or d[our_key] is None:
                     d[our_key] = round(val / M, 0)
 
+        # Total debt fallback: some filers (e.g. V from FY2022 onwards) stop
+        # reporting the combined LongTermDebt tag and only file the
+        # Noncurrent + Current split. Sum them when total_debt is still missing.
+        _lt_nc = dict(_extract_annual_values(facts, "LongTermDebtNoncurrent", n_years, "USD"))
+        _lt_cu = dict(_extract_annual_values(facts, "LongTermDebtCurrent", n_years, "USD"))
+        for yr_val in set(_lt_nc) | set(_lt_cu):
+            d = data_by_year.setdefault(yr_val, {})
+            if d.get("total_debt") is None:
+                nc = _lt_nc.get(yr_val)
+                cu = _lt_cu.get(yr_val)
+                if nc is not None or cu is not None:
+                    d["total_debt"] = round(((nc or 0) + (cu or 0)) / M, 0)
+
         # Shares: separate fallback with unit_key="shares" (raw count, not USD)
         _shares_tags = ["WeightedAverageNumberOfDilutedSharesOutstanding",
                         "CommonStockSharesOutstanding"]
