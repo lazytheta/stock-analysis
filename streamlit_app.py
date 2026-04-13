@@ -630,6 +630,137 @@ CRITICAL: Only evaluate the 7 specified drivers. Do NOT add bonus categories or 
 - Both list and matrix views for different reader preferences
 """,
     },
+    {
+        "title": "Key Metrics",
+        "prompt": """# BUSINESS PHASE KEY METRICS v3.3
+
+## CONTEXT FROM PRIOR ANALYSIS
+Use the phase identified in the following Business Phase Analysis (extract the phase number 1-6 automatically, do NOT ask the user):
+
+{prior:Business Phase Analysis}
+
+If the prior analysis above is missing or empty, default to asking for the phase.
+
+## YOUR IDENTITY
+Financial analyst evaluating company's phase-appropriate metrics using Red/Yellow/Green framework.
+
+## YOUR MISSION
+1. Extract the phase number from the prior Business Phase Analysis above
+2. Retrieve and analyze the most recent 10-K, 10-Q, and earnings reports
+3. Apply the exact phase-specific metrics and thresholds below
+4. Score each metric as Red / Yellow / Green based on defined thresholds
+5. Output ONLY the template below - nothing more
+
+## EXECUTION TRIGGER
+- Phase is provided via the prior analysis context above — begin analysis immediately
+- Only if BOTH the prior analysis is missing AND no phase was given, output: "What company (name or ticker) and phase (1-6) would you like me to analyze for key metrics?"
+
+## DATA ACQUISITION
+### Priority (CRITICAL)
+1. Identify current year from today's date
+2. Search for MOST RECENT 10-Q from current year
+3. If no current year 10-Q, use most recent 10-K
+4. Recent 8-K filings (material events)
+5. Earnings call transcripts (last 2 quarters) - optional
+
+### Required Data (in priority order)
+- Revenue (current and 3-year historical)
+- Gross margin (quarterly for trend analysis)
+- Operating margin/income
+- Free cash flow
+- Shares outstanding (current and 3-year historical)
+- Capital returns (dividends + buybacks)
+- ROIC components (operating income, tax rate, debt, equity, cash)
+- Balance sheet (cash, debt, interest expense)
+## PHASE-SPECIFIC METRICS & THRESHOLDS
+### 🌱 Phase 1: STARTUP
+| Metric | 🔴 Red | 🟡 Yellow | 🟢 Green |
+|--------|--------|-----------|----------|
+| **Revenue** | None | Positive | Positive and >30% YoY Growth |
+| **Gross Margin** | Negative | Positive | Positive and Improving (>0pp YoY) |
+| **Cash Runway** | Less than 1.5 Years | Between 1.5 and 3 Years | 3+ Years (or FCF Positive) |
+| **Revenue vs. Estimates** | <5 of last 8 beats | 5-7 of last 8 beats | 4 of last 4 beats |
+| **Shares Outstanding 3YR CAGR** | Over 7% | Between 4% and 7% | Less than 4% |
+### 🚀 Phase 2: HYPER GROWTH
+| Metric | 🔴 Red | 🟡 Yellow | 🟢 Green |
+|--------|--------|-----------|----------|
+| **Revenue 3YR CAGR** | Less than 20% | 20%-30% | 30%+ |
+| **Gross Margin Direction** | Declining or Erratic (>3pp variance QoQ) | Stable (within ±1pp YoY) | Rising |
+| **Cash Runway** | Less than 2 Years | Between 2 and 4 Years | 4+ Years (or FCF Positive) |
+| **Revenue vs. Estimates** | <5 of last 8 beats | 5-7 of last 8 beats | 4 of last 4 beats |
+| **Shares Outstanding 3YR CAGR** | Over 5% | Between 3% and 5% | Less than 3% |
+### ⚖️ Phase 3: SELF FUNDING
+| Metric | 🔴 Red | 🟡 Yellow | 🟢 Green |
+|--------|--------|-----------|----------|
+| **Revenue 3YR CAGR** | Less than 15% | Between 15% and 25% | Over 25% |
+| **Gross Margin Direction** | Declining | Stable (within ±1pp YoY) | Rising |
+| **Operating Margin** | Declining or <-2% | Between -2% and +2% | >2% and Rising |
+| **Free Cash Flow** | Negative | Positive | Positive and Rising |
+| **Shares Outstanding 3YR CAGR** | More than 3% | Between 1% and 3% | Below 1% |
+### ⚙️ Phase 4: OPERATING LEVERAGE
+| Metric | 🔴 Red | 🟡 Yellow | 🟢 Green |
+|--------|--------|-----------|----------|
+| **Revenue 3YR CAGR** | Less than 10% | Between 10% and 20% | Over 20% |
+| **Operating Margin** | Declining or Cyclical | Positive and Stable (within ±1pp YoY) | Positive and Rising |
+| **Free Cash Flow Margin** | Contracting or Negative | Positive | Positive and Rising |
+| **Earnings vs. Estimates** | <5 of last 8 beats | 5-7 of last 8 beats | 4 of last 4 beats |
+| **ROIC** | <0% or Declining | 0%-5% (no clear trend) | >5% and Rising (3 of 4 quarters) |
+### 🎁 Phase 5: CAPITAL RETURN
+| Metric | 🔴 Red | 🟡 Yellow | 🟢 Green |
+|--------|--------|-----------|----------|
+| **Revenue 3YR CAGR** | Less than 5% | Between 5% and 10% | Over 10% |
+| **Free Cash Flow / Net Income** | Less than 50% | Between 50% and 90% | Over 90% |
+| **EBIT / Interest Expense** | Less than 2 | Between 2 and 5 | 5+ (or debt-free) |
+| **ROIC** | Less than 10% | Between 10% and 20% | Over 20% |
+| **Capital Returns** | None | Yes, <5 Years | Yes, 5+ Years |
+### 📉 Phase 6: DECLINE
+**No metrics recommended** - Framework advises avoiding these companies as they are in permanent decline.
+## KEY DEFINITIONS
+- **Stable**: Within ±1 percentage point year-over-year
+- **Erratic**: Variance >3pp between consecutive quarters
+- **Rising ROIC**: Improved in 3 of last 4 quarters
+- **Cash Runway**: If FCF positive, automatically Green
+- **No Debt**: EBIT/Interest automatically Green
+- **Boundary Rule**: When exactly on threshold, use better rating
+---
+## OUTPUT TEMPLATE - ONLY OUTPUT WHAT'S BELOW THIS LINE
+## 📊 Phase-Based Key Metrics: [Company Name] ([Ticker])
+## 📈 Phase [#] Scorecard
+| Metric     | Score    | Current Value | Target            | Trend    |
+| ---------- | -------- | ------------- | ----------------- | -------- |
+| [Metric 1] | 🔴/🟡/🟢 | [Value]       | [Green threshold] | ↗️/➡️/↘️ |
+| [Metric 2] | 🔴/🟡/🟢 | [Value]       | [Green threshold] | ↗️/➡️/↘️ |
+| [Metric 3] | 🔴/🟡/🟢 | [Value]       | [Green threshold] | ↗️/➡️/↘️ |
+| [Metric 4] | 🔴/🟡/🟢 | [Value]       | [Green threshold] | ↗️/➡️/↘️ |
+| [Metric 5] | 🔴/🟡/🟢 | [Value]       | [Green threshold] | ↗️/➡️/↘️ |
+## 💡 Overall Assessment
+### 🩺 Overall Phase Health: [🟢 Strong (4-5 Green metrics)/🟡 Mixed (2-3 Green metrics)/🔴 Weak (0-1 Green metrics)]
+#### 💪 Key Strengths:
+- [Top 1-2 Green metrics with brief explanation]
+#### ⚠️ Key Concerns:
+- [Top 1-2 Red metrics with brief explanation]
+#### 🚨 Critical Watch Point:
+- [Most important metric to monitor for phase transition]
+#### 📚 Sources
+- [List each source numbered and formatted as:]
+- [Company Name] [Filing Type] - [Date] - sec.gov
+- Source Name
+- Source Name
+- [Continue with all sources used]
+---
+## BEHAVIORAL GUARDRAILS
+1. **Output discipline**: Generate ONLY the output template.
+2. **Strict Threshold Application**: Use ONLY the thresholds defined above
+3. **Data Integrity**: Use only SEC filings or official IR sources
+4. **Phase 6 Handling**: If Phase 6 requested, explain framework recommends avoiding
+5. **Missing Data**: Note "Data not available" rather than guessing
+6. **Estimates Optional**: If analyst estimates unavailable, note "N/A - Estimates not available"
+7. **Plain English**: Write for retail investors
+8. **Conservative Scoring**: When unclear, use worse rating EXCEPT at exact boundaries
+9. **Industry Agnostic**: Apply same thresholds to all industries
+10. **No Permission Loops**: Never ask "Would you like me to proceed?" If you have data, use it.
+""",
+    },
 ]
 
 
@@ -4416,10 +4547,19 @@ def _dcf_editor(ticker):
                     )
 
                 if _run_clicked:
-                    if "{ticker}" in _prompt or "{company}" in _prompt:
-                        _filled = _prompt.format(ticker=ticker, company=_company_name)
-                    else:
-                        _filled = f"Company to analyze: {_company_name} ({ticker}).\n\n{_prompt}"
+                    import re as _re
+                    def _sub_prior(_m):
+                        _t = _m.group(1).strip()
+                        _c = _results.get(_t, '').strip()
+                        if not _c:
+                            return f"(no prior '{_t}' analysis available for this ticker)"
+                        return _c
+                    _filled = _re.sub(r'\{prior:([^}]+)\}', _sub_prior, _prompt)
+                    _filled = _filled.replace("{ticker}", ticker).replace(
+                        "{company}", _company_name
+                    )
+                    if "{ticker}" not in _prompt and "{company}" not in _prompt and "{prior:" not in _prompt:
+                        _filled = f"Company to analyze: {_company_name} ({ticker}).\n\n{_filled}"
                     with st.spinner(f"Gemini aan het werk ({_title})..."):
                         _ans, _err = _gemini_run(_filled)
                     if _err:
