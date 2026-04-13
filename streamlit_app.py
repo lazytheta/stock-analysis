@@ -64,6 +64,48 @@ def sanitize_ticker(raw: str) -> str | None:
     return None
 
 
+# ── Gemini AI helper ──
+def _gemini_api_key() -> str | None:
+    try:
+        k = st.secrets.get("GEMINI_API_KEY")
+        if k:
+            return k
+    except Exception:
+        pass
+    return os.environ.get("GEMINI_API_KEY")
+
+
+def _gemini_ready() -> bool:
+    return bool(_gemini_api_key())
+
+
+def _gemini_run(prompt: str) -> tuple[str, str | None]:
+    """Run a prompt against Gemini. Returns (text, error).
+
+    Tries gemini-2.5-pro first, falls back to gemini-2.5-flash on rate limits.
+    """
+    key = _gemini_api_key()
+    if not key:
+        return "", "GEMINI_API_KEY niet ingesteld in st.secrets of env."
+    try:
+        from google import genai
+    except ImportError:
+        return "", "google-genai pakket niet geïnstalleerd."
+    client = genai.Client(api_key=key)
+    for model in ("gemini-2.5-pro", "gemini-2.5-flash"):
+        try:
+            resp = client.models.generate_content(model=model, contents=prompt)
+            text = (getattr(resp, "text", "") or "").strip()
+            if text:
+                return text, None
+        except Exception as e:
+            msg = str(e).lower()
+            if "rate" in msg or "quota" in msg or "429" in msg or "resource_exhausted" in msg:
+                continue
+            return "", f"Gemini error ({model}): {e}"
+    return "", "Gemini rate limit bereikt op beide modellen. Probeer later opnieuw."
+
+
 # ── Rate limiting ──
 def rate_limited_lookup() -> bool:
     """Returns True if the lookup is allowed, False if rate limited."""
@@ -3710,14 +3752,22 @@ def _dcf_editor(ticker):
             save_config(_sb_client, ticker, cfg)
 
         st.markdown("---")
-        st.markdown("#### AI Research Sections")
-        st.caption(
-            "Plak hier output van AI-prompts (bv. uit de Long Term Mindset "
-            "Notion pagina). Elke sectie heeft een titel, een bewerker en "
-            "een live markdown-preview."
-        )
+        _ai_h1, _ai_h2 = st.columns([5, 2])
+        with _ai_h1:
+            st.markdown("#### AI Research Sections")
+            st.caption(
+                "Run prompts tegen Gemini 2.5 Pro (met fallback naar 2.5 Flash) "
+                "of plak handmatig output. Output is markdown."
+            )
+        with _ai_h2:
+            _gem_ok = _gemini_ready()
+            if _gem_ok:
+                st.success("Gemini ready", icon="✅")
+            else:
+                st.warning("GEMINI_API_KEY ontbreekt", icon="⚠️")
 
         _ai_sections = list(cfg.get('ai_notes') or [])
+        _company_name = cfg.get('company', ticker)
 
         # ── Add new section ──
         with st.form("ai_add_section_form", clear_on_submit=True):
@@ -3732,7 +3782,11 @@ def _dcf_editor(ticker):
                 st.markdown('<div style="height:28px"></div>', unsafe_allow_html=True)
                 _add_sec = st.form_submit_button("+ Add", use_container_width=True)
         if _add_sec and _new_title.strip():
-            _ai_sections.append({"title": _new_title.strip(), "content": ""})
+            _ai_sections.append({
+                "title": _new_title.strip(),
+                "prompt": "",
+                "content": "",
+            })
             cfg['ai_notes'] = _ai_sections
             save_config(_sb_client, ticker, cfg)
             st.rerun()
@@ -3742,38 +3796,75 @@ def _dcf_editor(ticker):
         _delete_idx = None
         for _idx, _sec in enumerate(_ai_sections):
             _title = _sec.get('title', f'Section {_idx + 1}')
+            _prompt = _sec.get('prompt', '')
             _content = _sec.get('content', '')
             with st.expander(_title, expanded=not _content):
+                st.markdown("**Prompt**")
+                _new_prompt = st.text_area(
+                    "Prompt",
+                    value=_prompt,
+                    height=140,
+                    key=f"ed_ai_prompt_{_idx}",
+                    label_visibility="collapsed",
+                    placeholder=(
+                        "Gebruik {ticker} en {company} als placeholders, bv.:\n"
+                        "Give me a 5-paragraph business overview of {company} ({ticker})."
+                    ),
+                )
+                _rb1, _rb2, _rb3 = st.columns([1, 1, 3])
+                with _rb1:
+                    _run_clicked = st.button(
+                        "▶ Run", key=f"ed_ai_run_{_idx}",
+                        use_container_width=True, type="primary",
+                        disabled=not (_gem_ok and _new_prompt.strip()),
+                    )
+                with _rb2:
+                    if st.button("Delete", key=f"ed_ai_del_{_idx}", use_container_width=True):
+                        _delete_idx = _idx
+
+                if _run_clicked:
+                    _filled = _new_prompt.format(ticker=ticker, company=_company_name) \
+                        if "{" in _new_prompt else _new_prompt
+                    with st.spinner("Gemini aan het werk..."):
+                        _ans, _err = _gemini_run(_filled)
+                    if _err:
+                        st.error(_err)
+                    else:
+                        _ai_sections[_idx]['prompt'] = _new_prompt
+                        _ai_sections[_idx]['content'] = _ans
+                        cfg['ai_notes'] = _ai_sections
+                        save_config(_sb_client, ticker, cfg)
+                        st.rerun()
+
+                st.markdown("**Output** (markdown)")
                 _ec1, _ec2 = st.columns(2, gap="small")
                 with _ec1:
-                    st.markdown(f"**Edit** — _{_title}_")
                     _new_content = st.text_area(
                         "Content",
                         value=_content,
                         height=320,
                         key=f"ed_ai_sec_{_idx}",
                         label_visibility="collapsed",
-                        placeholder="Paste AI output here (markdown supported)...",
+                        placeholder="Paste or edit AI output here...",
                     )
                 with _ec2:
-                    st.markdown("**Preview**")
                     if _new_content.strip():
                         st.markdown(_new_content)
                     else:
                         st.caption("_(preview verschijnt hier)_")
-                _rc1, _rc2 = st.columns([5, 1])
-                with _rc1:
-                    _rename = st.text_input(
-                        "Rename section",
-                        value=_title,
-                        key=f"ed_ai_title_{_idx}",
-                        label_visibility="collapsed",
-                    )
-                with _rc2:
-                    if st.button("Delete", key=f"ed_ai_del_{_idx}", use_container_width=True):
-                        _delete_idx = _idx
+
+                _rename = st.text_input(
+                    "Rename section",
+                    value=_title,
+                    key=f"ed_ai_title_{_idx}",
+                    label_visibility="collapsed",
+                )
+
                 if _new_content != _content:
                     _ai_sections[_idx]['content'] = _new_content
+                    _changed = True
+                if _new_prompt != _prompt:
+                    _ai_sections[_idx]['prompt'] = _new_prompt
                     _changed = True
                 if _rename.strip() and _rename.strip() != _title:
                     _ai_sections[_idx]['title'] = _rename.strip()
