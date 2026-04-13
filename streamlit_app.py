@@ -5081,7 +5081,13 @@ def _dcf_editor(ticker):
                         "{company}", _company_name
                     )
                     if "{ticker}" not in _prompt and "{company}" not in _prompt and "{prior:" not in _prompt:
-                        _filled = f"Company to analyze: {_company_name} ({ticker}).\n\n{_filled}"
+                        _filled = (
+                            f"**IMPORTANT OVERRIDE:** The company to analyze is "
+                            f"**{_company_name} (ticker: {ticker})**. "
+                            f"Do NOT ask the user for a company — it is provided here. "
+                            f"Begin the analysis immediately using this company.\n\n"
+                            f"---\n\n{_filled}"
+                        )
                     with st.spinner(f"AI aan het werk ({_title})... (filled prompt: {len(_filled)} chars)"):
                         _ans, _err = _gemini_run(_filled)
                     if _err:
