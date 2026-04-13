@@ -2949,6 +2949,7 @@ def _dcf_editor(ticker):
             'secondary': T['red'],
             'accent': '#3d405b',
             'tertiary': '#f2cc8f',
+            'text_muted': T['text_muted'],
         }
 
         def _base_layout(fig, height=280):
