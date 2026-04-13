@@ -2783,10 +2783,14 @@ def _dcf_editor(ticker):
         st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
         _peer_tickers = [p.get("ticker", "") for p in peers]
         if _peer_tickers:
+            # Key includes the current peer set so the widget re-initializes
+            # when peers are added/removed externally (avoids stale selection
+            # silently dropping just-added peers).
+            _ms_key = "ed_peer_select_" + "_".join(sorted(_peer_tickers))
             _kept = st.multiselect(
                 "Remove peers (deselect to remove)",
                 options=_peer_tickers, default=_peer_tickers,
-                key="ed_peer_select",
+                key=_ms_key,
                 help="Deselect a ticker to remove it from this peer group.",
             )
             if set(_kept) != set(_peer_tickers):
@@ -2818,7 +2822,6 @@ def _dcf_editor(ticker):
                     peers.extend(_new_peers)
                     cfg['peers'] = peers
                     save_config(_sb_client, ticker, cfg)
-                    st.session_state.pop("ed_peer_select", None)
                     st.rerun()
                 else:
                     st.warning("Could not fetch peer data. Check the ticker(s).")
@@ -3791,8 +3794,6 @@ def _dcf_editor(ticker):
                         _added = fetch_peer_data(_to_fetch_t)
                     if _added:
                         cfg.setdefault('peers', []).extend(_added)
-                        st.session_state.pop("ed_add_peer", None)
-                        st.session_state.pop("ed_peer_select", None)
             save_config(_sb_client, ticker, cfg)
             st.success(f"{ticker} saved")
             st.rerun()
