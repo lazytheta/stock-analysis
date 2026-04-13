@@ -1678,75 +1678,6 @@ def _build_excel_bytes(cfg):
             os.remove(tmp_path)
 
 
-def _best_put_pick(ticker_sym, price, intrinsic_val, prefs=None):
-    """Find the best put option for a ticker given user wheel prefs.
-
-    Returns dict with strike, bid, ann_roc, delta, dte, dcf_mos or None.
-    """
-    if prefs is None:
-        prefs = load_user_prefs(_sb_client)
-    try:
-        chain = fetch_option_chain(
-            ticker_sym, option_type='Put', fallback_price=price,
-            min_dte=prefs['dte_min'], max_dte=prefs['dte_max'],
-        )
-    except Exception as e:
-        logger.warning("Best put chain fetch failed for %s: %s", ticker_sym, e)
-        return None
-    if not chain['expirations']:
-        return None
-    ch_price = chain['underlying_price'] or price
-    if ch_price <= 0:
-        return None
-
-    # Collect all eligible rows first for normalization
-    candidates = []
-    dlo, dhi = prefs['delta_min'], prefs['delta_max']
-
-    for exp in chain['expirations']:
-        dte = exp['dte']
-        if dte <= 0:
-            continue
-        for s in exp['strikes']:
-            bid = s['bid']
-            if bid <= 0:
-                continue
-            ad = abs(s['delta'])
-            if ad < dlo or ad > dhi:
-                continue
-            strike = s['strike']
-            ann_roc = (bid / strike) * (365 / dte) * 100 if strike > 0 else 0
-            breakeven = strike - bid
-            dcf_mos = ((intrinsic_val - breakeven) / intrinsic_val * 100) if intrinsic_val > 0 else 0
-            prem_day = bid / dte
-            candidates.append({
-                'strike': strike, 'bid': bid, 'ann_roc': ann_roc,
-                'delta': s['delta'], 'dte': dte, 'dcf_mos': dcf_mos,
-                'prem_day': prem_day,
-            })
-
-    if not candidates:
-        return None
-
-    # Normalize and score: ann_roc * 0.4 + dcf_mos * 0.3 + (1-|delta|) * 0.2 + prem/day * 0.1
-    max_roc = max((c['ann_roc'] for c in candidates), default=1) or 1
-    max_mos = max((c['dcf_mos'] for c in candidates), default=1) or 1
-    max_ppd = max((c['prem_day'] for c in candidates), default=1) or 1
-
-    best = None
-    best_sc = -999
-    for c in candidates:
-        roc_n = min(c['ann_roc'], 60) / min(max_roc, 60) if max_roc > 0 else 0
-        mos_n = max(min(c['dcf_mos'], 40), 0) / min(max_mos, 40) if intrinsic_val > 0 and max_mos > 0 else 0
-        delta_n = 1 - abs(c['delta'])
-        ppd_n = c['prem_day'] / max_ppd if max_ppd > 0 else 0
-        sc = roc_n * 0.4 + mos_n * 0.3 + delta_n * 0.2 + ppd_n * 0.1
-        if sc > best_sc:
-            best_sc = sc
-            best = c
-    return best
-
-
 def _watchlist_overview():
     st.markdown("## Watchlist")
     st.markdown(
@@ -1911,32 +1842,6 @@ def _watchlist_overview():
 
     rows.sort(key=lambda r: r['upside'], reverse=True)
 
-    # Fetch best put picks for all tickers (cached, parallel)
-    _wl_prefs = load_user_prefs(_sb_client)
-
-    @st.cache_data(ttl=600, show_spinner=False)
-    def _cached_best_put(t, price_rounded, intrinsic_rounded, prefs_tuple):
-        prefs = {'delta_min': prefs_tuple[0], 'delta_max': prefs_tuple[1],
-                 'dte_min': prefs_tuple[2], 'dte_max': prefs_tuple[3]}
-        return _best_put_pick(t, price_rounded, intrinsic_rounded, prefs)
-
-    _prefs_t = (_wl_prefs['delta_min'], _wl_prefs['delta_max'],
-                _wl_prefs['dte_min'], _wl_prefs['dte_max'])
-
-    from concurrent.futures import ThreadPoolExecutor
-    _bp_futures = {}
-    with ThreadPoolExecutor(max_workers=4) as _bp_exec:
-        for _r in rows:
-            _bp_futures[_r['ticker']] = _bp_exec.submit(
-                _cached_best_put, _r['ticker'], round(_r['price'], 0), round(_r['intrinsic'], 0), _prefs_t)
-    _bp_map = {}
-    for _t, _f in _bp_futures.items():
-        try:
-            _bp_map[_t] = _f.result(timeout=15)
-        except Exception as e:
-            logger.debug("Best put fetch failed for %s: %s", _t, e)
-            _bp_map[_t] = None
-
     # Fetch earnings dates (cached 5 min)
     @st.cache_data(ttl=3600, show_spinner=False)
     def _cached_earnings(tickers_tuple):
@@ -1949,8 +1854,8 @@ def _watchlist_overview():
     _cat_icons = {"Yes": "✅", "Maybe": "🤔", "Watch Later": "⏳", "No": "❌", "Uncategorized": ""}
 
     def _render_wl_header():
-        hdr = st.columns([0.3, 1.0, 1.6, 0.8, 0.8, 0.8, 0.7, 0.6, 0.7, 0.7, 2.2, 0.3])
-        _wl_hdr = ["", "Ticker", "Company", "Price", "Intrinsic", "Buy Price", "Upside", "P/E", "FCF Yield", "Earnings", "Best Put", ""]
+        hdr = st.columns([0.3, 1.0, 1.6, 0.8, 0.8, 0.8, 0.7, 0.6, 0.7, 0.7, 0.3])
+        _wl_hdr = ["", "Ticker", "Company", "Price", "Intrinsic", "Buy Price", "Upside", "P/E", "FCF Yield", "Earnings", ""]
         for col, label in zip(hdr, _wl_hdr):
             if label:
                 col.markdown(f"**{label}**")
@@ -1958,7 +1863,7 @@ def _watchlist_overview():
     def _render_wl_row(row):
         t = row['ticker']
         up_color = "green" if row['upside'] > 0 else "red"
-        cols = st.columns([0.3, 1.0, 1.6, 0.8, 0.8, 0.8, 0.7, 0.6, 0.7, 0.7, 2.2, 0.3], vertical_alignment="center")
+        cols = st.columns([0.3, 1.0, 1.6, 0.8, 0.8, 0.8, 0.7, 0.6, 0.7, 0.7, 0.3], vertical_alignment="center")
         with cols[0]:
             if st.button("", key=f"wl_edit_{t}", icon=":material/edit:"):
                 st.query_params["edit"] = t
@@ -2006,29 +1911,7 @@ def _watchlist_overview():
                 )
         else:
             cols[9].markdown("—")
-        _bp = _bp_map.get(t)
-        if _bp:
-            _bp_roc_col = T['accent'] if _bp['ann_roc'] >= 15 else T['red']
-            cols[10].markdown(
-                f'<div style="font-variant-numeric:tabular-nums;line-height:1.45;margin-top:-0.45rem">'
-                f'<div>'
-                f'<span style="font-size:0.93rem;font-weight:600">${_bp["strike"]:.0f}</span>'
-                f'<span style="font-size:0.82rem;color:{T["text_muted"]};margin-left:6px">Premium</span>'
-                f'<span style="font-size:0.93rem;font-weight:600;margin-left:3px">${_bp["bid"]:.2f}</span>'
-                f'</div>'
-                f'<div>'
-                f'<span style="font-size:0.8rem;color:{T["text_muted"]}">'
-                f'{_bp["dte"]}d'
-                f' &middot; <span style="color:{_bp_roc_col}">{_bp["ann_roc"]:.0f}%</span> ROC'
-                f' &middot; &Delta;{abs(_bp["delta"]):.2f}'
-                f'</span>'
-                f'</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            cols[10].markdown("—")
-        with cols[11]:
+        with cols[10]:
             if st.button("", key=f"wl_rm_row_{t}", icon=":material/close:"):
                 remove_from_watchlist(_sb_client, t)
                 st.rerun()
