@@ -3055,12 +3055,26 @@ def _dcf_editor(ticker):
             fcf_m = [fund['fcf'][i] / rev[i] * 100
                      if rev[i] and fund['fcf'][i] is not None else None
                      for i in range(_n)]
-            fig = go.Figure()
-            for name, vals, color in [
-                ('Gross', gross_m, _COLORS['primary']),
+            # Detect when gross == operating (happens for financials like V
+            # where cost_of_revenue falls back to CostsAndExpenses, which
+            # already includes all operating costs). In that case the gross
+            # line carries no extra info and just obscures the operating line.
+            _gross_dup = (
+                any(v is not None for v in gross_m)
+                and all(
+                    (g is None and o is None)
+                    or (g is not None and o is not None and abs(g - o) < 0.5)
+                    for g, o in zip(gross_m, op_m)
+                )
+            )
+            _series = [
                 ('Operating', op_m, _COLORS['accent']),
                 ('FCF', fcf_m, _COLORS['tertiary']),
-            ]:
+            ]
+            if not _gross_dup:
+                _series.insert(0, ('Gross', gross_m, _COLORS['primary']))
+            fig = go.Figure()
+            for name, vals, color in _series:
                 fig.add_trace(go.Scatter(
                     x=_yrs, y=vals, name=name,
                     line=dict(color=color, width=2.5),
@@ -3069,6 +3083,8 @@ def _dcf_editor(ticker):
             fig.update_yaxes(ticksuffix='%')
             _base_layout(fig)
             st.plotly_chart(fig, use_container_width=True)
+            if _gross_dup:
+                st.caption("Gross margin weggelaten: dit bedrijf rapporteert geen aparte COGS, waardoor gross gelijk is aan operating margin.")
 
             with st.expander("Details", expanded=False):
                 _m_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
