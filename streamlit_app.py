@@ -5042,7 +5042,7 @@ def _dcf_editor(ticker):
             _title = _lp.get('title', f'Prompt {_li + 1}')
             _prompt = _lp.get('prompt', '')
             _content = _results.get(_title, '')
-            with st.expander(_title, expanded=not _content):
+            with st.expander(_title, expanded=True):
                 _rb1, _rb2, _rb3 = st.columns([1, 1, 3])
                 with _rb1:
                     _run_clicked = st.button(
