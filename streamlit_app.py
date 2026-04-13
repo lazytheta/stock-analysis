@@ -64,58 +64,108 @@ def sanitize_ticker(raw: str) -> str | None:
     return None
 
 
-# ── Gemini AI helper ──
-def _gemini_api_key() -> str | None:
+# ── AI provider helpers (Groq primary, Gemini Flash fallback) ──
+def _secret_or_env(name: str) -> str | None:
     try:
-        k = st.secrets.get("GEMINI_API_KEY")
-        if k:
-            return k
+        v = st.secrets.get(name)
+        if v:
+            return v
     except Exception:
         pass
-    return os.environ.get("GEMINI_API_KEY")
+    return os.environ.get(name)
 
 
-def _gemini_ready() -> bool:
-    return bool(_gemini_api_key())
+def _gemini_api_key() -> str | None:
+    return _secret_or_env("GEMINI_API_KEY")
 
 
-def _gemini_run(prompt: str, prefer_pro: bool = False) -> tuple[str, str | None]:
-    """Run a prompt against Gemini. Returns (text, error).
+def _groq_api_key() -> str | None:
+    return _secret_or_env("GROQ_API_KEY")
 
-    Default order: flash → pro (ruimere free tier). Als prefer_pro=True
-    wordt 2.5 Pro eerst geprobeerd, flash als fallback bij rate limits.
-    """
+
+def _ai_ready() -> bool:
+    return bool(_groq_api_key()) or bool(_gemini_api_key())
+
+
+_RETRY_SUBSTRINGS = (
+    "rate", "quota", "429", "resource_exhausted",
+    "503", "unavailable", "overloaded", "high demand",
+)
+
+
+def _groq_call(prompt: str) -> tuple[str, str | None]:
+    key = _groq_api_key()
+    if not key:
+        return "", "GROQ_API_KEY niet ingesteld."
+    try:
+        import urllib.request
+        import json as _json
+        req = urllib.request.Request(
+            "https://api.groq.com/openai/v1/chat/completions",
+            data=_json.dumps({
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3,
+            }).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = _json.loads(resp.read().decode("utf-8"))
+        text = data["choices"][0]["message"]["content"].strip()
+        return (text, None) if text else ("", "groq: empty response")
+    except Exception as e:
+        return "", f"groq: {e}"
+
+
+def _gemini_flash_call(prompt: str) -> tuple[str, str | None]:
     key = _gemini_api_key()
     if not key:
-        return "", "GEMINI_API_KEY niet ingesteld in st.secrets of env."
+        return "", "GEMINI_API_KEY niet ingesteld."
     try:
         from google import genai
     except ImportError:
         return "", "google-genai pakket niet geïnstalleerd."
-    client = genai.Client(api_key=key)
-    _order = ("gemini-2.5-pro", "gemini-2.5-flash") if prefer_pro else (
-        "gemini-2.5-flash", "gemini-2.5-pro"
-    )
-    errors = []
-    for model in _order:
-        try:
-            resp = client.models.generate_content(model=model, contents=prompt)
-            text = (getattr(resp, "text", "") or "").strip()
-            if text:
-                return text, None
-            errors.append(f"{model}: empty response")
-        except Exception as e:
-            err_str = str(e)
-            errors.append(f"{model}: {err_str}")
-            msg = err_str.lower()
-            if any(s in msg for s in (
-                "rate", "quota", "429", "resource_exhausted",
-                "503", "unavailable", "overloaded", "high demand",
-            )):
-                continue
-            # Non-retryable error — stop and return detail
-            return "", f"Gemini error:\n\n" + "\n\n".join(errors)
-    return "", "Gemini falen op beide modellen:\n\n" + "\n\n".join(errors)
+    try:
+        client = genai.Client(api_key=key)
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash", contents=prompt,
+        )
+        text = (getattr(resp, "text", "") or "").strip()
+        return (text, None) if text else ("", "gemini-2.5-flash: empty response")
+    except Exception as e:
+        return "", f"gemini-2.5-flash: {e}"
+
+
+def _gemini_run(prompt: str, prefer_pro: bool = False) -> tuple[str, str | None]:
+    """Run a prompt against the AI providers.
+
+    Order: Groq Llama 3.3 70B → Gemini 2.5 Flash (fallback on rate limit/overload).
+    Returns (text, error).
+    """
+    errors: list[str] = []
+    for fn, name in (
+        (_groq_call, "Groq Llama 3.3 70B"),
+        (_gemini_flash_call, "Gemini 2.5 Flash"),
+    ):
+        text, err = fn(prompt)
+        if text:
+            return text, None
+        if err:
+            errors.append(f"{name} — {err}")
+            low = err.lower()
+            if any(s in low for s in _RETRY_SUBSTRINGS):
+                continue  # try next provider
+            return "", "AI error:\n\n" + "\n\n".join(errors)
+    return "", "Alle AI providers faalden:\n\n" + "\n\n".join(errors)
+
+
+# Backwards-compat alias (used by existing UI code)
+def _gemini_ready() -> bool:
+    return _ai_ready()
 
 
 # Default AI research prompts loaded via "Load default prompts" button
@@ -4861,15 +4911,20 @@ def _dcf_editor(ticker):
         with _ai_h1:
             st.markdown("#### AI Research Sections")
             st.caption(
-                "Run prompts tegen Gemini 2.5 Pro (met fallback naar 2.5 Flash) "
+                "Run prompts tegen Groq Llama 3.3 70B (met fallback naar Gemini 2.5 Flash) "
                 "of plak handmatig output. Output is markdown."
             )
         with _ai_h2:
             _gem_ok = _gemini_ready()
             if _gem_ok:
-                st.success("Gemini ready", icon="✅")
+                _providers = []
+                if _groq_api_key():
+                    _providers.append("Groq")
+                if _gemini_api_key():
+                    _providers.append("Gemini")
+                st.success(" + ".join(_providers) + " ready", icon="✅")
             else:
-                st.warning("GEMINI_API_KEY ontbreekt", icon="⚠️")
+                st.warning("GROQ_API_KEY of GEMINI_API_KEY ontbreekt", icon="⚠️")
 
         _company_name = cfg.get('company', ticker)
 
@@ -5007,7 +5062,7 @@ def _dcf_editor(ticker):
                     )
                     if "{ticker}" not in _prompt and "{company}" not in _prompt and "{prior:" not in _prompt:
                         _filled = f"Company to analyze: {_company_name} ({ticker}).\n\n{_filled}"
-                    with st.spinner(f"Gemini aan het werk ({_title})..."):
+                    with st.spinner(f"AI aan het werk ({_title})..."):
                         _ans, _err = _gemini_run(_filled)
                     if _err:
                         st.error(_err)
