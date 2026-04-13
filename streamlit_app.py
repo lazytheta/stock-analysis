@@ -96,21 +96,26 @@ def _gemini_run(prompt: str, prefer_pro: bool = False) -> tuple[str, str | None]
     _order = ("gemini-2.5-pro", "gemini-2.5-flash") if prefer_pro else (
         "gemini-2.5-flash", "gemini-2.5-pro"
     )
+    errors = []
     for model in _order:
         try:
             resp = client.models.generate_content(model=model, contents=prompt)
             text = (getattr(resp, "text", "") or "").strip()
             if text:
                 return text, None
+            errors.append(f"{model}: empty response")
         except Exception as e:
-            msg = str(e).lower()
+            err_str = str(e)
+            errors.append(f"{model}: {err_str}")
+            msg = err_str.lower()
             if any(s in msg for s in (
                 "rate", "quota", "429", "resource_exhausted",
                 "503", "unavailable", "overloaded", "high demand",
             )):
                 continue
-            return "", f"Gemini error ({model}): {e}"
-    return "", "Gemini is tijdelijk niet beschikbaar op beide modellen (rate limit / overload). Probeer zo opnieuw."
+            # Non-retryable error — stop and return detail
+            return "", f"Gemini error:\n\n" + "\n\n".join(errors)
+    return "", "Gemini falen op beide modellen:\n\n" + "\n\n".join(errors)
 
 
 # Default AI research prompts loaded via "Load default prompts" button
