@@ -4055,26 +4055,22 @@ def _dcf_editor(ticker):
                     save_config(_sb_client, ticker, cfg)
                     st.rerun()
 
-                _ec1, _ec2 = st.columns(2, gap="small")
-                with _ec1:
-                    st.markdown("**Output** (markdown)")
+                if _content.strip():
+                    st.markdown(_content)
+                else:
+                    st.caption("_Nog geen output. Klik ▶ Run of plak handmatig via Edit._")
+                with st.expander("Edit / paste", expanded=False):
                     _new_content = st.text_area(
                         "Content",
                         value=_content,
-                        height=320,
+                        height=280,
                         key=f"ed_ai_res_{_li}",
                         label_visibility="collapsed",
-                        placeholder="Run de prompt of plak output hier...",
+                        placeholder="Plak of bewerk output hier (markdown)...",
                     )
-                with _ec2:
-                    st.markdown("**Preview**")
-                    if _new_content.strip():
-                        st.markdown(_new_content)
-                    else:
-                        st.caption("_(preview verschijnt hier)_")
-                if _new_content != _content:
-                    _results[_title] = _new_content
-                    _results_changed = True
+                    if _new_content != _content:
+                        _results[_title] = _new_content
+                        _results_changed = True
 
         if _results_changed:
             cfg['ai_notes'] = _results
