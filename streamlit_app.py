@@ -3398,6 +3398,7 @@ def _dcf_editor(ticker):
                    for i in range(_n)]
             rps_g = _pct_growth(rps)
             rev_g_clean = _pct_growth(fund['revenue'])
+            _has_shares = any(s is not None for s in _shares_eff)
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=_yrs[1:], y=[r * 100 if r is not None else None for r in rev_g_clean[1:]],
@@ -3405,15 +3406,18 @@ def _dcf_editor(ticker):
                 line=dict(color=_COLORS['primary'], width=2.5),
                 hovertemplate='%{y:.1f}%<extra>Rev Growth</extra>',
             ))
-            fig.add_trace(go.Scatter(
-                x=_yrs[1:], y=[r * 100 if r is not None else None for r in rps_g[1:]],
-                name='Rev/Share Growth',
-                line=dict(color=_COLORS['accent'], width=2.5, dash='dash'),
-                hovertemplate='%{y:.1f}%<extra>Rev/Share Growth</extra>',
-            ))
+            if _has_shares:
+                fig.add_trace(go.Scatter(
+                    x=_yrs[1:], y=[r * 100 if r is not None else None for r in rps_g[1:]],
+                    name='Rev/Share Growth',
+                    line=dict(color=_COLORS['accent'], width=2.5, dash='dash'),
+                    hovertemplate='%{y:.1f}%<extra>Rev/Share Growth</extra>',
+                ))
             fig.update_yaxes(ticksuffix='%')
             _base_layout(fig)
             st.plotly_chart(fig, use_container_width=True)
+            if not _has_shares:
+                st.caption("Rev/Share niet beschikbaar: dit bedrijf rapporteert geen share-counts in EDGAR (bv. V).")
 
             with st.expander("Details", expanded=False):
                 _rps_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
