@@ -3600,6 +3600,10 @@ def _dcf_editor(ticker):
             unsafe_allow_html=True,
         )
         if _n >= 2 and live_price > 0:
+            # Prefer per-share path when shares are available; otherwise fall
+            # back to FCF / Market Cap using the current market cap from cfg
+            # (e.g. V doesn't report shares in XBRL).
+            _mcap_total = cfg.get('equity_market_value', 0) or 0  # $M
             fcf_yield = []
             _fcf_ps = []
             for i in range(_n):
@@ -3608,6 +3612,9 @@ def _dcf_editor(ticker):
                     fps = fund['fcf'][i] * 1e6 / sh
                     _fcf_ps.append(fps)
                     fcf_yield.append(fps / live_price * 100)
+                elif fund['fcf'][i] is not None and _mcap_total > 0:
+                    _fcf_ps.append(None)
+                    fcf_yield.append(fund['fcf'][i] / _mcap_total * 100)
                 else:
                     _fcf_ps.append(None)
                     fcf_yield.append(None)
