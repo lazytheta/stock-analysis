@@ -3368,7 +3368,7 @@ def _dcf_editor(ticker):
             rps = [fund['revenue'][i] * 1e6 / fund['shares'][i]
                    if fund['shares'][i] and fund['shares'][i] > 0
                       and fund['revenue'][i] is not None
-                   else 0
+                   else None
                    for i in range(_n)]
             rps_g = _pct_growth(rps)
             rev_g_clean = _pct_growth(fund['revenue'])
