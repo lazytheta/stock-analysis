@@ -3907,137 +3907,177 @@ def _dcf_editor(ticker):
             else:
                 st.warning("GEMINI_API_KEY ontbreekt", icon="⚠️")
 
-        _ai_sections = list(cfg.get('ai_notes') or [])
         _company_name = cfg.get('company', ticker)
 
-        # ── Load default prompts button ──
-        _existing_titles = {s.get('title', '') for s in _ai_sections}
-        _missing_defaults = [p for p in DEFAULT_AI_PROMPTS if p['title'] not in _existing_titles]
+        # ── Load library (globaal, via user_prefs) ──
+        _prefs = load_user_prefs(_sb_client)
+        _library = list(_prefs.get('ai_prompts') or [])
+
+        # ── Results per ticker ──
+        # New format: cfg['ai_notes'] is dict {title: content}
+        # Old format (legacy): list of {"title","prompt","content"}
+        _raw = cfg.get('ai_notes') or {}
+        _results: dict[str, str] = {}
+        if isinstance(_raw, list):
+            # Migrate old list format → library + results
+            for _sec in _raw:
+                _t = _sec.get('title')
+                if not _t:
+                    continue
+                _results[_t] = _sec.get('content', '')
+                # Promote prompt to library if not present yet
+                if _sec.get('prompt') and not any(
+                    p.get('title') == _t for p in _library
+                ):
+                    _library.append({"title": _t, "prompt": _sec['prompt']})
+            cfg['ai_notes'] = _results
+            _prefs['ai_prompts'] = _library
+            save_user_prefs(_sb_client, _prefs)
+            save_config(_sb_client, ticker, cfg)
+        else:
+            _results = dict(_raw)
+
+        # ── Load shipped defaults into library ──
+        _lib_titles = {p.get('title', '') for p in _library}
+        _missing_defaults = [p for p in DEFAULT_AI_PROMPTS if p['title'] not in _lib_titles]
         if _missing_defaults:
             if st.button(
-                f"Load {len(_missing_defaults)} default prompt(s)",
+                f"Load {len(_missing_defaults)} default prompt(s) into library",
                 key="ed_ai_load_defaults",
             ):
                 for p in _missing_defaults:
-                    _ai_sections.append({
-                        "title": p['title'],
-                        "prompt": p['prompt'],
-                        "content": "",
-                    })
-                cfg['ai_notes'] = _ai_sections
-                save_config(_sb_client, ticker, cfg)
+                    _library.append({"title": p['title'], "prompt": p['prompt']})
+                _prefs['ai_prompts'] = _library
+                save_user_prefs(_sb_client, _prefs)
                 st.rerun()
 
-        # ── Add new section ──
-        with st.form("ai_add_section_form", clear_on_submit=True):
-            _add_c1, _add_c2 = st.columns([5, 1])
-            with _add_c1:
-                _new_title = st.text_input(
-                    "New section title",
-                    key="ed_ai_new_title",
-                    placeholder="e.g. Business Overview, Moat, Risks, Bear Case",
+        # ── Prompt Library management ──
+        with st.expander("📚 Prompt Library (shared across all tickers)", expanded=False):
+            st.caption(
+                "Hier beheer je de prompts. Wijzigingen zijn zichtbaar voor "
+                "alle tickers. Resultaten worden per ticker opgeslagen."
+            )
+            _lib_changed = False
+            _lib_del = None
+            for _li, _lp in enumerate(_library):
+                _lt = _lp.get('title', '')
+                _lpr = _lp.get('prompt', '')
+                _ltc1, _ltc2 = st.columns([5, 1])
+                with _ltc1:
+                    _new_lt = st.text_input(
+                        "Title", value=_lt, key=f"ed_lib_title_{_li}",
+                        label_visibility="collapsed",
+                    )
+                with _ltc2:
+                    if st.button("Delete", key=f"ed_lib_del_{_li}", use_container_width=True):
+                        _lib_del = _li
+                _new_lpr = st.text_area(
+                    "Prompt", value=_lpr, key=f"ed_lib_prompt_{_li}",
+                    height=180, label_visibility="collapsed",
+                    placeholder="Prompt template (markdown)...",
                 )
-            with _add_c2:
-                st.markdown('<div style="height:28px"></div>', unsafe_allow_html=True)
-                _add_sec = st.form_submit_button("+ Add", use_container_width=True)
-        if _add_sec and _new_title.strip():
-            _ai_sections.append({
-                "title": _new_title.strip(),
-                "prompt": "",
-                "content": "",
-            })
-            cfg['ai_notes'] = _ai_sections
-            save_config(_sb_client, ticker, cfg)
-            st.rerun()
+                if _new_lt != _lt and _new_lt.strip():
+                    _library[_li]['title'] = _new_lt.strip()
+                    _lib_changed = True
+                if _new_lpr != _lpr:
+                    _library[_li]['prompt'] = _new_lpr
+                    _lib_changed = True
+                st.markdown("---")
 
-        # ── Render existing sections ──
-        _changed = False
-        _delete_idx = None
-        for _idx, _sec in enumerate(_ai_sections):
-            _title = _sec.get('title', f'Section {_idx + 1}')
-            _prompt = _sec.get('prompt', '')
-            _content = _sec.get('content', '')
+            # Add new library prompt
+            with st.form("ai_add_lib_form", clear_on_submit=True):
+                _lac1, _lac2 = st.columns([5, 1])
+                with _lac1:
+                    _new_lib_title = st.text_input(
+                        "New prompt title",
+                        key="ed_lib_new_title",
+                        placeholder="e.g. Business Overview, Moat, Risks, Bear Case",
+                    )
+                with _lac2:
+                    st.markdown('<div style="height:28px"></div>', unsafe_allow_html=True)
+                    _add_lib = st.form_submit_button("+ Add prompt", use_container_width=True)
+            if _add_lib and _new_lib_title.strip():
+                _library.append({"title": _new_lib_title.strip(), "prompt": ""})
+                _prefs['ai_prompts'] = _library
+                save_user_prefs(_sb_client, _prefs)
+                st.rerun()
+
+            if _lib_del is not None:
+                _library.pop(_lib_del)
+                _prefs['ai_prompts'] = _library
+                save_user_prefs(_sb_client, _prefs)
+                st.rerun()
+            elif _lib_changed:
+                _prefs['ai_prompts'] = _library
+                save_user_prefs(_sb_client, _prefs)
+
+        # ── Per-ticker: render each library prompt with Run + result ──
+        if not _library:
+            st.info("Nog geen prompts. Voeg er één toe in de Prompt Library hierboven.")
+        _results_changed = False
+        for _li, _lp in enumerate(_library):
+            _title = _lp.get('title', f'Prompt {_li + 1}')
+            _prompt = _lp.get('prompt', '')
+            _content = _results.get(_title, '')
             with st.expander(_title, expanded=not _content):
-                st.markdown("**Prompt**")
-                _new_prompt = st.text_area(
-                    "Prompt",
-                    value=_prompt,
-                    height=140,
-                    key=f"ed_ai_prompt_{_idx}",
-                    label_visibility="collapsed",
-                    placeholder=(
-                        "Gebruik {ticker} en {company} als placeholders, bv.:\n"
-                        "Give me a 5-paragraph business overview of {company} ({ticker})."
-                    ),
-                )
                 _rb1, _rb2, _rb3 = st.columns([1, 1, 3])
                 with _rb1:
                     _run_clicked = st.button(
-                        "▶ Run", key=f"ed_ai_run_{_idx}",
+                        "▶ Run", key=f"ed_ai_run_{_li}",
                         use_container_width=True, type="primary",
-                        disabled=not (_gem_ok and _new_prompt.strip()),
+                        disabled=not (_gem_ok and _prompt.strip()),
                     )
                 with _rb2:
-                    if st.button("Delete", key=f"ed_ai_del_{_idx}", use_container_width=True):
-                        _delete_idx = _idx
+                    _clear_clicked = st.button(
+                        "Clear", key=f"ed_ai_clear_{_li}",
+                        use_container_width=True,
+                        disabled=not _content,
+                    )
 
                 if _run_clicked:
-                    if "{ticker}" in _new_prompt or "{company}" in _new_prompt:
-                        _filled = _new_prompt.format(ticker=ticker, company=_company_name)
+                    if "{ticker}" in _prompt or "{company}" in _prompt:
+                        _filled = _prompt.format(ticker=ticker, company=_company_name)
                     else:
-                        _filled = f"Company to analyze: {_company_name} ({ticker}).\n\n{_new_prompt}"
-                    with st.spinner("Gemini aan het werk..."):
+                        _filled = f"Company to analyze: {_company_name} ({ticker}).\n\n{_prompt}"
+                    with st.spinner(f"Gemini aan het werk ({_title})..."):
                         _ans, _err = _gemini_run(_filled)
                     if _err:
                         st.error(_err)
                     else:
-                        _ai_sections[_idx]['prompt'] = _new_prompt
-                        _ai_sections[_idx]['content'] = _ans
-                        cfg['ai_notes'] = _ai_sections
+                        _results[_title] = _ans
+                        cfg['ai_notes'] = _results
                         save_config(_sb_client, ticker, cfg)
                         st.rerun()
 
-                st.markdown("**Output** (markdown)")
+                if _clear_clicked:
+                    _results.pop(_title, None)
+                    cfg['ai_notes'] = _results
+                    save_config(_sb_client, ticker, cfg)
+                    st.rerun()
+
                 _ec1, _ec2 = st.columns(2, gap="small")
                 with _ec1:
+                    st.markdown("**Output** (markdown)")
                     _new_content = st.text_area(
                         "Content",
                         value=_content,
                         height=320,
-                        key=f"ed_ai_sec_{_idx}",
+                        key=f"ed_ai_res_{_li}",
                         label_visibility="collapsed",
-                        placeholder="Paste or edit AI output here...",
+                        placeholder="Run de prompt of plak output hier...",
                     )
                 with _ec2:
+                    st.markdown("**Preview**")
                     if _new_content.strip():
                         st.markdown(_new_content)
                     else:
                         st.caption("_(preview verschijnt hier)_")
-
-                _rename = st.text_input(
-                    "Rename section",
-                    value=_title,
-                    key=f"ed_ai_title_{_idx}",
-                    label_visibility="collapsed",
-                )
-
                 if _new_content != _content:
-                    _ai_sections[_idx]['content'] = _new_content
-                    _changed = True
-                if _new_prompt != _prompt:
-                    _ai_sections[_idx]['prompt'] = _new_prompt
-                    _changed = True
-                if _rename.strip() and _rename.strip() != _title:
-                    _ai_sections[_idx]['title'] = _rename.strip()
-                    _changed = True
+                    _results[_title] = _new_content
+                    _results_changed = True
 
-        if _delete_idx is not None:
-            _ai_sections.pop(_delete_idx)
-            cfg['ai_notes'] = _ai_sections
-            save_config(_sb_client, ticker, cfg)
-            st.rerun()
-        elif _changed:
-            cfg['ai_notes'] = _ai_sections
+        if _results_changed:
+            cfg['ai_notes'] = _results
             save_config(_sb_client, ticker, cfg)
 
     with _tab_dcf:
