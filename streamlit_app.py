@@ -2798,6 +2798,15 @@ def _dcf_editor(ticker):
                 save_config(_sb_client, ticker, cfg)
                 st.rerun()
 
+        st.markdown(
+            f'<style>'
+            f'div[data-testid="stForm"] div[data-testid="stTextInput"] input {{'
+            f'  background-color: {T["row_alt"]} !important;'
+            f'  border: 1px solid {T["border_medium"]} !important;'
+            f'}}'
+            f'</style>',
+            unsafe_allow_html=True,
+        )
         with st.form("add_peer_form"):
             _ac1, _ac2 = st.columns([5, 1])
             with _ac1:
