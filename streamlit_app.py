@@ -5410,23 +5410,11 @@ def _dcf_editor(ticker):
                 icon="📋",
             )
 
-        _ai_h1, _ai_h2 = st.columns([5, 2])
-        with _ai_h1:
-            st.markdown("#### AI Research Sections")
-            st.caption(
-                "Run prompts on Groq Llama 3.3 70B (with fallback to Gemini 2.5 Flash)."
-            )
-        with _ai_h2:
-            _gem_ok = _gemini_ready()
-            if _gem_ok:
-                _providers = []
-                if _groq_api_key():
-                    _providers.append("Groq")
-                if _gemini_api_key():
-                    _providers.append("Gemini")
-                st.success(" + ".join(_providers) + " ready", icon="✅")
-            else:
-                st.warning("GROQ_API_KEY of GEMINI_API_KEY ontbreekt", icon="⚠️")
+        st.markdown("#### AI Research Sections")
+        st.caption(
+            "Run prompts on Groq Llama 3.3 70B (with fallback to Gemini 2.5 Flash)."
+        )
+        _gem_ok = _gemini_ready()
 
         _company_name = cfg.get('company', ticker)
 
