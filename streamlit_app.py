@@ -371,7 +371,19 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
         )
     html += '</div></td></tr>'
 
-    html += '</tbody></table></div>'
+    html += '</tbody></table>'
+
+    # 3-sentence summary
+    summary = (data.get("summary") or "").strip()
+    if summary:
+        html += (
+            f'<div style="margin-top:16px;padding:14px 18px;'
+            f'background:{theme["row_alt"]};border-left:3px solid {theme["accent"]};'
+            f'border-radius:6px;font-size:0.9rem;line-height:1.55;'
+            f'color:{theme["text"]}">{summary}</div>'
+        )
+
+    html += '</div>'
     return html
 
 
@@ -1655,7 +1667,8 @@ For `verdict`: use "deep_dive" (strongly interesting), "revisit" (park for later
       "note": "Fairly Valued"
     }
   },
-  "verdict": "revisit"
+  "verdict": "revisit",
+  "summary": "Three concise sentences summarizing the investment case. Sentence 1: the core business and what makes it interesting or not. Sentence 2: the biggest strength or concern. Sentence 3: the verdict rationale — why deep dive, revisit, or pass."
 }
 ```
 
@@ -1665,6 +1678,7 @@ For `verdict`: use "deep_dive" (strongly interesting), "revisit" (park for later
 - The `key_metrics` list should contain exactly the 5 metrics used by the phase from the Key Metrics analysis.
 - If a prior analysis is missing or cannot be interpreted, use rating "yellow" and note "Insufficient data".
 - Derive `verdict` from the Investment Summary if present; otherwise base it on the overall pattern of ratings.
+- `summary` must be EXACTLY 3 sentences, concise, plain English, derived from the Investment Summary.
 """,
     },
 ]
