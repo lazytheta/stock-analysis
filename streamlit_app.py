@@ -5319,6 +5319,25 @@ def _dcf_editor(ticker):
             st.info("Insufficient data for FCF Yield")
 
     with _tab_notes:
+        st.markdown(
+            """<style>
+            [class*="st-key-ai_out_"],
+            [class*="st-key-ai_out_"] * {
+                font-family: 'DM Sans', -apple-system, BlinkMacSystemFont,
+                             'Helvetica Neue', Arial, sans-serif !important;
+            }
+            [class*="st-key-ai_out_"] table {
+                border-collapse: collapse;
+                width: 100%;
+            }
+            [class*="st-key-ai_out_"] th,
+            [class*="st-key-ai_out_"] td {
+                padding: 6px 10px;
+                border: 1px solid rgba(0,0,0,0.08);
+            }
+            </style>""",
+            unsafe_allow_html=True,
+        )
         # ── Scorecard overview ──
         _sc_raw = (cfg.get('ai_notes') or {}).get('Scorecard', '')
         _sc_data = _parse_scorecard_json(_sc_raw) if isinstance(cfg.get('ai_notes'), dict) else None
@@ -5460,9 +5479,10 @@ def _dcf_editor(ticker):
                     st.rerun()
 
                 if _content.strip():
-                    st.markdown(_content)
+                    with st.container(key=f"ai_out_{_li}"):
+                        st.markdown(_content)
                 else:
-                    st.caption("_Nog geen output. Klik ▶ Run of plak handmatig via Edit._")
+                    st.caption("_No output yet. Click ▶ Run or paste manually via Edit._")
                 with st.expander("Edit / paste", expanded=False):
                     # Sync widget state to saved content when they diverge
                     # (e.g. after Run or a switch between tickers)
