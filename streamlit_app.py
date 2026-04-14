@@ -254,7 +254,9 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
     html = (
         f'<div style="background:{theme["card"]};border-radius:16px;'
         f'padding:20px;margin-bottom:20px;box-shadow:{theme["shadow"]};'
-        f'border:1px solid {theme["border_light"]}">'
+        f'border:1px solid {theme["border_light"]};'
+        f'font-family:\'DM Sans\', -apple-system, BlinkMacSystemFont, '
+        f'\'Helvetica Neue\', Arial, sans-serif">'
         # Header row
         f'<div style="display:flex;align-items:center;justify-content:space-between;'
         f'margin-bottom:14px;flex-wrap:wrap;gap:10px">'
