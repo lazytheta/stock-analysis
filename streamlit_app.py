@@ -5364,16 +5364,25 @@ def _dcf_editor(ticker):
         _sc_raw = (cfg.get('ai_notes') or {}).get('Scorecard', '') if isinstance(cfg.get('ai_notes'), dict) else ''
         _sc_data = _parse_scorecard_json(_sc_raw) if _sc_raw else None
         if _sc_data:
+            # Fallback: derive summary from Investment Summary result if the
+            # Scorecard JSON is missing a summary field
+            if not (_sc_data.get("summary") or "").strip():
+                _inv_sum = (cfg.get('ai_notes') or {}).get('Investment Summary', '') \
+                    if isinstance(cfg.get('ai_notes'), dict) else ''
+                if _inv_sum:
+                    import re as _re2
+                    # Look for the "One-line thesis" bullet
+                    _m = _re2.search(r'One-line thesis[^\n]*\n+\s*([^\n]+)', _inv_sum, _re2.IGNORECASE)
+                    if _m:
+                        _sc_data["summary"] = _m.group(1).strip().lstrip('*- ').strip()
             st.markdown(
                 _render_scorecard(
                     _sc_data, T, ticker, cfg.get('company', ticker),
                 ),
                 unsafe_allow_html=True,
             )
-            if not (_sc_data.get("summary") or "").strip():
-                st.caption(
-                    "_Summary field missing in scorecard JSON — click Clear + Run on the Scorecard section below to regenerate with the latest schema._"
-                )
+            with st.expander("🔍 Debug: parsed scorecard JSON", expanded=False):
+                st.json(_sc_data)
         elif _sc_raw:
             st.warning(
                 "Scorecard output exists but could not be parsed as JSON. "
