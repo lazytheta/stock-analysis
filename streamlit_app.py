@@ -5005,19 +5005,6 @@ def _dcf_editor(ticker):
             st.info("Insufficient data for FCF Yield")
 
     with _tab_notes:
-        _notes_val = cfg.get('notes', '')
-        _new_notes = st.text_area(
-            "Investment notes",
-            value=_notes_val,
-            height=200,
-            key="ed_notes",
-            placeholder="Investment thesis, key risks, catalysts, reminders...",
-        )
-        if _new_notes != _notes_val:
-            cfg['notes'] = _new_notes
-            save_config(_sb_client, ticker, cfg)
-
-        st.markdown("---")
         _ai_h1, _ai_h2 = st.columns([5, 2])
         with _ai_h1:
             st.markdown("#### AI Research Sections")
