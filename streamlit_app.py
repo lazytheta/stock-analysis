@@ -187,14 +187,36 @@ def _parse_scorecard_json(raw: str) -> dict | None:
     m = _re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, _re.DOTALL)
     payload = m.group(1) if m else None
     if payload is None:
-        # Try the entire string if it looks like JSON
-        stripped = raw.strip()
-        if stripped.startswith("{") and stripped.endswith("}"):
-            payload = stripped
+        # Try to locate JSON by bracket matching if no fenced block
+        start = raw.find("{")
+        if start != -1:
+            depth = 0
+            for i in range(start, len(raw)):
+                ch = raw[i]
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        payload = raw[start:i + 1]
+                        break
     if payload is None:
         return None
+    # Attempt 1: direct parse
     try:
         return _json.loads(payload)
+    except Exception:
+        pass
+    # Attempt 2: fix common issues — literal newlines inside string values
+    # Replace literal newlines with \\n only when inside a JSON string
+    try:
+        fixed = _re.sub(
+            r'"((?:[^"\\]|\\.)*)"',
+            lambda mm: '"' + mm.group(1).replace("\n", "\\n").replace("\r", "") + '"',
+            payload,
+            flags=_re.DOTALL,
+        )
+        return _json.loads(fixed)
     except Exception:
         return None
 
@@ -5339,14 +5361,24 @@ def _dcf_editor(ticker):
             unsafe_allow_html=True,
         )
         # ── Scorecard overview ──
-        _sc_raw = (cfg.get('ai_notes') or {}).get('Scorecard', '')
-        _sc_data = _parse_scorecard_json(_sc_raw) if isinstance(cfg.get('ai_notes'), dict) else None
+        _sc_raw = (cfg.get('ai_notes') or {}).get('Scorecard', '') if isinstance(cfg.get('ai_notes'), dict) else ''
+        _sc_data = _parse_scorecard_json(_sc_raw) if _sc_raw else None
         if _sc_data:
             st.markdown(
                 _render_scorecard(
                     _sc_data, T, ticker, cfg.get('company', ticker),
                 ),
                 unsafe_allow_html=True,
+            )
+            if not (_sc_data.get("summary") or "").strip():
+                st.caption(
+                    "_Summary field missing in scorecard JSON — click Clear + Run on the Scorecard section below to regenerate with the latest schema._"
+                )
+        elif _sc_raw:
+            st.warning(
+                "Scorecard output exists but could not be parsed as JSON. "
+                "Click Clear and Run again on the Scorecard section below.",
+                icon="⚠️",
             )
         else:
             st.info(
@@ -5423,7 +5455,7 @@ def _dcf_editor(ticker):
                 with _rb1:
                     _run_clicked = st.button(
                         "▶ Run", key=f"ed_ai_run_{_li}",
-                        use_container_width=True, type="primary",
+                        use_container_width=True,
                         disabled=not _gem_ok,
                     )
                 with _rb2:
