@@ -3477,6 +3477,12 @@ def _watchlist_overview():
             _sh_vals = [v for v in _fund.get('shares', []) if v and v > 0]
             if _fcf_vals and _sh_vals and live_price > 0:
                 fcf_yield_val = (_fcf_vals[-1] * 1e6 / _sh_vals[-1]) / live_price
+            elif _fcf_vals:
+                # Fallback: FCF / Market Cap (for tickers like V without
+                # XBRL share counts)
+                _mc = cfg_wl.get('equity_market_value', 0) or 0  # in $M
+                if _mc > 0:
+                    fcf_yield_val = _fcf_vals[-1] / _mc
         except Exception as e:
             logger.warning("Watchlist row build failed for %s: %s", t, e)
             continue
