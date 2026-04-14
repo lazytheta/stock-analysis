@@ -5397,8 +5397,6 @@ def _dcf_editor(ticker):
                 ),
                 unsafe_allow_html=True,
             )
-            with st.expander("🔍 Debug: parsed scorecard JSON", expanded=False):
-                st.json(_sc_data)
         elif _sc_raw:
             st.warning(
                 "Scorecard output exists but could not be parsed as JSON. "
