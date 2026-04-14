@@ -177,6 +177,195 @@ def _gemini_ready() -> bool:
     return _ai_ready()
 
 
+def _parse_scorecard_json(raw: str) -> dict | None:
+    """Extract JSON scorecard from a markdown answer (inside a ```json block
+    or raw). Returns dict or None on failure."""
+    if not raw:
+        return None
+    import json as _json
+    import re as _re
+    m = _re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, _re.DOTALL)
+    payload = m.group(1) if m else None
+    if payload is None:
+        # Try the entire string if it looks like JSON
+        stripped = raw.strip()
+        if stripped.startswith("{") and stripped.endswith("}"):
+            payload = stripped
+    if payload is None:
+        return None
+    try:
+        return _json.loads(payload)
+    except Exception:
+        return None
+
+
+def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str:
+    """Build the HTML for the scorecard overview."""
+    _colors = {
+        "red": "#e07a5f",
+        "yellow": "#f2cc8f",
+        "green": "#81b29a",
+    }
+    _light = {
+        "red": "#f7dfd7",
+        "yellow": "#fbedd2",
+        "green": "#d9e7dd",
+    }
+
+    def cell(rating: str, label: str) -> str:
+        rating = (rating or "").lower()
+        bg = _light.get(rating, "#f4f1de")
+        border = _colors.get(rating, "#cccccc")
+        return (
+            f'<td style="background:{bg};border:1px solid {border};'
+            f'padding:8px 10px;text-align:center;font-size:0.82rem;'
+            f'color:{theme["text"]};vertical-align:middle">{label}</td>'
+        )
+
+    def empty_cell() -> str:
+        return '<td style="padding:8px 10px"></td>'
+
+    phase = data.get("phase", {})
+    phase_label = f"Phase {phase.get('number', '?')}: {phase.get('name', 'Unknown')}"
+
+    _section_label = (
+        f'padding:10px 12px;font-weight:700;font-size:0.85rem;'
+        f'color:{theme["text"]};background:{theme["row_alt"]};'
+        f'border-bottom:1px solid {theme["border_medium"]};text-transform:uppercase;'
+        f'letter-spacing:0.04em'
+    )
+    _row_label = (
+        f'padding:8px 12px;font-size:0.85rem;color:{theme["text"]};'
+        f'border-bottom:1px solid {theme["grid"]};background:{theme["card"]}'
+    )
+    _header_red = (
+        f'padding:8px 10px;text-align:center;font-weight:700;font-size:0.78rem;'
+        f'color:#7a3a2a;background:#f2c3b2;border:1px solid #e07a5f'
+    )
+    _header_yel = (
+        f'padding:8px 10px;text-align:center;font-weight:700;font-size:0.78rem;'
+        f'color:#7a5e1f;background:#f7dfa5;border:1px solid #f2cc8f'
+    )
+    _header_grn = (
+        f'padding:8px 10px;text-align:center;font-weight:700;font-size:0.78rem;'
+        f'color:#2c5138;background:#b2d1bb;border:1px solid #81b29a'
+    )
+
+    html = (
+        f'<div style="background:{theme["card"]};border-radius:16px;'
+        f'padding:20px;margin-bottom:20px;box-shadow:{theme["shadow"]};'
+        f'border:1px solid {theme["border_light"]}">'
+        # Header row
+        f'<div style="display:flex;align-items:center;justify-content:space-between;'
+        f'margin-bottom:14px;flex-wrap:wrap;gap:10px">'
+        f'<div><span style="font-size:0.78rem;color:{theme["text_muted"]};text-transform:uppercase">Company</span>'
+        f'<div style="font-size:1.2rem;font-weight:700;color:{theme["text"]}">{company} ({ticker})</div></div>'
+        f'<div style="background:{theme["accent"]};color:white;padding:8px 16px;border-radius:20px;'
+        f'font-weight:700;font-size:0.9rem">{phase_label}</div>'
+        f'</div>'
+        '<table style="width:100%;border-collapse:separate;border-spacing:0">'
+        # Column headers
+        '<thead><tr>'
+        f'<th style="width:38%"></th>'
+        f'<th style="{_header_red};width:20.5%">Red</th>'
+        f'<th style="{_header_yel};width:20.5%">Yellow</th>'
+        f'<th style="{_header_grn};width:21%">Green</th>'
+        '</tr></thead><tbody>'
+    )
+
+    # Section: Assess for All Phases
+    html += (
+        f'<tr><td colspan="4" style="{_section_label}">Assess for All Phases</td></tr>'
+    )
+    all_phases = data.get("all_phases", {})
+    for key, label in (
+        ("business_description", "Business Description"),
+        ("moat", "Moat"),
+        ("long_term_potential", "Long Term Potential"),
+    ):
+        item = all_phases.get(key, {}) or {}
+        rating = (item.get("rating") or "").lower()
+        note = item.get("note", "") or ""
+        html += f'<tr><td style="{_row_label}">{label}</td>'
+        for color in ("red", "yellow", "green"):
+            html += cell(color, note) if rating == color else empty_cell()
+        html += '</tr>'
+
+    # Section: Key Metrics by Business Phase
+    html += (
+        f'<tr><td colspan="4" style="{_section_label}">Key Metrics by Business Phase</td></tr>'
+    )
+    for km in data.get("key_metrics", []) or []:
+        rating = (km.get("rating") or "").lower()
+        value = km.get("value", "") or ""
+        name = km.get("name", "")
+        html += f'<tr><td style="{_row_label}">{name}</td>'
+        for color in ("red", "yellow", "green"):
+            html += cell(color, value) if rating == color else empty_cell()
+        html += '</tr>'
+
+    # Section: Assess Risk
+    html += (
+        f'<tr><td colspan="4" style="{_section_label}">Assess Risk</td></tr>'
+    )
+    er = data.get("execution_risk", {}) or {}
+    r_rating = (er.get("rating") or "").lower()
+    r_note = er.get("note", "") or ""
+    html += f'<tr><td style="{_row_label}">Execution Risk</td>'
+    for color in ("red", "yellow", "green"):
+        html += cell(color, r_note) if r_rating == color else empty_cell()
+    html += '</tr>'
+
+    # Section: Assess Valuation
+    html += (
+        f'<tr><td colspan="4" style="{_section_label}">Assess Valuation</td></tr>'
+    )
+    val = data.get("valuation", {}) or {}
+    for key, label_prefix in (("primary", "Primary"), ("secondary", "Secondary")):
+        v = val.get(key, {}) or {}
+        name = v.get("name", "")
+        rating = (v.get("rating") or "").lower()
+        note = v.get("note", "") or ""
+        html += (
+            f'<tr><td style="{_row_label}">{label_prefix}: {name}</td>'
+        )
+        for color in ("red", "yellow", "green"):
+            html += cell(color, note) if rating == color else empty_cell()
+        html += '</tr>'
+
+    # Final verdict
+    verdict = (data.get("verdict") or "").lower()
+    _verdict_map = {
+        "pass": ("No — Pass", "red"),
+        "revisit": ("Kind Of — Revisit", "yellow"),
+        "deep_dive": ("Yes — Deep Dive", "green"),
+    }
+    v_label, v_color = _verdict_map.get(verdict, ("Unknown", ""))
+    html += (
+        f'<tr><td colspan="4" style="padding:16px 12px;background:{theme["row_alt"]};'
+        f'border-top:2px solid {theme["border_medium"]}"><div style="display:flex;'
+        f'align-items:center;justify-content:space-between;gap:12px">'
+        f'<span style="font-weight:700;text-transform:uppercase;font-size:0.85rem;'
+        f'color:{theme["text"]}">Are You Interested?</span>'
+    )
+    for color, label in (("red", "No — Pass"), ("yellow", "Kind Of"), ("green", "Yes — Deep Dive")):
+        is_on = (verdict == "pass" and color == "red") or \
+                (verdict == "revisit" and color == "yellow") or \
+                (verdict == "deep_dive" and color == "green")
+        bg = _colors[color] if is_on else _light[color]
+        text_color = "white" if is_on else theme["text_muted"]
+        weight = "700" if is_on else "400"
+        html += (
+            f'<span style="background:{bg};color:{text_color};padding:8px 16px;'
+            f'border-radius:20px;font-weight:{weight};font-size:0.85rem;'
+            f'border:1px solid {_colors[color]}">{label}</span>'
+        )
+    html += '</div></td></tr>'
+
+    html += '</tbody></table></div>'
+    return html
+
+
 # Default AI research prompts loaded via "Load default prompts" button
 DEFAULT_AI_PROMPTS: list[dict] = [
     {
@@ -1367,6 +1556,106 @@ Read all the prior research below for this company and produce a concise, decisi
 - Keep the output scannable: bullet points and tables, no walls of text.
 - Cite which prior analysis supports each claim (e.g. "per Moat Analysis", "per Risk Analysis").
 - Do NOT fabricate data — only use what the prior analyses contain.
+""",
+    },
+    {
+        "title": "Scorecard",
+        "prompt": """# SCORECARD DATA EXTRACTOR
+
+## YOUR MISSION
+Read all prior analyses for this company and extract a structured JSON scorecard. This JSON is parsed programmatically — output EXACTLY the JSON block, nothing else before or after.
+
+## PRIOR RESEARCH
+
+### Business Phase Analysis
+{prior:Business Phase Analysis}
+
+### Business Analysis
+{prior:Business Analysis}
+
+### Moat Analysis
+{prior:Moat Analysis}
+
+### Long-Term Potential
+{prior:Long-Term Potential}
+
+### Key Metrics
+{prior:Key Metrics}
+
+### Risk Analysis
+{prior:Risk Analysis}
+
+### Valuation Analysis
+{prior:Valuation Analysis}
+
+### Investment Summary
+{prior:Investment Summary}
+
+---
+
+## OUTPUT INSTRUCTIONS
+Output ONLY a fenced JSON code block. No prose, no explanations. Use the exact schema below. Use lowercase color names: "red", "yellow", or "green".
+
+Rating meanings:
+- green = positive / strong / low risk / fairly or undervalued
+- yellow = neutral / moderate / mixed signals
+- red = negative / weak / high risk / overvalued
+
+For `verdict`: use "deep_dive" (strongly interesting), "revisit" (park for later), or "pass" (skip).
+
+```json
+{
+  "phase": {
+    "number": 5,
+    "name": "Capital Return"
+  },
+  "all_phases": {
+    "business_description": {
+      "rating": "green",
+      "note": "Clear business model, well understood"
+    },
+    "moat": {
+      "rating": "green",
+      "note": "Wide / Expanding"
+    },
+    "long_term_potential": {
+      "rating": "yellow",
+      "note": "Moderate growth runway"
+    }
+  },
+  "key_metrics": [
+    {"name": "Revenue 3YR CAGR", "rating": "green", "value": "Over 10%"},
+    {"name": "FCF / Net Income", "rating": "yellow", "value": "Between 50% and 90%"},
+    {"name": "EBIT / Interest Expense", "rating": "green", "value": "5+"},
+    {"name": "ROIC", "rating": "green", "value": "Over 20%"},
+    {"name": "Capital Returns", "rating": "green", "value": "Yes, 5+ Years"}
+  ],
+  "execution_risk": {
+    "rating": "yellow",
+    "note": "Medium"
+  },
+  "valuation": {
+    "primary": {
+      "name": "Price to Earnings (P/E)",
+      "rating": "yellow",
+      "note": "Fairly Valued"
+    },
+    "secondary": {
+      "name": "Price to Free Cash Flow (P/FCF)",
+      "rating": "yellow",
+      "note": "Fairly Valued"
+    }
+  },
+  "verdict": "revisit"
+}
+```
+
+## GUARDRAILS
+- Output ONLY the JSON code block. Nothing else.
+- Use EXACTLY the keys shown above — do not rename or add keys.
+- The `key_metrics` list should contain exactly the 5 metrics used by the phase from the Key Metrics analysis.
+- If a prior analysis is missing or cannot be interpreted, use rating "yellow" and note "Insufficient data".
+- Derive `verdict` from the Investment Summary if present; otherwise base it on the overall pattern of ratings.
 """,
     },
 ]
@@ -5005,6 +5294,23 @@ def _dcf_editor(ticker):
             st.info("Insufficient data for FCF Yield")
 
     with _tab_notes:
+        # ── Scorecard overview ──
+        _sc_raw = (cfg.get('ai_notes') or {}).get('Scorecard', '')
+        _sc_data = _parse_scorecard_json(_sc_raw) if isinstance(cfg.get('ai_notes'), dict) else None
+        if _sc_data:
+            st.markdown(
+                _render_scorecard(
+                    _sc_data, T, ticker, cfg.get('company', ticker),
+                ),
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info(
+                "Run all analyses below, then run **Scorecard** at the bottom "
+                "to generate a visual overview here.",
+                icon="📋",
+            )
+
         _ai_h1, _ai_h2 = st.columns([5, 2])
         with _ai_h1:
             st.markdown("#### AI Research Sections")
