@@ -229,76 +229,77 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
         "green": "#81b29a",
     }
     _light = {
-        "red": "#faeae2",
-        "yellow": "#fbf2de",
-        "green": "#e4efe8",
+        "red": "#f7dfd7",
+        "yellow": "#fbedd2",
+        "green": "#d9e7dd",
     }
 
     def cell(rating: str, label: str) -> str:
         rating = (rating or "").lower()
-        bg = _light.get(rating, "transparent")
-        color_bar = _colors.get(rating, theme["border_light"])
+        bg = _light.get(rating, "#f4f1de")
+        border = _colors.get(rating, "#cccccc")
         return (
-            f'<td style="background:{bg};border-top:3px solid {color_bar};'
-            f'padding:12px 14px;text-align:center;font-size:0.82rem;'
-            f'font-weight:500;color:{theme["text"]};vertical-align:middle">{label}</td>'
+            f'<td style="background:{bg};border:1px solid {border};'
+            f'padding:8px 10px;text-align:center;font-size:0.82rem;'
+            f'color:{theme["text"]};vertical-align:middle">{label}</td>'
         )
 
     def empty_cell() -> str:
-        return '<td style="padding:12px 14px"></td>'
+        return '<td style="padding:8px 10px"></td>'
 
     phase = data.get("phase", {})
     phase_label = f"Phase {phase.get('number', '?')}: {phase.get('name', 'Unknown')}"
 
     _section_label = (
-        f'padding:14px 0 10px 0;font-weight:600;font-size:0.72rem;'
-        f'color:{theme["text_muted"]};text-transform:uppercase;'
-        f'letter-spacing:0.12em;border-bottom:1px solid {theme["border_light"]}'
+        f'padding:10px 12px;font-weight:700;font-size:0.85rem;'
+        f'color:{theme["text"]};background:{theme["row_alt"]};'
+        f'border-bottom:1px solid {theme["border_medium"]};text-transform:uppercase;'
+        f'letter-spacing:0.04em'
     )
     _row_label = (
-        f'padding:12px 14px;font-size:0.88rem;color:{theme["text"]};'
-        f'border-bottom:1px solid {theme["grid"]};font-weight:500'
+        f'padding:8px 12px;font-size:0.85rem;color:{theme["text"]};'
+        f'border-bottom:1px solid {theme["grid"]};background:{theme["card"]}'
     )
-    _header_col = (
-        f'padding:8px 10px;text-align:center;font-weight:600;font-size:0.7rem;'
-        f'text-transform:uppercase;letter-spacing:0.08em;'
-        f'color:{theme["text_muted"]};border-bottom:1px solid {theme["border_light"]}'
+    _header_red = (
+        f'padding:8px 10px;text-align:center;font-weight:700;font-size:0.78rem;'
+        f'color:#7a3a2a;background:#f2c3b2;border:1px solid #e07a5f'
+    )
+    _header_yel = (
+        f'padding:8px 10px;text-align:center;font-weight:700;font-size:0.78rem;'
+        f'color:#7a5e1f;background:#f7dfa5;border:1px solid #f2cc8f'
+    )
+    _header_grn = (
+        f'padding:8px 10px;text-align:center;font-weight:700;font-size:0.78rem;'
+        f'color:#2c5138;background:#b2d1bb;border:1px solid #81b29a'
     )
 
     html = (
-        f'<div style="background:{theme["card"]};border-radius:20px;'
-        f'padding:28px 32px;margin-bottom:24px;box-shadow:{theme["shadow"]};'
+        f'<div style="background:{theme["card"]};border-radius:16px;'
+        f'padding:20px;margin-bottom:20px;box-shadow:{theme["shadow"]};'
         f'border:1px solid {theme["border_light"]};'
         f'font-family:\'DM Sans\', -apple-system, BlinkMacSystemFont, '
         f'\'Helvetica Neue\', Arial, sans-serif">'
         # Header row
-        f'<div style="display:flex;align-items:flex-start;justify-content:space-between;'
-        f'margin-bottom:22px;flex-wrap:wrap;gap:12px">'
-        f'<div>'
-        f'<div style="font-size:0.7rem;color:{theme["text_muted"]};text-transform:uppercase;'
-        f'letter-spacing:0.12em;font-weight:500;margin-bottom:2px">Pre-Scan Overview</div>'
-        f'<div style="font-family:\'DM Serif Display\',Georgia,serif;font-size:1.85rem;'
-        f'font-weight:400;color:{theme["text"]};letter-spacing:-0.01em;line-height:1.1">'
-        f'{company} <span style="color:{theme["text_muted"]};font-size:0.75em">({ticker})</span></div>'
+        f'<div style="display:flex;align-items:center;justify-content:space-between;'
+        f'margin-bottom:14px;flex-wrap:wrap;gap:10px">'
+        f'<div><span style="font-size:0.78rem;color:{theme["text_muted"]};text-transform:uppercase">Company</span>'
+        f'<div style="font-size:1.2rem;font-weight:700;color:{theme["text"]}">{company} ({ticker})</div></div>'
+        f'<div style="background:{theme["accent"]};color:white;padding:8px 16px;border-radius:20px;'
+        f'font-weight:700;font-size:0.9rem">{phase_label}</div>'
         f'</div>'
-        f'<div style="background:{theme["accent"]};color:white;padding:8px 18px;'
-        f'border-radius:999px;font-weight:600;font-size:0.85rem;'
-        f'letter-spacing:0.01em;white-space:nowrap;box-shadow:0 2px 6px rgba(129,178,154,0.3)">'
-        f'{phase_label}</div>'
-        f'</div>'
-        '<table style="width:100%;border-collapse:collapse">'
+        '<table style="width:100%;border-collapse:separate;border-spacing:0">'
         # Column headers
         '<thead><tr>'
-        f'<th style="width:40%"></th>'
-        f'<th style="{_header_col};width:20%"><span style="color:#e07a5f">●</span> Red</th>'
-        f'<th style="{_header_col};width:20%"><span style="color:#f2cc8f">●</span> Yellow</th>'
-        f'<th style="{_header_col};width:20%"><span style="color:#81b29a">●</span> Green</th>'
+        f'<th style="width:38%"></th>'
+        f'<th style="{_header_red};width:20.5%">Red</th>'
+        f'<th style="{_header_yel};width:20.5%">Yellow</th>'
+        f'<th style="{_header_grn};width:21%">Green</th>'
         '</tr></thead><tbody>'
     )
 
     # Section: Assess for All Phases
     html += (
-        f'<tr><td colspan="4" style="{_section_label}">Assess for all phases</td></tr>'
+        f'<tr><td colspan="4" style="{_section_label}">Assess for All Phases</td></tr>'
     )
     all_phases = data.get("all_phases", {})
     for key, label in (
@@ -316,7 +317,7 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
 
     # Section: Key Metrics by Business Phase
     html += (
-        f'<tr><td colspan="4" style="{_section_label}">Key metrics by business phase</td></tr>'
+        f'<tr><td colspan="4" style="{_section_label}">Key Metrics by Business Phase</td></tr>'
     )
     for km in data.get("key_metrics", []) or []:
         rating = (km.get("rating") or "").lower()
@@ -329,7 +330,7 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
 
     # Section: Assess Risk
     html += (
-        f'<tr><td colspan="4" style="{_section_label}">Assess risk</td></tr>'
+        f'<tr><td colspan="4" style="{_section_label}">Assess Risk</td></tr>'
     )
     er = data.get("execution_risk", {}) or {}
     r_rating = (er.get("rating") or "").lower()
@@ -341,7 +342,7 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
 
     # Section: Assess Valuation
     html += (
-        f'<tr><td colspan="4" style="{_section_label}">Assess valuation</td></tr>'
+        f'<tr><td colspan="4" style="{_section_label}">Assess Valuation</td></tr>'
     )
     val = data.get("valuation", {}) or {}
     for key, label_prefix in (("primary", "Primary"), ("secondary", "Secondary")):
@@ -358,15 +359,20 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
 
     # Final verdict
     verdict = (data.get("verdict") or "").lower()
+    _verdict_map = {
+        "pass": ("No — Pass", "red"),
+        "revisit": ("Kind Of — Revisit", "yellow"),
+        "deep_dive": ("Yes — Deep Dive", "green"),
+    }
+    v_label, v_color = _verdict_map.get(verdict, ("Unknown", ""))
     html += (
-        f'<tr><td colspan="4" style="padding:22px 0 8px 0">'
-        f'<div style="display:flex;align-items:center;justify-content:space-between;'
-        f'gap:16px;flex-wrap:wrap">'
-        f'<div style="font-family:\'DM Serif Display\',Georgia,serif;font-size:1.25rem;'
-        f'color:{theme["text"]};letter-spacing:-0.01em">Are you interested?</div>'
-        f'<div style="display:flex;gap:10px">'
+        f'<tr><td colspan="4" style="padding:16px 12px;background:{theme["row_alt"]};'
+        f'border-top:2px solid {theme["border_medium"]}"><div style="display:flex;'
+        f'align-items:center;justify-content:space-between;gap:12px">'
+        f'<span style="font-weight:700;text-transform:uppercase;font-size:0.85rem;'
+        f'color:{theme["text"]}">Are You Interested?</span>'
     )
-    for color, label in (("red", "No — Pass"), ("yellow", "Revisit"), ("green", "Deep Dive")):
+    for color, label in (("red", "No — Pass"), ("yellow", "Kind Of"), ("green", "Yes — Deep Dive")):
         is_on = (verdict == "pass" and color == "red") or \
                 (verdict == "revisit" and color == "yellow") or \
                 (verdict == "deep_dive" and color == "green")
@@ -374,22 +380,20 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
             bg = _colors[color]
             text_color = "white"
             border = _colors[color]
-            weight = "600"
+            weight = "700"
             opacity = "1"
-            shadow = f'box-shadow:0 2px 8px {_colors[color]}55;'
         else:
             bg = "transparent"
             text_color = theme["text_muted"]
             border = theme["border_light"]
-            weight = "500"
-            opacity = "0.5"
-            shadow = ""
+            weight = "400"
+            opacity = "0.45"
         html += (
-            f'<span style="background:{bg};color:{text_color};padding:8px 18px;'
-            f'border-radius:999px;font-weight:{weight};font-size:0.85rem;'
-            f'border:1px solid {border};opacity:{opacity};{shadow}">{label}</span>'
+            f'<span style="background:{bg};color:{text_color};padding:8px 16px;'
+            f'border-radius:20px;font-weight:{weight};font-size:0.85rem;'
+            f'border:1px solid {border};opacity:{opacity}">{label}</span>'
         )
-    html += '</div></div></td></tr>'
+    html += '</div></td></tr>'
 
     html += '</tbody></table>'
 
@@ -397,6 +401,7 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
     summary = (data.get("summary") or "").strip()
     if summary:
         import re as _re_strip
+        # Strip markdown headers, bold/italic markers, list bullets, and HTML
         clean = _re_strip.sub(r'^#+\s*', '', summary, flags=_re_strip.MULTILINE)
         clean = _re_strip.sub(r'\*\*(.*?)\*\*', r'\1', clean)
         clean = _re_strip.sub(r'__(.*?)__', r'\1', clean)
@@ -405,16 +410,10 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
         clean = _re_strip.sub(r'<[^>]+>', '', clean)
         clean = clean.strip()
         html += (
-            f'<div style="margin-top:20px;padding:18px 22px;'
-            f'background:{theme["row_alt"]};'
-            f'border-radius:12px;font-size:0.92rem;line-height:1.65;'
-            f'color:{theme["text"]};font-style:italic;'
-            f'border:1px solid {theme["border_light"]}">'
-            f'<span style="font-family:\'DM Serif Display\',Georgia,serif;'
-            f'font-size:1.5rem;color:{theme["accent"]};'
-            f'line-height:0;vertical-align:-0.3em;margin-right:4px">"</span>'
-            f'{clean}'
-            f'</div>'
+            f'<div style="margin-top:18px;padding:14px 18px;'
+            f'background:{theme["row_alt"]};border-left:3px solid {theme["accent"]};'
+            f'border-radius:6px;font-size:0.9rem;line-height:1.55;'
+            f'color:{theme["text"]}">{clean}</div>'
         )
 
     html += '</div>'
