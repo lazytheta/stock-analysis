@@ -352,13 +352,22 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
         is_on = (verdict == "pass" and color == "red") or \
                 (verdict == "revisit" and color == "yellow") or \
                 (verdict == "deep_dive" and color == "green")
-        bg = _colors[color] if is_on else _light[color]
-        text_color = "white" if is_on else theme["text_muted"]
-        weight = "700" if is_on else "400"
+        if is_on:
+            bg = _colors[color]
+            text_color = "white"
+            border = _colors[color]
+            weight = "700"
+            opacity = "1"
+        else:
+            bg = "transparent"
+            text_color = theme["text_muted"]
+            border = theme["border_light"]
+            weight = "400"
+            opacity = "0.45"
         html += (
             f'<span style="background:{bg};color:{text_color};padding:8px 16px;'
             f'border-radius:20px;font-weight:{weight};font-size:0.85rem;'
-            f'border:1px solid {_colors[color]}">{label}</span>'
+            f'border:1px solid {border};opacity:{opacity}">{label}</span>'
         )
     html += '</div></td></tr>'
 
