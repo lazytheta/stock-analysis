@@ -395,19 +395,7 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
         )
     html += '</div></td></tr>'
 
-    html += '</tbody></table>'
-
-    # 3-sentence summary
-    summary = (data.get("summary") or "").strip()
-    if summary:
-        html += (
-            f'<div style="margin-top:16px;padding:14px 18px;'
-            f'background:{theme["row_alt"]};border-left:3px solid {theme["accent"]};'
-            f'border-radius:6px;font-size:0.9rem;line-height:1.55;'
-            f'color:{theme["text"]}">{summary}</div>'
-        )
-
-    html += '</div>'
+    html += '</tbody></table></div>'
     return html
 
 
@@ -5342,21 +5330,36 @@ def _dcf_editor(ticker):
 
     with _tab_notes:
         st.markdown(
-            """<style>
+            f"""<style>
             [class*="st-key-ai_out_"],
-            [class*="st-key-ai_out_"] * {
+            [class*="st-key-ai_out_"] * {{
                 font-family: 'DM Sans', -apple-system, BlinkMacSystemFont,
                              'Helvetica Neue', Arial, sans-serif !important;
-            }
-            [class*="st-key-ai_out_"] table {
+            }}
+            [class*="st-key-ai_out_"] table {{
                 border-collapse: collapse;
                 width: 100%;
-            }
+            }}
             [class*="st-key-ai_out_"] th,
-            [class*="st-key-ai_out_"] td {
+            [class*="st-key-ai_out_"] td {{
                 padding: 6px 10px;
                 border: 1px solid rgba(0,0,0,0.08);
-            }
+            }}
+            .st-key-scorecard_summary {{
+                margin-top: -10px;
+                margin-bottom: 20px;
+                padding: 14px 18px;
+                background: {T["row_alt"]};
+                border-left: 3px solid {T["accent"]};
+                border-radius: 6px;
+                font-family: 'DM Sans', -apple-system, sans-serif;
+            }}
+            .st-key-scorecard_summary p {{
+                margin: 0;
+                font-size: 0.9rem;
+                line-height: 1.55;
+                color: {T["text"]};
+            }}
             </style>""",
             unsafe_allow_html=True,
         )
@@ -5371,17 +5374,31 @@ def _dcf_editor(ticker):
                     if isinstance(cfg.get('ai_notes'), dict) else ''
                 if _inv_sum:
                     import re as _re2
-                    # Look for the "One-line thesis" bullet
-                    _m = _re2.search(r'One-line thesis[^\n]*\n+\s*([^\n]+)', _inv_sum, _re2.IGNORECASE)
+                    # Capture text on the SAME line after "One-line thesis:"
+                    _m = _re2.search(
+                        r'One-line thesis[^\n:]*:\s*([^\n]+)', _inv_sum, _re2.IGNORECASE,
+                    )
                     if _m:
-                        _sc_data["summary"] = _m.group(1).strip().lstrip('*- ').strip()
+                        _thesis = _m.group(1).strip()
+                        # Strip trailing markdown markers and placeholder brackets
+                        _thesis = _re2.sub(r'^\**\s*\[?', '', _thesis)
+                        _thesis = _re2.sub(r'\]?\s*\**$', '', _thesis)
+                        if _thesis and not _thesis.startswith('['):
+                            _sc_data["summary"] = _thesis
+            # Pop summary before HTML render so we can render it with
+            # st.markdown separately (so markdown inside is displayed properly)
+            _summary_text = (_sc_data.pop("summary", "") or "").strip()
             st.markdown(
                 _render_scorecard(
                     _sc_data, T, ticker, cfg.get('company', ticker),
                 ),
                 unsafe_allow_html=True,
             )
+            if _summary_text:
+                with st.container(key="scorecard_summary"):
+                    st.markdown(_summary_text)
             with st.expander("🔍 Debug: parsed scorecard JSON", expanded=False):
+                _sc_data["summary"] = _summary_text  # put back for debug view
                 st.json(_sc_data)
         elif _sc_raw:
             st.warning(
