@@ -395,7 +395,28 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
         )
     html += '</div></td></tr>'
 
-    html += '</tbody></table></div>'
+    html += '</tbody></table>'
+
+    # 3-sentence summary inside the card
+    summary = (data.get("summary") or "").strip()
+    if summary:
+        import re as _re_strip
+        # Strip markdown headers, bold/italic markers, list bullets, and HTML
+        clean = _re_strip.sub(r'^#+\s*', '', summary, flags=_re_strip.MULTILINE)
+        clean = _re_strip.sub(r'\*\*(.*?)\*\*', r'\1', clean)
+        clean = _re_strip.sub(r'__(.*?)__', r'\1', clean)
+        clean = _re_strip.sub(r'\*(.*?)\*', r'\1', clean)
+        clean = _re_strip.sub(r'^\s*[-*]\s+', '', clean, flags=_re_strip.MULTILINE)
+        clean = _re_strip.sub(r'<[^>]+>', '', clean)
+        clean = clean.strip()
+        html += (
+            f'<div style="margin-top:18px;padding:14px 18px;'
+            f'background:{theme["row_alt"]};border-left:3px solid {theme["accent"]};'
+            f'border-radius:6px;font-size:0.9rem;line-height:1.55;'
+            f'color:{theme["text"]}">{clean}</div>'
+        )
+
+    html += '</div>'
     return html
 
 
@@ -5345,21 +5366,6 @@ def _dcf_editor(ticker):
                 padding: 6px 10px;
                 border: 1px solid rgba(0,0,0,0.08);
             }}
-            .st-key-scorecard_summary {{
-                margin-top: -10px;
-                margin-bottom: 20px;
-                padding: 14px 18px;
-                background: {T["row_alt"]};
-                border-left: 3px solid {T["accent"]};
-                border-radius: 6px;
-                font-family: 'DM Sans', -apple-system, sans-serif;
-            }}
-            .st-key-scorecard_summary p {{
-                margin: 0;
-                font-size: 0.9rem;
-                line-height: 1.55;
-                color: {T["text"]};
-            }}
             </style>""",
             unsafe_allow_html=True,
         )
@@ -5385,20 +5391,13 @@ def _dcf_editor(ticker):
                         _thesis = _re2.sub(r'\]?\s*\**$', '', _thesis)
                         if _thesis and not _thesis.startswith('['):
                             _sc_data["summary"] = _thesis
-            # Pop summary before HTML render so we can render it with
-            # st.markdown separately (so markdown inside is displayed properly)
-            _summary_text = (_sc_data.pop("summary", "") or "").strip()
             st.markdown(
                 _render_scorecard(
                     _sc_data, T, ticker, cfg.get('company', ticker),
                 ),
                 unsafe_allow_html=True,
             )
-            if _summary_text:
-                with st.container(key="scorecard_summary"):
-                    st.markdown(_summary_text)
             with st.expander("🔍 Debug: parsed scorecard JSON", expanded=False):
-                _sc_data["summary"] = _summary_text  # put back for debug view
                 st.json(_sc_data)
         elif _sc_raw:
             st.warning(
