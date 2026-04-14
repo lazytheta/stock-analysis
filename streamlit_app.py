@@ -5455,13 +5455,13 @@ def _dcf_editor(ticker):
                 with _rb1:
                     _run_clicked = st.button(
                         "▶ Run", key=f"ed_ai_run_{_li}",
-                        use_container_width=True,
+                        use_container_width=True, type="primary",
                         disabled=not _gem_ok,
                     )
                 with _rb2:
                     _clear_clicked = st.button(
                         "Clear", key=f"ed_ai_clear_{_li}",
-                        use_container_width=True,
+                        use_container_width=True, type="primary",
                         disabled=not _content,
                     )
 
