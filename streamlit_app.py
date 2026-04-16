@@ -3704,8 +3704,9 @@ def _dcf_editor(ticker):
 
         with st.expander("### WACC", expanded=False):
           with st.container(border=True):
+            _rf_label = "Risk-Free Rate % (TIPS — Real)" if cfg.get('valuation_basis') == 'real' else "Risk-Free Rate %"
             cfg['risk_free_rate'] = st.number_input(
-                "Risk-Free Rate %", value=cfg.get('risk_free_rate', 0.04) * 100,
+                _rf_label, value=cfg.get('risk_free_rate', 0.04) * 100,
                 step=0.1, format="%.2f", key="ed_rfr",
             ) / 100
             cfg['erp'] = st.number_input(
@@ -3815,6 +3816,17 @@ def _dcf_editor(ticker):
             _lev_beta = _wu_beta * (1 + (1 - cfg['tax_rate']) * _de_ratio)
             st.markdown(_ww_val.format(label="Weighted Unlevered \u03b2", value=f"{_wu_beta:.2f}", extra=f"color:{T['text_muted']};"), unsafe_allow_html=True)
             st.markdown(_ww_val.format(label="Levered \u03b2", value=f"{_lev_beta:.2f}", extra="font-weight:700;"), unsafe_allow_html=True)
+
+            if cfg.get('valuation_basis') == 'real':
+                _be = cfg.get('breakeven_inflation', 0)
+                _nom_rf = cfg.get('nominal_risk_free_rate', 0)
+                st.markdown(
+                    f'<div style="padding:6px 8px;margin:4px 0;border-radius:6px;'
+                    f'background:{T["separator"]};font-size:0.82rem;color:{T["text"]};opacity:0.8">'
+                    f'📐 Reële waardering — Nominale Rf: {_nom_rf:.2%} · '
+                    f'Breakeven inflatie: {_be:.2%}</div>',
+                    unsafe_allow_html=True,
+                )
 
             st.markdown(_ww_sep, unsafe_allow_html=True)
 
