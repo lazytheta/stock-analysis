@@ -123,7 +123,8 @@ def _resolve_sector_margin(sector_betas):
 def _build_dcf_config_impl(ticker, financial_data, company_name,
                             sic_code=None, sic_description="",
                             margin_of_safety=None, terminal_growth=None,
-                            sector_margin=None, consensus=None):
+                            sector_margin=None, consensus=None,
+                            valuation_basis="nominal"):
     """Core logic for build_dcf_config."""
     ticker = ticker.upper()
 
@@ -132,6 +133,11 @@ def _build_dcf_config_impl(ticker, financial_data, company_name,
         raise ValueError(f"Could not fetch stock price for {ticker}")
 
     risk_free_rate = gather_data.fetch_treasury_yield()
+
+    nominal_risk_free_rate = None
+    if valuation_basis == "real":
+        nominal_risk_free_rate = risk_free_rate
+        risk_free_rate = gather_data.fetch_tips_yield()
 
     shares = financial_data.get("shares", [])
     shares_latest = shares[-1] if shares else 0
@@ -174,6 +180,8 @@ def _build_dcf_config_impl(ticker, financial_data, company_name,
         terminal_growth=terminal_growth,
         sector_margin=sector_margin,
         consensus=consensus,
+        valuation_basis=valuation_basis,
+        nominal_risk_free_rate=nominal_risk_free_rate,
     )
 
     return cfg
@@ -199,6 +207,12 @@ def _calculate_valuation_impl(cfg):
     if reverse.get("closest"):
         result["closest_growth"] = round(reverse["closest"][0], 4)
         result["closest_margin"] = round(reverse["closest"][1], 4)
+
+    # Include valuation basis metadata
+    result["valuation_basis"] = cfg.get("valuation_basis", "nominal")
+    if cfg.get("valuation_basis") == "real":
+        result["nominal_risk_free_rate"] = cfg.get("nominal_risk_free_rate")
+        result["breakeven_inflation"] = cfg.get("breakeven_inflation")
 
     return json.dumps(result)
 
@@ -241,6 +255,7 @@ def build_dcf_config(
     terminal_growth: float = 0,
     sector_margin: float = 0,
     consensus: dict | None = None,
+    valuation_basis: str = "nominal",
 ) -> str:
     """Build a complete DCF configuration from SEC financial data.
 
@@ -261,6 +276,7 @@ def build_dcf_config(
         terminal_growth: Override default 2.5%% terminal growth (0 = use default)
         sector_margin: Override sector operating margin (0 = auto from Damodaran)
         consensus: Analyst estimates dict (optional)
+        valuation_basis: "nominal" (default) or "real" (TIPS-based, inflation-adjusted)
 
     Returns:
         JSON string with the complete DCF config dict.
@@ -276,6 +292,7 @@ def build_dcf_config(
             terminal_growth=terminal_growth or None,
             sector_margin=sector_margin or None,
             consensus=consensus,
+            valuation_basis=valuation_basis,
         )
         return json.dumps(cfg, default=str)
     except Exception as e:

@@ -287,6 +287,74 @@ def _make_test_financials():
     }
 
 
+@patch("gather_data.fetch_treasury_yield", return_value=0.0427)
+@patch("gather_data.fetch_tips_yield", return_value=0.019)
+@patch("gather_data.fetch_stock_price", return_value=(150.0, 0, 0))
+@patch("gather_data.fetch_sector_betas", return_value={"Tech": 1.0})
+@patch("gather_data.fetch_sector_margins", return_value={"Tech": 0.25})
+@patch("gather_data.find_peers", return_value=[])
+@patch("gather_data.fetch_peer_data", return_value=[])
+def test_build_dcf_config_impl_real_mode(
+    mock_peers_data, mock_peers, mock_margins, mock_betas,
+    mock_price, mock_tips, mock_treasury,
+):
+    """_build_dcf_config_impl with valuation_basis='real' should use TIPS yield."""
+    from mcp_server import _build_dcf_config_impl
+
+    financials = _make_test_financials()
+    cfg = _build_dcf_config_impl(
+        ticker="TEST",
+        financial_data=financials,
+        company_name="Test Corp",
+        sic_code="7372",
+        valuation_basis="real",
+    )
+    assert cfg["valuation_basis"] == "real"
+    assert cfg["risk_free_rate"] == pytest.approx(0.019, abs=0.001)
+    assert cfg["nominal_risk_free_rate"] == pytest.approx(0.0427, abs=0.001)
+    assert "breakeven_inflation" in cfg
+    mock_tips.assert_called_once()
+
+
+def test_calculate_valuation_includes_valuation_basis():
+    """_calculate_valuation_impl should include valuation_basis in output."""
+    import json
+    from mcp_server import _calculate_valuation_impl
+
+    cfg = {
+        "equity_market_value": 100000,
+        "debt_market_value": 20000,
+        "risk_free_rate": 0.019,
+        "erp": 0.047,
+        "credit_spread": 0.01,
+        "tax_rate": 0.20,
+        "sector_betas": [("Tech", 1.0, 1.0)],
+        "base_revenue": 50000,
+        "revenue_growth": [0.05] * 10,
+        "op_margins": [0.25] * 10,
+        "terminal_growth": 0.005,
+        "terminal_margin": 0.20,
+        "sales_to_capital": 0.5,
+        "sbc_pct": 0.03,
+        "shares_outstanding": 1000,
+        "buyback_rate": 0,
+        "margin_of_safety": 0.20,
+        "stock_price": 100.0,
+        "cash_bridge": 10000,
+        "securities": 5000,
+        "equity_investments": 0,
+        "minority_interest": 0,
+        "unfunded_pension": 0,
+        "valuation_basis": "real",
+        "nominal_risk_free_rate": 0.0427,
+        "breakeven_inflation": 0.0237,
+    }
+    result = json.loads(_calculate_valuation_impl(cfg))
+    assert result["valuation_basis"] == "real"
+    assert result["nominal_risk_free_rate"] == 0.0427
+    assert result["breakeven_inflation"] == 0.0237
+
+
 def test_build_config_nominal_default():
     """build_config with default valuation_basis should not set real-valuation fields."""
     import gather_data
