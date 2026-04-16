@@ -2049,6 +2049,28 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
     return cfg
 
 
+def convert_to_real(cfg, tips_yield, breakeven):
+    """Convert a nominal DCF config to real (TIPS-based) valuation basis.
+
+    Args:
+        cfg: Existing nominal config dict.
+        tips_yield: Current 10-year TIPS yield (e.g. 0.019).
+        breakeven: Breakeven inflation rate (nominal Rf - TIPS yield).
+
+    Returns:
+        New config dict with real valuation basis applied.
+    """
+    real_cfg = dict(cfg)
+    real_cfg["valuation_basis"] = "real"
+    real_cfg["nominal_risk_free_rate"] = cfg["risk_free_rate"]
+    real_cfg["risk_free_rate"] = tips_yield
+    real_cfg["breakeven_inflation"] = breakeven
+    real_cfg["nominal_revenue_growth"] = list(cfg["revenue_growth"])
+    real_cfg["revenue_growth"] = [max(g - breakeven, 0.0) for g in cfg["revenue_growth"]]
+    real_cfg["terminal_growth"] = max(cfg["terminal_growth"] - breakeven, 0.0)
+    return real_cfg
+
+
 def write_config(cfg, output_path):
     """Write config dict to a Python file matching msft_config.py format."""
     ticker = cfg["ticker"]

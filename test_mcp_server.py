@@ -393,3 +393,46 @@ def test_build_config_real_mode():
     # Real revenue growth should be lower than nominal by ~breakeven
     for real_g, nom_g in zip(cfg["revenue_growth"], cfg["nominal_revenue_growth"]):
         assert real_g < nom_g or nom_g <= 0
+
+
+def test_convert_to_real():
+    """convert_to_real should transform a nominal config to real basis."""
+    import gather_data
+
+    nominal_cfg = {
+        "risk_free_rate": 0.0427,
+        "revenue_growth": [0.08, 0.07, 0.06, 0.05, 0.04, 0.04, 0.03, 0.03, 0.03, 0.025],
+        "terminal_growth": 0.025,
+        "valuation_basis": "nominal",
+    }
+    real_cfg = gather_data.convert_to_real(nominal_cfg, tips_yield=0.019, breakeven=0.0237)
+
+    assert real_cfg["valuation_basis"] == "real"
+    assert real_cfg["risk_free_rate"] == 0.019
+    assert real_cfg["nominal_risk_free_rate"] == 0.0427
+    assert real_cfg["breakeven_inflation"] == 0.0237
+    assert real_cfg["terminal_growth"] == pytest.approx(0.0013, abs=0.001)
+    assert real_cfg["nominal_revenue_growth"] == nominal_cfg["revenue_growth"]
+    # Each real growth = nominal - breakeven, floored at 0
+    for real_g, nom_g in zip(real_cfg["revenue_growth"], real_cfg["nominal_revenue_growth"]):
+        expected = max(nom_g - 0.0237, 0.0)
+        assert real_g == pytest.approx(expected, abs=0.0001)
+
+
+def test_convert_to_real_floors_at_zero():
+    """convert_to_real should floor growth rates at 0%."""
+    import gather_data
+
+    nominal_cfg = {
+        "risk_free_rate": 0.04,
+        "revenue_growth": [0.01, 0.005],
+        "terminal_growth": 0.025,
+        "valuation_basis": "nominal",
+    }
+    real_cfg = gather_data.convert_to_real(nominal_cfg, tips_yield=0.019, breakeven=0.021)
+    # 0.01 - 0.021 = -0.011 -> floored to 0.0
+    assert real_cfg["revenue_growth"][0] == 0.0
+    # 0.005 - 0.021 = -0.016 -> floored to 0.0
+    assert real_cfg["revenue_growth"][1] == 0.0
+    # terminal: 0.025 - 0.021 = 0.004
+    assert real_cfg["terminal_growth"] == pytest.approx(0.004, abs=0.001)
