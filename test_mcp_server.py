@@ -229,3 +229,26 @@ def test_get_watchlist_tool():
         result = json.loads(mcp_server._get_watchlist_impl())
         assert len(result) == 2
         assert result[0]["ticker"] == "MSFT"
+
+
+def test_fetch_tips_yield_parses_fred_csv():
+    """fetch_tips_yield() should parse FRED CSV and return the latest TIPS rate."""
+    import gather_data
+
+    sample_csv = (
+        b"observation_date,DFII10\n"
+        b"2026-04-14,1.88\n"
+        b"2026-04-15,1.90\n"
+    )
+    with patch("gather_data._http_get", return_value=sample_csv):
+        rate = gather_data.fetch_tips_yield()
+    assert rate == pytest.approx(0.019, abs=0.001)
+
+
+def test_fetch_tips_yield_fallback_on_failure():
+    """fetch_tips_yield() should return default 0.02 when FRED fetch fails."""
+    import gather_data
+
+    with patch("gather_data._http_get", side_effect=Exception("network error")):
+        rate = gather_data.fetch_tips_yield()
+    assert rate == 0.02

@@ -1124,6 +1124,48 @@ def fetch_treasury_yield():
         return default
 
 
+TIPS_DEFAULT = 0.02  # 2% real rate fallback
+
+
+def fetch_tips_yield():
+    """Fetch current US 10-Year TIPS yield from FRED (series DFII10).
+
+    Returns the real risk-free rate as a float (e.g. 0.019 for 1.9%).
+    No API key required for this public CSV endpoint.
+    """
+    print("[TIPS] Fetching 10Y TIPS yield from FRED...")
+
+    year = datetime.now().year
+    url = (
+        f"https://fred.stlouisfed.org/graph/fredgraph.csv"
+        f"?id=DFII10&cosd={year}-01-01&fq=Daily"
+    )
+
+    try:
+        data = _http_get(url, {"User-Agent": "StockAnalysis/1.0"})
+        text = data.decode("utf-8").strip()
+        lines = text.split("\n")
+
+        # CSV format: observation_date,DFII10
+        # Skip header, find last non-empty value (most recent)
+        latest_rate = None
+        for line in reversed(lines[1:]):
+            parts = line.split(",")
+            if len(parts) == 2 and parts[1].strip() and parts[1].strip() != ".":
+                latest_rate = float(parts[1].strip()) / 100
+                break
+
+        if latest_rate is not None:
+            print(f"  10Y TIPS: {latest_rate:.4f} ({latest_rate*100:.2f}%)")
+            return latest_rate
+
+        raise ValueError("No valid TIPS rate found in FRED CSV")
+
+    except Exception as e:
+        print(f"  WARNING: TIPS fetch failed: {e}. Using default: {TIPS_DEFAULT:.2%}")
+        return TIPS_DEFAULT
+
+
 # ── Damodaran Module ──────────────────────────────────────────────────
 
 def synthetic_credit_rating(operating_income, interest_expense):
