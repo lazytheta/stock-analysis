@@ -48,6 +48,7 @@ YAHOO_HEADERS = {
 ERP_DEFAULT = 0.047  # Damodaran Jan 2026 estimate
 TERMINAL_GROWTH_DEFAULT = 0.025
 MARGIN_OF_SAFETY_DEFAULT = 0.20
+TERMINAL_GROWTH_REAL_DEFAULT = 0.005  # 0.5% real terminal growth
 
 # Damodaran interest coverage → synthetic credit rating mapping
 # (min_coverage, max_coverage, rating, spread)
@@ -1668,7 +1669,8 @@ def fetch_peer_data(peer_tickers):
 def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
                  risk_free_rate, sector_betas, credit_spread, credit_rating,
                  peers, company_name, margin_of_safety=None, terminal_growth=None,
-                 sector_margin=None, consensus=None):
+                 sector_margin=None, consensus=None,
+                 valuation_basis="nominal", nominal_risk_free_rate=None):
     """Assemble all gathered data into the exact config dict for build_dcf_model().
 
     Uses 5 smart assumption methods:
@@ -1712,6 +1714,17 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
 
     term_growth = terminal_growth or TERMINAL_GROWTH_DEFAULT
     consensus = consensus or {}
+
+    # ── Real (TIPS) valuation mode ──
+    breakeven_inflation = None
+    nominal_revenue_growth = None
+
+    if valuation_basis == "real":
+        if nominal_risk_free_rate is None:
+            nominal_risk_free_rate = risk_free_rate + 0.02  # rough estimate
+        breakeven_inflation = nominal_risk_free_rate - risk_free_rate
+        if not terminal_growth:
+            term_growth = TERMINAL_GROWTH_REAL_DEFAULT
 
     # ── [IMPROVEMENT 1 & 3 & 4 & 5] Revenue growth assumptions ──
     print("  [Growth] Deriving revenue growth curve...")
@@ -1778,6 +1791,11 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
 
     print(f"    Trend: {trend}, CAGR 1y={cagr_1y:.1%} 3y={cagr_3y:.1%} 5y={cagr_5y:.1%}")
     print(f"    Growth: {revenue_growth[0]:.1%} → {revenue_growth[4]:.1%} → {revenue_growth[9]:.1%} (exp decay λ={decay_lambda})")
+
+    # Deflate revenue growth for real valuation
+    if valuation_basis == "real" and breakeven_inflation is not None:
+        nominal_revenue_growth = list(revenue_growth)
+        revenue_growth = [max(g - breakeven_inflation, 0.0) for g in revenue_growth]
 
     # ── [IMPROVEMENT 1 & 2] Operating margin trajectory ──
     print("  [Margins] Deriving operating margin trajectory...")
@@ -1950,6 +1968,7 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
         "debt_market_value": total_debt,
 
         "risk_free_rate": risk_free_rate,
+        "valuation_basis": valuation_basis,
         "erp": ERP_DEFAULT,
         "credit_spread": credit_spread,
         "tax_rate": tax_rate,
@@ -2005,6 +2024,12 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
 
         "peers": peers,
     }
+
+    # Add real-valuation reference fields
+    if valuation_basis == "real":
+        cfg["nominal_risk_free_rate"] = nominal_risk_free_rate
+        cfg["breakeven_inflation"] = round(breakeven_inflation, 4)
+        cfg["nominal_revenue_growth"] = nominal_revenue_growth
 
     # Print summary
     print(f"\n  Company:            {company_name} ({ticker.upper()})")

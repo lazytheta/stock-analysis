@@ -252,3 +252,76 @@ def test_fetch_tips_yield_fallback_on_failure():
     with patch("gather_data._http_get", side_effect=Exception("network error")):
         rate = gather_data.fetch_tips_yield()
     assert rate == 0.02
+
+
+def _make_test_financials():
+    """Helper: minimal financials dict for build_config tests."""
+    return {
+        "years": [2022, 2023, 2024, 2025],
+        "revenue": [80000, 85000, 90000, 95000],
+        "operating_income": [20000, 21000, 22000, 23000],
+        "net_income": [16000, 17000, 18000, 19000],
+        "cost_of_revenue": [40000, 42000, 44000, 46000],
+        "sbc": [2000, 2100, 2200, 2300],
+        "shares": [1000, 1000, 1000, 1000],
+        "current_assets": [30000, 31000, 32000, 33000],
+        "cash": [10000, 11000, 12000, 13000],
+        "st_investments": [5000, 5000, 5000, 5000],
+        "current_liabilities": [20000, 21000, 22000, 23000],
+        "st_debt": [5000, 5000, 5000, 5000],
+        "st_leases": [1000, 1000, 1000, 1000],
+        "net_ppe": [15000, 16000, 17000, 18000],
+        "goodwill_intang": [10000, 10000, 10000, 10000],
+        "buyback": [0, 0, 0, 0],
+        "tax_provision": [4000, 4250, 4500, 4750],
+        "pretax_income": [20000, 21000, 22000, 23000],
+        "lt_debt_latest": 20000,
+        "lt_leases_latest": 3000,
+        "st_debt_latest": 5000,
+        "interest_expense_latest": 1000,
+        "finance_leases_latest": 0,
+        "minority_interest_latest": 0,
+        "equity_investments_latest": 0,
+        "unfunded_pension_latest": 0,
+        "entity_public_float": 0,
+    }
+
+
+def test_build_config_nominal_default():
+    """build_config with default valuation_basis should not set real-valuation fields."""
+    import gather_data
+    financials = _make_test_financials()
+    cfg = gather_data.build_config(
+        ticker="TEST", financials=financials, stock_price=100.0,
+        market_cap=100000, shares_yahoo=1000, risk_free_rate=0.04,
+        sector_betas=[("Tech", 1.0, 1.0)], credit_spread=0.01,
+        credit_rating="A", peers=[], company_name="Test Corp",
+    )
+    assert cfg["risk_free_rate"] == 0.04
+    assert cfg.get("valuation_basis", "nominal") == "nominal"
+    assert "breakeven_inflation" not in cfg
+
+
+def test_build_config_real_mode():
+    """build_config with valuation_basis='real' should store TIPS fields and deflate growth."""
+    import gather_data
+    financials = _make_test_financials()
+    cfg = gather_data.build_config(
+        ticker="TEST", financials=financials, stock_price=100.0,
+        market_cap=100000, shares_yahoo=1000, risk_free_rate=0.019,
+        sector_betas=[("Tech", 1.0, 1.0)], credit_spread=0.01,
+        credit_rating="A", peers=[], company_name="Test Corp",
+        valuation_basis="real",
+        nominal_risk_free_rate=0.0427,
+    )
+    assert cfg["valuation_basis"] == "real"
+    assert cfg["risk_free_rate"] == 0.019
+    assert cfg["nominal_risk_free_rate"] == 0.0427
+    assert cfg["breakeven_inflation"] == pytest.approx(0.0237, abs=0.001)
+    # Terminal growth should default to 0.005 for real mode
+    assert cfg["terminal_growth"] == 0.005
+    # Nominal revenue growth should be stored
+    assert "nominal_revenue_growth" in cfg
+    # Real revenue growth should be lower than nominal by ~breakeven
+    for real_g, nom_g in zip(cfg["revenue_growth"], cfg["nominal_revenue_growth"]):
+        assert real_g < nom_g or nom_g <= 0
