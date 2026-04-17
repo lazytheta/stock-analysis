@@ -1990,7 +1990,6 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
         "sbc_pct": sbc_pct,
 
         "shares_outstanding": shares,
-        "buyback_rate": 0,
         "margin_of_safety": margin_of_safety or MARGIN_OF_SAFETY_DEFAULT,
 
         "cash_bridge": cash_bridge,
