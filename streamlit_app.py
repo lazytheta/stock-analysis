@@ -7757,51 +7757,6 @@ elif page == "Portfolio":
 
     _portfolio_cards()
 
-    # ── Quick-Links — jump to Option Finder for held tickers ──
-    _ql_items = []
-    _ql_map = {}
-    for _ql_t in held_tickers:
-        _pf_data = cost_basis.get(_ql_t, {})
-        _put_label = f"{_ql_t} Sell Put"
-        _ql_items.append(_put_label)
-        _ql_map[_put_label] = (_ql_t, "Sell Put")
-        if _pf_data.get("shares_held", 0) > 0:
-            _call_label = f"{_ql_t} Write Call"
-            _ql_items.append(_call_label)
-            _ql_map[_call_label] = (_ql_t, "Write Call")
-    if _ql_items:
-        if st.session_state.pop("_reset_ql_pills", False):
-            st.session_state["ql_pills"] = None
-        st.markdown(
-            '<style>'
-            '.st-key-ql_pills { display:flex; justify-content:center }'
-            '.st-key-ql_pills [role="radiogroup"] { justify-content:center }'
-            '.st-key-ql_pills button,'
-            '.st-key-ql_pills button * {'
-            '  border-radius:20px !important;'
-            '  color:var(--text) !important; background:transparent !important;'
-            '  font-weight:400 !important; transition:all 0.15s'
-            '}'
-            '.st-key-ql_pills button { border:1px solid var(--border-medium) !important }'
-            '.st-key-ql_pills button:hover,'
-            '.st-key-ql_pills button:hover *,'
-            '.st-key-ql_pills button[aria-selected="true"],'
-            '.st-key-ql_pills button[aria-selected="true"] * {'
-            '  background:var(--accent) !important; color:#fff !important'
-            '}'
-            '</style>',
-            unsafe_allow_html=True,
-        )
-        _ql_pick = st.pills("Find options", _ql_items, default=None,
-                            key="ql_pills", label_visibility="collapsed")
-        if _ql_pick and _ql_pick in _ql_map:
-            _ql_t, _ql_strat = _ql_map[_ql_pick]
-            st.session_state["of_ticker_input"] = _ql_t
-            st.session_state["of_strategy"] = _ql_strat
-            st.session_state["_pending_nav"] = "Option Finder"
-            st.session_state["_reset_ql_pills"] = True
-            st.rerun()
-
     st.markdown("<br>", unsafe_allow_html=True)
     with st.container(key="margin_block"):
         _margin_overview()
