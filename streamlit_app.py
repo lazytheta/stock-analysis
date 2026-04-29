@@ -9477,7 +9477,7 @@ elif page == "Connect your Broker":
                 "Click the button below to log in securely via Tastytrade — we only request **read-only** access.")
 
         # OAuth connect button
-        _oauth_url = os.environ.get("OAUTH_SERVER_URL", "http://localhost:8000")
+        _oauth_url = _secret_or_env("OAUTH_SERVER_URL") or "http://localhost:8000"
         _user = st.session_state.get("user")
         _user_id = _user["id"] if _user and isinstance(_user, dict) else ""
         if _user_id:
