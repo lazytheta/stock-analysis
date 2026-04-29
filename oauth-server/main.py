@@ -3,6 +3,9 @@ Tastytrade OAuth Server — FastAPI microservice.
 
 Handles the OAuth 2.0 authorization code flow between Streamlit and Tastytrade.
 One job: let users click "Connect with Tastytrade" and store the refresh token.
+
+Runs as a Vercel Python serverless function. No keepalive task needed —
+serverless functions spin up per request and don't have an idle-spin issue.
 """
 
 import base64
@@ -19,6 +22,7 @@ import config
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 app = FastAPI(title="Lazy Theta OAuth", docs_url=None, redoc_url=None)
 
@@ -116,6 +120,26 @@ async def _cleanup_expired_states():
         logger.warning("State cleanup failed: %s", e)
 
 
+# ─── Event logging ──────────────────────────────────────────────────────────
+
+async def _log_event(event: str, user_id: str | None = None, detail: str | None = None):
+    """Log an OAuth event to Supabase for monitoring."""
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                f"{config.SUPABASE_URL}/rest/v1/oauth_events",
+                json={"user_id": user_id, "event": event, "detail": detail},
+                headers={
+                    "apikey": config.SUPABASE_SERVICE_ROLE_KEY,
+                    "Authorization": f"Bearer {config.SUPABASE_SERVICE_ROLE_KEY}",
+                    "Content-Type": "application/json",
+                },
+                timeout=5,
+            )
+    except Exception:
+        pass  # never block the flow for logging
+
+
 # ─── Endpoints ───────────────────────────────────────────────────────────────
 
 
@@ -166,17 +190,20 @@ async def tastytrade_callback(
     # User denied access
     if error:
         logger.warning("OAuth denied: %s", error)
+        await _log_event("denied", detail=error)
         return RedirectResponse(f"{app_url}?tt_error=access_denied")
 
     # Missing params
     if not code or not state:
         logger.warning("OAuth callback missing code or state")
+        await _log_event("missing_params")
         return RedirectResponse(f"{app_url}?tt_error=connection_failed")
 
     # Validate state (CSRF protection)
     pending = await _pop_state(state)
     if not pending:
         logger.warning("OAuth state invalid or expired")
+        await _log_event("state_expired")
         return RedirectResponse(f"{app_url}?tt_error=session_expired")
 
     user_id = pending["user_id"]
@@ -200,15 +227,20 @@ async def tastytrade_callback(
             response.raise_for_status()
             tokens = response.json()
     except httpx.HTTPStatusError as e:
-        logger.error("Token exchange failed: %s %s", e.response.status_code, e.response.text[:500])
+        detail = f"{e.response.status_code}: {e.response.text[:300]}"
+        logger.error("Token exchange failed: %s", detail)
+        await _log_event("token_exchange_failed", user_id=user_id, detail=detail)
         return RedirectResponse(f"{app_url}?tt_error=token_exchange_failed")
     except Exception as e:
-        logger.error("Token exchange error: %s %s", type(e).__name__, str(e)[:300])
+        detail = f"{type(e).__name__}: {e!s}"[:300]
+        logger.error("Token exchange error: %s", detail)
+        await _log_event("token_exchange_error", user_id=user_id, detail=detail)
         return RedirectResponse(f"{app_url}?tt_error=token_exchange_failed")
 
     refresh_token = tokens.get("refresh_token")
     if not refresh_token:
         logger.error("No refresh_token in response. Keys: %s", list(tokens.keys()))
+        await _log_event("no_refresh_token", user_id=user_id)
         return RedirectResponse(f"{app_url}?tt_error=token_exchange_failed")
 
     # Store refresh token in Supabase
@@ -232,9 +264,12 @@ async def tastytrade_callback(
             resp.raise_for_status()
         logger.info("OAuth tokens stored for user %s", user_id[:8])
     except Exception as e:
-        logger.error("Supabase store failed: %s %s", type(e).__name__, str(e)[:300])
+        detail = f"{type(e).__name__}: {e!s}"[:300]
+        logger.error("Supabase store failed: %s", detail)
+        await _log_event("storage_failed", user_id=user_id, detail=detail)
         return RedirectResponse(f"{app_url}?tt_error=storage_failed")
 
+    await _log_event("success", user_id=user_id)
     return RedirectResponse(f"{app_url}?tt_connected=true")
 
 
