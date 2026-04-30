@@ -32,6 +32,7 @@ _mock_dxfeed = MagicMock()
 _mock_instruments = MagicMock()
 _mock_metrics = MagicMock()
 _mock_order = MagicMock()
+_mock_utils = MagicMock()
 
 sys.modules.setdefault("tastytrade", _mock_tastytrade)
 sys.modules.setdefault("tastytrade.dxfeed", _mock_dxfeed)
@@ -39,6 +40,7 @@ sys.modules.setdefault("tastytrade.instruments", _mock_instruments)
 sys.modules.setdefault("tastytrade.instruments", _mock_instruments)
 sys.modules.setdefault("tastytrade.metrics", _mock_metrics)
 sys.modules.setdefault("tastytrade.order", _mock_order)
+sys.modules.setdefault("tastytrade.utils", _mock_utils)
 
 import tastytrade_api
 

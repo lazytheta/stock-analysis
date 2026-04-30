@@ -9,6 +9,7 @@ import logging
 import os
 import ssl
 import threading
+import time
 import urllib.request
 from collections import defaultdict
 from datetime import UTC, datetime
@@ -26,6 +27,7 @@ from tastytrade.dxfeed import Greeks as GreeksEvent, Quote as QuoteEvent
 from tastytrade.instruments import Option, Equity, NestedOptionChain
 from tastytrade.metrics import get_market_metrics
 from tastytrade.order import NewOrder, OrderType, OrderTimeInForce, OrderAction
+from tastytrade.utils import validate_response
 
 
 def _get_secret(key):
@@ -135,51 +137,105 @@ _REFRESH_LOCK = threading.Lock()
 
 
 class _RotationAwareSession(Session):
-    """Session subclass that serializes concurrent OAuth refreshes and
-    persists rotated refresh tokens back to Supabase.
+    """Session subclass that captures rotated refresh tokens and serializes
+    concurrent OAuth refreshes process-wide.
 
-    Without serialization, two parallel sessions both holding the same
-    refresh token T would both call /oauth/token. The first succeeds and
-    receives T'; the second tries T after it's been used and TT revokes
-    the entire grant chain ("Grant revoked"). The lock prevents that race
-    process-wide, and right after acquiring the lock we re-read the latest
-    token from Supabase so each refresh uses whatever the previous lock-
-    holder rotated to.
+    The base ``Session._refresh`` (tastytrade SDK 12.0.2) reads ``access_token``
+    and ``expires_in`` from the ``/oauth/token`` response but **silently drops
+    the rotated ``refresh_token``**. TastyTrade's anti-replay system then sees
+    the original token reused on the next refresh and revokes the entire grant
+    chain ("Grant revoked"). This subclass replaces ``_refresh`` with a
+    response-aware implementation that:
+
+    1. Acquires a process-wide lock so parallel callers (e.g. Streamlit's
+       ThreadPoolExecutor running Greeks + margin-interest in parallel) can't
+       race on the same refresh-token.
+    2. Reads the latest token from Supabase before refreshing — so a session
+       constructed with a stale cached token automatically picks up the value
+       a previous lock-holder rotated to.
+    3. Persists the new ``refresh_token`` back to Supabase after a successful
+       refresh.
+    4. Retries once on ``invalid_grant`` if Supabase has a newer value than
+       what we just tried — covers cross-process rotations.
     """
 
     _new_refresh_token: str | None = None
 
     async def _refresh(self) -> None:
+        # Honor base-class behavior: skip if access token still has >60s left.
+        if time.time() < self.session_expiration - 60:
+            return
+
         with _REFRESH_LOCK:
             # Pick up any rotation persisted by a previous lock-holder.
             fresh = await _read_current_refresh_token()
             if fresh and fresh != self.refresh_token:
                 self.refresh_token = fresh
-            old_token = self.refresh_token
 
-            try:
-                await super()._refresh()
-            except Exception as e:
-                err = str(e).lower()
-                if "invalid_grant" in err or "grant revoked" in err:
-                    # One last re-read in case Supabase changed mid-flight.
-                    fresh2 = await _read_current_refresh_token()
-                    if fresh2 and fresh2 != old_token:
-                        logger.info(
-                            "Retrying TT refresh after Grant revoked using "
-                            "newer token from Supabase"
-                        )
-                        self.refresh_token = fresh2
-                        old_token = fresh2
-                        await super()._refresh()
-                    else:
-                        raise
-                else:
-                    raise
+            async with self._lock:
+                if time.time() < self.session_expiration - 60:
+                    return
 
-            if self.refresh_token != old_token:
-                self._new_refresh_token = self.refresh_token
-                await _persist_rotated_refresh_token(old_token, self.refresh_token)
+                old_token = self.refresh_token
+                response = await self._post_oauth_token(old_token)
+
+                if response.status_code >= 400:
+                    body_lower = (response.text or "").lower()
+                    if "invalid_grant" in body_lower or "grant revoked" in body_lower:
+                        fresh2 = await _read_current_refresh_token()
+                        if fresh2 and fresh2 != old_token:
+                            logger.info(
+                                "Retrying TT refresh after Grant revoked using "
+                                "newer token from Supabase"
+                            )
+                            old_token = fresh2
+                            self.refresh_token = fresh2
+                            response = await self._post_oauth_token(old_token)
+
+                # Will raise on any remaining 4xx/5xx.
+                validate_response(response)
+
+                data = response.json()
+                self.session_token = data["access_token"]
+                token_lifetime: int = data.get("expires_in", 900)
+                self.session_expiration = time.time() + token_lifetime
+                logger.debug(
+                    "Refreshed TT token, expires in %ss", token_lifetime
+                )
+                auth_headers = {"Authorization": f"Bearer {self.session_token}"}
+                self._client.headers.update(auth_headers)
+
+                new_refresh_token = data.get("refresh_token")
+                rotated = (
+                    new_refresh_token
+                    and new_refresh_token != old_token
+                )
+                if rotated:
+                    self.refresh_token = new_refresh_token
+                    self._new_refresh_token = new_refresh_token
+
+            # Persist outside the per-instance async lock but inside the
+            # process-wide threading lock, so the next caller sees the new
+            # token in Supabase before its own _read_current_refresh_token.
+            if rotated:
+                await _persist_rotated_refresh_token(
+                    old_token, new_refresh_token
+                )
+
+    async def _post_oauth_token(self, refresh_token: str):
+        """POST /oauth/token with the given refresh_token. Returns the raw
+        httpx Response so the caller can inspect status before validating."""
+        request = self._client.build_request(
+            "POST",
+            "/oauth/token",
+            json={
+                "grant_type": "refresh_token",
+                "client_secret": self.provider_secret,
+                "refresh_token": refresh_token,
+            },
+        )
+        request.headers.pop("Authorization", None)
+        return await self._client.send(request)
 
 
 def _get_session(refresh_token=None):
