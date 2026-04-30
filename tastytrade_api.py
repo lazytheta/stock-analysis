@@ -79,6 +79,37 @@ async def _read_current_refresh_token() -> str | None:
         return None
 
 
+async def _log_diag(error_type: str, message: str, metadata: dict) -> None:
+    """Direct-to-Supabase diagnostic log. Bypasses error_logger.log_error
+    which can't read st.session_state from worker threads (where TT calls
+    actually run via ThreadPoolExecutor) and which redacts anything with
+    'token' in it. Designed for short-lived diagnostic instrumentation."""
+    try:
+        url = _get_secret("SUPABASE_URL")
+        key = _get_secret("SUPABASE_SERVICE_ROLE_KEY")
+    except KeyError:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=5) as http:
+            await http.post(
+                f"{url}/rest/v1/error_logs",
+                json={
+                    "error_type": error_type[:50],
+                    "error_message": message[:2000],
+                    "page": "tastytrade_api",
+                    "metadata": metadata,
+                },
+                headers={
+                    "apikey": key,
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+            )
+    except Exception:
+        pass
+
+
 async def _persist_rotated_refresh_token(old_token: str, new_token: str) -> None:
     """Persist a rotated TT refresh token back to Supabase.
 
@@ -218,11 +249,10 @@ class _RotationAwareSession(Session):
                 # Log diagnostics before validate_response (which raises on 4xx).
                 if response.status_code >= 400:
                     diag["phase"] = "failed"
-                    log_error(
+                    await _log_diag(
                         "TT_REFRESH_DIAG",
                         f"refresh failed: {response.status_code}",
-                        page="tastytrade_api",
-                        metadata=diag,
+                        diag,
                     )
 
                 validate_response(response)
@@ -258,12 +288,7 @@ class _RotationAwareSession(Session):
                 )
 
             diag["phase"] = "ok"
-            log_error(
-                "TT_REFRESH_DIAG",
-                "refresh ok",
-                page="tastytrade_api",
-                metadata=diag,
-            )
+            await _log_diag("TT_REFRESH_DIAG", "refresh ok", diag)
 
     async def _post_oauth_token(self, refresh_token: str):
         """POST /oauth/token with the given refresh_token. Returns the raw
