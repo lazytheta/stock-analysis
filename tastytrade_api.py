@@ -43,6 +43,21 @@ def _get_secret(key):
         raise KeyError(key)
 
 
+# Cache Supabase creds at module-load time. _get_secret reads st.secrets which
+# may not be reachable from worker threads (ThreadPoolExecutor lacks Streamlit
+# ScriptRunContext). All TT REST/streamer calls in this file run in worker
+# threads via streamlit_app.py's executor, so the rotation-aware refresh path
+# needs creds available without re-reading st.secrets at call time.
+def _cache_supabase_creds() -> tuple[str | None, str | None]:
+    try:
+        return _get_secret("SUPABASE_URL"), _get_secret("SUPABASE_SERVICE_ROLE_KEY")
+    except KeyError:
+        return None, None
+
+
+_SUPABASE_URL, _SUPABASE_KEY = _cache_supabase_creds()
+
+
 async def _read_current_refresh_token() -> str | None:
     """Read the most recent TT refresh token from Supabase.
 
@@ -54,10 +69,8 @@ async def _read_current_refresh_token() -> str | None:
     Single-user assumption (one TT-connected user) — for multi-user this
     needs to be scoped by user_id.
     """
-    try:
-        url = _get_secret("SUPABASE_URL")
-        key = _get_secret("SUPABASE_SERVICE_ROLE_KEY")
-    except KeyError:
+    url, key = _SUPABASE_URL, _SUPABASE_KEY
+    if not (url and key):
         return None
     try:
         async with httpx.AsyncClient(timeout=5) as http:
@@ -84,10 +97,8 @@ async def _log_diag(error_type: str, message: str, metadata: dict) -> None:
     which can't read st.session_state from worker threads (where TT calls
     actually run via ThreadPoolExecutor) and which redacts anything with
     'token' in it. Designed for short-lived diagnostic instrumentation."""
-    try:
-        url = _get_secret("SUPABASE_URL")
-        key = _get_secret("SUPABASE_SERVICE_ROLE_KEY")
-    except KeyError:
+    url, key = _SUPABASE_URL, _SUPABASE_KEY
+    if not (url and key):
         return
     try:
         async with httpx.AsyncClient(timeout=5) as http:
@@ -123,11 +134,9 @@ async def _persist_rotated_refresh_token(old_token: str, new_token: str) -> None
     never raised — the current call still succeeded with the new token in
     memory; only future calls would re-read the stale token.
     """
-    try:
-        url = _get_secret("SUPABASE_URL")
-        key = _get_secret("SUPABASE_SERVICE_ROLE_KEY")
-    except KeyError:
-        logger.debug("Skip persist rotated TT token: Supabase secrets not configured")
+    url, key = _SUPABASE_URL, _SUPABASE_KEY
+    if not (url and key):
+        logger.debug("Skip persist rotated TT token: Supabase creds not cached")
         return
     try:
         async with httpx.AsyncClient(timeout=10) as http:
