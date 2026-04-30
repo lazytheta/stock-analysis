@@ -7805,7 +7805,8 @@ elif page == "Portfolio":
 
     # Map fetch_greeks_and_bwd diagnostic → user-visible label.
     def _diag_label(diag, kind):
-        outcome = (diag or {}).get("outcome", "unknown")
+        diag = diag or {}
+        outcome = diag.get("outcome", "unknown")
         if outcome == "no_positions":
             return ("No positions", "")
         if outcome == "no_options":
@@ -7815,7 +7816,8 @@ elif page == "Portfolio":
         if outcome == "symbol_conversion_failed":
             return ("Couldn't parse option symbols", "Internal issue — please report")
         if outcome == "stream_unreachable":
-            return ("Live feed unreachable", "TastyTrade DXLink connection failed")
+            err = diag.get("streamer_error") or "TastyTrade DXLink connection failed"
+            return ("Live feed unreachable", err)
         if outcome == "stream_silent":
             if kind == "greeks":
                 return ("No live Greeks received", "Stream connected but returned nothing — try refresh")
@@ -7823,7 +7825,8 @@ elif page == "Portfolio":
         if outcome == "stream_partial":
             return ("Partial live data", "Some symbols missing — try refresh")
         if outcome == "exception":
-            return ("Couldn't load", "Internal error — see logs")
+            err = diag.get("streamer_error") or "Internal error"
+            return ("Couldn't load", err)
         return ("Live data unavailable", "Live updates during US market hours (9:30 AM – 4:00 PM ET)")
 
     _cards = []
