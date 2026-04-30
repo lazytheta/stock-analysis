@@ -49,9 +49,32 @@ def _get_ibkr():
     return ibkr_api
 
 
+# Module-level cache so worker threads (ThreadPoolExecutor) can resolve the
+# refresh token even though st.session_state is unreachable without a
+# ScriptRunContext. Main-thread reads keep the cache fresh; worker reads fall
+# back to it. Single-user app, so no cross-user contamination concern.
+_TT_RT_CACHE: str | None = None
+
+
 def _get_refresh_token():
-    """Get the TastyTrade refresh token from session state."""
-    return st.session_state.get("tt_refresh_token")
+    """Get the TastyTrade refresh token, working from main and worker threads.
+
+    Main thread: reads st.session_state and refreshes the module cache.
+    Worker thread: st.session_state silently returns None (no ScriptRunContext)
+    so we fall back to the cache populated by an earlier main-thread call.
+    Without this, ThreadPool callers get None and tastytrade_api falls back to
+    the stale TASTYTRADE_REFRESH_TOKEN in st.secrets — TT immediately revokes
+    the grant chain on that dead token.
+    """
+    global _TT_RT_CACHE
+    try:
+        rt = st.session_state.get("tt_refresh_token")
+        if rt:
+            _TT_RT_CACHE = rt
+            return rt
+    except Exception:
+        pass
+    return _TT_RT_CACHE
 
 
 # ---------------------------------------------------------------------------
