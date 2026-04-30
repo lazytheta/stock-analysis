@@ -5390,7 +5390,262 @@ def _dcf_editor(ticker):
         # ── Scorecard overview ──
         _sc_raw = (cfg.get('ai_notes') or {}).get('Scorecard', '') if isinstance(cfg.get('ai_notes'), dict) else ''
         _sc_data = _parse_scorecard_json(_sc_raw) if _sc_raw else None
-        if _sc_data:
+        _sc_form_key = f"sc_form_editing_{ticker}"
+        _sc_form_editing = bool(st.session_state.get(_sc_form_key, False))
+
+        _sc_rating_options = ["red", "yellow", "green"]
+        _sc_rating_labels = {"red": "🔴 Red", "yellow": "🟡 Yellow", "green": "🟢 Green"}
+        _sc_verdict_options = [
+            ("pass", "No — Pass"),
+            ("revisit", "Kind Of — Revisit"),
+            ("deep_dive", "Yes — Deep Dive"),
+        ]
+        _sc_ap_keys = [
+            ("business_description", "Business Description"),
+            ("moat", "Moat"),
+            ("long_term_potential", "Long Term Potential"),
+        ]
+
+        def _sc_rating_index(value: str) -> int:
+            v = (value or "").lower().strip()
+            return _sc_rating_options.index(v) if v in _sc_rating_options else 1
+
+        def _sc_clear_form_state():
+            for _k in list(st.session_state.keys()):
+                if _k.startswith(f"sc_f_{ticker}_"):
+                    del st.session_state[_k]
+
+        if _sc_form_editing and _sc_data:
+            # Fallback summary same as view mode so editing inherits derived value
+            if not (_sc_data.get("summary") or "").strip():
+                _inv_sum = (cfg.get('ai_notes') or {}).get('Investment Summary', '') \
+                    if isinstance(cfg.get('ai_notes'), dict) else ''
+                if _inv_sum:
+                    import re as _re2
+                    _m = _re2.search(
+                        r'One-line thesis[^\n:]*:\s*([^\n]+)', _inv_sum, _re2.IGNORECASE,
+                    )
+                    if _m:
+                        _thesis = _m.group(1).strip()
+                        _thesis = _re2.sub(r'^\**\s*\[?', '', _thesis)
+                        _thesis = _re2.sub(r'\]?\s*\**$', '', _thesis)
+                        if _thesis and not _thesis.startswith('['):
+                            _sc_data["summary"] = _thesis
+
+            with st.container(border=True):
+                _hcol1, _hcol2, _hcol3 = st.columns([4, 1, 1])
+                _hcol1.markdown("**Edit Scorecard fields**")
+                if _hcol2.button("💾 Save", key=f"sc_form_save_{ticker}",
+                                 use_container_width=True, type="primary"):
+                    def _g(suffix, default=""):
+                        return st.session_state.get(f"sc_f_{ticker}_{suffix}", default)
+
+                    _phase_num_raw = str(_g("pn", "")).strip()
+                    try:
+                        _phase_num = int(_phase_num_raw) if _phase_num_raw else _phase_num_raw
+                    except ValueError:
+                        _phase_num = _phase_num_raw
+
+                    _km_count = int(st.session_state.get(f"sc_f_{ticker}_km_count", 0))
+                    _new_metrics = []
+                    for _i in range(_km_count):
+                        _name = (_g(f"km_{_i}_name", "") or "").strip()
+                        if not _name:
+                            continue
+                        _new_metrics.append({
+                            "name": _name,
+                            "rating": _g(f"km_{_i}_r", "yellow"),
+                            "value": (_g(f"km_{_i}_v", "") or "").strip(),
+                        })
+
+                    _verdict_label = _g("verdict", _sc_verdict_options[1][1])
+                    _verdict_code = next(
+                        (v for v, lbl in _sc_verdict_options if lbl == _verdict_label),
+                        "",
+                    )
+
+                    _new_sc = {
+                        "phase": {
+                            "number": _phase_num,
+                            "name": _g("pname", ""),
+                        },
+                        "summary": _g("sum", ""),
+                        "all_phases": {
+                            _k: {
+                                "rating": _g(f"ap_{_k}_r", "yellow"),
+                                "note": _g(f"ap_{_k}_n", ""),
+                            }
+                            for _k, _ in _sc_ap_keys
+                        },
+                        "key_metrics": _new_metrics,
+                        "execution_risk": {
+                            "rating": _g("er_r", "yellow"),
+                            "note": _g("er_n", ""),
+                        },
+                        "valuation": {
+                            _k: {
+                                "name": (_g(f"val_{_k}_name", "") or "").strip(),
+                                "rating": _g(f"val_{_k}_r", "yellow"),
+                                "note": _g(f"val_{_k}_n", ""),
+                            }
+                            for _k in ("primary", "secondary")
+                        },
+                        "verdict": _verdict_code,
+                    }
+
+                    import json as _json
+                    _new_sc_text = (
+                        "```json\n"
+                        + _json.dumps(_new_sc, indent=2, ensure_ascii=False)
+                        + "\n```"
+                    )
+
+                    _ai_notes = cfg.get('ai_notes') or {}
+                    if not isinstance(_ai_notes, dict):
+                        _ai_notes = {}
+                    _ai_notes['Scorecard'] = _new_sc_text
+                    cfg['ai_notes'] = _ai_notes
+                    save_config(_sb_client, ticker, cfg)
+                    _sc_clear_form_state()
+                    st.session_state[_sc_form_key] = False
+                    st.rerun()
+
+                if _hcol3.button("Cancel", key=f"sc_form_cancel_{ticker}",
+                                 use_container_width=True):
+                    _sc_clear_form_state()
+                    st.session_state[_sc_form_key] = False
+                    st.rerun()
+
+                # Phase
+                _phase = _sc_data.get("phase", {}) or {}
+                _ph_c1, _ph_c2 = st.columns([1, 3])
+                _ph_c1.text_input(
+                    "Phase #", value=str(_phase.get("number", "")),
+                    key=f"sc_f_{ticker}_pn",
+                )
+                _ph_c2.text_input(
+                    "Phase name", value=_phase.get("name", ""),
+                    key=f"sc_f_{ticker}_pname",
+                )
+
+                st.text_area(
+                    "Summary",
+                    value=_sc_data.get("summary", "") or "",
+                    key=f"sc_f_{ticker}_sum",
+                    height=80,
+                )
+
+                st.markdown("**Assess for All Phases**")
+                _all_phases = _sc_data.get("all_phases", {}) or {}
+                for _k, _label in _sc_ap_keys:
+                    _item = _all_phases.get(_k, {}) or {}
+                    _r1, _r2, _r3 = st.columns([2, 1, 4])
+                    _r1.markdown(f"**{_label}**")
+                    _r2.selectbox(
+                        f"{_label} rating",
+                        _sc_rating_options,
+                        format_func=lambda x: _sc_rating_labels[x],
+                        index=_sc_rating_index(_item.get("rating")),
+                        key=f"sc_f_{ticker}_ap_{_k}_r",
+                        label_visibility="collapsed",
+                    )
+                    _r3.text_area(
+                        f"{_label} note",
+                        value=_item.get("note", "") or "",
+                        key=f"sc_f_{ticker}_ap_{_k}_n",
+                        label_visibility="collapsed",
+                        height=80,
+                    )
+
+                st.markdown("**Key Metrics**  *(empty rows are dropped on save)*")
+                _km_data = _sc_data.get("key_metrics", []) or []
+                _km_count = max(len(_km_data), 0) + 2
+                st.session_state[f"sc_f_{ticker}_km_count"] = _km_count
+                for _i in range(_km_count):
+                    _m = _km_data[_i] if _i < len(_km_data) else {}
+                    _km_c1, _km_c2, _km_c3 = st.columns([2, 1, 2])
+                    _km_c1.text_input(
+                        f"Metric {_i} name", value=_m.get("name", "") or "",
+                        key=f"sc_f_{ticker}_km_{_i}_name",
+                        placeholder="Metric name",
+                        label_visibility="collapsed",
+                    )
+                    _km_c2.selectbox(
+                        f"Metric {_i} rating",
+                        _sc_rating_options,
+                        format_func=lambda x: _sc_rating_labels[x],
+                        index=_sc_rating_index(_m.get("rating")),
+                        key=f"sc_f_{ticker}_km_{_i}_r",
+                        label_visibility="collapsed",
+                    )
+                    _km_c3.text_input(
+                        f"Metric {_i} value", value=_m.get("value", "") or "",
+                        key=f"sc_f_{ticker}_km_{_i}_v",
+                        placeholder="Value",
+                        label_visibility="collapsed",
+                    )
+
+                st.markdown("**Risk**")
+                _er = _sc_data.get("execution_risk", {}) or {}
+                _er_c1, _er_c2, _er_c3 = st.columns([2, 1, 4])
+                _er_c1.markdown("**Execution Risk**")
+                _er_c2.selectbox(
+                    "Execution Risk rating",
+                    _sc_rating_options,
+                    format_func=lambda x: _sc_rating_labels[x],
+                    index=_sc_rating_index(_er.get("rating")),
+                    key=f"sc_f_{ticker}_er_r",
+                    label_visibility="collapsed",
+                )
+                _er_c3.text_area(
+                    "Execution Risk note",
+                    value=_er.get("note", "") or "",
+                    key=f"sc_f_{ticker}_er_n",
+                    label_visibility="collapsed",
+                    height=80,
+                )
+
+                st.markdown("**Valuation**")
+                _val = _sc_data.get("valuation", {}) or {}
+                for _k, _label_prefix in (("primary", "Primary"), ("secondary", "Secondary")):
+                    _v = _val.get(_k, {}) or {}
+                    _v_c1, _v_c2, _v_c3 = st.columns([2, 1, 4])
+                    _v_c1.text_input(
+                        f"{_label_prefix} metric name", value=_v.get("name", "") or "",
+                        key=f"sc_f_{ticker}_val_{_k}_name",
+                        placeholder=f"{_label_prefix} metric",
+                        label_visibility="collapsed",
+                    )
+                    _v_c2.selectbox(
+                        f"{_label_prefix} rating",
+                        _sc_rating_options,
+                        format_func=lambda x: _sc_rating_labels[x],
+                        index=_sc_rating_index(_v.get("rating")),
+                        key=f"sc_f_{ticker}_val_{_k}_r",
+                        label_visibility="collapsed",
+                    )
+                    _v_c3.text_area(
+                        f"{_label_prefix} note",
+                        value=_v.get("note", "") or "",
+                        key=f"sc_f_{ticker}_val_{_k}_n",
+                        label_visibility="collapsed",
+                        height=80,
+                    )
+
+                st.markdown("**Verdict**")
+                _cur_verdict = (_sc_data.get("verdict") or "").lower().strip()
+                _cur_verdict_label = next(
+                    (lbl for v, lbl in _sc_verdict_options if v == _cur_verdict),
+                    _sc_verdict_options[1][1],
+                )
+                st.pills(
+                    "Verdict",
+                    [lbl for _, lbl in _sc_verdict_options],
+                    default=_cur_verdict_label,
+                    key=f"sc_f_{ticker}_verdict",
+                    label_visibility="collapsed",
+                )
+        elif _sc_data:
             # Fallback: derive summary from Investment Summary result if the
             # Scorecard JSON is missing a summary field
             if not (_sc_data.get("summary") or "").strip():
@@ -5398,17 +5653,24 @@ def _dcf_editor(ticker):
                     if isinstance(cfg.get('ai_notes'), dict) else ''
                 if _inv_sum:
                     import re as _re2
-                    # Capture text on the SAME line after "One-line thesis:"
                     _m = _re2.search(
                         r'One-line thesis[^\n:]*:\s*([^\n]+)', _inv_sum, _re2.IGNORECASE,
                     )
                     if _m:
                         _thesis = _m.group(1).strip()
-                        # Strip trailing markdown markers and placeholder brackets
                         _thesis = _re2.sub(r'^\**\s*\[?', '', _thesis)
                         _thesis = _re2.sub(r'\]?\s*\**$', '', _thesis)
                         if _thesis and not _thesis.startswith('['):
                             _sc_data["summary"] = _thesis
+            _hcol1, _hcol2 = st.columns([5, 1])
+            with _hcol2:
+                if st.button(
+                    "✏ Edit fields", key=f"sc_form_edit_btn_{ticker}",
+                    use_container_width=True,
+                ):
+                    _sc_clear_form_state()
+                    st.session_state[_sc_form_key] = True
+                    st.rerun()
             st.markdown(
                 _render_scorecard(
                     _sc_data, T, ticker, cfg.get('company', ticker),
