@@ -8,14 +8,9 @@ import json
 import logging
 import os
 import ssl
-import threading
-import time
 import urllib.request
 from collections import defaultdict
-from datetime import UTC, datetime
 from decimal import Decimal
-
-import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +22,6 @@ from tastytrade.dxfeed import Greeks as GreeksEvent, Quote as QuoteEvent
 from tastytrade.instruments import Option, Equity, NestedOptionChain
 from tastytrade.metrics import get_market_metrics
 from tastytrade.order import NewOrder, OrderType, OrderTimeInForce, OrderAction
-from tastytrade.utils import validate_response
 
 
 def _get_secret(key):
@@ -43,307 +37,18 @@ def _get_secret(key):
         raise KeyError(key)
 
 
-# Cache Supabase creds at module-load time. _get_secret reads st.secrets which
-# may not be reachable from worker threads (ThreadPoolExecutor lacks Streamlit
-# ScriptRunContext). All TT REST/streamer calls in this file run in worker
-# threads via streamlit_app.py's executor, so the rotation-aware refresh path
-# needs creds available without re-reading st.secrets at call time.
-def _cache_supabase_creds() -> tuple[str | None, str | None]:
-    try:
-        return _get_secret("SUPABASE_URL"), _get_secret("SUPABASE_SERVICE_ROLE_KEY")
-    except KeyError:
-        return None, None
-
-
-_SUPABASE_URL, _SUPABASE_KEY = _cache_supabase_creds()
-
-
-async def _read_current_refresh_token() -> str | None:
-    """Read the most recent TT refresh token from Supabase.
-
-    Used to recover from rotation races: when two parallel calls both try
-    to refresh the same token, the loser sees "Grant revoked". The newer
-    token has already been persisted by the winner; reading it back lets
-    the loser retry with a valid token.
-
-    Single-user assumption (one TT-connected user) — for multi-user this
-    needs to be scoped by user_id.
-    """
-    url, key = _SUPABASE_URL, _SUPABASE_KEY
-    if not (url and key):
-        return None
-    try:
-        async with httpx.AsyncClient(timeout=5) as http:
-            resp = await http.get(
-                f"{url}/rest/v1/user_credentials",
-                params={
-                    "select": "credential",
-                    "service_name": "eq.tastytrade_refresh_token",
-                    "order": "updated_at.desc",
-                    "limit": "1",
-                },
-                headers={"apikey": key, "Authorization": f"Bearer {key}"},
-            )
-        if resp.status_code >= 400:
-            return None
-        rows = resp.json()
-        return rows[0]["credential"] if rows else None
-    except Exception:
-        return None
-
-
-async def _log_diag(error_type: str, message: str, metadata: dict) -> None:
-    """Direct-to-Supabase diagnostic log. Bypasses error_logger.log_error
-    which can't read st.session_state from worker threads (where TT calls
-    actually run via ThreadPoolExecutor) and which redacts anything with
-    'token' in it. Designed for short-lived diagnostic instrumentation."""
-    url, key = _SUPABASE_URL, _SUPABASE_KEY
-    if not (url and key):
-        return
-    try:
-        async with httpx.AsyncClient(timeout=5) as http:
-            await http.post(
-                f"{url}/rest/v1/error_logs",
-                json={
-                    "error_type": error_type[:50],
-                    "error_message": message[:2000],
-                    "page": "tastytrade_api",
-                    "metadata": metadata,
-                },
-                headers={
-                    "apikey": key,
-                    "Authorization": f"Bearer {key}",
-                    "Content-Type": "application/json",
-                    "Prefer": "return=minimal",
-                },
-            )
-    except Exception:
-        pass
-
-
-async def _persist_rotated_refresh_token(old_token: str, new_token: str) -> None:
-    """Persist a rotated TT refresh token back to Supabase.
-
-    TastyTrade rotates refresh tokens on every OAuth refresh; if we don't
-    write the new one back the row in user_credentials becomes stale and
-    the next call gets "Grant revoked", which kills all live broker data
-    until the user manually reconnects.
-
-    Matches by credential value (no user_id needed) so this works in both
-    Streamlit-multi-user and CLI single-user flows. Failure is logged but
-    never raised — the current call still succeeded with the new token in
-    memory; only future calls would re-read the stale token.
-    """
-    url, key = _SUPABASE_URL, _SUPABASE_KEY
-    if not (url and key):
-        logger.debug("Skip persist rotated TT token: Supabase creds not cached")
-        return
-    try:
-        async with httpx.AsyncClient(timeout=10) as http:
-            resp = await http.patch(
-                f"{url}/rest/v1/user_credentials",
-                params={
-                    "credential": f"eq.{old_token}",
-                    "service_name": "eq.tastytrade_refresh_token",
-                },
-                json={
-                    "credential": new_token,
-                    "updated_at": datetime.now(UTC).isoformat(),
-                },
-                headers={
-                    "apikey": key,
-                    "Authorization": f"Bearer {key}",
-                    "Content-Type": "application/json",
-                    "Prefer": "return=minimal",
-                },
-            )
-        if resp.status_code >= 400:
-            logger.warning(
-                "Failed to persist rotated TT refresh token: %s %s",
-                resp.status_code, resp.text[:200],
-            )
-        else:
-            logger.info("Persisted rotated TT refresh token")
-    except Exception as e:
-        logger.warning("Error persisting rotated TT refresh token: %s", e)
-
-
-# Process-wide lock so parallel TT callers (e.g. Streamlit's ThreadPoolExecutor
-# running fetch_greeks_and_bwd + fetch_margin_interest concurrently) don't
-# race on refresh-token rotation. TastyTrade revokes the entire grant chain
-# when it detects what looks like refresh-token reuse, so missing this lock
-# bricks the user's connection until they manually reconnect.
-_REFRESH_LOCK = threading.Lock()
-
-
-class _RotationAwareSession(Session):
-    """Session subclass that captures rotated refresh tokens and serializes
-    concurrent OAuth refreshes process-wide.
-
-    The base ``Session._refresh`` (tastytrade SDK 12.0.2) reads ``access_token``
-    and ``expires_in`` from the ``/oauth/token`` response but **silently drops
-    the rotated ``refresh_token``**. TastyTrade's anti-replay system then sees
-    the original token reused on the next refresh and revokes the entire grant
-    chain ("Grant revoked"). This subclass replaces ``_refresh`` with a
-    response-aware implementation that:
-
-    1. Acquires a process-wide lock so parallel callers (e.g. Streamlit's
-       ThreadPoolExecutor running Greeks + margin-interest in parallel) can't
-       race on the same refresh-token.
-    2. Reads the latest token from Supabase before refreshing — so a session
-       constructed with a stale cached token automatically picks up the value
-       a previous lock-holder rotated to.
-    3. Persists the new ``refresh_token`` back to Supabase after a successful
-       refresh.
-    4. Retries once on ``invalid_grant`` if Supabase has a newer value than
-       what we just tried — covers cross-process rotations.
-    """
-
-    _new_refresh_token: str | None = None
-
-    async def _refresh(self) -> None:
-        # Honor base-class behavior: skip if access token still has >60s left.
-        if time.time() < self.session_expiration - 60:
-            return
-
-        # Diagnostics: trace what _refresh actually sees and does. Each step
-        # writes a row to error_logs so we can read what happened on a remote
-        # Streamlit Cloud run without access to stdout.
-        import hashlib
-        def _h(t: str | None) -> str:
-            if not t:
-                return "none"
-            return hashlib.sha1(t.encode()).hexdigest()[:8]
-
-        # Unconditional entry log — first via logger.warning so it appears in
-        # Streamlit Cloud's build/runtime log even if Supabase write fails,
-        # then via _log_diag so we have structured metadata if it does work.
-        logger.warning(
-            "TT_REFRESH alive: self_token=%s sb_url_cached=%s sb_key_cached=%s",
-            _h(self.refresh_token),
-            bool(_SUPABASE_URL),
-            bool(_SUPABASE_KEY),
-        )
-        await _log_diag(
-            "TT_REFRESH_DIAG",
-            "refresh entered",
-            {
-                "phase": "alive",
-                "self_token": _h(self.refresh_token),
-                "supabase_url_cached": bool(_SUPABASE_URL),
-                "supabase_key_cached": bool(_SUPABASE_KEY),
-            },
-        )
-
-        diag = {
-            "phase": "entry",
-            "self_token": _h(self.refresh_token),
-        }
-
-        with _REFRESH_LOCK:
-            # Pick up any rotation persisted by a previous lock-holder.
-            fresh = await _read_current_refresh_token()
-            diag["supabase_token"] = _h(fresh)
-            diag["supabase_matches_self"] = bool(fresh and fresh == self.refresh_token)
-            if fresh and fresh != self.refresh_token:
-                self.refresh_token = fresh
-
-            async with self._lock:
-                if time.time() < self.session_expiration - 60:
-                    return
-
-                old_token = self.refresh_token
-                diag["posting_token"] = _h(old_token)
-                response = await self._post_oauth_token(old_token)
-                diag["post_status"] = response.status_code
-
-                if response.status_code >= 400:
-                    body_lower = (response.text or "").lower()
-                    diag["post_body"] = response.text[:300]
-                    if "invalid_grant" in body_lower or "grant revoked" in body_lower:
-                        fresh2 = await _read_current_refresh_token()
-                        diag["retry_supabase_token"] = _h(fresh2)
-                        if fresh2 and fresh2 != old_token:
-                            logger.info(
-                                "Retrying TT refresh after Grant revoked using "
-                                "newer token from Supabase"
-                            )
-                            old_token = fresh2
-                            self.refresh_token = fresh2
-                            response = await self._post_oauth_token(old_token)
-                            diag["retry_status"] = response.status_code
-                            if response.status_code >= 400:
-                                diag["retry_body"] = response.text[:300]
-
-                # Log diagnostics before validate_response (which raises on 4xx).
-                if response.status_code >= 400:
-                    diag["phase"] = "failed"
-                    await _log_diag(
-                        "TT_REFRESH_DIAG",
-                        f"refresh failed: {response.status_code}",
-                        diag,
-                    )
-
-                validate_response(response)
-
-                data = response.json()
-                self.session_token = data["access_token"]
-                token_lifetime: int = data.get("expires_in", 900)
-                self.session_expiration = time.time() + token_lifetime
-                logger.debug(
-                    "Refreshed TT token, expires in %ss", token_lifetime
-                )
-                auth_headers = {"Authorization": f"Bearer {self.session_token}"}
-                self._client.headers.update(auth_headers)
-
-                new_refresh_token = data.get("refresh_token")
-                diag["response_has_refresh_token"] = bool(new_refresh_token)
-                diag["response_token"] = _h(new_refresh_token)
-                rotated = (
-                    new_refresh_token
-                    and new_refresh_token != old_token
-                )
-                diag["rotated"] = bool(rotated)
-                if rotated:
-                    self.refresh_token = new_refresh_token
-                    self._new_refresh_token = new_refresh_token
-
-            # Persist outside the per-instance async lock but inside the
-            # process-wide threading lock, so the next caller sees the new
-            # token in Supabase before its own _read_current_refresh_token.
-            if rotated:
-                await _persist_rotated_refresh_token(
-                    old_token, new_refresh_token
-                )
-
-            diag["phase"] = "ok"
-            await _log_diag("TT_REFRESH_DIAG", "refresh ok", diag)
-
-    async def _post_oauth_token(self, refresh_token: str):
-        """POST /oauth/token with the given refresh_token. Returns the raw
-        httpx Response so the caller can inspect status before validating."""
-        request = self._client.build_request(
-            "POST",
-            "/oauth/token",
-            json={
-                "grant_type": "refresh_token",
-                "client_secret": self.provider_secret,
-                "refresh_token": refresh_token,
-            },
-        )
-        request.headers.pop("Authorization", None)
-        return await self._client.send(request)
-
-
 def _get_session(refresh_token=None):
     """Create a Tastytrade Session.
 
-    When refresh_token is provided (multi-user mode), uses that token.
-    Falls back to TASTYTRADE_REFRESH_TOKEN env var / secret for CLI usage.
+    When refresh_token is provided (Streamlit OAuth flow), uses that token.
+    Falls back to TASTYTRADE_REFRESH_TOKEN from .env for CLI usage. Production
+    Streamlit Cloud should NOT have TASTYTRADE_REFRESH_TOKEN in secrets — the
+    OAuth-issued token in Supabase user_credentials is the source of truth and
+    a stale env-token would silently shadow it.
     """
     if refresh_token is None:
         refresh_token = _get_secret("TASTYTRADE_REFRESH_TOKEN")
-    return _RotationAwareSession(
+    return Session(
         provider_secret=_get_secret("TASTYTRADE_CLIENT_SECRET"),
         refresh_token=refresh_token,
     )
