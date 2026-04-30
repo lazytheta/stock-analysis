@@ -46,14 +46,46 @@ def _restore_tuples(cfg):
 # Watchlist config CRUD
 # ---------------------------------------------------------------------------
 
+_AI_NOTES_GUARDED_KEYS = ("ai_notes", "peers")
+
+
 def save_config(client, ticker, cfg, user_id=None):
-    """Upsert a DCF config dict to Supabase."""
+    """Upsert a DCF config dict to Supabase.
+
+    Defends against silent data loss: if cfg is missing keys that exist in
+    the current DB row (e.g. ``ai_notes``, ``peers``), the existing values
+    are merged in rather than overwritten with absence. This caught
+    multiple watchlist tickers losing their AI Research Sections — some
+    code path was calling save_config with a cfg that didn't include
+    ``ai_notes``, and the upsert was wiping the column. The bug is logged
+    via a warning with a short call-stack so we can find the source.
+    """
     from datetime import datetime, timezone
 
     ticker = ticker.upper()
-    data = _prepare_for_json(cfg)
     if user_id is None:
         user_id = _get_user_id(client)
+
+    missing_guarded = [k for k in _AI_NOTES_GUARDED_KEYS if k not in cfg]
+    if missing_guarded:
+        existing = load_config(client, ticker, user_id=user_id)
+        if existing:
+            preserved = []
+            for k in missing_guarded:
+                if k in existing:
+                    cfg = dict(cfg)
+                    cfg[k] = existing[k]
+                    preserved.append(k)
+            if preserved:
+                import traceback
+                stack = "".join(traceback.format_stack(limit=6)[:-1])
+                logger.warning(
+                    "save_config(%s): preserved %s from DB (caller omitted them).\n"
+                    "Call stack:\n%s",
+                    ticker, preserved, stack,
+                )
+
+    data = _prepare_for_json(cfg)
 
     row = {
         "user_id": user_id,
