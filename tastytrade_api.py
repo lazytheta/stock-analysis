@@ -215,6 +215,26 @@ class _RotationAwareSession(Session):
                 return "none"
             return hashlib.sha1(t.encode()).hexdigest()[:8]
 
+        # Unconditional entry log — first via logger.warning so it appears in
+        # Streamlit Cloud's build/runtime log even if Supabase write fails,
+        # then via _log_diag so we have structured metadata if it does work.
+        logger.warning(
+            "TT_REFRESH alive: self_token=%s sb_url_cached=%s sb_key_cached=%s",
+            _h(self.refresh_token),
+            bool(_SUPABASE_URL),
+            bool(_SUPABASE_KEY),
+        )
+        await _log_diag(
+            "TT_REFRESH_DIAG",
+            "refresh entered",
+            {
+                "phase": "alive",
+                "self_token": _h(self.refresh_token),
+                "supabase_url_cached": bool(_SUPABASE_URL),
+                "supabase_key_cached": bool(_SUPABASE_KEY),
+            },
+        )
+
         diag = {
             "phase": "entry",
             "self_token": _h(self.refresh_token),
