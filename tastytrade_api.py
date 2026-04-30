@@ -40,6 +40,42 @@ def _get_secret(key):
         raise KeyError(key)
 
 
+async def _read_current_refresh_token() -> str | None:
+    """Read the most recent TT refresh token from Supabase.
+
+    Used to recover from rotation races: when two parallel calls both try
+    to refresh the same token, the loser sees "Grant revoked". The newer
+    token has already been persisted by the winner; reading it back lets
+    the loser retry with a valid token.
+
+    Single-user assumption (one TT-connected user) — for multi-user this
+    needs to be scoped by user_id.
+    """
+    try:
+        url = _get_secret("SUPABASE_URL")
+        key = _get_secret("SUPABASE_SERVICE_ROLE_KEY")
+    except KeyError:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=5) as http:
+            resp = await http.get(
+                f"{url}/rest/v1/user_credentials",
+                params={
+                    "select": "credential",
+                    "service_name": "eq.tastytrade_refresh_token",
+                    "order": "updated_at.desc",
+                    "limit": "1",
+                },
+                headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            )
+        if resp.status_code >= 400:
+            return None
+        rows = resp.json()
+        return rows[0]["credential"] if rows else None
+    except Exception:
+        return None
+
+
 async def _persist_rotated_refresh_token(old_token: str, new_token: str) -> None:
     """Persist a rotated TT refresh token back to Supabase.
 
@@ -90,21 +126,44 @@ async def _persist_rotated_refresh_token(old_token: str, new_token: str) -> None
 
 
 class _RotationAwareSession(Session):
-    """Session subclass that persists rotated refresh tokens back to Supabase.
+    """Session subclass that persists rotated refresh tokens back to Supabase
+    and recovers from rotation races between parallel callers.
 
-    TastyTrade rotates refresh tokens on every OAuth refresh — without
-    this, the next call with the stale token gets "Grant revoked" and
-    breaks all live data until the user reconnects manually.
+    TastyTrade rotates refresh tokens on every OAuth refresh. Without
+    persistence, the next call with the stale token gets "Grant revoked".
+    With persistence + parallel callers (e.g. Greeks and margin-interest
+    fetches running concurrently), a loser still sees "Grant revoked"
+    until it re-reads from Supabase — so we retry once with the latest
+    token after a grant-revoked failure.
     """
 
     _new_refresh_token: str | None = None
 
     async def _refresh(self) -> None:
         old_token = self.refresh_token
-        await super()._refresh()
-        if self.refresh_token != old_token:
+        effective_old = old_token
+        try:
+            await super()._refresh()
+        except Exception as e:
+            err = str(e).lower()
+            if "invalid_grant" in err or "grant revoked" in err:
+                fresh = await _read_current_refresh_token()
+                if fresh and fresh != old_token:
+                    logger.info(
+                        "Retrying TT refresh with newer token from Supabase "
+                        "(race recovery after Grant revoked)"
+                    )
+                    self.refresh_token = fresh
+                    effective_old = fresh
+                    await super()._refresh()
+                else:
+                    raise
+            else:
+                raise
+
+        if self.refresh_token != effective_old:
             self._new_refresh_token = self.refresh_token
-            await _persist_rotated_refresh_token(old_token, self.refresh_token)
+            await _persist_rotated_refresh_token(effective_old, self.refresh_token)
 
 
 def _get_session(refresh_token=None):
