@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import ssl
+import threading
 import urllib.request
 from collections import defaultdict
 from datetime import UTC, datetime
@@ -125,45 +126,60 @@ async def _persist_rotated_refresh_token(old_token: str, new_token: str) -> None
         logger.warning("Error persisting rotated TT refresh token: %s", e)
 
 
-class _RotationAwareSession(Session):
-    """Session subclass that persists rotated refresh tokens back to Supabase
-    and recovers from rotation races between parallel callers.
+# Process-wide lock so parallel TT callers (e.g. Streamlit's ThreadPoolExecutor
+# running fetch_greeks_and_bwd + fetch_margin_interest concurrently) don't
+# race on refresh-token rotation. TastyTrade revokes the entire grant chain
+# when it detects what looks like refresh-token reuse, so missing this lock
+# bricks the user's connection until they manually reconnect.
+_REFRESH_LOCK = threading.Lock()
 
-    TastyTrade rotates refresh tokens on every OAuth refresh. Without
-    persistence, the next call with the stale token gets "Grant revoked".
-    With persistence + parallel callers (e.g. Greeks and margin-interest
-    fetches running concurrently), a loser still sees "Grant revoked"
-    until it re-reads from Supabase — so we retry once with the latest
-    token after a grant-revoked failure.
+
+class _RotationAwareSession(Session):
+    """Session subclass that serializes concurrent OAuth refreshes and
+    persists rotated refresh tokens back to Supabase.
+
+    Without serialization, two parallel sessions both holding the same
+    refresh token T would both call /oauth/token. The first succeeds and
+    receives T'; the second tries T after it's been used and TT revokes
+    the entire grant chain ("Grant revoked"). The lock prevents that race
+    process-wide, and right after acquiring the lock we re-read the latest
+    token from Supabase so each refresh uses whatever the previous lock-
+    holder rotated to.
     """
 
     _new_refresh_token: str | None = None
 
     async def _refresh(self) -> None:
-        old_token = self.refresh_token
-        effective_old = old_token
-        try:
-            await super()._refresh()
-        except Exception as e:
-            err = str(e).lower()
-            if "invalid_grant" in err or "grant revoked" in err:
-                fresh = await _read_current_refresh_token()
-                if fresh and fresh != old_token:
-                    logger.info(
-                        "Retrying TT refresh with newer token from Supabase "
-                        "(race recovery after Grant revoked)"
-                    )
-                    self.refresh_token = fresh
-                    effective_old = fresh
-                    await super()._refresh()
+        with _REFRESH_LOCK:
+            # Pick up any rotation persisted by a previous lock-holder.
+            fresh = await _read_current_refresh_token()
+            if fresh and fresh != self.refresh_token:
+                self.refresh_token = fresh
+            old_token = self.refresh_token
+
+            try:
+                await super()._refresh()
+            except Exception as e:
+                err = str(e).lower()
+                if "invalid_grant" in err or "grant revoked" in err:
+                    # One last re-read in case Supabase changed mid-flight.
+                    fresh2 = await _read_current_refresh_token()
+                    if fresh2 and fresh2 != old_token:
+                        logger.info(
+                            "Retrying TT refresh after Grant revoked using "
+                            "newer token from Supabase"
+                        )
+                        self.refresh_token = fresh2
+                        old_token = fresh2
+                        await super()._refresh()
+                    else:
+                        raise
                 else:
                     raise
-            else:
-                raise
 
-        if self.refresh_token != effective_old:
-            self._new_refresh_token = self.refresh_token
-            await _persist_rotated_refresh_token(effective_old, self.refresh_token)
+            if self.refresh_token != old_token:
+                self._new_refresh_token = self.refresh_token
+                await _persist_rotated_refresh_token(old_token, self.refresh_token)
 
 
 def _get_session(refresh_token=None):
