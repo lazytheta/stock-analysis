@@ -7803,6 +7803,29 @@ elif page == "Portfolio":
     greeks_unavailable = not has_greeks and _broker_active
     bwd_unavailable = not has_bwd and _broker_active
 
+    # Map fetch_greeks_and_bwd diagnostic → user-visible label.
+    def _diag_label(diag, kind):
+        outcome = (diag or {}).get("outcome", "unknown")
+        if outcome == "no_positions":
+            return ("No positions", "")
+        if outcome == "no_options":
+            if kind == "greeks":
+                return ("No option positions", "Live Greeks only apply to options")
+            return ("Live data unavailable", "Couldn't fetch SPY price")
+        if outcome == "symbol_conversion_failed":
+            return ("Couldn't parse option symbols", "Internal issue — please report")
+        if outcome == "stream_unreachable":
+            return ("Live feed unreachable", "TastyTrade DXLink connection failed")
+        if outcome == "stream_silent":
+            if kind == "greeks":
+                return ("No live Greeks received", "Stream connected but returned nothing — try refresh")
+            return ("No live quotes received", "Stream connected but returned nothing — try refresh")
+        if outcome == "stream_partial":
+            return ("Partial live data", "Some symbols missing — try refresh")
+        if outcome == "exception":
+            return ("Couldn't load", "Internal error — see logs")
+        return ("Live data unavailable", "Live updates during US market hours (9:30 AM – 4:00 PM ET)")
+
     _cards = []
     if has_greeks or greeks_unavailable:
         _cards.append("greeks")
@@ -7837,14 +7860,15 @@ elif page == "Portfolio":
                 f'</div>'
             )
         elif greeks_unavailable:
+            _g_title, _g_sub = _diag_label((gk or {}).get("diagnostic"), "greeks")
             _card_htmls.append(
                 f'<div class="hero-card">'
                 f'<h4>Portfolio Greeks</h4>'
                 f'<div style="text-align:center;margin-bottom:16px">'
-                f'  <span style="font-size:1.1rem;color:{T["text_muted"]}">Market closed</span>'
+                f'  <span style="font-size:1.1rem;color:{T["text_muted"]}">{_g_title}</span>'
                 f'</div>'
                 f'<div style="text-align:center;font-size:0.83rem;color:{T["text_muted"]}">'
-                f'Live Greeks available during US market hours<br>(9:30 AM \u2013 4:00 PM ET)</div>'
+                f'{_g_sub}</div>'
                 f'</div>'
             )
 
@@ -7896,14 +7920,15 @@ elif page == "Portfolio":
                 f'</div>'
             )
         elif bwd_unavailable:
+            _b_title, _b_sub = _diag_label((bwd or {}).get("diagnostic"), "bwd")
             _card_htmls.append(
                 f'<div class="hero-card">'
                 f'<h4>Beta-Weighted Delta</h4>'
                 f'<div style="text-align:center;margin-bottom:16px">'
-                f'  <span style="font-size:1.1rem;color:{T["text_muted"]}">Market closed</span>'
+                f'  <span style="font-size:1.1rem;color:{T["text_muted"]}">{_b_title}</span>'
                 f'</div>'
                 f'<div style="text-align:center;font-size:0.83rem;color:{T["text_muted"]}">'
-                f'Live BWD available during US market hours<br>(9:30 AM \u2013 4:00 PM ET)</div>'
+                f'{_b_sub}</div>'
                 f'</div>'
             )
 

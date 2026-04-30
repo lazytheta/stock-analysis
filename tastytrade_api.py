@@ -824,7 +824,8 @@ def fetch_greeks_and_bwd(refresh_token=None):
     """Fetch Portfolio Greeks and Beta-Weighted Delta in a single session.
 
     Uses one DXLink streamer to avoid concurrent websocket conflicts.
-    Returns (greeks_dict, bwd_dict).
+    Returns (greeks_dict, bwd_dict). Both dicts include a "diagnostic" key
+    so the UI can show an honest reason if Greeks/BWD are unavailable.
     """
     session = _get_session(refresh_token)
 
@@ -835,14 +836,36 @@ def fetch_greeks_and_bwd(refresh_token=None):
     _empty_bwd = {"positions": [], "portfolio_bwd": 0, "spy_price": 0,
                   "dollar_per_1pct": 0}
 
+    # Captured by closures and surfaced on both result dicts. Logged to
+    # error_logs on anomaly outcomes so we can investigate post-hoc.
+    diagnostic = {
+        "outcome": "unknown",
+        "n_positions": 0,
+        "n_options": 0,
+        "n_underlyings": 0,
+        "n_streamer_symbols": 0,
+        "streamer_connected": False,
+        "streamer_error": None,
+        "quotes_received": 0,
+        "greeks_received": 0,
+        "quote_timeout": False,
+        "greek_timeout": False,
+        "spy_price_source": "missing",
+    }
+
     async def _run():
         async with session:
             accounts = await Account.get(session)
             acct = accounts[0]
             positions = await acct.get_positions(session, include_marks=True)
 
+            diagnostic["n_positions"] = len(positions)
             if not positions:
-                return _empty_greeks, _empty_bwd
+                diagnostic["outcome"] = "no_positions"
+                return (
+                    {**_empty_greeks, "diagnostic": diagnostic},
+                    {**_empty_bwd, "diagnostic": diagnostic},
+                )
 
             # Categorize positions
             stock_positions = []
@@ -858,8 +881,10 @@ def fetch_greeks_and_bwd(refresh_token=None):
                 elif itype == "Equity Option":
                     option_positions.append(p)
 
+            diagnostic["n_options"] = len(option_positions)
             underlyings.add("SPY")
             underlying_list = sorted(underlyings)
+            diagnostic["n_underlyings"] = len(underlying_list)
 
             # Fetch betas for BWD
             metrics = await get_market_metrics(session, underlying_list)
@@ -874,6 +899,7 @@ def fetch_greeks_and_bwd(refresh_token=None):
                 ss = Option.occ_to_streamer_symbol(p.symbol)
                 if ss:
                     streamer_to_pos[ss] = p
+            diagnostic["n_streamer_symbols"] = len(streamer_to_pos)
 
             # Pre-populate price_map with mark prices (fallback for off-hours)
             price_map = {}
@@ -901,7 +927,10 @@ def fetch_greeks_and_bwd(refresh_token=None):
                         mid = (bid + ask) / 2 if bid and ask else bid or ask
                         if mid > 0:
                             price_map[sym] = mid
+                            if sym == "SPY":
+                                diagnostic["spy_price_source"] = "stream"
                         received.add(sym)
+                        diagnostic["quotes_received"] = len(received)
                         if len(received) >= len(underlying_list):
                             break
 
@@ -915,19 +944,25 @@ def fetch_greeks_and_bwd(refresh_token=None):
                     if sym not in received and sym in streamer_to_pos:
                         greeks_map[sym] = greek
                         received.add(sym)
+                        diagnostic["greeks_received"] = len(received)
                         if len(received) >= len(streamer_to_pos):
                             break
 
-            async with DXLinkStreamer(session, ssl_context=_ctx) as streamer:
-                try:
-                    await asyncio.wait_for(_collect_quotes(streamer), timeout=10)
-                except asyncio.TimeoutError:
-                    pass
-                if streamer_to_pos:
+            try:
+                async with DXLinkStreamer(session, ssl_context=_ctx) as streamer:
+                    diagnostic["streamer_connected"] = True
                     try:
-                        await asyncio.wait_for(_collect_greeks(streamer), timeout=12)
+                        await asyncio.wait_for(_collect_quotes(streamer), timeout=10)
                     except asyncio.TimeoutError:
-                        pass
+                        diagnostic["quote_timeout"] = True
+                    if streamer_to_pos:
+                        try:
+                            await asyncio.wait_for(_collect_greeks(streamer), timeout=12)
+                        except asyncio.TimeoutError:
+                            diagnostic["greek_timeout"] = True
+            except Exception as e:
+                diagnostic["streamer_error"] = f"{type(e).__name__}: {e}"[:200]
+                logger.warning("DXLinkStreamer failed: %s", e)
 
             # Fallback: fetch SPY price from Yahoo Finance if still missing
             if price_map.get("SPY", 0) <= 0:
@@ -946,6 +981,7 @@ def fetch_greeks_and_bwd(refresh_token=None):
                         _sp = _yf["chart"]["result"][0]["meta"]["regularMarketPrice"]
                         if _sp and float(_sp) > 0:
                             price_map["SPY"] = float(_sp)
+                            diagnostic["spy_price_source"] = "yfinance"
                 except Exception as e:
                     logger.debug("SPY price fallback failed: %s", e)
 
@@ -1039,14 +1075,53 @@ def fetch_greeks_and_bwd(refresh_token=None):
                     "dollar_per_1pct": dollar_per_1pct,
                 }
 
+            # Determine final outcome (most-specific first).
+            if diagnostic["n_options"] == 0:
+                diagnostic["outcome"] = "no_options"
+            elif diagnostic["n_streamer_symbols"] == 0:
+                diagnostic["outcome"] = "symbol_conversion_failed"
+            elif diagnostic["streamer_error"]:
+                diagnostic["outcome"] = "stream_unreachable"
+            elif diagnostic["greeks_received"] == 0:
+                diagnostic["outcome"] = "stream_silent"
+            elif diagnostic["greeks_received"] < diagnostic["n_streamer_symbols"]:
+                diagnostic["outcome"] = "stream_partial"
+            else:
+                diagnostic["outcome"] = "ok"
+
+            # Log to error_logs only on anomalies (skip "ok", "no_positions",
+            # "no_options" — those are legitimate states).
+            if diagnostic["outcome"] in (
+                "stream_unreachable", "stream_silent",
+                "stream_partial", "symbol_conversion_failed",
+            ):
+                log_error(
+                    "GREEKS_DIAG",
+                    f"fetch_greeks_and_bwd: {diagnostic['outcome']}",
+                    page="Portfolio",
+                    metadata=diagnostic,
+                )
+
+            greeks_result["diagnostic"] = diagnostic
+            bwd_result["diagnostic"] = diagnostic
             return greeks_result, bwd_result
 
     try:
         return asyncio.run(_run())
     except Exception as e:
         print(f"[Greeks+BWD] Error: {e}")
-        log_error("TASTYTRADE_ERROR", f"fetch_greeks_and_bwd: {e}", page="Portfolio")
-        return _empty_greeks, _empty_bwd
+        diagnostic["outcome"] = "exception"
+        diagnostic["streamer_error"] = f"{type(e).__name__}: {e}"[:200]
+        log_error(
+            "TASTYTRADE_ERROR",
+            f"fetch_greeks_and_bwd: {e}",
+            page="Portfolio",
+            metadata=diagnostic,
+        )
+        return (
+            {**_empty_greeks, "diagnostic": diagnostic},
+            {**_empty_bwd, "diagnostic": diagnostic},
+        )
 
 
 def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_strikes=8, fallback_price=0.0, refresh_token=None):
