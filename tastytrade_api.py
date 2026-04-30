@@ -10,7 +10,10 @@ import os
 import ssl
 import urllib.request
 from collections import defaultdict
+from datetime import UTC, datetime
 from decimal import Decimal
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -37,17 +40,71 @@ def _get_secret(key):
         raise KeyError(key)
 
 
+async def _persist_rotated_refresh_token(old_token: str, new_token: str) -> None:
+    """Persist a rotated TT refresh token back to Supabase.
+
+    TastyTrade rotates refresh tokens on every OAuth refresh; if we don't
+    write the new one back the row in user_credentials becomes stale and
+    the next call gets "Grant revoked", which kills all live broker data
+    until the user manually reconnects.
+
+    Matches by credential value (no user_id needed) so this works in both
+    Streamlit-multi-user and CLI single-user flows. Failure is logged but
+    never raised — the current call still succeeded with the new token in
+    memory; only future calls would re-read the stale token.
+    """
+    try:
+        url = _get_secret("SUPABASE_URL")
+        key = _get_secret("SUPABASE_SERVICE_ROLE_KEY")
+    except KeyError:
+        logger.debug("Skip persist rotated TT token: Supabase secrets not configured")
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            resp = await http.patch(
+                f"{url}/rest/v1/user_credentials",
+                params={
+                    "credential": f"eq.{old_token}",
+                    "service_name": "eq.tastytrade_refresh_token",
+                },
+                json={
+                    "credential": new_token,
+                    "updated_at": datetime.now(UTC).isoformat(),
+                },
+                headers={
+                    "apikey": key,
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+            )
+        if resp.status_code >= 400:
+            logger.warning(
+                "Failed to persist rotated TT refresh token: %s %s",
+                resp.status_code, resp.text[:200],
+            )
+        else:
+            logger.info("Persisted rotated TT refresh token")
+    except Exception as e:
+        logger.warning("Error persisting rotated TT refresh token: %s", e)
+
+
 class _RotationAwareSession(Session):
-    """Session subclass that detects refresh token rotation."""
+    """Session subclass that persists rotated refresh tokens back to Supabase.
+
+    TastyTrade rotates refresh tokens on every OAuth refresh — without
+    this, the next call with the stale token gets "Grant revoked" and
+    breaks all live data until the user reconnects manually.
+    """
 
     _new_refresh_token: str | None = None
 
     async def _refresh(self) -> None:
         old_token = self.refresh_token
         await super()._refresh()
-        # Check if the SDK updated the refresh token (future-proofing)
         if self.refresh_token != old_token:
             self._new_refresh_token = self.refresh_token
+            await _persist_rotated_refresh_token(old_token, self.refresh_token)
 
 
 def _get_session(refresh_token=None):
