@@ -5390,44 +5390,7 @@ def _dcf_editor(ticker):
         # ── Scorecard overview ──
         _sc_raw = (cfg.get('ai_notes') or {}).get('Scorecard', '') if isinstance(cfg.get('ai_notes'), dict) else ''
         _sc_data = _parse_scorecard_json(_sc_raw) if _sc_raw else None
-        _sc_edit_key = f"sc_editing_{ticker}"
-        _sc_widget_key = f"sc_edit_text_{ticker}"
-        _sc_is_editing = st.session_state.get(_sc_edit_key, False)
-
-        def _enter_sc_edit():
-            st.session_state[_sc_edit_key] = True
-            st.session_state[_sc_widget_key] = _sc_raw
-
-        if _sc_is_editing:
-            st.text_area(
-                "Scorecard JSON",
-                height=400,
-                key=_sc_widget_key,
-                label_visibility="collapsed",
-                placeholder='```json\n{\n  "phase": {...},\n  "all_phases": {...},\n  ...\n}\n```',
-            )
-            _sb1, _sb2, _sb3 = st.columns([1, 1, 3])
-            with _sb1:
-                if st.button(
-                    "💾 Save", key=f"sc_save_{ticker}",
-                    use_container_width=True, type="primary",
-                ):
-                    _new_sc = st.session_state.get(_sc_widget_key, "")
-                    _ai_notes = cfg.get('ai_notes') or {}
-                    _ai_notes['Scorecard'] = _new_sc
-                    cfg['ai_notes'] = _ai_notes
-                    save_config(_sb_client, ticker, cfg)
-                    st.session_state[_sc_edit_key] = False
-                    st.rerun()
-            with _sb2:
-                if st.button(
-                    "Cancel", key=f"sc_cancel_{ticker}",
-                    use_container_width=True,
-                ):
-                    st.session_state[_sc_edit_key] = False
-                    st.session_state.pop(_sc_widget_key, None)
-                    st.rerun()
-        elif _sc_data:
+        if _sc_data:
             # Fallback: derive summary from Investment Summary result if the
             # Scorecard JSON is missing a summary field
             if not (_sc_data.get("summary") or "").strip():
@@ -5446,14 +5409,6 @@ def _dcf_editor(ticker):
                         _thesis = _re2.sub(r'\]?\s*\**$', '', _thesis)
                         if _thesis and not _thesis.startswith('['):
                             _sc_data["summary"] = _thesis
-            _hcol1, _hcol2 = st.columns([5, 1])
-            with _hcol2:
-                if st.button(
-                    "✏ Edit", key=f"sc_edit_btn_{ticker}",
-                    use_container_width=True,
-                ):
-                    _enter_sc_edit()
-                    st.rerun()
             st.markdown(
                 _render_scorecard(
                     _sc_data, T, ticker, cfg.get('company', ticker),
@@ -5461,17 +5416,9 @@ def _dcf_editor(ticker):
                 unsafe_allow_html=True,
             )
         elif _sc_raw:
-            _hcol1, _hcol2 = st.columns([5, 1])
-            with _hcol2:
-                if st.button(
-                    "✏ Edit", key=f"sc_edit_btn_{ticker}",
-                    use_container_width=True,
-                ):
-                    _enter_sc_edit()
-                    st.rerun()
             st.warning(
-                "Scorecard JSON kon niet worden geparsed. Klik ✏ Edit om handmatig "
-                "te corrigeren, of gebruik Clear/Run op de Scorecard-sectie onderaan.",
+                "Scorecard output exists but could not be parsed as JSON. "
+                "Click Clear and Run again on the Scorecard section below.",
                 icon="⚠️",
             )
         else:
@@ -5527,34 +5474,27 @@ def _dcf_editor(ticker):
             save_user_prefs(_sb_client, _prefs)
 
         # ── Per-ticker: render each library prompt with Run + result ──
+        _results_changed = False
         for _li, _lp in enumerate(_library):
             _title = _lp.get('title', f'Prompt {_li + 1}')
             _prompt = _lp.get('prompt', '')
             _content = _results.get(_title, '')
-            _edit_state_key = f"ed_ai_editing_{ticker}_{_li}"
-            _is_editing = st.session_state.get(_edit_state_key, False)
             with st.expander(_title, expanded=True):
-                _rb1, _rb2, _rb3, _rb4 = st.columns([1, 1, 1, 2])
+                _rb1, _rb2, _rb3 = st.columns([1, 1, 3])
                 with _rb1:
                     _run_clicked = st.button(
                         "▶ Run", key=f"ed_ai_run_{_li}",
                         use_container_width=True, type="primary",
-                        disabled=not _gem_ok or _is_editing,
+                        disabled=not _gem_ok,
                     )
                 with _rb2:
                     _clear_clicked = st.button(
                         "Clear", key=f"ed_ai_clear_{_li}",
                         use_container_width=True, type="primary",
-                        disabled=not _content or _is_editing,
-                    )
-                with _rb3:
-                    _edit_clicked = st.button(
-                        "✏ Edit", key=f"ed_ai_edit_{_li}",
-                        use_container_width=True,
-                        disabled=_is_editing,
+                        disabled=not _content,
                     )
 
-                _widget_key = f"ed_ai_res_{ticker}_{_li}"
+                _widget_key = f"ed_ai_res_{_li}"
 
                 if _run_clicked:
                     if not _prompt.strip():
@@ -5599,43 +5539,30 @@ def _dcf_editor(ticker):
                     st.session_state.pop(_widget_key, None)
                     st.rerun()
 
-                if _edit_clicked:
-                    st.session_state[_edit_state_key] = True
-                    st.session_state[_widget_key] = _content
-                    st.rerun()
-
-                if _is_editing:
-                    st.text_area(
-                        "Content",
-                        height=320,
-                        key=_widget_key,
-                        label_visibility="collapsed",
-                        placeholder="Bewerk hier (markdown)...",
-                    )
-                    _sb1, _sb2, _sb3 = st.columns([1, 1, 3])
-                    with _sb1:
-                        if st.button(
-                            "💾 Save", key=f"ed_ai_save_{_li}",
-                            use_container_width=True, type="primary",
-                        ):
-                            _results[_title] = st.session_state.get(_widget_key, "")
-                            cfg['ai_notes'] = _results
-                            save_config(_sb_client, ticker, cfg)
-                            st.session_state[_edit_state_key] = False
-                            st.rerun()
-                    with _sb2:
-                        if st.button(
-                            "Cancel", key=f"ed_ai_cancel_{_li}",
-                            use_container_width=True,
-                        ):
-                            st.session_state[_edit_state_key] = False
-                            st.session_state.pop(_widget_key, None)
-                            st.rerun()
-                elif _content.strip():
+                if _content.strip():
                     with st.container(key=f"ai_out_{_li}"):
                         st.markdown(_content)
                 else:
-                    st.caption("_No output yet. Click ▶ Run or ✏ Edit to paste manually._")
+                    st.caption("_No output yet. Click ▶ Run or paste manually via Edit._")
+                with st.expander("Edit / paste", expanded=False):
+                    # Sync widget state to saved content when they diverge
+                    # (e.g. after Run or a switch between tickers)
+                    if _widget_key not in st.session_state:
+                        st.session_state[_widget_key] = _content
+                    _new_content = st.text_area(
+                        "Content",
+                        height=280,
+                        key=_widget_key,
+                        label_visibility="collapsed",
+                        placeholder="Plak of bewerk output hier (markdown)...",
+                    )
+                    if _new_content != _content:
+                        _results[_title] = _new_content
+                        _results_changed = True
+
+        if _results_changed:
+            cfg['ai_notes'] = _results
+            save_config(_sb_client, ticker, cfg)
 
     with _tab_dcf:
         # ── Valuation Bridge (inside DCF tab) ──
