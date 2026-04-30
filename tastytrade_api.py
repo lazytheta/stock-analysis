@@ -166,9 +166,25 @@ class _RotationAwareSession(Session):
         if time.time() < self.session_expiration - 60:
             return
 
+        # Diagnostics: trace what _refresh actually sees and does. Each step
+        # writes a row to error_logs so we can read what happened on a remote
+        # Streamlit Cloud run without access to stdout.
+        import hashlib
+        def _h(t: str | None) -> str:
+            if not t:
+                return "none"
+            return hashlib.sha1(t.encode()).hexdigest()[:8]
+
+        diag = {
+            "phase": "entry",
+            "self_token": _h(self.refresh_token),
+        }
+
         with _REFRESH_LOCK:
             # Pick up any rotation persisted by a previous lock-holder.
             fresh = await _read_current_refresh_token()
+            diag["supabase_token"] = _h(fresh)
+            diag["supabase_matches_self"] = bool(fresh and fresh == self.refresh_token)
             if fresh and fresh != self.refresh_token:
                 self.refresh_token = fresh
 
@@ -177,12 +193,16 @@ class _RotationAwareSession(Session):
                     return
 
                 old_token = self.refresh_token
+                diag["posting_token"] = _h(old_token)
                 response = await self._post_oauth_token(old_token)
+                diag["post_status"] = response.status_code
 
                 if response.status_code >= 400:
                     body_lower = (response.text or "").lower()
+                    diag["post_body"] = response.text[:300]
                     if "invalid_grant" in body_lower or "grant revoked" in body_lower:
                         fresh2 = await _read_current_refresh_token()
+                        diag["retry_supabase_token"] = _h(fresh2)
                         if fresh2 and fresh2 != old_token:
                             logger.info(
                                 "Retrying TT refresh after Grant revoked using "
@@ -191,8 +211,20 @@ class _RotationAwareSession(Session):
                             old_token = fresh2
                             self.refresh_token = fresh2
                             response = await self._post_oauth_token(old_token)
+                            diag["retry_status"] = response.status_code
+                            if response.status_code >= 400:
+                                diag["retry_body"] = response.text[:300]
 
-                # Will raise on any remaining 4xx/5xx.
+                # Log diagnostics before validate_response (which raises on 4xx).
+                if response.status_code >= 400:
+                    diag["phase"] = "failed"
+                    log_error(
+                        "TT_REFRESH_DIAG",
+                        f"refresh failed: {response.status_code}",
+                        page="tastytrade_api",
+                        metadata=diag,
+                    )
+
                 validate_response(response)
 
                 data = response.json()
@@ -206,10 +238,13 @@ class _RotationAwareSession(Session):
                 self._client.headers.update(auth_headers)
 
                 new_refresh_token = data.get("refresh_token")
+                diag["response_has_refresh_token"] = bool(new_refresh_token)
+                diag["response_token"] = _h(new_refresh_token)
                 rotated = (
                     new_refresh_token
                     and new_refresh_token != old_token
                 )
+                diag["rotated"] = bool(rotated)
                 if rotated:
                     self.refresh_token = new_refresh_token
                     self._new_refresh_token = new_refresh_token
@@ -221,6 +256,14 @@ class _RotationAwareSession(Session):
                 await _persist_rotated_refresh_token(
                     old_token, new_refresh_token
                 )
+
+            diag["phase"] = "ok"
+            log_error(
+                "TT_REFRESH_DIAG",
+                "refresh ok",
+                page="tastytrade_api",
+                metadata=diag,
+            )
 
     async def _post_oauth_token(self, refresh_token: str):
         """POST /oauth/token with the given refresh_token. Returns the raw
