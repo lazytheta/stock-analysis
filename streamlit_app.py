@@ -5737,6 +5737,31 @@ def _dcf_editor(ticker):
 
         # ── Per-ticker: render each library prompt with Run + result ──
         _results_changed = False
+        def _fill_prompt(_prompt: str) -> str:
+            """Apply {ticker}, {company}, and {prior:Section} substitutions.
+            Used for both the Run button and the copy-prompt expander so the
+            two stay in sync."""
+            import re as _re
+            def _sub_prior(_m):
+                _t = _m.group(1).strip()
+                _c = _results.get(_t, '').strip()
+                if not _c:
+                    return f"(no prior '{_t}' analysis available for this ticker)"
+                return _c
+            _filled = _re.sub(r'\{prior:([^}]+)\}', _sub_prior, _prompt)
+            _filled = _filled.replace("{ticker}", ticker).replace(
+                "{company}", _company_name
+            )
+            if "{ticker}" not in _prompt and "{company}" not in _prompt and "{prior:" not in _prompt:
+                _filled = (
+                    f"**IMPORTANT OVERRIDE:** The company to analyze is "
+                    f"**{_company_name} (ticker: {ticker})**. "
+                    f"Do NOT ask the user for a company — it is provided here. "
+                    f"Begin the analysis immediately using this company.\n\n"
+                    f"---\n\n{_filled}"
+                )
+            return _filled
+
         for _li, _lp in enumerate(_library):
             _title = _lp.get('title', f'Prompt {_li + 1}')
             _prompt = _lp.get('prompt', '')
@@ -5758,29 +5783,21 @@ def _dcf_editor(ticker):
 
                 _widget_key = f"ed_ai_res_{_li}"
 
+                # Copy-prompt expander — shows the same filled prompt that
+                # ▶ Run would send. st.code has a built-in copy button in its
+                # top-right corner. Useful for pasting into Claude/ChatGPT/etc.
+                if _prompt.strip():
+                    with st.expander("📋 Copy prompt", expanded=False):
+                        st.caption(
+                            "Copy via het icoontje rechtsboven → plak in Claude / ChatGPT / etc."
+                        )
+                        st.code(_fill_prompt(_prompt), language=None)
+
                 if _run_clicked:
                     if not _prompt.strip():
                         st.error("Prompt is leeg. Vul 'm in via de 📚 Prompt Library expander bovenaan.")
                         st.stop()
-                    import re as _re
-                    def _sub_prior(_m):
-                        _t = _m.group(1).strip()
-                        _c = _results.get(_t, '').strip()
-                        if not _c:
-                            return f"(no prior '{_t}' analysis available for this ticker)"
-                        return _c
-                    _filled = _re.sub(r'\{prior:([^}]+)\}', _sub_prior, _prompt)
-                    _filled = _filled.replace("{ticker}", ticker).replace(
-                        "{company}", _company_name
-                    )
-                    if "{ticker}" not in _prompt and "{company}" not in _prompt and "{prior:" not in _prompt:
-                        _filled = (
-                            f"**IMPORTANT OVERRIDE:** The company to analyze is "
-                            f"**{_company_name} (ticker: {ticker})**. "
-                            f"Do NOT ask the user for a company — it is provided here. "
-                            f"Begin the analysis immediately using this company.\n\n"
-                            f"---\n\n{_filled}"
-                        )
+                    _filled = _fill_prompt(_prompt)
                     with st.spinner(f"AI aan het werk ({_title})..."):
                         _ans, _err = _gemini_run(_filled)
                     if _err:
