@@ -5799,6 +5799,7 @@ def _dcf_editor(ticker):
                         _btn_id = f"cp-btn-{_li}"
                         _accent = T['accent']
                         _accent_hover = T['accent_hover']
+                        _btn_text_color = T['text']
                         _components.html(
                             f"""
 <style>
@@ -5807,7 +5808,7 @@ def _dcf_editor(ticker):
   .lt-copy-btn {{
     width: 100%;
     background-color: {_accent};
-    color: white;
+    color: {_btn_text_color};
     border: none;
     border-radius: 980px;
     padding: 12px 24px;
