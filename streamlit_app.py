@@ -5790,21 +5790,40 @@ def _dcf_editor(ticker):
                     # through the server first, breaking the gesture). The
                     # click handler is attached via addEventListener instead
                     # of inline onclick so apostrophes/quotes in the prompt
-                    # body can't break HTML attribute parsing.
+                    # body can't break HTML attribute parsing. Styling
+                    # mirrors the LazyTheta primary-button override
+                    # (sage-green pill) so it sits next to Run/Clear visually.
                     if _prompt.strip():
                         _filled_for_copy = _fill_prompt(_prompt)
                         _safe_payload = _json_for_copy.dumps(_filled_for_copy)
                         _btn_id = f"cp-btn-{_li}"
+                        _accent = T['accent']
+                        _accent_hover = T['accent_hover']
                         _components.html(
                             f"""
-<button id="{_btn_id}" type="button" style="width:100%;background:#ff4b4b;color:white;border:1px solid #ff4b4b;border-radius:0.5rem;padding:0.25rem 0.75rem;font-size:0.875rem;font-weight:400;cursor:pointer;font-family:inherit;line-height:1.6;height:38px;">📋 Copy prompt</button>
+<style>
+  body {{ margin: 0; padding: 0; }}
+  .lt-copy-btn {{
+    width: 100%;
+    background-color: {_accent};
+    color: white;
+    border: none;
+    border-radius: 980px;
+    padding: 12px 24px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+    transition: background-color 0.2s ease;
+  }}
+  .lt-copy-btn:hover {{ background-color: {_accent_hover}; }}
+</style>
+<button id="{_btn_id}" type="button" class="lt-copy-btn">📋 Copy prompt</button>
 <script>
 (function() {{
   const text = {_safe_payload};
   const btn = document.getElementById("{_btn_id}");
   if (!btn) return;
-  btn.addEventListener("mouseover", function() {{ btn.style.background = "#e03e3e"; btn.style.borderColor = "#e03e3e"; }});
-  btn.addEventListener("mouseout", function() {{ btn.style.background = "#ff4b4b"; btn.style.borderColor = "#ff4b4b"; }});
   btn.addEventListener("click", function() {{
     navigator.clipboard.writeText(text).then(function() {{
       const original = btn.textContent;
@@ -5815,7 +5834,7 @@ def _dcf_editor(ticker):
 }})();
 </script>
                             """,
-                            height=46,
+                            height=60,
                         )
 
                 if _run_clicked:
