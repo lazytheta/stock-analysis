@@ -5802,6 +5802,7 @@ def _dcf_editor(ticker):
                         _components.html(
                             f"""
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap');
   body {{ margin: 0; padding: 0; }}
   .lt-copy-btn {{
     width: 100%;
@@ -5811,14 +5812,14 @@ def _dcf_editor(ticker):
     border-radius: 980px;
     padding: 12px 24px;
     font-size: 0.95rem;
-    font-weight: 500;
+    font-weight: 400;
     cursor: pointer;
     font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
     transition: background-color 0.2s ease;
   }}
   .lt-copy-btn:hover {{ background-color: {_accent_hover}; }}
 </style>
-<button id="{_btn_id}" type="button" class="lt-copy-btn">📋 Copy prompt</button>
+<button id="{_btn_id}" type="button" class="lt-copy-btn">Copy prompt</button>
 <script>
 (function() {{
   const text = {_safe_payload};
@@ -5827,9 +5828,9 @@ def _dcf_editor(ticker):
   btn.addEventListener("click", function() {{
     navigator.clipboard.writeText(text).then(function() {{
       const original = btn.textContent;
-      btn.textContent = "✓ Gekopieerd";
+      btn.textContent = "Gekopieerd";
       setTimeout(function() {{ btn.textContent = original; }}, 1500);
-    }}).catch(function() {{ btn.textContent = "✗ Failed"; }});
+    }}).catch(function() {{ btn.textContent = "Failed"; }});
   }});
 }})();
 </script>
