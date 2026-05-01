@@ -158,16 +158,18 @@ _DEFAULT_PREFS = {
 }
 
 
-def load_user_prefs(client):
-    """Load user wheel preferences from Supabase. Returns dict with defaults for missing keys."""
+def load_user_prefs(client, user_id=None):
+    """Load user wheel preferences from Supabase. Returns dict with defaults for missing keys.
+
+    user_id is optional — when provided (e.g. from the MCP server with a
+    service-role key), the row is filtered explicitly. When None we rely on
+    RLS to scope to the authenticated user (Streamlit context)."""
     prefs = dict(_DEFAULT_PREFS)
     try:
-        resp = (
-            client.table("user_prefs")
-            .select("prefs")
-            .single()
-            .execute()
-        )
+        query = client.table("user_prefs").select("prefs")
+        if user_id is not None:
+            query = query.eq("user_id", user_id)
+        resp = query.single().execute()
         if resp and resp.data and resp.data.get("prefs"):
             prefs.update(resp.data["prefs"])
     except Exception as e:
@@ -175,11 +177,12 @@ def load_user_prefs(client):
     return prefs
 
 
-def save_user_prefs(client, prefs):
+def save_user_prefs(client, prefs, user_id=None):
     """Save user wheel preferences to Supabase (upsert)."""
     from datetime import datetime, timezone
 
-    user_id = _get_user_id(client)
+    if user_id is None:
+        user_id = _get_user_id(client)
     try:
         client.table("user_prefs").upsert({
             "user_id": user_id,

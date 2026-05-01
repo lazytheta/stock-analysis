@@ -363,6 +363,163 @@ def get_watchlist() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Pre-scan / AI Research Sections
+# ---------------------------------------------------------------------------
+
+def _fill_prompt_template(prompt: str, ticker: str, company: str, prior_results: dict) -> str:
+    """Apply {ticker}, {company}, {prior:Section Title} substitutions.
+
+    Mirrors streamlit_app.py's _fill_prompt so the prompt Claude sees here is
+    identical to what ▶ Run would send via Groq/Gemini."""
+    import re
+
+    ticker = ticker.upper()
+
+    def _sub_prior(m):
+        title = m.group(1).strip()
+        content = (prior_results.get(title) or "").strip()
+        if not content:
+            return f"(no prior '{title}' analysis available for this ticker)"
+        return content
+
+    filled = re.sub(r"\{prior:([^}]+)\}", _sub_prior, prompt)
+    filled = filled.replace("{ticker}", ticker).replace("{company}", company)
+    if "{ticker}" not in prompt and "{company}" not in prompt and "{prior:" not in prompt:
+        filled = (
+            f"**IMPORTANT OVERRIDE:** The company to analyze is "
+            f"**{company} (ticker: {ticker})**. "
+            f"Do NOT ask the user for a company — it is provided here. "
+            f"Begin the analysis immediately using this company.\n\n"
+            f"---\n\n{filled}"
+        )
+    return filled
+
+
+def _get_prescan_prompts_impl(ticker):
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=USER_ID)
+    if cfg is None:
+        return {"error": f"{ticker.upper()} not on watchlist"}
+    company = cfg.get("company", ticker.upper())
+
+    prefs = config_store.load_user_prefs(client, user_id=USER_ID)
+    library = prefs.get("ai_prompts") or []
+    if not library:
+        return {"error": "Prompt library is empty. Open a watchlist editor in the app once to seed defaults."}
+
+    ai_notes = cfg.get("ai_notes") or {}
+    if not isinstance(ai_notes, dict):
+        ai_notes = {}
+
+    out = []
+    for entry in library:
+        title = entry.get("title")
+        prompt_template = entry.get("prompt", "")
+        if not title:
+            continue
+        out.append({
+            "title": title,
+            "prompt": _fill_prompt_template(prompt_template, ticker, company, ai_notes),
+        })
+    return out
+
+
+def _get_prescan_sections_impl(ticker):
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=USER_ID)
+    if cfg is None:
+        return {"error": f"{ticker.upper()} not on watchlist"}
+    ai_notes = cfg.get("ai_notes") or {}
+    if not isinstance(ai_notes, dict):
+        ai_notes = {}
+    return ai_notes
+
+
+def _save_prescan_section_impl(ticker, title, content):
+    if not title.strip():
+        return {"error": "title is required"}
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=USER_ID)
+    if cfg is None:
+        return {"error": f"{ticker.upper()} not on watchlist"}
+
+    ai_notes = cfg.get("ai_notes") or {}
+    if not isinstance(ai_notes, dict):
+        ai_notes = {}
+    ai_notes[title] = content
+    cfg["ai_notes"] = ai_notes
+
+    config_store.save_config(client, ticker, cfg, user_id=USER_ID)
+    return f"Saved {ticker.upper()} → '{title}' ({len(content)} chars)."
+
+
+@mcp.tool()
+def get_prescan_prompts(ticker: str) -> str:
+    """Return the user's pre-scan prompts with {ticker}/{company}/{prior:...}
+    placeholders already substituted, ready to send to an LLM.
+
+    Use this to fill in the AI Research Sections in the LazyTheta watchlist
+    editor. Each entry has the section title and the filled prompt — generate
+    a markdown answer per section, then call save_prescan_section to persist.
+
+    Args:
+        ticker: Stock ticker symbol (e.g. "NFLX")
+
+    Returns:
+        JSON array of {title, prompt} objects, in the order they appear in
+        the user's prompt library. Or {"error": "..."} on failure.
+    """
+    try:
+        return json.dumps(_get_prescan_prompts_impl(ticker), ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def get_prescan_sections(ticker: str) -> str:
+    """List the existing pre-scan section content for a ticker.
+
+    Useful to see what's already filled in (so Claude knows what to skip
+    or update). For the Scorecard section, the content is a fenced JSON
+    block; for other sections it's free-form Markdown.
+
+    Args:
+        ticker: Stock ticker symbol (e.g. "NFLX")
+
+    Returns:
+        JSON object {title: content_string} for every existing section.
+    """
+    try:
+        return json.dumps(_get_prescan_sections_impl(ticker), ensure_ascii=False, default=str)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def save_prescan_section(ticker: str, title: str, content: str) -> str:
+    """Save Markdown content (or a fenced JSON block, for the Scorecard) to
+    one pre-scan section of a ticker. Other sections are preserved.
+
+    Args:
+        ticker: Stock ticker symbol (e.g. "NFLX")
+        title: Section title — must match one of the user's prompt library
+            entries (e.g. "Business Description", "Moat", "Scorecard").
+        content: Markdown body. For the Scorecard section, format as a
+            ```json fenced block to be parsed by the visual renderer.
+
+    Returns:
+        Confirmation string or {"error": "..."} JSON.
+    """
+    try:
+        result = _save_prescan_section_impl(ticker, title, content)
+        if isinstance(result, dict):
+            return json.dumps(result)
+        return result
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
