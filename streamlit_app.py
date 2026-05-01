@@ -5762,12 +5762,15 @@ def _dcf_editor(ticker):
                 )
             return _filled
 
+        import json as _json_for_copy
+        import streamlit.components.v1 as _components
+
         for _li, _lp in enumerate(_library):
             _title = _lp.get('title', f'Prompt {_li + 1}')
             _prompt = _lp.get('prompt', '')
             _content = _results.get(_title, '')
             with st.expander(_title, expanded=True):
-                _rb1, _rb2, _rb3 = st.columns([1, 1, 3])
+                _rb1, _rb2, _rb3, _rb4 = st.columns([1, 1, 1, 2])
                 with _rb1:
                     _run_clicked = st.button(
                         "▶ Run", key=f"ed_ai_run_{_li}",
@@ -5780,18 +5783,46 @@ def _dcf_editor(ticker):
                         use_container_width=True, type="primary",
                         disabled=not _content,
                     )
-
-                _widget_key = f"ed_ai_res_{_li}"
-
-                # Copy-prompt expander — shows the same filled prompt that
-                # ▶ Run would send. st.code has a built-in copy button in its
-                # top-right corner. Useful for pasting into Claude/ChatGPT/etc.
-                if _prompt.strip():
-                    with st.expander("📋 Copy prompt", expanded=False):
-                        st.caption(
-                            "Copy via het icoontje rechtsboven → plak in Claude / ChatGPT / etc."
+                with _rb3:
+                    # Native HTML button so navigator.clipboard.writeText fires
+                    # in the user-gesture context (st.button would roundtrip
+                    # through the server first, breaking the gesture).
+                    if _prompt.strip():
+                        _filled_for_copy = _fill_prompt(_prompt)
+                        _safe_payload = _json_for_copy.dumps(_filled_for_copy)
+                        _components.html(
+                            f"""
+                            <button id="cp-{_li}" type="button" onclick='
+                                navigator.clipboard.writeText({_safe_payload})
+                                  .then(() => {{
+                                    const b = document.getElementById("cp-{_li}");
+                                    const o = b.textContent;
+                                    b.textContent = "✓ Gekopieerd";
+                                    setTimeout(() => b.textContent = o, 1500);
+                                  }})
+                                  .catch(() => {{
+                                    document.getElementById("cp-{_li}").textContent = "✗ Failed";
+                                  }});
+                            ' style="
+                                width: 100%;
+                                background: #ff4b4b;
+                                color: white;
+                                border: 1px solid #ff4b4b;
+                                border-radius: 0.5rem;
+                                padding: 0.25rem 0.75rem;
+                                font-size: 0.875rem;
+                                font-weight: 400;
+                                cursor: pointer;
+                                font-family: inherit;
+                                line-height: 1.6;
+                                height: 38px;
+                            "
+                            onmouseover="this.style.background='#e03e3e';this.style.borderColor='#e03e3e'"
+                            onmouseout="this.style.background='#ff4b4b';this.style.borderColor='#ff4b4b'"
+                            >📋 Copy prompt</button>
+                            """,
+                            height=46,
                         )
-                        st.code(_fill_prompt(_prompt), language=None)
 
                 if _run_clicked:
                     if not _prompt.strip():
