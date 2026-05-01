@@ -4845,7 +4845,7 @@ def _dcf_editor(ticker):
                 cash_v = fund['cash'][i]
                 tp = fund['tax_provision'][i]
                 pti = fund['pretax_income'][i]
-                tax_rate = tp / pti if pti and pti != 0 else 0.21
+                tax_rate = tp / pti if tp is not None and pti and pti != 0 else 0.21
                 nopat = oi * (1 - tax_rate) if oi is not None else None
                 ic = (eq or 0) + (debt or 0) - (cash_v or 0)
                 _nopat_tbl.append(nopat)
