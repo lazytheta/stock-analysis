@@ -5787,40 +5787,33 @@ def _dcf_editor(ticker):
                 with _rb3:
                     # Native HTML button so navigator.clipboard.writeText fires
                     # in the user-gesture context (st.button would roundtrip
-                    # through the server first, breaking the gesture).
+                    # through the server first, breaking the gesture). The
+                    # click handler is attached via addEventListener instead
+                    # of inline onclick so apostrophes/quotes in the prompt
+                    # body can't break HTML attribute parsing.
                     if _prompt.strip():
                         _filled_for_copy = _fill_prompt(_prompt)
                         _safe_payload = _json_for_copy.dumps(_filled_for_copy)
+                        _btn_id = f"cp-btn-{_li}"
                         _components.html(
                             f"""
-                            <button id="cp-{_li}" type="button" onclick='
-                                navigator.clipboard.writeText({_safe_payload})
-                                  .then(() => {{
-                                    const b = document.getElementById("cp-{_li}");
-                                    const o = b.textContent;
-                                    b.textContent = "✓ Gekopieerd";
-                                    setTimeout(() => b.textContent = o, 1500);
-                                  }})
-                                  .catch(() => {{
-                                    document.getElementById("cp-{_li}").textContent = "✗ Failed";
-                                  }});
-                            ' style="
-                                width: 100%;
-                                background: #ff4b4b;
-                                color: white;
-                                border: 1px solid #ff4b4b;
-                                border-radius: 0.5rem;
-                                padding: 0.25rem 0.75rem;
-                                font-size: 0.875rem;
-                                font-weight: 400;
-                                cursor: pointer;
-                                font-family: inherit;
-                                line-height: 1.6;
-                                height: 38px;
-                            "
-                            onmouseover="this.style.background='#e03e3e';this.style.borderColor='#e03e3e'"
-                            onmouseout="this.style.background='#ff4b4b';this.style.borderColor='#ff4b4b'"
-                            >📋 Copy prompt</button>
+<button id="{_btn_id}" type="button" style="width:100%;background:#ff4b4b;color:white;border:1px solid #ff4b4b;border-radius:0.5rem;padding:0.25rem 0.75rem;font-size:0.875rem;font-weight:400;cursor:pointer;font-family:inherit;line-height:1.6;height:38px;">📋 Copy prompt</button>
+<script>
+(function() {{
+  const text = {_safe_payload};
+  const btn = document.getElementById("{_btn_id}");
+  if (!btn) return;
+  btn.addEventListener("mouseover", function() {{ btn.style.background = "#e03e3e"; btn.style.borderColor = "#e03e3e"; }});
+  btn.addEventListener("mouseout", function() {{ btn.style.background = "#ff4b4b"; btn.style.borderColor = "#ff4b4b"; }});
+  btn.addEventListener("click", function() {{
+    navigator.clipboard.writeText(text).then(function() {{
+      const original = btn.textContent;
+      btn.textContent = "✓ Gekopieerd";
+      setTimeout(function() {{ btn.textContent = original; }}, 1500);
+    }}).catch(function() {{ btn.textContent = "✗ Failed"; }});
+  }});
+}})();
+</script>
                             """,
                             height=46,
                         )
