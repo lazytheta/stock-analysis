@@ -5769,6 +5769,7 @@ def _dcf_editor(ticker):
             _title = _lp.get('title', f'Prompt {_li + 1}')
             _prompt = _lp.get('prompt', '')
             _content = _results.get(_title, '')
+            _widget_key = f"ed_ai_res_{_li}"
             with st.expander(_title, expanded=True):
                 _rb1, _rb2, _rb3, _rb4 = st.columns([1, 1, 1, 2])
                 with _rb1:
