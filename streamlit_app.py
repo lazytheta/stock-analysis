@@ -5803,7 +5803,7 @@ def _dcf_editor(ticker):
                         _components.html(
                             f"""
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600&display=swap');
   body {{ margin: 0; padding: 0; }}
   .lt-copy-btn {{
     width: 100%;
@@ -5812,10 +5812,10 @@ def _dcf_editor(ticker):
     border: none;
     border-radius: 980px;
     padding: 12px 24px;
-    font-size: 0.95rem;
+    font-size: 1rem;
     font-weight: 400;
     cursor: pointer;
-    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+    font-family: 'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
     transition: background-color 0.2s ease;
   }}
   .lt-copy-btn:hover {{ background-color: {_accent_hover}; }}
