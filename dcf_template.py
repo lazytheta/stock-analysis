@@ -953,7 +953,10 @@ def build_summary_sheet(wb, cfg):
     ics = [_calc_ic(cfg, i) for i in range(n)]
     nopats = _calc_nopats(cfg)
     
-    stock_price = cfg.get('stock_price', cfg['equity_market_value'] / cfg['shares_outstanding'])
+    _shares_for_price = cfg.get('shares_outstanding', 0) or 0
+    stock_price = cfg.get('stock_price') or (
+        cfg['equity_market_value'] / _shares_for_price if _shares_for_price > 0 else 0
+    )
     mkt_cap = cfg['equity_market_value']
     ev = (mkt_cap + cfg['debt_market_value']
           + cfg.get('minority_interest', 0) + cfg.get('unfunded_pension', 0)
@@ -1034,7 +1037,8 @@ def build_summary_sheet(wb, cfg):
     net_cash = (cfg['cash_bridge'] + cfg.get('securities', 0) + cfg.get('equity_investments', 0)
                 - cfg['debt_market_value'] - cfg.get('minority_interest', 0) - cfg.get('unfunded_pension', 0))
     lb(rv, RP, "Net Cash per Share")
-    sc(rv, RV, net_cash / cfg['shares_outstanding'], BLK, None, '$#,##0.00')
+    _shares_nc = cfg.get('shares_outstanding', 0) or 0
+    sc(rv, RV, (net_cash / _shares_nc) if _shares_nc > 0 else 0, BLK, None, '$#,##0.00')
     note(rv, RV + 1, f"{net_cash/mkt_cap*100:.0f}% of market cap" if mkt_cap else "")
     
     rv += 1
@@ -1350,7 +1354,10 @@ def build_calculations_sheet(wb, cfg):
     hist_oi = cfg.get('hist_operating_income', [])
     hist_shares = cfg.get('hist_shares', [])
     hist_sbc = cfg.get('hist_sbc_values', [])
-    stock_price = cfg.get('stock_price', cfg['equity_market_value'] / cfg['shares_outstanding'])
+    _shares_for_price = cfg.get('shares_outstanding', 0) or 0
+    stock_price = cfg.get('stock_price') or (
+        cfg['equity_market_value'] / _shares_for_price if _shares_for_price > 0 else 0
+    )
     
     ics = [_calc_ic(cfg, i) for i in range(n)]
     nopats = _calc_nopats(cfg)
