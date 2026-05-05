@@ -1,5 +1,5 @@
 """Tests for Phase 2-B auto-fetch market data."""
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import gather_data
 
@@ -65,5 +65,25 @@ def test_fetch_market_inputs_zero_or_negative_skipped():
     """Zero/negative values are not real data — skip them."""
     info = make_yf_info(forwardEps=0, trailingEbitda=-100)
     with patch_yfinance_info(info):
+        result = gather_data.fetch_market_inputs("XYZ")
+    assert result == {}
+
+
+def test_fetch_market_inputs_yfinance_error():
+    """yfinance.Ticker raises → fetcher returns {} (no crash, no propagation)."""
+    fake_yf = MagicMock()
+    fake_yf.Ticker = MagicMock(side_effect=Exception("network down"))
+    with patch.dict("sys.modules", {"yfinance": fake_yf}):
+        result = gather_data.fetch_market_inputs("XYZ")
+    assert result == {}
+
+
+def test_fetch_market_inputs_info_property_raises():
+    """yf.Ticker(...).info access raises → fetcher returns {}."""
+    fake_ticker = MagicMock()
+    type(fake_ticker).info = PropertyMock(side_effect=RuntimeError("boom"))
+    fake_yf = MagicMock()
+    fake_yf.Ticker = MagicMock(return_value=fake_ticker)
+    with patch.dict("sys.modules", {"yfinance": fake_yf}):
         result = gather_data.fetch_market_inputs("XYZ")
     assert result == {}

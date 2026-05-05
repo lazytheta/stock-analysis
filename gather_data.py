@@ -16,6 +16,7 @@ No API keys required. Uses only public endpoints.
 
 import argparse
 import json
+import logging
 import math
 import os
 import re
@@ -25,6 +26,8 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 # Create SSL context that works on macOS without cert install
 _ssl_ctx = ssl.create_default_context()
