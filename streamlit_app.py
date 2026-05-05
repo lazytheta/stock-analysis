@@ -54,6 +54,7 @@ from broker_adapter import (
     fetch_benchmark_monthly_returns,
 )
 import plotly.graph_objects as go
+from scorecard_utils import parse_scorecard_json as _parse_scorecard_json
 
 # ── Input sanitization ──
 def sanitize_ticker(raw: str) -> str | None:
@@ -175,50 +176,6 @@ def _gemini_run(prompt: str, prefer_pro: bool = False) -> tuple[str, str | None]
 # Backwards-compat alias (used by existing UI code)
 def _gemini_ready() -> bool:
     return _ai_ready()
-
-
-def _parse_scorecard_json(raw: str) -> dict | None:
-    """Extract JSON scorecard from a markdown answer (inside a ```json block
-    or raw). Returns dict or None on failure."""
-    if not raw:
-        return None
-    import json as _json
-    import re as _re
-    m = _re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, _re.DOTALL)
-    payload = m.group(1) if m else None
-    if payload is None:
-        # Try to locate JSON by bracket matching if no fenced block
-        start = raw.find("{")
-        if start != -1:
-            depth = 0
-            for i in range(start, len(raw)):
-                ch = raw[i]
-                if ch == "{":
-                    depth += 1
-                elif ch == "}":
-                    depth -= 1
-                    if depth == 0:
-                        payload = raw[start:i + 1]
-                        break
-    if payload is None:
-        return None
-    # Attempt 1: direct parse
-    try:
-        return _json.loads(payload)
-    except Exception:
-        pass
-    # Attempt 2: fix common issues — literal newlines inside string values
-    # Replace literal newlines with \\n only when inside a JSON string
-    try:
-        fixed = _re.sub(
-            r'"((?:[^"\\]|\\.)*)"',
-            lambda mm: '"' + mm.group(1).replace("\n", "\\n").replace("\r", "") + '"',
-            payload,
-            flags=_re.DOTALL,
-        )
-        return _json.loads(fixed)
-    except Exception:
-        return None
 
 
 def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str:
