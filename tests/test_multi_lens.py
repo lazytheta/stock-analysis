@@ -356,3 +356,77 @@ def test_lens_weights_override_from_config():
     assert summary["lenses"]["reverse_dcf"]["weight_normalized"] == 0.0
     assert summary["lenses"]["dcf"]["weight_normalized"] == pytest.approx(0.5)
     assert summary["lenses"]["multiples"]["weight_normalized"] == pytest.approx(0.5)
+
+
+def test_list_watchlist_enriched_shape():
+    """Acceptance #3: list_watchlist returns dicts with all new fields,
+    None when missing rather than absent."""
+    import config_store
+
+    summary = {
+        "weighted_fv_low": 60.0,
+        "weighted_fv_mid": 80.0,
+        "weighted_fv_high": 100.0,
+        "buy_price": 64.0,
+        "current_vs_mid": 0.10,
+        "lenses": {"dcf": {}, "multiples": {}, "reverse_dcf": {}, "dividend": None},
+    }
+    rows = [
+        {
+            "ticker": "WITH",
+            "company": "With Co",
+            "stock_price": 90.0,
+            "updated_at": "2026-05-05T00:00:00Z",
+            "config": {
+                "valuation_summary": summary,
+                "ai_notes": {
+                    "Scorecard": '```json\n{"verdict":"deep_dive","phase":{"number":3,"name":"S"}}\n```'
+                },
+            },
+        },
+        {
+            "ticker": "WITHOUT",
+            "company": "Without Co",
+            "stock_price": 50.0,
+            "updated_at": "2026-05-05T00:00:00Z",
+            "config": {},  # no valuation_summary, no ai_notes
+        },
+    ]
+
+    fake_resp = MagicMock(data=rows)
+    fake_query = MagicMock()
+    fake_query.eq.return_value = fake_query
+    fake_query.execute.return_value = fake_resp
+    fake_table = MagicMock()
+    fake_table.select.return_value = fake_query
+    fake_client = MagicMock()
+    fake_client.table.return_value = fake_table
+
+    out = config_store.list_watchlist(fake_client, user_id="u1")
+    expected_keys = {
+        "ticker", "company", "updated", "stock_price",
+        "fv_low", "fv_mid", "fv_high", "buy_price",
+        "current_vs_mid", "lens_count", "verdict", "phase",
+    }
+    for row in out:
+        assert set(row.keys()) == expected_keys
+
+    with_row = next(r for r in out if r["ticker"] == "WITH")
+    assert with_row["fv_mid"] == 80.0
+    assert with_row["fv_low"] == 60.0
+    assert with_row["fv_high"] == 100.0
+    assert with_row["buy_price"] == 64.0
+    assert with_row["current_vs_mid"] == 0.10
+    assert with_row["lens_count"] == 3  # dcf, multiples, reverse_dcf (dividend None)
+    assert with_row["verdict"] == "deep_dive"
+    assert with_row["phase"] == 3
+
+    without_row = next(r for r in out if r["ticker"] == "WITHOUT")
+    assert without_row["fv_mid"] is None
+    assert without_row["fv_low"] is None
+    assert without_row["fv_high"] is None
+    assert without_row["buy_price"] is None
+    assert without_row["current_vs_mid"] is None
+    assert without_row["lens_count"] == 0
+    assert without_row["verdict"] is None
+    assert without_row["phase"] is None

@@ -121,29 +121,52 @@ def load_config(client, ticker, user_id=None):
 
 
 def list_watchlist(client, user_id=None):
-    """Return list of dicts with ticker metadata.
+    """Return list of dicts with ticker metadata + valuation summary.
 
-    Each entry: {ticker, company, updated, stock_price}
-    RLS automatically scopes to the current user when user_id is None.
+    Each entry has these keys (always present; values may be None):
+        ticker, company, updated, stock_price,
+        fv_low, fv_mid, fv_high, buy_price, current_vs_mid, lens_count,
+        verdict, phase
+
+    Configs without ``valuation_summary`` show only base fields populated;
+    run ``calculate_multi_lens_valuation`` to populate the rest.
     """
+    from scorecard_utils import parse_scorecard
+
     query = (
         client.table("watchlist_configs")
-        .select("ticker, company, stock_price, updated_at")
+        .select("ticker, company, stock_price, updated_at, config")
     )
     if user_id is not None:
         query = query.eq("user_id", user_id)
     resp = query.execute()
-    if resp and resp.data:
-        return [
-            {
-                'ticker': row['ticker'],
-                'company': row.get('company', row['ticker']),
-                'updated': row.get('updated_at', ''),
-                'stock_price': row.get('stock_price', 0),
-            }
-            for row in resp.data
-        ]
-    return []
+    if not (resp and resp.data):
+        return []
+
+    out = []
+    for row in resp.data:
+        cfg = row.get("config") or {}
+        summary = cfg.get("valuation_summary") or {}
+        lenses = summary.get("lenses") or {}
+        lens_count = sum(1 for v in lenses.values() if v is not None)
+
+        scorecard = parse_scorecard(cfg.get("ai_notes"))
+
+        out.append({
+            "ticker": row["ticker"],
+            "company": row.get("company", row["ticker"]),
+            "updated": row.get("updated_at", ""),
+            "stock_price": row.get("stock_price", 0),
+            "fv_low":  summary.get("weighted_fv_low"),
+            "fv_mid":  summary.get("weighted_fv_mid"),
+            "fv_high": summary.get("weighted_fv_high"),
+            "buy_price": summary.get("buy_price"),
+            "current_vs_mid": summary.get("current_vs_mid"),
+            "lens_count": lens_count,
+            "verdict": scorecard["verdict"],
+            "phase":   scorecard["phase"],
+        })
+    return out
 
 
 def remove_from_watchlist(client, ticker):
