@@ -93,3 +93,22 @@ def compute_dcf_lens(cfg, scenario_grid=False):
             "scenarios": scenarios,
         },
     }
+
+
+def compute_reverse_dcf_lens(cfg):
+    """Reverse DCF. Single anchor at current price — answers 'what's priced in'.
+
+    Always returns a result given a valid config (stock_price > 0). The lens
+    isn't a fair-value estimate; its low weight reflects that.
+    """
+    reverse = dcf_calculator.compute_reverse_dcf(cfg)
+    fv = cfg["stock_price"]
+    return {
+        "fv_low": fv,
+        "fv_mid": fv,
+        "fv_high": fv,
+        "details": {
+            "implied_growth": reverse["implied_growth"],
+            "implied_margin": reverse["implied_margin"],
+        },
+    }

@@ -222,3 +222,14 @@ def test_dcf_lens_scenario_grid_default_adjustments_when_missing():
         cfg.pop(key, None)
     lens = valuation_lenses.compute_dcf_lens(cfg, scenario_grid=True)
     assert len(lens["details"]["scenarios"]) == 16
+
+
+def test_reverse_dcf_lens_anchors_at_stock_price():
+    cfg = make_cfg(stock_price=100.0)
+    lens = valuation_lenses.compute_reverse_dcf_lens(cfg)
+    assert lens["fv_low"] == 100.0
+    assert lens["fv_mid"] == 100.0
+    assert lens["fv_high"] == 100.0
+    assert "implied_growth" in lens["details"]
+    assert "implied_margin" in lens["details"]
+    assert isinstance(lens["details"]["implied_growth"], float)
