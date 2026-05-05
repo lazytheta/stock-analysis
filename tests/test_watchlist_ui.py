@@ -125,3 +125,57 @@ def test_render_lens_dots_empty_dict():
     assert 'class="ld-on"' not in html
     assert html.count('class="ld-off"') == 3
     assert "no lenses" in html
+
+
+def _theme_stub():
+    return {"text": "#eee", "text_muted": "#888", "accent": "#6e8a76"}
+
+
+def test_render_fv_cell_full_summary():
+    """With a complete valuation_summary, render mid + range + bar + dots."""
+    summary = {
+        "weighted_fv_low": 60.0,
+        "weighted_fv_mid": 80.0,
+        "weighted_fv_high": 100.0,
+        "lenses": {"dcf": {}, "multiples": {}, "reverse_dcf": {}, "dividend": None},
+    }
+    html = streamlit_app._render_fv_cell(
+        price=70.0, summary=summary, legacy_intrinsic=None, theme=_theme_stub()
+    )
+    assert "$80" in html              # mid
+    assert "$60" in html              # low
+    assert "$100" in html             # high
+    assert "range-bar" in html        # bar present
+    assert 'class="ld-on"' in html    # lens dots present
+
+
+def test_render_fv_cell_legacy_fallback():
+    """Without summary, fall back to legacy_intrinsic + 'single-lens' badge."""
+    html = streamlit_app._render_fv_cell(
+        price=72.0, summary=None, legacy_intrinsic=95.0, theme=_theme_stub()
+    )
+    assert "$95" in html
+    assert "single-lens" in html
+    assert "range-bar" not in html
+    assert "Refresh all" in html
+
+
+def test_render_fv_cell_neither_summary_nor_legacy():
+    """Defensive: both missing → em-dash placeholder."""
+    html = streamlit_app._render_fv_cell(
+        price=72.0, summary=None, legacy_intrinsic=None, theme=_theme_stub()
+    )
+    assert "—" in html
+
+
+def test_render_fv_cell_marker_past_high_red_tinted():
+    summary = {
+        "weighted_fv_low": 60.0, "weighted_fv_mid": 80.0, "weighted_fv_high": 100.0,
+        "lenses": {"dcf": {}, "multiples": {}, "reverse_dcf": {}, "dividend": None},
+    }
+    html = streamlit_app._render_fv_cell(
+        price=200.0, summary=summary, legacy_intrinsic=None, theme=_theme_stub()
+    )
+    assert "left:99%" in html.replace(" ", "")  # marker clamped to 99
+    # red tint applied — implementation uses inline color override or extra class
+    assert "#d96a5a" in html or "past-high" in html

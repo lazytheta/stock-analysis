@@ -149,6 +149,69 @@ def _render_lens_dots(lenses: dict, theme: dict) -> str:
     )
 
 
+def _fmt_fv_dollar(x: float) -> str:
+    """Format a dollar value for the FV cell — integer if >= 100, else 2dp."""
+    if x is None:
+        return "—"
+    if abs(x) >= 100:
+        return f"${x:.0f}"
+    return f"${x:.2f}"
+
+
+def _render_fv_cell(price: float, summary: dict | None,
+                    legacy_intrinsic: float | None, theme: dict) -> str:
+    """Return HTML for the Fair Value cell.
+
+    Three render modes:
+    - summary present → bold mid · (low–high) · range-bar with marker · lens-dots
+    - summary missing, legacy_intrinsic present → bold mid · 'single-lens' badge · hint
+    - both missing → em-dash
+    """
+    text = theme.get("text", "#eee")
+    muted = theme.get("text_muted", "#888")
+
+    if summary:
+        low = summary.get("weighted_fv_low")
+        mid = summary.get("weighted_fv_mid")
+        high = summary.get("weighted_fv_high")
+        lenses = summary.get("lenses") or {}
+        if mid is None or low is None or high is None:
+            return f'<span style="color:{muted}">—</span>'
+
+        pct, past_high = _range_bar_marker_position(price, low, high)
+        marker_color = "#d96a5a" if past_high else "#fff"
+        pct_str = f"{pct:.0f}%" if pct == int(pct) else f"{pct:.1f}%"
+
+        return (
+            f'<div>'
+            f'<strong style="color:{text}">{_fmt_fv_dollar(mid)}</strong> '
+            f'<span style="color:{muted};font-size:0.78rem">'
+            f'({_fmt_fv_dollar(low)}–{_fmt_fv_dollar(high)})</span>'
+            f'<div class="range-bar" style="position:relative;height:6px;'
+            f'background:linear-gradient(90deg,#6cc07055,#d8a44855,#d96a5a55);'
+            f'border-radius:3px;margin:4px 0 2px 0;min-width:110px">'
+            f'<div style="position:absolute;top:-3px;width:2px;height:12px;'
+            f'background:{marker_color};box-shadow:0 0 2px rgba(0,0,0,0.6);'
+            f'left:{pct_str}"></div>'
+            f'</div>'
+            f'{_render_lens_dots(lenses, theme)}'
+            f'</div>'
+        )
+
+    if legacy_intrinsic is not None:
+        return (
+            f'<div>'
+            f'<strong style="color:{text}">{_fmt_fv_dollar(legacy_intrinsic)}</strong> '
+            f'<span style="font-size:0.65rem;color:{muted};background:#33333355;'
+            f'padding:1px 5px;border-radius:3px;margin-left:4px">single-lens</span>'
+            f'<div style="font-size:0.72rem;color:{muted};margin-top:4px">'
+            f'DCF intrinsic only · run "Refresh all" to compute multi-lens</div>'
+            f'</div>'
+        )
+
+    return f'<span style="color:{muted}">—</span>'
+
+
 # ── AI provider helpers (Groq primary, Gemini Flash fallback) ──
 def _secret_or_env(name: str) -> str | None:
     try:
