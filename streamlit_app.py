@@ -3556,13 +3556,6 @@ def _watchlist_overview():
         f"Last refresh: {_format_relative_time(_last_iso)} · "
         f"{len(_summaries_with_fv)} of {len(_wl_for_status)} tickers have multi-lens summaries"
     )
-    if st.button("↳ Force refresh all (ignore freshness)",
-                  key="wl_force_refresh_link",
-                  type="tertiary",
-                  help="Recompute every ticker even if recently refreshed."):
-        st.session_state["_wl_force_refresh"] = True
-        # Trigger refresh on this same run by setting wl_refresh
-        wl_refresh = True
 
     if wl_add and wl_ticker:
         ticker_clean = sanitize_ticker(wl_ticker)
