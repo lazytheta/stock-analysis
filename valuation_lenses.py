@@ -6,7 +6,7 @@ No Supabase, no network, no streamlit imports — fully testable.
 
 import logging
 import statistics
-from datetime import datetime, timezone  # noqa: F401 — used by Task 10 orchestrator
+from datetime import UTC, datetime
 
 import dcf_calculator
 
@@ -218,4 +218,49 @@ def compute_multiples_lens(cfg):
         "fv_mid": sum(fv_anchors) / len(fv_anchors),
         "fv_high": max(fv_anchors),
         "details": details,
+    }
+
+
+def calculate_multi_lens_valuation(cfg, scenario_grid=False):
+    """Run all lenses and return the valuation_summary dict.
+
+    Pure function — does not mutate cfg, does not persist anywhere. Caller
+    is responsible for storing the summary back to the config.
+    """
+    lenses = {
+        "dcf":         compute_dcf_lens(cfg, scenario_grid=scenario_grid),
+        "multiples":   compute_multiples_lens(cfg),
+        "reverse_dcf": compute_reverse_dcf_lens(cfg),
+        "dividend":    compute_dividend_lens(cfg),
+    }
+
+    weights_cfg = cfg.get("lens_weights") or DEFAULT_LENS_WEIGHTS
+    active_names = [n for n, l in lenses.items() if l is not None]
+    raw = {n: weights_cfg.get(n, DEFAULT_LENS_WEIGHTS.get(n, 0.0)) for n in active_names}
+    total = sum(raw.values()) or 1.0
+    norm = {n: w / total for n, w in raw.items()}
+
+    for n in active_names:
+        lenses[n]["weight"] = raw[n]
+        lenses[n]["weight_normalized"] = norm[n]
+
+    weighted_low = sum(lenses[n]["fv_low"] * norm[n] for n in active_names)
+    weighted_mid = sum(lenses[n]["fv_mid"] * norm[n] for n in active_names)
+    weighted_high = sum(lenses[n]["fv_high"] * norm[n] for n in active_names)
+
+    mos = cfg.get("margin_of_safety", 0.20)
+    price = cfg["stock_price"]
+    fv_mid_rounded = round(weighted_mid, 2)
+    cvm = ((price - fv_mid_rounded) / fv_mid_rounded) if fv_mid_rounded else 0.0
+
+    return {
+        "calculated_at": datetime.now(UTC).isoformat(),
+        "stock_price": price,
+        "scenario_grid": scenario_grid,
+        "lenses": lenses,
+        "weighted_fv_low":  round(weighted_low, 2),
+        "weighted_fv_mid":  fv_mid_rounded,
+        "weighted_fv_high": round(weighted_high, 2),
+        "current_vs_mid":   round(cvm, 4),
+        "buy_price":        fv_mid_rounded * (1 - mos),
     }

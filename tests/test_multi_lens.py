@@ -294,3 +294,65 @@ def test_multiples_lens_partial_inputs_skips_components():
     assert lens["details"]["fwd_pe_own"] is None
     assert lens["details"]["fwd_pe_peer_median"] is None
     assert lens["details"]["ev_ebitda_peer_median"] is not None
+
+
+def test_dcf_only_fallback_when_no_valuation_inputs():
+    """Acceptance #1: config without valuation_inputs → DCF-only summary,
+    weights renormalized to 1.0."""
+    cfg = make_cfg()  # no inputs, no peers with multiples
+    summary = valuation_lenses.calculate_multi_lens_valuation(cfg)
+    lenses = summary["lenses"]
+    assert lenses["dcf"] is not None
+    assert lenses["multiples"] is None
+    assert lenses["reverse_dcf"] is not None  # always active
+    # Active = dcf + reverse_dcf, weights renormalized
+    assert lenses["dcf"]["weight_normalized"] + lenses["reverse_dcf"]["weight_normalized"] \
+        == pytest.approx(1.0)
+    # weighted_fv must lie between dcf & reverse_dcf
+    mids = [lenses["dcf"]["fv_mid"], lenses["reverse_dcf"]["fv_mid"]]
+    assert min(mids) <= summary["weighted_fv_mid"] <= max(mids)
+
+
+def test_all_lenses_active_weighted_in_range():
+    """Acceptance #2: full config → 3 active lenses, weighted FV in [min,max]
+    of individual lens mids."""
+    peers = [
+        make_peer(ticker="P1", fwd_pe=18.0, ev_ebitda=10.0),
+        make_peer(ticker="P2", fwd_pe=20.0, ev_ebitda=12.0),
+        make_peer(ticker="P3", fwd_pe=22.0, ev_ebitda=14.0),
+    ]
+    cfg = make_cfg(
+        peers=peers,
+        valuation_inputs=dict(SAMPLE_VALUATION_INPUTS),
+    )
+    summary = valuation_lenses.calculate_multi_lens_valuation(cfg)
+    lenses = summary["lenses"]
+    active = [n for n in ("dcf", "multiples", "reverse_dcf") if lenses[n] is not None]
+    assert active == ["dcf", "multiples", "reverse_dcf"]
+
+    mids = [lenses[n]["fv_mid"] for n in active]
+    assert min(mids) <= summary["weighted_fv_mid"] <= max(mids)
+    assert summary["buy_price"] == pytest.approx(
+        summary["weighted_fv_mid"] * (1 - cfg["margin_of_safety"]), rel=1e-9
+    )
+    # current_vs_mid signed correctly
+    expected_cvm = (cfg["stock_price"] - summary["weighted_fv_mid"]) / summary["weighted_fv_mid"]
+    assert summary["current_vs_mid"] == pytest.approx(expected_cvm, rel=1e-3)
+    # weights sum to 1.0
+    total_norm = sum(lenses[n]["weight_normalized"] for n in active)
+    assert total_norm == pytest.approx(1.0)
+    # dividend lens stays None
+    assert lenses["dividend"] is None
+
+
+def test_lens_weights_override_from_config():
+    cfg = make_cfg(
+        peers=[make_peer(fwd_pe=20.0, ev_ebitda=12.0)],
+        valuation_inputs=dict(SAMPLE_VALUATION_INPUTS),
+        lens_weights={"dcf": 0.5, "multiples": 0.5, "reverse_dcf": 0.0, "dividend": 0.0},
+    )
+    summary = valuation_lenses.calculate_multi_lens_valuation(cfg)
+    # reverse_dcf has weight 0 → normalized 0 → drops out of weighted FV
+    assert summary["lenses"]["reverse_dcf"]["weight_normalized"] == 0.0
+    assert summary["lenses"]["dcf"]["weight_normalized"] == pytest.approx(0.5)
+    assert summary["lenses"]["multiples"]["weight_normalized"] == pytest.approx(0.5)
