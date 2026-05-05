@@ -1393,10 +1393,10 @@ def fetch_market_inputs(ticker: str) -> dict:
         import yfinance as yf
         info = yf.Ticker(ticker).info
     except ImportError:
-        print(f"  yfinance not installed; skipping market input fetch for {ticker}")
+        logger.warning("yfinance not installed; skipping market input fetch for %s", ticker)
         return {}
     except Exception as e:
-        print(f"  yfinance fetch failed for {ticker}: {e}")
+        logger.warning("yfinance fetch failed for %s: %s", ticker, e)
         return {}
 
     out = {}
