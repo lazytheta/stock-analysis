@@ -1,7 +1,5 @@
 """Tests for Phase 2-B auto-fetch market data."""
-from unittest.mock import MagicMock, patch  # noqa: F401
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 
 def make_yf_info(**overrides):
