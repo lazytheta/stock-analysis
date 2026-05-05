@@ -1379,6 +1379,38 @@ def fetch_consensus_estimates(ticker):
         return {}
 
 
+def fetch_market_inputs(ticker: str) -> dict:
+    """Fetch valuation_inputs fields from Yahoo Finance via yfinance.
+
+    Returns a dict with these keys (any may be absent when unavailable):
+        forward_eps:  Ticker.info["forwardEps"]
+        ttm_ebitda:   Ticker.info["trailingEbitda"] / 1e6  (convert $ to $M)
+
+    Network failure / yfinance import failure → returns empty dict and logs warning.
+    Never raises.
+    """
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info
+    except ImportError:
+        print(f"  yfinance not installed; skipping market input fetch for {ticker}")
+        return {}
+    except Exception as e:
+        print(f"  yfinance fetch failed for {ticker}: {e}")
+        return {}
+
+    out = {}
+    fwd_eps = info.get("forwardEps")
+    if isinstance(fwd_eps, (int, float)) and fwd_eps > 0:
+        out["forward_eps"] = round(float(fwd_eps), 2)
+
+    ttm_ebitda_raw = info.get("trailingEbitda")
+    if isinstance(ttm_ebitda_raw, (int, float)) and ttm_ebitda_raw > 0:
+        out["ttm_ebitda"] = round(float(ttm_ebitda_raw) / 1e6, 0)
+
+    return out
+
+
 # ── Peer Discovery Module ─────────────────────────────────────────────
 
 def _fetch_exchange_tickers():
