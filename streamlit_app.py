@@ -254,8 +254,16 @@ def _auto_fill_peer_market_data(cfg: dict) -> None:
     """Auto-fill yfinance fwd_pe and real ev_ebitda for each peer in cfg["peers"].
 
     fwd_pe: user-set values (present, not in _auto_filled) are preserved.
-    ev_ebitda: always updated when yfinance provides real data (EV/EBITDA is
-    always a computed metric, never manually entered).
+    ev_ebitda: ALWAYS overwritten when yfinance provides real data. This is an
+    intentional Phase-2-B limitation: the existing values come from
+    gather_data.fetch_peer_data's oi*1.3 approximation and are never marked
+    as _auto_filled, so the standard precedence rule would treat them as
+    user-set. To keep the workflow simple we always replace them with the real
+    yfinance value. Side effect: a user who manually edits a peer's ev_ebitda
+    via Claude Desktop will see that override wiped on the next refresh. If
+    that ever matters, mark the field in peer["_auto_filled"] = ["ev_ebitda"]
+    when fetch_peer_data writes it.
+
     Updates peer["_fetched_at"]. Non-dict or ticker-less peers are skipped.
     """
     from datetime import UTC, datetime
@@ -274,8 +282,12 @@ def _auto_fill_peer_market_data(cfg: dict) -> None:
         for key in ("fwd_pe", "ev_ebitda"):
             yfinance_value = enriched.get(key)
             original_value = peer.get(key)
-            if yfinance_value is None or yfinance_value == original_value:
-                # yfinance didn't contribute this field
+            # Skip when yfinance didn't return a value. We deliberately do NOT
+            # skip when yfinance_value == original_value — if yfinance said
+            # this field, _auto_filled should track it even when the value
+            # happens to match (otherwise a coincidental match permanently
+            # marks the field as user-set).
+            if yfinance_value is None:
                 continue
             # ev_ebitda is always a computed metric — always update from yfinance.
             # fwd_pe respects user-set values (present and not in _auto_filled).
