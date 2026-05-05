@@ -3523,6 +3523,20 @@ def _watchlist_overview():
         border-color: {T['delete_border']} !important;
         color: {T['delete_text']} !important;
     }}
+    /* Pin Refresh-all button to the same sage-green pill as Add to Watchlist */
+    .st-key-wl_refresh_button button {{
+        background-color: {T['accent']} !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 980px !important;
+        padding: 12px 24px !important;
+        font-size: 0.95rem !important;
+        font-weight: 500 !important;
+        transition: background-color 0.2s ease !important;
+    }}
+    .st-key-wl_refresh_button button:hover {{
+        background-color: {T['accent_hover']} !important;
+    }}
     </style>""", unsafe_allow_html=True)
 
     # ── Add ticker + Refresh ──
@@ -3542,6 +3556,7 @@ def _watchlist_overview():
             "↻ Refresh all",
             use_container_width=True,
             type="primary",
+            key="wl_refresh_button",
             help="Recompute multi-lens fair value for tickers without a recent summary.",
         )
 
