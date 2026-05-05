@@ -163,3 +163,22 @@ def test_save_config_preserves_valuation_keys():
     assert saved["lens_weights"] == {"dcf": 0.5}
     assert saved["ai_notes"] == {"foo": "bar"}
     assert saved["peers"] == [{"ticker": "P"}]
+
+
+# ---------------------------------------------------------------- valuation_lenses
+
+
+import valuation_lenses
+
+
+def test_default_lens_weights():
+    assert valuation_lenses.DEFAULT_LENS_WEIGHTS == {
+        "dcf": 0.30,
+        "multiples": 0.40,
+        "reverse_dcf": 0.10,
+        "dividend": 0.00,
+    }
+
+
+def test_dividend_lens_returns_none():
+    assert valuation_lenses.compute_dividend_lens(make_cfg()) is None
