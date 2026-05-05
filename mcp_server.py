@@ -60,6 +60,7 @@ mcp = FastMCP(
 import gather_data
 import dcf_calculator
 import config_store
+import valuation_lenses
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +218,22 @@ def _calculate_valuation_impl(cfg):
     return json.dumps(result)
 
 
+def _calculate_multi_lens_valuation_impl(ticker, scenario_grid=False):
+    """Core logic for calculate_multi_lens_valuation: load cfg, run all
+    lenses, persist summary, return JSON."""
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=USER_ID)
+    if cfg is None:
+        return json.dumps({"error": f"{ticker.upper()} not on watchlist"})
+
+    summary = valuation_lenses.calculate_multi_lens_valuation(
+        cfg, scenario_grid=scenario_grid
+    )
+    cfg["valuation_summary"] = summary
+    config_store.save_config(client, ticker, cfg, user_id=USER_ID)
+    return json.dumps(summary, default=str)
+
+
 def _save_to_watchlist_impl(ticker, cfg):
     """Core logic for save_to_watchlist."""
     client = get_supabase_client()
@@ -312,6 +329,29 @@ def calculate_valuation(config: dict) -> str:
     """
     try:
         return _calculate_valuation_impl(config)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def calculate_multi_lens_valuation(ticker: str, scenario_grid: bool = False) -> str:
+    """Run multi-lens fair value (DCF + Trading Multiples + Reverse DCF)
+    for a watchlist ticker and persist the summary to Supabase.
+
+    Use this after editing valuation_inputs or peers to refresh the
+    fair value estimate. The result is also surfaced via get_watchlist().
+
+    Args:
+        ticker: Stock ticker symbol (e.g. "ABT")
+        scenario_grid: If True, run a 4x4 bull/bear DCF scenario grid for
+            the DCF lens fv_low/fv_high. Default False uses ±15%% bands
+            around the base intrinsic.
+
+    Returns:
+        JSON valuation_summary dict. See spec for schema.
+    """
+    try:
+        return _calculate_multi_lens_valuation_impl(ticker, scenario_grid)
     except Exception as e:
         return json.dumps({"error": str(e)})
 

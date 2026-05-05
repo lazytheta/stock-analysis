@@ -430,3 +430,67 @@ def test_list_watchlist_enriched_shape():
     assert without_row["lens_count"] == 0
     assert without_row["verdict"] is None
     assert without_row["phase"] is None
+
+
+def test_round_trip_calculate_and_persist(monkeypatch):
+    """Acceptance #4: compute → save → list shows the same fv_mid."""
+    import mcp_server
+
+    # In-memory "Supabase": one config row keyed by ticker
+    storage = {
+        "TEST": {
+            "company": "Test Co",
+            "ticker": "TEST",
+            "stock_price": 100.0,
+            "ai_notes": {},
+            "peers": [],
+            **make_cfg(),
+        },
+    }
+
+    def fake_load(client, ticker, user_id=None):
+        return dict(storage[ticker.upper()])
+
+    def fake_save(client, ticker, cfg, user_id=None):
+        storage[ticker.upper()] = dict(cfg)
+
+    def fake_list(client, user_id=None):
+        out = []
+        from scorecard_utils import parse_scorecard
+        for tk, cfg in storage.items():
+            summary = cfg.get("valuation_summary") or {}
+            lenses = summary.get("lenses") or {}
+            lens_count = sum(1 for v in lenses.values() if v is not None)
+            sc = parse_scorecard(cfg.get("ai_notes"))
+            out.append({
+                "ticker": tk,
+                "company": cfg.get("company", tk),
+                "updated": "",
+                "stock_price": cfg.get("stock_price", 0),
+                "fv_low": summary.get("weighted_fv_low"),
+                "fv_mid": summary.get("weighted_fv_mid"),
+                "fv_high": summary.get("weighted_fv_high"),
+                "buy_price": summary.get("buy_price"),
+                "current_vs_mid": summary.get("current_vs_mid"),
+                "lens_count": lens_count,
+                "verdict": sc["verdict"],
+                "phase": sc["phase"],
+            })
+        return out
+
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: MagicMock())
+    monkeypatch.setattr(mcp_server.config_store, "load_config", fake_load)
+    monkeypatch.setattr(mcp_server.config_store, "save_config", fake_save)
+    monkeypatch.setattr(mcp_server.config_store, "list_watchlist", fake_list)
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+
+    import json as _json
+    result_json = mcp_server._calculate_multi_lens_valuation_impl("TEST", scenario_grid=False)
+    result = _json.loads(result_json)
+    expected_mid = result["weighted_fv_mid"]
+
+    # round trip via list_watchlist
+    listed = _json.loads(mcp_server._get_watchlist_impl())
+    test_row = next(r for r in listed if r["ticker"] == "TEST")
+    assert test_row["fv_mid"] == expected_mid
+    assert test_row["lens_count"] >= 1
