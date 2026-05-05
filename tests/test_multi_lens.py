@@ -200,3 +200,25 @@ def test_dcf_lens_basic_intrinsic_positive_for_sample_cfg():
     lens = valuation_lenses.compute_dcf_lens(cfg)
     assert lens["fv_mid"] > 0
     assert lens["fv_low"] < lens["fv_mid"] < lens["fv_high"]
+
+
+def test_dcf_lens_scenario_grid_uses_bull_bear_adjustments():
+    cfg = make_cfg()
+    lens = valuation_lenses.compute_dcf_lens(cfg, scenario_grid=True)
+    assert lens["details"]["scenarios"] is not None
+    scenarios = lens["details"]["scenarios"]
+    assert len(scenarios) == 16  # 4 growth offsets * 4 margin offsets
+    base = lens["details"]["base_intrinsic"]
+    assert lens["fv_mid"] == pytest.approx(base, rel=1e-9)
+    assert lens["fv_low"] == min(scenarios)
+    assert lens["fv_high"] == max(scenarios)
+    assert lens["fv_low"] < lens["fv_high"]
+
+
+def test_dcf_lens_scenario_grid_default_adjustments_when_missing():
+    cfg = make_cfg()
+    for key in ("bull_growth_adj", "bear_growth_adj",
+                "bull_margin_adj", "bear_margin_adj"):
+        cfg.pop(key, None)
+    lens = valuation_lenses.compute_dcf_lens(cfg, scenario_grid=True)
+    assert len(lens["details"]["scenarios"]) == 16

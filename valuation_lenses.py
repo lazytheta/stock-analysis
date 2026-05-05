@@ -49,5 +49,47 @@ def compute_dcf_lens(cfg, scenario_grid=False):
             },
         }
 
-    # Scenario grid path — implemented in next task
-    raise NotImplementedError("scenario_grid implemented in Task 7")
+    bull_g = cfg.get("bull_growth_adj", 0.02)
+    bear_g = cfg.get("bear_growth_adj", -0.04)
+    bull_m = cfg.get("bull_margin_adj", 0.02)
+    bear_m = cfg.get("bear_margin_adj", -0.02)
+
+    growth_offsets = [bear_g, bear_g / 2, bull_g / 2, bull_g]
+    margin_offsets = [bear_m, bear_m / 2, bull_m / 2, bull_m]
+
+    scenarios = []
+    base_growth = list(cfg["revenue_growth"])
+    base_margins = list(cfg["op_margins"])
+    base_terminal_margin = cfg.get("terminal_margin", base_margins[-1])
+
+    for g_off in growth_offsets:
+        for m_off in margin_offsets:
+            scen_cfg = dict(cfg)
+            scen_cfg["revenue_growth"] = [g + g_off for g in base_growth]
+            scen_cfg["op_margins"] = [m + m_off for m in base_margins]
+            scen_cfg["terminal_margin"] = base_terminal_margin + m_off
+            try:
+                scen_wacc = dcf_calculator.compute_wacc(scen_cfg)
+                price = dcf_calculator.compute_intrinsic_value(
+                    scen_cfg, wacc=scen_wacc
+                )["intrinsic_value"]
+                scenarios.append(price)
+            except Exception as e:
+                logger.info(
+                    "DCF scenario grid: skipping (g_off=%.3f, m_off=%.3f): %s",
+                    g_off, m_off, e,
+                )
+
+    if not scenarios:
+        scenarios = [base_intrinsic]
+
+    return {
+        "fv_low": min(scenarios),
+        "fv_mid": base_intrinsic,
+        "fv_high": max(scenarios),
+        "details": {
+            "wacc": wacc,
+            "base_intrinsic": base_intrinsic,
+            "scenarios": scenarios,
+        },
+    }
