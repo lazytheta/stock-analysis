@@ -1,6 +1,8 @@
 """Tests for Phase 2-B auto-fetch market data."""
 from unittest.mock import MagicMock, PropertyMock, patch
 
+import pytest
+
 import gather_data
 
 
@@ -87,3 +89,27 @@ def test_fetch_market_inputs_info_property_raises():
     with patch.dict("sys.modules", {"yfinance": fake_yf}):
         result = gather_data.fetch_market_inputs("XYZ")
     assert result == {}
+
+
+def test_enrich_peer_happy_path():
+    """fwd_pe is added; ev_ebitda is replaced with real (EV / trailingEbitda)."""
+    peer = {"ticker": "AAPL", "name": "Apple", "ev_ebitda": 99.9, "pe": 33.5}
+    info = make_yf_info(forwardPE=30.5, enterpriseValue=3_500_000_000_000,
+                        trailingEbitda=145_000_000_000)
+    with patch_yfinance_info(info):
+        out = gather_data.enrich_peer_with_market_data(peer)
+
+    assert out["fwd_pe"] == 30.5
+    # 3.5T / 145B = 24.137... → round 1 decimal
+    assert out["ev_ebitda"] == pytest.approx(24.1, rel=1e-3)
+    # original dict not mutated
+    assert peer["ev_ebitda"] == 99.9
+    assert "fwd_pe" not in peer
+
+
+def test_enrich_peer_no_ticker_returns_unchanged_copy():
+    """Peer without ticker → returns copy unchanged, no yfinance call."""
+    peer = {"name": "no-ticker", "ev_ebitda": 12.0}
+    out = gather_data.enrich_peer_with_market_data(peer)
+    assert out == peer
+    assert out is not peer  # is a copy

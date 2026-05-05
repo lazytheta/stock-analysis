@@ -1414,6 +1414,43 @@ def fetch_market_inputs(ticker: str) -> dict:
     return out
 
 
+def enrich_peer_with_market_data(peer: dict) -> dict:
+    """Return a copy of `peer` enriched with yfinance fwd_pe and a real
+    EV/EBITDA multiple (EV / trailingEbitda), replacing any prior approximation.
+
+    Returns the same dict shape as input, with `fwd_pe` added when available
+    and `ev_ebitda` updated when both EV and TTM EBITDA are available. The
+    original is never mutated. yfinance unavailable / errors → returns peer
+    copy unchanged.
+    """
+    out = dict(peer)
+    ticker = peer.get("ticker", "")
+    if not ticker:
+        return out
+
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info
+    except ImportError:
+        logger.warning("yfinance not installed; peer enrich skipped for %s", ticker)
+        return out
+    except Exception as e:
+        logger.warning("yfinance peer enrich failed for %s: %s", ticker, e)
+        return out
+
+    fwd_pe = info.get("forwardPE")
+    if isinstance(fwd_pe, (int, float)) and fwd_pe > 0:
+        out["fwd_pe"] = round(float(fwd_pe), 1)
+
+    ev = info.get("enterpriseValue")
+    ttm_ebitda = info.get("trailingEbitda")
+    if (isinstance(ev, (int, float)) and ev > 0
+            and isinstance(ttm_ebitda, (int, float)) and ttm_ebitda > 0):
+        out["ev_ebitda"] = round(ev / ttm_ebitda, 1)
+
+    return out
+
+
 # ── Peer Discovery Module ─────────────────────────────────────────────
 
 def _fetch_exchange_tickers():
