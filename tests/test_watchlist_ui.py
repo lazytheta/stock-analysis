@@ -254,3 +254,40 @@ def test_refresh_unparseable_calculated_at_treated_as_stale():
             client=MagicMock(), cfgs=cfgs, user_id="u1"
         )
     assert result["computed"] == ["WEIRD"]
+
+
+def test_refresh_invokes_on_progress_callback():
+    """Caller can pass on_progress to receive (done, total) updates per ticker."""
+    now = datetime.now(UTC)
+    cfgs = {"A": {"ticker": "A"}, "B": {"ticker": "B"}, "C": {"ticker": "C"}}
+    progress_calls = []
+
+    def cb(done, total):
+        progress_calls.append((done, total))
+
+    with patch.object(streamlit_app, "calculate_multi_lens_valuation_remote") as mock_calc, \
+         patch.object(streamlit_app, "save_config"):
+        mock_calc.return_value = {"calculated_at": now.isoformat(), "weighted_fv_mid": 50.0}
+        result = streamlit_app._refresh_stale_valuations(
+            client=MagicMock(), cfgs=cfgs, user_id="u1", on_progress=cb
+        )
+
+    assert len(result["computed"]) == 3
+    # 3 progress callbacks, in some order — final one always reports (3, 3)
+    assert len(progress_calls) == 3
+    assert progress_calls[-1] == (3, 3)
+    # Each call's done value strictly increases
+    dones = [d for d, _ in progress_calls]
+    assert dones == sorted(dones)
+
+
+def test_render_lens_dots_empty_dict_is_active_not_inactive():
+    """Pin the data contract: an empty dict {} is an ACTIVE lens (not None),
+    even though {} is falsy. This guards against regressions if someone
+    changes the active-check from `is not None` to bare truthiness."""
+    lenses_with_empty = {"dcf": {}, "multiples": None, "reverse_dcf": None, "dividend": None}
+    html = streamlit_app._render_lens_dots(lenses_with_empty, theme={"text_muted": "#888"})
+    # {} is active → 1 ld-on (not 0)
+    assert html.count('class="ld-on"') == 1, \
+        "Empty dict {} should be treated as active lens (not None semantics)"
+    assert "DCF only" in html

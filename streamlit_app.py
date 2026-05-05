@@ -220,7 +220,8 @@ def calculate_multi_lens_valuation_remote(cfg: dict) -> dict:
 
 
 def _refresh_stale_valuations(client, cfgs: dict, user_id: str | None = None,
-                               force: bool = False, max_workers: int = 6) -> dict:
+                               force: bool = False, max_workers: int = 6,
+                               on_progress=None) -> dict:
     """Run the multi-lens orchestrator across stale tickers in parallel.
 
     Stale = no valuation_summary OR calculated_at older than 7 days OR unparseable.
@@ -273,6 +274,11 @@ def _refresh_stale_valuations(client, cfgs: dict, user_id: str | None = None,
             except Exception as e:
                 logger.warning("Refresh failed for %s: %s", ticker, e)
                 errors.append(f"{ticker}: {e}")
+            if on_progress is not None:
+                try:
+                    on_progress(len(computed) + len(errors), len(targets))
+                except Exception as cb_err:
+                    logger.debug("on_progress callback raised (ignored): %s", cb_err)
 
     return {"computed": computed, "errors": errors, "skipped": skipped}
 
@@ -3612,9 +3618,15 @@ def _watchlist_overview():
         else:
             _force = st.session_state.pop("_wl_force_refresh", False)
             _bar = st.progress(0.0, text="Computing valuations...")
+
+            def _on_refresh_progress(done, total):
+                _bar.progress(done / total if total else 1.0,
+                              text=f"Computing {done}/{total}...")
+
             _result = _refresh_stale_valuations(
                 _sb_client, _refresh_cfgs,
                 user_id=st.session_state["user"]["id"], force=_force,
+                on_progress=_on_refresh_progress,
             )
             _bar.empty()
             _total = len(_refresh_cfgs)
