@@ -330,6 +330,10 @@ def _refresh_stale_valuations(client, cfgs: dict, user_id: str | None = None,
     def _refresh_one(ticker):
         cfg = dict(cfgs[ticker])
         cfg.setdefault("ticker", ticker)
+        # Auto-fetch market inputs and peer multiples before computing the summary.
+        # Both helpers are best-effort: yfinance failures don't block the orchestrator.
+        _auto_fill_valuation_inputs(cfg)
+        _auto_fill_peer_market_data(cfg)
         summary = calculate_multi_lens_valuation_remote(cfg)
         cfg["valuation_summary"] = summary
         save_config(client, ticker, cfg, user_id=user_id)

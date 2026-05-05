@@ -278,3 +278,68 @@ def test_auto_fill_peer_skips_invalid_entries():
     assert cfg["peers"][0] == "not a dict"
     assert "fwd_pe" not in cfg["peers"][1]
     assert cfg["peers"][2]["fwd_pe"] == 30.5
+
+
+def test_refresh_one_calls_auto_fill_before_orchestrator():
+    """End-to-end: refresh on a stale ticker fills market data, then runs orchestrator."""
+    cfg_in = {
+        "ticker": "ABT",
+        "company": "Abbott",
+        "stock_price": 88.0,
+        "equity_market_value": 152_000,
+        "debt_market_value": 60_000,
+        "risk_free_rate": 0.04,
+        "erp": 0.05,
+        "credit_spread": 0.01,
+        "tax_rate": 0.21,
+        "sector_betas": [("Healthcare", 0.9, 1.0)],
+        "base_revenue": 41_000,
+        "revenue_growth": [0.04] * 5,
+        "op_margins": [0.20] * 5,
+        "terminal_growth": 0.025,
+        "terminal_margin": 0.18,
+        "sales_to_capital": 1.5,
+        "sbc_pct": 0.02,
+        "shares_outstanding": 1_750,
+        "buyback_rate": 0.0,
+        "margin_of_safety": 0.20,
+        "cash_bridge": 8_000,
+        "securities": 0,
+        "bull_growth_adj": 0.02,
+        "bear_growth_adj": -0.04,
+        "bull_margin_adj": 0.02,
+        "bear_margin_adj": -0.02,
+        "peers": [
+            {"ticker": "JNJ", "ev_ebitda": 99.9, "pe": 18.0,
+             "op_margin": 0.25, "rev_growth": 0.03, "roic": 0.20},
+        ],
+    }
+    storage = {"ABT": cfg_in}
+    info = make_yf_info(
+        forwardEps=5.48, trailingEbitda=11_800_000_000,
+        forwardPE=22.0, enterpriseValue=420_000_000_000,
+    )
+
+    fake_save_called_with = []
+
+    def fake_save(client, ticker, cfg, user_id=None):
+        fake_save_called_with.append((ticker, dict(cfg)))
+
+    with patch_yfinance_info(info), \
+         patch.object(streamlit_app, "save_config", side_effect=fake_save):
+        result = streamlit_app._refresh_stale_valuations(
+            client=MagicMock(), cfgs=storage, user_id="u1", force=True,
+        )
+
+    assert "ABT" in result["computed"]
+    saved_ticker, saved_cfg = fake_save_called_with[0]
+    assert saved_ticker == "ABT"
+    # Auto-fill set valuation_inputs
+    assert saved_cfg["valuation_inputs"]["forward_eps"] == 5.48
+    assert saved_cfg["valuation_inputs"]["ttm_ebitda"] == 11800.0
+    # Auto-fill enriched the peer
+    peer = saved_cfg["peers"][0]
+    assert peer["fwd_pe"] == 22.0
+    # Orchestrator ran (summary present)
+    assert "valuation_summary" in saved_cfg
+    assert saved_cfg["valuation_summary"]["weighted_fv_mid"] > 0
