@@ -494,3 +494,23 @@ def test_round_trip_calculate_and_persist(monkeypatch):
     test_row = next(r for r in listed if r["ticker"] == "TEST")
     assert test_row["fv_mid"] == expected_mid
     assert test_row["lens_count"] >= 1
+
+
+def test_calculate_valuation_impl_shape_unchanged():
+    """Acceptance #5: existing single-DCF calculate_valuation() output
+    keys/shape unchanged by this change."""
+    import json as _json
+    import mcp_server
+
+    cfg = make_cfg()
+    out = _json.loads(mcp_server._calculate_valuation_impl(cfg))
+    expected_keys = {
+        "wacc", "intrinsic_value", "buy_price", "enterprise_value",
+        "equity_value", "tv_pct", "implied_growth", "implied_margin",
+        "market_price", "valuation_basis",
+    }
+    # closest_growth/margin are added when reverse closest is found — optional
+    assert expected_keys.issubset(set(out.keys()))
+    assert isinstance(out["wacc"], float)
+    assert isinstance(out["intrinsic_value"], float)
+    assert out["valuation_basis"] == "nominal"
