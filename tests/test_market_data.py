@@ -194,3 +194,26 @@ def test_auto_fill_inputs_overwrites_previous_auto_value():
         streamlit_app._auto_fill_valuation_inputs(cfg)
 
     assert cfg["valuation_inputs"]["forward_eps"] == 5.55
+
+
+def test_auto_fill_inputs_doesnt_overwrite_with_none():
+    """Existing auto-filled value preserved when yfinance returns None."""
+    cfg = {
+        "ticker": "ABT",
+        "valuation_inputs": {
+            "forward_eps": 5.48,
+            "_auto_filled": ["forward_eps"],
+        },
+    }
+    # yfinance returns nothing (e.g. error path or empty info)
+    with patch_yfinance_info({}):
+        streamlit_app._auto_fill_valuation_inputs(cfg)
+    assert cfg["valuation_inputs"]["forward_eps"] == 5.48
+
+
+def test_auto_fill_inputs_fetched_at_always_set():
+    """_fetched_at is updated even when no fields wrote."""
+    cfg = {"ticker": "ABT", "valuation_inputs": {}}
+    with patch_yfinance_info({}):
+        streamlit_app._auto_fill_valuation_inputs(cfg)
+    assert "_fetched_at" in cfg["valuation_inputs"]
