@@ -65,6 +65,31 @@ def sanitize_ticker(raw: str) -> str | None:
     return None
 
 
+def _format_relative_time(iso_or_none: str | None) -> str:
+    """Convert an ISO-8601 UTC string to "3 days ago" / "just now" / "never"."""
+    if not iso_or_none:
+        return "never"
+    from datetime import datetime, UTC
+    try:
+        ts = datetime.fromisoformat(iso_or_none.replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+    except (ValueError, AttributeError):
+        return "unknown"
+    delta = datetime.now(UTC) - ts
+    secs = int(delta.total_seconds())
+    if secs < 60:
+        return "just now"
+    if secs < 3600:
+        m = secs // 60
+        return f"{m} minute{'s' if m != 1 else ''} ago"
+    if secs < 86400:
+        h = secs // 3600
+        return f"{h} hour{'s' if h != 1 else ''} ago"
+    d = secs // 86400
+    return f"{d} day{'s' if d != 1 else ''} ago"
+
+
 # ── AI provider helpers (Groq primary, Gemini Flash fallback) ──
 def _secret_or_env(name: str) -> str | None:
     try:
