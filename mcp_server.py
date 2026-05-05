@@ -344,7 +344,7 @@ def calculate_multi_lens_valuation(ticker: str, scenario_grid: bool = False) -> 
     Args:
         ticker: Stock ticker symbol (e.g. "ABT")
         scenario_grid: If True, run a 4x4 bull/bear DCF scenario grid for
-            the DCF lens fv_low/fv_high. Default False uses ±15%% bands
+            the DCF lens fv_low/fv_high. Default False uses ±15% bands
             around the base intrinsic.
 
     Returns:
