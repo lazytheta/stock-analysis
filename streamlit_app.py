@@ -3569,7 +3569,13 @@ def _watchlist_overview():
                 val = compute_intrinsic_value(cfg_wl)
                 _wl_intrinsic = val['intrinsic_value']
                 _wl_buy = val['buy_price']
-            upside = (_wl_intrinsic / live_price - 1) if live_price > 0 else 0
+            # Multi-lens summary (Phase 1) preferred over single-DCF intrinsic
+            summary = cfg_wl.get('valuation_summary')
+            if summary and summary.get('weighted_fv_mid') and live_price > 0:
+                upside = summary['weighted_fv_mid'] / live_price - 1
+                _wl_buy = summary.get('buy_price', _wl_buy)
+            else:
+                upside = (_wl_intrinsic / live_price - 1) if live_price > 0 else 0
             ni = cfg_wl.get('hist_net_income', [])
             sh = cfg_wl.get('shares_outstanding', 0)
             eps = ni[-1] / sh if ni and sh else 0
@@ -3601,6 +3607,7 @@ def _watchlist_overview():
             'upside': upside,
             'pe': pe,
             'fcf_yield': fcf_yield_val,
+            'valuation_summary': cfg_wl.get('valuation_summary'),
         })
 
     rows.sort(key=lambda r: r['upside'], reverse=True)
