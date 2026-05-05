@@ -1,5 +1,6 @@
 """Tests for Phase 2-A watchlist UI helpers."""
 from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock, patch
 
 import pytest  # noqa: F401
 
@@ -179,3 +180,77 @@ def test_render_fv_cell_marker_past_high_red_tinted():
     assert "left:99%" in html.replace(" ", "")  # marker clamped to 99
     # red tint applied — implementation uses inline color override or extra class
     assert "#d96a5a" in html or "past-high" in html
+
+
+def test_refresh_filters_to_stale_only():
+    """Configs without summary OR with summary > 7 days old are stale; fresh ones are skipped."""
+    now = datetime.now(UTC)
+    cfgs = {
+        "FRESH": {"valuation_summary": {"calculated_at": now.isoformat(),
+                                          "weighted_fv_mid": 50.0}},
+        "OLD": {"valuation_summary": {"calculated_at": (now - timedelta(days=10)).isoformat(),
+                                        "weighted_fv_mid": 50.0}},
+        "EMPTY": {},
+    }
+
+    with patch.object(streamlit_app, "calculate_multi_lens_valuation_remote") as mock_calc, \
+         patch.object(streamlit_app, "save_config") as mock_save:
+        mock_calc.return_value = {"calculated_at": now.isoformat(), "weighted_fv_mid": 99.0}
+        result = streamlit_app._refresh_stale_valuations(
+            client=MagicMock(), cfgs=cfgs, user_id="u1", force=False
+        )
+    assert set(result["computed"]) == {"OLD", "EMPTY"}
+    assert result["skipped"] == ["FRESH"]
+    assert result["errors"] == []
+
+
+def test_refresh_force_includes_fresh():
+    now = datetime.now(UTC)
+    cfgs = {
+        "FRESH": {"valuation_summary": {"calculated_at": now.isoformat(),
+                                          "weighted_fv_mid": 50.0}},
+    }
+    with patch.object(streamlit_app, "calculate_multi_lens_valuation_remote") as mock_calc, \
+         patch.object(streamlit_app, "save_config") as mock_save:
+        mock_calc.return_value = {"calculated_at": now.isoformat(), "weighted_fv_mid": 99.0}
+        result = streamlit_app._refresh_stale_valuations(
+            client=MagicMock(), cfgs=cfgs, user_id="u1", force=True
+        )
+    assert result["computed"] == ["FRESH"]
+    assert result["skipped"] == []
+
+
+def test_refresh_one_ticker_error_others_succeed():
+    now = datetime.now(UTC)
+    cfgs = {"GOOD": {}, "BAD": {}}
+
+    def fake_calc(cfg):
+        if cfg.get("ticker") == "BAD":
+            raise ValueError("boom")
+        return {"calculated_at": now.isoformat(), "weighted_fv_mid": 50.0}
+
+    with patch.object(streamlit_app, "calculate_multi_lens_valuation_remote", side_effect=fake_calc), \
+         patch.object(streamlit_app, "save_config"):
+        # Ensure cfgs have ticker so the side_effect can branch
+        cfgs["GOOD"]["ticker"] = "GOOD"
+        cfgs["BAD"]["ticker"] = "BAD"
+        result = streamlit_app._refresh_stale_valuations(
+            client=MagicMock(), cfgs=cfgs, user_id="u1"
+        )
+    assert "GOOD" in result["computed"]
+    assert any("BAD" in e for e in result["errors"])
+
+
+def test_refresh_unparseable_calculated_at_treated_as_stale():
+    cfgs = {
+        "WEIRD": {"valuation_summary": {"calculated_at": "garbage",
+                                          "weighted_fv_mid": 50.0}},
+    }
+    with patch.object(streamlit_app, "calculate_multi_lens_valuation_remote") as mock_calc, \
+         patch.object(streamlit_app, "save_config"):
+        mock_calc.return_value = {"calculated_at": datetime.now(UTC).isoformat(),
+                                  "weighted_fv_mid": 99.0}
+        result = streamlit_app._refresh_stale_valuations(
+            client=MagicMock(), cfgs=cfgs, user_id="u1"
+        )
+    assert result["computed"] == ["WEIRD"]

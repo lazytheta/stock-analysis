@@ -212,6 +212,71 @@ def _render_fv_cell(price: float, summary: dict | None,
     return f'<span style="color:{muted}">—</span>'
 
 
+def calculate_multi_lens_valuation_remote(cfg: dict) -> dict:
+    """Thin wrapper so tests can monkey-patch this name without touching
+    the pure orchestrator."""
+    import valuation_lenses
+    return valuation_lenses.calculate_multi_lens_valuation(cfg, scenario_grid=False)
+
+
+def _refresh_stale_valuations(client, cfgs: dict, user_id: str | None = None,
+                               force: bool = False, max_workers: int = 6) -> dict:
+    """Run the multi-lens orchestrator across stale tickers in parallel.
+
+    Stale = no valuation_summary OR calculated_at older than 7 days OR unparseable.
+    Returns {"computed": [...], "errors": [...], "skipped": [...]}.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from datetime import UTC, datetime, timedelta
+
+    threshold = datetime.now(UTC) - timedelta(days=7)
+
+    def _is_stale(cfg):
+        s = cfg.get("valuation_summary") if isinstance(cfg, dict) else None
+        if not s:
+            return True
+        ts_str = s.get("calculated_at")
+        if not ts_str:
+            return True
+        try:
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+        except (ValueError, AttributeError):
+            return True
+        return ts < threshold
+
+    targets = list(cfgs.keys()) if force else [t for t, c in cfgs.items() if _is_stale(c)]
+    skipped = [t for t in cfgs if t not in targets]
+
+    computed = []
+    errors = []
+
+    def _refresh_one(ticker):
+        cfg = dict(cfgs[ticker])
+        cfg.setdefault("ticker", ticker)
+        summary = calculate_multi_lens_valuation_remote(cfg)
+        cfg["valuation_summary"] = summary
+        save_config(client, ticker, cfg, user_id=user_id)
+        return ticker
+
+    if not targets:
+        return {"computed": computed, "errors": errors, "skipped": skipped}
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_refresh_one, t): t for t in targets}
+        for future in as_completed(futures):
+            ticker = futures[future]
+            try:
+                future.result()
+                computed.append(ticker)
+            except Exception as e:
+                logger.warning("Refresh failed for %s: %s", ticker, e)
+                errors.append(f"{ticker}: {e}")
+
+    return {"computed": computed, "errors": errors, "skipped": skipped}
+
+
 # ── AI provider helpers (Groq primary, Gemini Flash fallback) ──
 def _secret_or_env(name: str) -> str | None:
     try:
