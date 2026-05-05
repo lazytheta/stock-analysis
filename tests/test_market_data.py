@@ -113,3 +113,34 @@ def test_enrich_peer_no_ticker_returns_unchanged_copy():
     out = gather_data.enrich_peer_with_market_data(peer)
     assert out == peer
     assert out is not peer  # is a copy
+
+
+def test_enrich_peer_only_fwd_pe_available():
+    """Only forwardPE available → fwd_pe added, ev_ebitda left unchanged."""
+    peer = {"ticker": "X", "ev_ebitda": 99.9}
+    info = make_yf_info(forwardPE=22.0, enterpriseValue=None, trailingEbitda=None)
+    with patch_yfinance_info(info):
+        out = gather_data.enrich_peer_with_market_data(peer)
+    assert out["fwd_pe"] == 22.0
+    assert out["ev_ebitda"] == 99.9
+
+
+def test_enrich_peer_yfinance_error_returns_unchanged():
+    """yfinance raises → original peer fields preserved."""
+    peer = {"ticker": "X", "ev_ebitda": 99.9, "pe": 20.0}
+    fake_yf = MagicMock()
+    fake_yf.Ticker = MagicMock(side_effect=Exception("boom"))
+    with patch.dict("sys.modules", {"yfinance": fake_yf}):
+        out = gather_data.enrich_peer_with_market_data(peer)
+    assert out == peer
+    assert "fwd_pe" not in out
+
+
+def test_enrich_peer_zero_ev_skipped():
+    """EV is 0 (anomaly) → don't compute a junk multiple."""
+    peer = {"ticker": "X", "ev_ebitda": 99.9}
+    info = make_yf_info(forwardPE=22.0, enterpriseValue=0, trailingEbitda=10_000_000_000)
+    with patch_yfinance_info(info):
+        out = gather_data.enrich_peer_with_market_data(peer)
+    assert out["fwd_pe"] == 22.0
+    assert out["ev_ebitda"] == 99.9  # unchanged
