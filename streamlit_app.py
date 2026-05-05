@@ -110,6 +110,45 @@ def _range_bar_marker_position(price: float, low: float, high: float) -> tuple[f
     return raw, False
 
 
+def _render_lens_dots(lenses: dict, theme: dict) -> str:
+    """Render the 3-dot lens indicator + summary label.
+
+    Three dots in order: DCF · Multiples · Reverse DCF.
+    Filled green when active (lens dict is truthy), grey when None/missing.
+    Label after the dots: '3 lenses', 'DCF + reverse', 'DCF only', 'no lenses'.
+    """
+    order = ["dcf", "multiples", "reverse_dcf"]
+    actives = [name for name in order if lenses.get(name) is not None]
+    parts = []
+    for name in order:
+        cls = "ld-on" if lenses.get(name) is not None else "ld-off"
+        parts.append(f'<span class="{cls}"></span>')
+
+    if not actives:
+        label = "no lenses"
+    elif len(actives) == 3:
+        label = "3 lenses"
+    elif actives == ["dcf"]:
+        label = "DCF only"
+    elif actives == ["dcf", "reverse_dcf"]:
+        label = "DCF + reverse"
+    elif actives == ["multiples"]:
+        label = "multiples only"
+    elif actives == ["multiples", "reverse_dcf"]:
+        label = "multiples + reverse"
+    elif actives == ["reverse_dcf"]:
+        label = "reverse only"
+    else:
+        # any remaining 2-active combo, e.g. ["dcf", "multiples"]
+        label = " + ".join(a.replace("_", " ") for a in actives)
+
+    color = theme.get("text_muted", "#888")
+    return (
+        f'<div style="font-size:0.7rem;color:{color};margin-top:1px">'
+        f'{"".join(parts)} {label}</div>'
+    )
+
+
 # ── AI provider helpers (Groq primary, Gemini Flash fallback) ──
 def _secret_or_env(name: str) -> str | None:
     try:

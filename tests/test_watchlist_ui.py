@@ -93,3 +93,35 @@ def test_range_bar_marker_invalid_inputs_return_50():
     assert pct == 50.0
     pct, _ = streamlit_app._range_bar_marker_position(80, 0, 100)
     assert pct == 50.0
+
+
+def test_render_lens_dots_all_active():
+    lenses = {"dcf": {}, "multiples": {}, "reverse_dcf": {}, "dividend": None}
+    html = streamlit_app._render_lens_dots(lenses, theme={"text_muted": "#888"})
+    # Three filled dots
+    assert html.count('class="ld-on"') == 3
+    assert 'class="ld-off"' not in html
+    assert "3 lenses" in html
+
+
+def test_render_lens_dots_dcf_only():
+    lenses = {"dcf": {}, "multiples": None, "reverse_dcf": None, "dividend": None}
+    html = streamlit_app._render_lens_dots(lenses, theme={"text_muted": "#888"})
+    assert html.count('class="ld-on"') == 1
+    assert html.count('class="ld-off"') == 2
+    assert "DCF only" in html
+
+
+def test_render_lens_dots_dcf_plus_reverse():
+    lenses = {"dcf": {}, "multiples": None, "reverse_dcf": {}, "dividend": None}
+    html = streamlit_app._render_lens_dots(lenses, theme={"text_muted": "#888"})
+    assert html.count('class="ld-on"') == 2
+    assert "DCF + reverse" in html
+
+
+def test_render_lens_dots_empty_dict():
+    """No lenses at all → 'no lenses' label, all grey."""
+    html = streamlit_app._render_lens_dots({}, theme={"text_muted": "#888"})
+    assert 'class="ld-on"' not in html
+    assert html.count('class="ld-off"') == 3
+    assert "no lenses" in html
