@@ -3617,8 +3617,8 @@ def _watchlist_overview():
     _cat_icons = {"Yes": "✅", "Maybe": "🤔", "Watch Later": "⏳", "No": "❌", "Uncategorized": ""}
 
     def _render_wl_header():
-        hdr = st.columns([0.3, 1.0, 1.6, 0.8, 0.8, 0.8, 0.7, 0.6, 0.7, 0.7, 0.3])
-        _wl_hdr = ["", "Ticker", "Company", "Price", "Intrinsic", "Buy Price", "Upside", "P/E", "FCF Yield", "Earnings", ""]
+        hdr = st.columns([0.3, 1.0, 1.6, 0.8, 1.5, 0.8, 0.7, 0.6, 0.7, 0.7, 0.3])
+        _wl_hdr = ["", "Ticker", "Company", "Price", "Fair Value", "Buy", "Upside", "P/E", "FCF Yield", "Earnings", ""]
         for col, label in zip(hdr, _wl_hdr):
             if label:
                 col.markdown(f"**{label}**")
@@ -3626,7 +3626,7 @@ def _watchlist_overview():
     def _render_wl_row(row):
         t = row['ticker']
         up_color = "green" if row['upside'] > 0 else "red"
-        cols = st.columns([0.3, 1.0, 1.6, 0.8, 0.8, 0.8, 0.7, 0.6, 0.7, 0.7, 0.3], vertical_alignment="center")
+        cols = st.columns([0.3, 1.0, 1.6, 0.8, 1.5, 0.8, 0.7, 0.6, 0.7, 0.7, 0.3], vertical_alignment="center")
         with cols[0]:
             if st.button("", key=f"wl_edit_{t}", icon=":material/edit:"):
                 st.query_params["edit"] = t
@@ -3646,7 +3646,15 @@ def _watchlist_overview():
         else:
             cols[2].markdown(row['company'])
         cols[3].markdown(f"${row['price']:.2f}")
-        cols[4].markdown(f"${row['intrinsic']:.2f}")
+        cols[4].markdown(
+            _render_fv_cell(
+                price=row['price'],
+                summary=row.get('valuation_summary'),
+                legacy_intrinsic=row.get('intrinsic'),
+                theme=T,
+            ),
+            unsafe_allow_html=True,
+        )
         cols[5].markdown(f"${row['buy_price']:.2f}")
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
         cols[7].markdown(f"{row['pe']:.1f}x" if row['pe'] else "—")
@@ -3689,6 +3697,22 @@ def _watchlist_overview():
 
     # Hero-card style per category
     _cat_keys = {_cat: f"wl_cat_{i}" for i, _cat in enumerate(_categories)}
+    st.markdown(
+        f'''<style>
+        .ld-on {{
+            display:inline-block;width:6px;height:6px;border-radius:50%;
+            background:{T["accent"]};margin-right:2px;
+        }}
+        .ld-off {{
+            display:inline-block;width:6px;height:6px;border-radius:50%;
+            background:{T["border_medium"]};margin-right:2px;
+        }}
+        .range-bar {{
+            min-width:110px;
+        }}
+        </style>''',
+        unsafe_allow_html=True,
+    )
     _active_cats = [c for c in _categories if _grouped[c]]
     st.markdown(
         '<style>'
