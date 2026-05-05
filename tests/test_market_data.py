@@ -217,3 +217,64 @@ def test_auto_fill_inputs_fetched_at_always_set():
     with patch_yfinance_info({}):
         streamlit_app._auto_fill_valuation_inputs(cfg)
     assert "_fetched_at" in cfg["valuation_inputs"]
+
+
+def test_auto_fill_peer_populates_empty():
+    """All peer fields auto-filled, _auto_filled lists tracked per peer."""
+    cfg = {
+        "ticker": "ABT",
+        "peers": [
+            {"ticker": "AAPL", "name": "Apple", "ev_ebitda": 99.9, "pe": 33.5},
+        ],
+    }
+    info = make_yf_info(forwardPE=30.5, enterpriseValue=3_500_000_000_000,
+                        trailingEbitda=145_000_000_000)
+    with patch_yfinance_info(info):
+        streamlit_app._auto_fill_peer_market_data(cfg)
+
+    peer = cfg["peers"][0]
+    assert peer["fwd_pe"] == 30.5
+    assert peer["ev_ebitda"] == pytest.approx(24.1, rel=1e-3)
+    assert set(peer["_auto_filled"]) == {"fwd_pe", "ev_ebitda"}
+    assert "_fetched_at" in peer
+
+
+def test_auto_fill_peer_respects_user_set_value():
+    """User-set fwd_pe (not in _auto_filled) → preserved."""
+    cfg = {
+        "ticker": "ABT",
+        "peers": [
+            {"ticker": "AAPL", "fwd_pe": 28.0, "ev_ebitda": 99.9},  # no _auto_filled
+        ],
+    }
+    info = make_yf_info(forwardPE=30.5, enterpriseValue=3_500_000_000_000,
+                        trailingEbitda=145_000_000_000)
+    with patch_yfinance_info(info):
+        streamlit_app._auto_fill_peer_market_data(cfg)
+
+    peer = cfg["peers"][0]
+    assert peer["fwd_pe"] == 28.0   # preserved
+    assert peer["ev_ebitda"] == pytest.approx(24.1, rel=1e-3)  # was overwritten
+    assert "ev_ebitda" in peer["_auto_filled"]
+    assert "fwd_pe" not in peer["_auto_filled"]
+
+
+def test_auto_fill_peer_skips_invalid_entries():
+    """Non-dict and ticker-less peers are skipped without raising."""
+    cfg = {
+        "ticker": "ABT",
+        "peers": [
+            "not a dict",                       # garbage
+            {"name": "no-ticker"},              # no ticker
+            {"ticker": "AAPL", "ev_ebitda": 99.9},
+        ],
+    }
+    info = make_yf_info(forwardPE=30.5, enterpriseValue=3_500_000_000_000,
+                        trailingEbitda=145_000_000_000)
+    with patch_yfinance_info(info):
+        streamlit_app._auto_fill_peer_market_data(cfg)
+
+    # only the valid peer is enriched
+    assert cfg["peers"][0] == "not a dict"
+    assert "fwd_pe" not in cfg["peers"][1]
+    assert cfg["peers"][2]["fwd_pe"] == 30.5
