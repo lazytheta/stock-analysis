@@ -1,7 +1,7 @@
 """Tests for multi-lens fair value (Phase 1)."""
-from unittest.mock import MagicMock  # noqa: F401 — used by later tasks in this file
+from unittest.mock import MagicMock
 
-import pytest  # noqa: F401 — used by later tasks in this file
+import pytest
 
 
 def make_cfg(**overrides):
@@ -182,3 +182,21 @@ def test_default_lens_weights():
 
 def test_dividend_lens_returns_none():
     assert valuation_lenses.compute_dividend_lens(make_cfg()) is None
+
+
+def test_dcf_lens_basic_returns_band_around_intrinsic():
+    cfg = make_cfg()
+    lens = valuation_lenses.compute_dcf_lens(cfg, scenario_grid=False)
+    base = lens["details"]["base_intrinsic"]
+    assert lens["fv_mid"] == pytest.approx(base, rel=1e-9)
+    assert lens["fv_low"] == pytest.approx(base * 0.85, rel=1e-9)
+    assert lens["fv_high"] == pytest.approx(base * 1.15, rel=1e-9)
+    assert lens["details"]["scenarios"] is None
+    assert lens["details"]["wacc"] > 0
+
+
+def test_dcf_lens_basic_intrinsic_positive_for_sample_cfg():
+    cfg = make_cfg()
+    lens = valuation_lenses.compute_dcf_lens(cfg)
+    assert lens["fv_mid"] > 0
+    assert lens["fv_low"] < lens["fv_mid"] < lens["fv_high"]

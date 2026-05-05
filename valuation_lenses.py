@@ -8,7 +8,7 @@ import logging
 import statistics  # noqa: F401 — used by Task 9 multiples lens
 from datetime import datetime, timezone  # noqa: F401 — used by Task 10 orchestrator
 
-import dcf_calculator  # noqa: F401 — used by Task 6 DCF lens
+import dcf_calculator
 
 logger = logging.getLogger(__name__)
 
@@ -29,3 +29,25 @@ def compute_dividend_lens(cfg):
     expected_dividend_growth.
     """
     return None
+
+
+def compute_dcf_lens(cfg, scenario_grid=False):
+    """DCF lens. Always returns a result — never None."""
+    wacc = dcf_calculator.compute_wacc(cfg)
+    base = dcf_calculator.compute_intrinsic_value(cfg, wacc=wacc)
+    base_intrinsic = base["intrinsic_value"]
+
+    if not scenario_grid:
+        return {
+            "fv_low": base_intrinsic * 0.85,
+            "fv_mid": base_intrinsic,
+            "fv_high": base_intrinsic * 1.15,
+            "details": {
+                "wacc": wacc,
+                "base_intrinsic": base_intrinsic,
+                "scenarios": None,
+            },
+        }
+
+    # Scenario grid path — implemented in next task
+    raise NotImplementedError("scenario_grid implemented in Task 7")
