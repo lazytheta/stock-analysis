@@ -37,3 +37,6 @@ docs/plans/
 
 # Watchlist configs — tracked so data survives deploys
 # configs/watchlist/
+
+# Brainstorm mockups (visual companion)
+.superpowers/
