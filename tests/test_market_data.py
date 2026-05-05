@@ -144,3 +144,53 @@ def test_enrich_peer_zero_ev_skipped():
         out = gather_data.enrich_peer_with_market_data(peer)
     assert out["fwd_pe"] == 22.0
     assert out["ev_ebitda"] == 99.9  # unchanged
+
+
+import streamlit_app
+
+
+def test_auto_fill_inputs_populates_empty():
+    """Empty valuation_inputs → both keys filled, both in _auto_filled."""
+    cfg = {"ticker": "ABT", "valuation_inputs": {}}
+    info = make_yf_info(forwardEps=5.48, trailingEbitda=11_800_000_000)
+    with patch_yfinance_info(info):
+        streamlit_app._auto_fill_valuation_inputs(cfg)
+
+    inputs = cfg["valuation_inputs"]
+    assert inputs["forward_eps"] == 5.48
+    assert inputs["ttm_ebitda"] == 11800.0
+    assert set(inputs["_auto_filled"]) == {"forward_eps", "ttm_ebitda"}
+    assert "_fetched_at" in inputs
+
+
+def test_auto_fill_inputs_respects_user_set_value():
+    """forward_eps set by user (not in _auto_filled) → not overwritten."""
+    cfg = {
+        "ticker": "ABT",
+        "valuation_inputs": {"forward_eps": 5.48},  # no _auto_filled key
+    }
+    info = make_yf_info(forwardEps=5.50, trailingEbitda=11_800_000_000)
+    with patch_yfinance_info(info):
+        streamlit_app._auto_fill_valuation_inputs(cfg)
+
+    inputs = cfg["valuation_inputs"]
+    assert inputs["forward_eps"] == 5.48                # preserved
+    assert inputs["ttm_ebitda"] == 11800.0              # newly filled
+    assert "ttm_ebitda" in inputs["_auto_filled"]
+    assert "forward_eps" not in inputs["_auto_filled"]  # user value, not auto
+
+
+def test_auto_fill_inputs_overwrites_previous_auto_value():
+    """forward_eps in _auto_filled list → overwritten with new yfinance value."""
+    cfg = {
+        "ticker": "ABT",
+        "valuation_inputs": {
+            "forward_eps": 5.40,
+            "_auto_filled": ["forward_eps"],
+        },
+    }
+    info = make_yf_info(forwardEps=5.55)
+    with patch_yfinance_info(info):
+        streamlit_app._auto_fill_valuation_inputs(cfg)
+
+    assert cfg["valuation_inputs"]["forward_eps"] == 5.55

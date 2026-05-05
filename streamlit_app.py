@@ -219,6 +219,37 @@ def calculate_multi_lens_valuation_remote(cfg: dict) -> dict:
     return valuation_lenses.calculate_multi_lens_valuation(cfg, scenario_grid=False)
 
 
+def _auto_fill_valuation_inputs(cfg: dict) -> None:
+    """Auto-fill valuation_inputs from yfinance, respecting user-set values.
+
+    Mutates cfg["valuation_inputs"] in place. Fields listed in `_auto_filled`
+    or absent are written; user-set fields (present, not in _auto_filled) are
+    preserved. Updates `_fetched_at` ISO timestamp.
+    """
+    from datetime import UTC, datetime
+
+    import gather_data
+
+    inputs = cfg.setdefault("valuation_inputs", {})
+    auto_filled = list(inputs.get("_auto_filled", []))
+    fetched = gather_data.fetch_market_inputs(cfg.get("ticker", ""))
+
+    for key, value in fetched.items():
+        existing = inputs.get(key)
+        if existing is None or key in auto_filled:
+            inputs[key] = value
+            if key not in auto_filled:
+                auto_filled.append(key)
+        else:
+            logger.info(
+                "Auto-fill skipped for %s.%s: user-set value preserved",
+                cfg.get("ticker", "?"), key,
+            )
+
+    inputs["_auto_filled"] = auto_filled
+    inputs["_fetched_at"] = datetime.now(UTC).isoformat()
+
+
 def _refresh_stale_valuations(client, cfgs: dict, user_id: str | None = None,
                                force: bool = False, max_workers: int = 6,
                                on_progress=None) -> dict:
