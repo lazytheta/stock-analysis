@@ -108,3 +108,12 @@ def test_parse_scorecard_no_section_returns_nones():
 
 def test_parse_scorecard_section_unparseable_returns_nones():
     assert parse_scorecard({"Scorecard": "not json"}) == {"verdict": None, "phase": None}
+
+
+def test_parse_scorecard_compact_phase():
+    """Plain-int and string-digit `phase` values should be extracted, not silently dropped."""
+    int_form = {"Scorecard": '```json\n{"verdict":"pass","phase":3}\n```'}
+    assert parse_scorecard(int_form) == {"verdict": "pass", "phase": 3}
+
+    str_form = {"Scorecard": '```json\n{"verdict":"pass","phase":"4"}\n```'}
+    assert parse_scorecard(str_form) == {"verdict": "pass", "phase": 4}

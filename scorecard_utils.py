@@ -72,13 +72,20 @@ def parse_scorecard(ai_notes: dict | None) -> dict:
     if not isinstance(verdict, str):
         verdict = None
 
-    phase_obj = parsed.get("phase") or {}
+    phase_raw = parsed.get("phase")
     phase_num = None
-    if isinstance(phase_obj, dict):
-        n = phase_obj.get("number")
+    if isinstance(phase_raw, int):
+        # compact form: {"phase": 3}
+        phase_num = phase_raw
+    elif isinstance(phase_raw, dict):
+        # canonical form: {"phase": {"number": 3, ...}}
+        n = phase_raw.get("number")
         if isinstance(n, int):
             phase_num = n
         elif isinstance(n, str) and n.isdigit():
             phase_num = int(n)
+    elif isinstance(phase_raw, str) and phase_raw.isdigit():
+        # very compact: {"phase": "3"}
+        phase_num = int(phase_raw)
 
     return {"verdict": verdict, "phase": phase_num}
