@@ -233,3 +233,64 @@ def test_reverse_dcf_lens_anchors_at_stock_price():
     assert "implied_growth" in lens["details"]
     assert "implied_margin" in lens["details"]
     assert isinstance(lens["details"]["implied_growth"], float)
+
+
+def test_multiples_lens_returns_none_when_no_inputs():
+    cfg = make_cfg()  # no valuation_inputs, empty peers
+    assert valuation_lenses.compute_multiples_lens(cfg) is None
+
+
+def test_multiples_lens_own_pe_only():
+    cfg = make_cfg(
+        valuation_inputs={"forward_eps": 5.0, "historical_fwd_pe": 20.0},
+    )
+    lens = valuation_lenses.compute_multiples_lens(cfg)
+    assert lens is not None
+    # Only own_pe anchor (5.0 * 20.0 = 100.0); no peer/ev_ebitda data
+    assert lens["fv_mid"] == pytest.approx(100.0)
+    assert lens["fv_low"] == pytest.approx(100.0)
+    assert lens["fv_high"] == pytest.approx(100.0)
+    assert lens["details"]["fwd_pe_own"] == pytest.approx(100.0)
+    assert lens["details"]["fwd_pe_peer_median"] is None
+    assert lens["details"]["ev_ebitda_peer_median"] is None
+    assert any("fwd_pe_peer" in s for s in lens["details"]["skipped"])
+    assert any("ev_ebitda_peer" in s for s in lens["details"]["skipped"])
+
+
+def test_multiples_lens_peer_pe_and_ev_ebitda():
+    peers = [
+        make_peer(ticker="P1", fwd_pe=18.0, ev_ebitda=10.0,
+                  op_margin=0.18, rev_growth=0.04),
+        make_peer(ticker="P2", fwd_pe=20.0, ev_ebitda=12.0,
+                  op_margin=0.20, rev_growth=0.05),
+        make_peer(ticker="P3", fwd_pe=22.0, ev_ebitda=14.0,
+                  op_margin=0.22, rev_growth=0.06),
+    ]
+    cfg = make_cfg(
+        peers=peers,
+        valuation_inputs=dict(SAMPLE_VALUATION_INPUTS),
+    )
+    lens = valuation_lenses.compute_multiples_lens(cfg)
+    assert lens is not None
+    # Median fwd_pe = 20.0, median ev_ebitda = 12.0, forward_eps=5.0
+    expected_pe_median = 20.0 * 5.0  # = 100
+    expected_ev_median = (12.0 * 12_000.0 - (10_000 - 5_000 - 0)) / 1_000  # = (144000-5000)/1000 = 139
+    assert lens["details"]["fwd_pe_peer_median"] == pytest.approx(expected_pe_median)
+    assert lens["details"]["ev_ebitda_peer_median"] == pytest.approx(expected_ev_median)
+    # closest_peer must be one of the peer tickers
+    assert lens["details"]["closest_peer"] in {"P1", "P2", "P3"}
+    # fv range spans all anchors
+    assert lens["fv_low"] < lens["fv_high"]
+    assert lens["fv_low"] <= lens["fv_mid"] <= lens["fv_high"]
+
+
+def test_multiples_lens_partial_inputs_skips_components():
+    cfg = make_cfg(
+        peers=[make_peer(fwd_pe=None, ev_ebitda=12.0)],
+        valuation_inputs={"ttm_ebitda": 12_000.0},  # only ev/ebitda usable
+    )
+    lens = valuation_lenses.compute_multiples_lens(cfg)
+    assert lens is not None
+    assert lens["details"]["fwd_pe_own"] is None
+    assert lens["details"]["fwd_pe_peer_median"] is None
+    assert lens["details"]["ev_ebitda_peer_median"] is not None

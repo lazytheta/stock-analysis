@@ -5,7 +5,7 @@ No Supabase, no network, no streamlit imports — fully testable.
 """
 
 import logging
-import statistics  # noqa: F401 — used by Task 9 multiples lens
+import statistics
 from datetime import datetime, timezone  # noqa: F401 — used by Task 10 orchestrator
 
 import dcf_calculator
@@ -111,4 +111,111 @@ def compute_reverse_dcf_lens(cfg):
             "implied_growth": reverse["implied_growth"],
             "implied_margin": reverse["implied_margin"],
         },
+    }
+
+
+def _closest_peer_ticker(peers, target_op_margin, target_rev_growth):
+    """Return the ticker of the peer with smallest weighted Euclidean
+    distance on (op_margin, rev_growth). Informational only.
+    """
+    best_ticker, best_score = None, float("inf")
+    for p in peers:
+        om = p.get("op_margin")
+        rg = p.get("rev_growth")
+        if om is None or rg is None:
+            continue
+        score = (om - target_op_margin) ** 2 + (rg - target_rev_growth) ** 2
+        if score < best_score:
+            best_score = score
+            best_ticker = p.get("ticker")
+    return best_ticker
+
+
+def compute_multiples_lens(cfg):
+    """Trading-multiples lens with three independent sub-anchors:
+
+    A) own historical forward P/E x forward_eps
+    B) peer-set forward P/E (median, min, max) x forward_eps
+    C) peer-set EV/EBITDA (median, min, max) x ttm_ebitda - net_debt -> /shares
+
+    Sub-anchors silently skipped when their inputs are missing. Lens fully
+    returns None when all three skip.
+    """
+    inputs = cfg.get("valuation_inputs") or {}
+    peers = cfg.get("peers") or []
+
+    fv_anchors = []
+    details = {
+        "fwd_pe_own": None,
+        "fwd_pe_peer_median": None,
+        "ev_ebitda_peer_median": None,
+        "closest_peer": None,
+        "skipped": [],
+    }
+
+    forward_eps = inputs.get("forward_eps")
+    historical_fwd_pe = inputs.get("historical_fwd_pe")
+    ttm_ebitda = inputs.get("ttm_ebitda")
+
+    # A) own historical forward P/E
+    if forward_eps and historical_fwd_pe:
+        own_fv = historical_fwd_pe * forward_eps
+        fv_anchors.append(own_fv)
+        details["fwd_pe_own"] = own_fv
+    else:
+        reason = "fwd_pe_own (forward_eps or historical_fwd_pe missing)"
+        details["skipped"].append(reason)
+        logger.info("Multiples lens: skipping %s", reason)
+
+    # B) peer fwd P/E
+    peer_fwd_pes = [p["fwd_pe"] for p in peers if p.get("fwd_pe")]
+    if peer_fwd_pes and forward_eps:
+        median_pe = statistics.median(peer_fwd_pes)
+        fv_low_p = min(peer_fwd_pes) * forward_eps
+        fv_mid_p = median_pe * forward_eps
+        fv_high_p = max(peer_fwd_pes) * forward_eps
+        fv_anchors.extend([fv_low_p, fv_mid_p, fv_high_p])
+        details["fwd_pe_peer_median"] = fv_mid_p
+        # informational closest peer
+        avg_growth = sum(cfg.get("revenue_growth", [0.0])) / max(
+            len(cfg.get("revenue_growth", [0.0])), 1
+        )
+        avg_margin = sum(cfg.get("op_margins", [0.0])) / max(
+            len(cfg.get("op_margins", [0.0])), 1
+        )
+        details["closest_peer"] = _closest_peer_ticker(peers, avg_margin, avg_growth)
+    else:
+        reason = "fwd_pe_peer (no peers with fwd_pe or no forward_eps)"
+        details["skipped"].append(reason)
+        logger.info("Multiples lens: skipping %s", reason)
+
+    # C) peer EV/EBITDA
+    peer_ev_ebitdas = [p["ev_ebitda"] for p in peers if p.get("ev_ebitda")]
+    if peer_ev_ebitdas and ttm_ebitda:
+        net_debt = (
+            cfg.get("debt_market_value", 0.0)
+            - cfg.get("cash_bridge", 0.0)
+            - cfg.get("securities", 0.0)
+        )
+        shares = cfg.get("shares_outstanding") or 1.0
+        median_ev = statistics.median(peer_ev_ebitdas)
+        fv_low_e = (min(peer_ev_ebitdas) * ttm_ebitda - net_debt) / shares
+        fv_mid_e = (median_ev * ttm_ebitda - net_debt) / shares
+        fv_high_e = (max(peer_ev_ebitdas) * ttm_ebitda - net_debt) / shares
+        fv_anchors.extend([fv_low_e, fv_mid_e, fv_high_e])
+        details["ev_ebitda_peer_median"] = fv_mid_e
+    else:
+        reason = "ev_ebitda_peer (no peers with ev_ebitda or no ttm_ebitda)"
+        details["skipped"].append(reason)
+        logger.info("Multiples lens: skipping %s", reason)
+
+    if not fv_anchors:
+        logger.info("Multiples lens fully skipped (no anchors)")
+        return None
+
+    return {
+        "fv_low": min(fv_anchors),
+        "fv_mid": sum(fv_anchors) / len(fv_anchors),
+        "fv_high": max(fv_anchors),
+        "details": details,
     }
