@@ -3560,18 +3560,6 @@ def _watchlist_overview():
             help="Recompute multi-lens fair value for tickers without a recent summary.",
         )
 
-    # ── Refresh status caption + force link ──
-    _wl_for_status = list_watchlist(_sb_client)
-    _summaries_with_fv = [r for r in _wl_for_status if r.get("fv_mid") is not None]
-    _last_iso = None
-    if _summaries_with_fv:
-        # list_watchlist's "updated" comes from updated_at — close enough for "last refreshed" UX
-        _last_iso = max((r.get("updated") or "" for r in _summaries_with_fv), default=None) or None
-    st.caption(
-        f"Last refresh: {_format_relative_time(_last_iso)} · "
-        f"{len(_summaries_with_fv)} of {len(_wl_for_status)} tickers have multi-lens summaries"
-    )
-
     if wl_add and wl_ticker:
         ticker_clean = sanitize_ticker(wl_ticker)
         if ticker_clean is None:
