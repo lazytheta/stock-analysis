@@ -262,5 +262,5 @@ def calculate_multi_lens_valuation(cfg, scenario_grid=False):
         "weighted_fv_mid":  fv_mid_rounded,
         "weighted_fv_high": round(weighted_high, 2),
         "current_vs_mid":   round(cvm, 4),
-        "buy_price":        fv_mid_rounded * (1 - mos),
+        "buy_price":        round(fv_mid_rounded * (1 - mos), 2),
     }

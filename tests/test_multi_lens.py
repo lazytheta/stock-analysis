@@ -333,7 +333,7 @@ def test_all_lenses_active_weighted_in_range():
     mids = [lenses[n]["fv_mid"] for n in active]
     assert min(mids) <= summary["weighted_fv_mid"] <= max(mids)
     assert summary["buy_price"] == pytest.approx(
-        summary["weighted_fv_mid"] * (1 - cfg["margin_of_safety"]), rel=1e-9
+        summary["weighted_fv_mid"] * (1 - cfg["margin_of_safety"]), abs=0.01
     )
     # current_vs_mid signed correctly
     expected_cvm = (cfg["stock_price"] - summary["weighted_fv_mid"]) / summary["weighted_fv_mid"]

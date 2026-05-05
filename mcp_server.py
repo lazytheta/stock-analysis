@@ -391,10 +391,16 @@ def get_config(ticker: str) -> str:
 
 @mcp.tool()
 def get_watchlist() -> str:
-    """List all tickers on the LazyTheta watchlist.
+    """List all tickers on the LazyTheta watchlist with multi-lens valuation summary.
+
+    Each entry has these keys (always present; values may be None when no
+    valuation_summary is stored — run calculate_multi_lens_valuation to populate):
+        ticker, company, updated, stock_price,
+        fv_low, fv_mid, fv_high, buy_price, current_vs_mid,
+        lens_count, verdict, phase
 
     Returns:
-        JSON array of {ticker, company, updated, stock_price} entries.
+        JSON array of dicts with the schema above.
     """
     try:
         return _get_watchlist_impl()
