@@ -90,6 +90,26 @@ def _format_relative_time(iso_or_none: str | None) -> str:
     return f"{d} day{'s' if d != 1 else ''} ago"
 
 
+def _range_bar_marker_position(price: float, low: float, high: float) -> tuple[float, bool]:
+    """Where on a 0-100% bar should the price marker sit?
+
+    Returns (percent, past_high_flag).
+    - percent: clamped to [1, 99] when out of range so the marker stays visible
+    - past_high_flag: True when price > high (caller may color the marker red)
+    - returns (50.0, False) for degenerate or missing inputs
+    """
+    if not price or not low or not high:
+        return 50.0, False
+    if high <= low:
+        return 50.0, False
+    raw = (price - low) / (high - low) * 100.0
+    if raw < 0:
+        return 1.0, False
+    if raw > 100:
+        return 99.0, True
+    return raw, False
+
+
 # ── AI provider helpers (Groq primary, Gemini Flash fallback) ──
 def _secret_or_env(name: str) -> str | None:
     try:
