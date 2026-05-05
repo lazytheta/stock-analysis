@@ -46,7 +46,13 @@ def _restore_tuples(cfg):
 # Watchlist config CRUD
 # ---------------------------------------------------------------------------
 
-_AI_NOTES_GUARDED_KEYS = ("ai_notes", "peers")
+_AI_NOTES_GUARDED_KEYS = (
+    "ai_notes",
+    "peers",
+    "valuation_inputs",
+    "valuation_summary",
+    "lens_weights",
+)
 
 
 def save_config(client, ticker, cfg, user_id=None):

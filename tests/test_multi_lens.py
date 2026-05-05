@@ -117,3 +117,49 @@ def test_parse_scorecard_compact_phase():
 
     str_form = {"Scorecard": '```json\n{"verdict":"pass","phase":"4"}\n```'}
     assert parse_scorecard(str_form) == {"verdict": "pass", "phase": 4}
+
+
+# ---------------------------------------------------------------- config preservation
+
+
+def test_save_config_preserves_valuation_keys():
+    """save_config must merge in valuation_inputs/valuation_summary/lens_weights
+    from the existing DB row when the caller's cfg omits them."""
+    import config_store
+
+    existing = {
+        "company": "X",
+        "ai_notes": {"foo": "bar"},
+        "peers": [{"ticker": "P"}],
+        "valuation_inputs": {"forward_eps": 5.0},
+        "valuation_summary": {"weighted_fv_mid": 80.0},
+        "lens_weights": {"dcf": 0.5},
+    }
+    new_cfg = {"company": "X", "stock_price": 100}
+
+    captured = {}
+
+    def upsert(row):
+        captured["row"] = row
+        return MagicMock(execute=lambda: None)
+
+    fake_table = MagicMock()
+    fake_table.upsert = upsert
+
+    fake_client = MagicMock()
+    fake_client.table.return_value = fake_table
+
+    # Patch load_config to return our existing row
+    orig_load = config_store.load_config
+    config_store.load_config = lambda c, t, user_id=None: existing
+    try:
+        config_store.save_config(fake_client, "TEST", new_cfg, user_id="u1")
+    finally:
+        config_store.load_config = orig_load
+
+    saved = captured["row"]["config"]
+    assert saved["valuation_inputs"] == {"forward_eps": 5.0}
+    assert saved["valuation_summary"] == {"weighted_fv_mid": 80.0}
+    assert saved["lens_weights"] == {"dcf": 0.5}
+    assert saved["ai_notes"] == {"foo": "bar"}
+    assert saved["peers"] == [{"ticker": "P"}]
