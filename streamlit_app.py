@@ -3519,9 +3519,9 @@ def _watchlist_overview():
     }}
     </style>""", unsafe_allow_html=True)
 
-    # ── Add ticker ──
+    # ── Add ticker + Refresh ──
     st.markdown("")
-    wl_add_col1, wl_add_col2 = st.columns([3, 1], vertical_alignment="center")
+    wl_add_col1, wl_add_col2, wl_add_col3 = st.columns([3, 1, 1], vertical_alignment="center")
     with wl_add_col1:
         wl_ticker = st.text_input(
             "Add ticker",
@@ -3531,6 +3531,30 @@ def _watchlist_overview():
         )
     with wl_add_col2:
         wl_add = st.button("Add to Watchlist", use_container_width=True, type="primary")
+    with wl_add_col3:
+        wl_refresh = st.button(
+            "↻ Refresh all",
+            use_container_width=True,
+            help="Recompute multi-lens fair value for tickers without a recent summary.",
+        )
+
+    # ── Refresh status caption + force link ──
+    _wl_for_status = list_watchlist(_sb_client)
+    _summaries_with_fv = [r for r in _wl_for_status if r.get("fv_mid") is not None]
+    _last_iso = None
+    if _summaries_with_fv:
+        # list_watchlist's "updated" comes from updated_at — close enough for "last refreshed" UX
+        _last_iso = max((r.get("updated") or "" for r in _summaries_with_fv), default=None) or None
+    st.caption(
+        f"Last refresh: {_format_relative_time(_last_iso)} · "
+        f"{len(_summaries_with_fv)} of {len(_wl_for_status)} tickers have multi-lens summaries"
+    )
+    if st.button("↳ Force refresh all (ignore freshness)",
+                  key="wl_force_refresh_link",
+                  help="Recompute every ticker even if recently refreshed."):
+        st.session_state["_wl_force_refresh"] = True
+        # Trigger refresh on this same run by setting wl_refresh
+        wl_refresh = True
 
     if wl_add and wl_ticker:
         ticker_clean = sanitize_ticker(wl_ticker)
@@ -3566,6 +3590,48 @@ def _watchlist_overview():
                 logger.error("Watchlist analysis failed for %s: %s", ticker_clean, e)
                 log_error_with_trace("WATCHLIST_ERROR", e, page="Watchlist", metadata={"ticker": ticker_clean})
                 st.error(f"Could not analyse {ticker_clean}. Please try again. ({type(e).__name__})")
+
+    # ── Refresh handler ──
+    if wl_refresh:
+        from concurrent.futures import ThreadPoolExecutor as _Pool
+
+        _wl_meta = list_watchlist(_sb_client)
+        _wl_tickers_for_refresh = [item["ticker"] for item in _wl_meta]
+
+        def _load_one_for_refresh(t):
+            c = load_config(_sb_client, t)
+            return (t, c) if c is not None else None
+
+        with _Pool(max_workers=6) as _pool:
+            _refresh_cfgs = {
+                r[0]: r[1] for r in _pool.map(_load_one_for_refresh, _wl_tickers_for_refresh) if r
+            }
+
+        if not _refresh_cfgs:
+            st.info("Watchlist is empty — nothing to refresh.")
+        else:
+            _force = st.session_state.pop("_wl_force_refresh", False)
+            _bar = st.progress(0.0, text="Computing valuations...")
+            _result = _refresh_stale_valuations(
+                _sb_client, _refresh_cfgs,
+                user_id=st.session_state["user"]["id"], force=_force,
+            )
+            _bar.empty()
+            _total = len(_refresh_cfgs)
+            _done = len(_result["computed"])
+            _err = len(_result["errors"])
+            _skip = len(_result["skipped"])
+            if _err:
+                st.warning(
+                    f"Refreshed {_done}/{_total}. {_err} errors, {_skip} skipped (still fresh). "
+                    f"Errors: {', '.join(_result['errors'][:5])}"
+                )
+            elif _done == 0:
+                st.success(f"All {_skip} tickers already fresh.")
+            else:
+                st.success(f"Refreshed {_done} ticker{'s' if _done != 1 else ''}, {_skip} already fresh.")
+            st.cache_data.clear()
+            st.rerun()
 
     # ── Overview table ──
     watchlist = list_watchlist(_sb_client)
