@@ -71,6 +71,35 @@ def test_fetch_market_inputs_zero_or_negative_skipped():
     assert result == {}
 
 
+def test_fetch_market_inputs_falls_back_to_ebitda_when_trailingEbitda_none():
+    """Yfinance often returns trailingEbitda=None for large caps and puts
+    the value in `ebitda` instead. The fetcher must read both."""
+    info = make_yf_info(
+        forwardEps=19.42,
+        trailingEbitda=None,            # absent
+        ebitda=184_457_003_008,         # populated (MSFT-like)
+    )
+    with patch_yfinance_info(info):
+        result = gather_data.fetch_market_inputs("MSFT")
+    assert result["forward_eps"] == 19.42
+    assert result["ttm_ebitda"] == 184457.0
+
+
+def test_enrich_peer_falls_back_to_ebitda():
+    """Same fallback applies to the peer enricher."""
+    peer = {"ticker": "MSFT", "ev_ebitda": 99.9}
+    info = make_yf_info(
+        forwardPE=22.0,
+        enterpriseValue=3_103_113_347_072,
+        trailingEbitda=None,
+        ebitda=184_457_003_008,
+    )
+    with patch_yfinance_info(info):
+        out = gather_data.enrich_peer_with_market_data(peer)
+    # 3.103T / 184.5B = 16.823... → rounded
+    assert out["ev_ebitda"] == pytest.approx(16.8, abs=0.05)
+
+
 def test_fetch_market_inputs_yfinance_error():
     """yfinance.Ticker raises → fetcher returns {} (no crash, no propagation)."""
     fake_yf = MagicMock()
