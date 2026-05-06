@@ -1382,12 +1382,25 @@ def fetch_consensus_estimates(ticker):
         return {}
 
 
+def _yf_ebitda(info: dict) -> float | None:
+    """Resolve EBITDA from yfinance info, preferring trailingEbitda but
+    falling back to ebitda. Yfinance is inconsistent: large caps often
+    return None for trailingEbitda but populate ebitda (and vice versa).
+    Returns the resolved value in dollars, or None if neither field is usable.
+    """
+    for key in ("trailingEbitda", "ebitda"):
+        v = info.get(key)
+        if isinstance(v, (int, float)) and v > 0:
+            return float(v)
+    return None
+
+
 def fetch_market_inputs(ticker: str) -> dict:
     """Fetch valuation_inputs fields from Yahoo Finance via yfinance.
 
     Returns a dict with these keys (any may be absent when unavailable):
         forward_eps:  Ticker.info["forwardEps"]
-        ttm_ebitda:   Ticker.info["trailingEbitda"] / 1e6  (convert $ to $M)
+        ttm_ebitda:   Ticker.info["trailingEbitda"] (or "ebitda" fallback) / 1e6
 
     Network failure / yfinance import failure → returns empty dict and logs warning.
     Never raises.
@@ -1407,9 +1420,9 @@ def fetch_market_inputs(ticker: str) -> dict:
     if isinstance(fwd_eps, (int, float)) and fwd_eps > 0:
         out["forward_eps"] = round(float(fwd_eps), 2)
 
-    ttm_ebitda_raw = info.get("trailingEbitda")
-    if isinstance(ttm_ebitda_raw, (int, float)) and ttm_ebitda_raw > 0:
-        out["ttm_ebitda"] = round(float(ttm_ebitda_raw) / 1e6, 0)
+    ebitda_raw = _yf_ebitda(info)
+    if ebitda_raw is not None:
+        out["ttm_ebitda"] = round(ebitda_raw / 1e6, 0)
 
     return out
 
@@ -1443,10 +1456,10 @@ def enrich_peer_with_market_data(peer: dict) -> dict:
         out["fwd_pe"] = round(float(fwd_pe), 1)
 
     ev = info.get("enterpriseValue")
-    ttm_ebitda = info.get("trailingEbitda")
+    ebitda_resolved = _yf_ebitda(info)
     if (isinstance(ev, (int, float)) and ev > 0
-            and isinstance(ttm_ebitda, (int, float)) and ttm_ebitda > 0):
-        out["ev_ebitda"] = round(ev / ttm_ebitda, 1)
+            and ebitda_resolved is not None):
+        out["ev_ebitda"] = round(ev / ebitda_resolved, 1)
 
     return out
 
