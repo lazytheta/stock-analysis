@@ -114,6 +114,37 @@ def compute_reverse_dcf_lens(cfg):
     }
 
 
+def _tukey_filter(values, k=1.5):
+    """Damodaran-style outlier removal for peer multiples.
+
+    Drops values outside [Q1 - k*IQR, Q3 + k*IQR]. Returns (kept_values,
+    removed_indices). Falls back to (values, []) when:
+      - len(values) < 4 (not enough data for meaningful quartiles)
+      - filtering would leave fewer than 2 values
+
+    Default k=1.5 follows Tukey's fence convention used by Damodaran for
+    sector multiples in his published valuation data.
+    """
+    n = len(values)
+    if n < 4:
+        return list(values), []
+    sorted_vals = sorted(values)
+    q1 = statistics.median(sorted_vals[: n // 2])
+    q3 = statistics.median(sorted_vals[(n + 1) // 2:])
+    iqr = q3 - q1
+    lo, hi = q1 - k * iqr, q3 + k * iqr
+    kept = []
+    removed_idx = []
+    for i, v in enumerate(values):
+        if lo <= v <= hi:
+            kept.append(v)
+        else:
+            removed_idx.append(i)
+    if len(kept) < 2:
+        return list(values), []
+    return kept, removed_idx
+
+
 def _closest_peer_ticker(peers, target_op_margin, target_rev_growth):
     """Return the ticker of the peer with smallest weighted Euclidean
     distance on (op_margin, rev_growth). Informational only.
@@ -168,7 +199,10 @@ def compute_multiples_lens(cfg):
         logger.info("Multiples lens: skipping %s", reason)
 
     # B) peer fwd P/E
-    peer_fwd_pes = [p["fwd_pe"] for p in peers if p.get("fwd_pe")]
+    peer_fwd_pe_pairs = [(p["ticker"], p["fwd_pe"]) for p in peers if p.get("fwd_pe")]
+    peer_fwd_pes_raw = [v for _, v in peer_fwd_pe_pairs]
+    peer_fwd_pes, removed_idx = _tukey_filter(peer_fwd_pes_raw)
+    details["peer_fwd_pe_outliers_removed"] = [peer_fwd_pe_pairs[i][0] for i in removed_idx]
     if peer_fwd_pes and forward_eps:
         median_pe = statistics.median(peer_fwd_pes)
         fv_low_p = min(peer_fwd_pes) * forward_eps
@@ -190,7 +224,10 @@ def compute_multiples_lens(cfg):
         logger.info("Multiples lens: skipping %s", reason)
 
     # C) peer EV/EBITDA
-    peer_ev_ebitdas = [p["ev_ebitda"] for p in peers if p.get("ev_ebitda")]
+    peer_ev_ebitda_pairs = [(p["ticker"], p["ev_ebitda"]) for p in peers if p.get("ev_ebitda")]
+    peer_ev_ebitdas_raw = [v for _, v in peer_ev_ebitda_pairs]
+    peer_ev_ebitdas, removed_idx_ev = _tukey_filter(peer_ev_ebitdas_raw)
+    details["peer_ev_ebitda_outliers_removed"] = [peer_ev_ebitda_pairs[i][0] for i in removed_idx_ev]
     if peer_ev_ebitdas and ttm_ebitda:
         net_debt = (
             cfg.get("debt_market_value", 0.0)

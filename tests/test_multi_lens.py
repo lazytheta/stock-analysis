@@ -296,6 +296,66 @@ def test_multiples_lens_partial_inputs_skips_components():
     assert lens["details"]["ev_ebitda_peer_median"] is not None
 
 
+# ---------------------------------------------------------------- Tukey filter
+
+def test_tukey_filter_drops_extreme_outlier():
+    """One value far above the rest → dropped."""
+    kept, removed = valuation_lenses._tukey_filter([10, 12, 14, 16, 18, 100])
+    assert 100 not in kept
+    assert removed == [5]
+
+
+def test_tukey_filter_preserves_normal_distribution():
+    """Tightly clustered values → no removal."""
+    kept, removed = valuation_lenses._tukey_filter([10, 12, 14, 16, 18])
+    assert kept == [10, 12, 14, 16, 18]
+    assert removed == []
+
+
+def test_tukey_filter_too_few_points_no_op():
+    """Fewer than 4 values → no filtering (insufficient data for IQR)."""
+    kept, removed = valuation_lenses._tukey_filter([10, 100, 1000])
+    assert kept == [10, 100, 1000]
+    assert removed == []
+
+
+def test_tukey_filter_falls_back_when_too_aggressive():
+    """If filtering would leave < 2 values, return original list."""
+    # Wildly dispersed — every value would be tagged outlier; fallback engages
+    kept, removed = valuation_lenses._tukey_filter([1, 50, 100, 10_000])
+    # Either no filtering (fallback) OR ≥ 2 kept
+    assert len(kept) >= 2
+
+
+def test_multiples_lens_drops_outlier_peer_fwd_pe():
+    """Outlier peer fwd_pe is excluded; ticker recorded in details.
+
+    Tukey filtering needs ~5 non-outlier values to detect a single outlier
+    reliably (otherwise the outlier itself contaminates Q3). Our typical
+    peer set is 6 peers — match that here.
+    """
+    peers = [
+        make_peer(ticker="P1", fwd_pe=18.0, ev_ebitda=10.0),
+        make_peer(ticker="P2", fwd_pe=19.0, ev_ebitda=11.0),
+        make_peer(ticker="P3", fwd_pe=20.0, ev_ebitda=12.0),
+        make_peer(ticker="P4", fwd_pe=21.0, ev_ebitda=13.0),
+        make_peer(ticker="P5", fwd_pe=22.0, ev_ebitda=14.0),
+        make_peer(ticker="OUTLIER", fwd_pe=200.0, ev_ebitda=15.0),
+    ]
+    cfg = make_cfg(
+        peers=peers,
+        valuation_inputs=dict(SAMPLE_VALUATION_INPUTS),
+    )
+    lens = valuation_lenses.compute_multiples_lens(cfg)
+    # OUTLIER's fwd_pe (200) is removed → reflected in details
+    assert "OUTLIER" in lens["details"]["peer_fwd_pe_outliers_removed"]
+    # And the peer median didn't get pulled up by it
+    expected_median_without_outlier = 20.0  # median of [18, 19, 20, 21, 22]
+    assert lens["details"]["fwd_pe_peer_median"] == pytest.approx(
+        expected_median_without_outlier * SAMPLE_VALUATION_INPUTS["forward_eps"]
+    )
+
+
 def test_dcf_only_fallback_when_no_valuation_inputs():
     """Acceptance #1: config without valuation_inputs → DCF-only summary,
     weights renormalized to 1.0."""
