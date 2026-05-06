@@ -322,7 +322,7 @@ def test_tukey_filter_too_few_points_no_op():
 def test_tukey_filter_falls_back_when_too_aggressive():
     """If filtering would leave < 2 values, return original list."""
     # Wildly dispersed — every value would be tagged outlier; fallback engages
-    kept, removed = valuation_lenses._tukey_filter([1, 50, 100, 10_000])
+    kept, _removed = valuation_lenses._tukey_filter([1, 50, 100, 10_000])
     # Either no filtering (fallback) OR ≥ 2 kept
     assert len(kept) >= 2
 
