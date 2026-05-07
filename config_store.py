@@ -58,13 +58,20 @@ _AI_NOTES_GUARDED_KEYS = (
 def save_config(client, ticker, cfg, user_id=None):
     """Upsert a DCF config dict to Supabase.
 
-    Defends against silent data loss: if cfg is missing keys that exist in
-    the current DB row (e.g. ``ai_notes``, ``peers``), the existing values
-    are merged in rather than overwritten with absence. This caught
-    multiple watchlist tickers losing their AI Research Sections — some
-    code path was calling save_config with a cfg that didn't include
-    ``ai_notes``, and the upsert was wiping the column. The bug is logged
-    via a warning with a short call-stack so we can find the source.
+    Defends against silent data loss for guarded keys (`ai_notes`, `peers`,
+    `valuation_inputs`, `valuation_summary`, `lens_weights`):
+
+    - **Missing key** (caller omitted entirely) — merge in the existing DB value.
+      Caught multiple watchlist tickers losing their AI Research Sections —
+      some code path was calling save_config with a cfg that didn't include
+      `ai_notes`, and the upsert was wiping the column.
+    - **Empty/null value** (caller passed None or empty dict/list) — also
+      merge in the existing DB value, but only if the existing one is
+      non-empty. Caught MSFT losing its valuation_summary after a peer-edit
+      flow that re-saved cfg with `valuation_summary: None`.
+
+    Both paths log a WARNING with a short call-stack so the offending caller
+    can be identified.
     """
     from datetime import datetime, timezone
 
@@ -72,13 +79,23 @@ def save_config(client, ticker, cfg, user_id=None):
     if user_id is None:
         user_id = _get_user_id(client)
 
-    missing_guarded = [k for k in _AI_NOTES_GUARDED_KEYS if k not in cfg]
-    if missing_guarded:
+    def _is_empty(v):
+        # None, empty dict, empty list, empty str → treat as "absent" for
+        # guard purposes. Numeric 0 / False are not relevant to guarded keys.
+        return v is None or (isinstance(v, (dict, list, str)) and len(v) == 0)
+
+    needs_recovery = [
+        k for k in _AI_NOTES_GUARDED_KEYS
+        if k not in cfg or _is_empty(cfg[k])
+    ]
+    if needs_recovery:
         existing = load_config(client, ticker, user_id=user_id)
         if existing:
             preserved = []
-            for k in missing_guarded:
-                if k in existing:
+            for k in needs_recovery:
+                # Only restore from DB when the DB value is itself non-empty;
+                # never replace a meaningful new value with a stale one.
+                if k in existing and not _is_empty(existing[k]):
                     cfg = dict(cfg)
                     cfg[k] = existing[k]
                     preserved.append(k)
@@ -86,7 +103,7 @@ def save_config(client, ticker, cfg, user_id=None):
                 import traceback
                 stack = "".join(traceback.format_stack(limit=6)[:-1])
                 logger.warning(
-                    "save_config(%s): preserved %s from DB (caller omitted them).\n"
+                    "save_config(%s): preserved %s from DB (caller passed missing/empty).\n"
                     "Call stack:\n%s",
                     ticker, preserved, stack,
                 )

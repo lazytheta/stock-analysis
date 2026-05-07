@@ -165,6 +165,55 @@ def test_save_config_preserves_valuation_keys():
     assert saved["peers"] == [{"ticker": "P"}]
 
 
+def test_save_config_recovers_explicit_null_or_empty_guarded_values():
+    """save_config must also recover when the caller passes None or empty
+    dict/list for a guarded key (not just when the key is absent).
+
+    This caught the MSFT incident: some code path saved cfg with
+    `valuation_summary: None`, and the existing guard (which only checks
+    `key not in cfg`) silently let the null overwrite the real summary.
+    """
+    import config_store
+
+    existing = {
+        "company": "X",
+        "ai_notes": {"section": "real content"},
+        "peers": [{"ticker": "AAPL"}],
+        "valuation_summary": {"weighted_fv_mid": 80.0},
+    }
+    # Explicit None / empty dict / empty list — all should trigger recovery
+    bad_cfg = {
+        "company": "X",
+        "valuation_summary": None,
+        "ai_notes": {},
+        "peers": [],
+    }
+
+    captured = {}
+
+    def upsert(row):
+        captured["row"] = row
+        return MagicMock(execute=lambda: None)
+
+    fake_table = MagicMock()
+    fake_table.upsert = upsert
+    fake_client = MagicMock()
+    fake_client.table.return_value = fake_table
+
+    orig_load = config_store.load_config
+    config_store.load_config = lambda c, t, user_id=None: existing
+    try:
+        config_store.save_config(fake_client, "TEST", bad_cfg, user_id="u1")
+    finally:
+        config_store.load_config = orig_load
+
+    saved = captured["row"]["config"]
+    # All three guarded keys recovered from existing DB row
+    assert saved["valuation_summary"] == {"weighted_fv_mid": 80.0}
+    assert saved["ai_notes"] == {"section": "real content"}
+    assert saved["peers"] == [{"ticker": "AAPL"}]
+
+
 # ---------------------------------------------------------------- valuation_lenses
 
 
