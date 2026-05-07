@@ -175,6 +175,20 @@ def _render_fv_cell(price: float, summary: dict | None,
         marker_color = "#d96a5a" if past_high else "#fff"
         pct_str = f"{pct:.0f}%" if pct == int(pct) else f"{pct:.1f}%"
 
+        # Lens-dots row WITH hover-tooltip "details" trigger that reveals
+        # the football field. Pure CSS — no JS / no Streamlit widget.
+        lens_dots_html = _render_lens_dots(lenses, theme)
+        football_field_html = _render_football_field(summary, theme)
+        details_row = (
+            f'<div class="ff-trigger-row">'
+            f'  {lens_dots_html}'
+            f'  <span class="ff-trigger-wrap">'
+            f'    <span class="ff-trigger">details ›</span>'
+            f'    <div class="ff-tooltip">{football_field_html}</div>'
+            f'  </span>'
+            f'</div>'
+        )
+
         return (
             f'<div>'
             f'<strong style="color:{text}">{_fmt_fv_dollar(mid)}</strong> '
@@ -187,7 +201,7 @@ def _render_fv_cell(price: float, summary: dict | None,
             f'background:{marker_color};box-shadow:0 0 2px rgba(0,0,0,0.6);'
             f'left:{pct_str}"></div>'
             f'</div>'
-            f'{_render_lens_dots(lenses, theme)}'
+            f'{details_row}'
             f'</div>'
         )
 
@@ -3932,25 +3946,15 @@ def _watchlist_overview():
         else:
             cols[2].markdown(row['company'])
         cols[3].markdown(f"${row['price']:.2f}")
-        with cols[4]:
-            st.markdown(
-                _render_fv_cell(
-                    price=row['price'],
-                    summary=row.get('valuation_summary'),
-                    legacy_intrinsic=row.get('intrinsic'),
-                    theme=T,
-                ),
-                unsafe_allow_html=True,
-            )
-            # Football-field popover trigger — compact icon button that floats
-            # to the top-right of the FV cell (CSS in _watchlist_overview style block).
-            if row.get('valuation_summary'):
-                with st.container(key=f"wl_ff_{t}"):
-                    with st.popover("details ›", use_container_width=False, help="Show valuation breakdown across methodologies"):
-                        st.markdown(
-                            _render_football_field(row['valuation_summary'], theme=T),
-                            unsafe_allow_html=True,
-                        )
+        cols[4].markdown(
+            _render_fv_cell(
+                price=row['price'],
+                summary=row.get('valuation_summary'),
+                legacy_intrinsic=row.get('intrinsic'),
+                theme=T,
+            ),
+            unsafe_allow_html=True,
+        )
         cols[5].markdown(f"${row['buy_price']:.2f}")
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
         cols[7].markdown(f"{row['pe']:.1f}x" if row['pe'] else "—")
@@ -4006,36 +4010,51 @@ def _watchlist_overview():
         .range-bar {{
             min-width:110px;
         }}
-        /* Football-field popover trigger: compact pill button that floats
-           up to sit on the same line as the "N lenses" label. Visibly
-           clickable (subtle background + border + hover state). */
-        [class*="st-key-wl_ff_"] {{
-            margin-top: -22px;
-            margin-bottom: 0;
-            text-align: right;
-            line-height: 0;
+        /* Football-field hover-tooltip trigger: small pill on the lens-dots
+           row. Pure CSS hover — no JS / no Streamlit widget. */
+        .ff-trigger-row {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 2px;
         }}
-        [class*="st-key-wl_ff_"] [data-testid="stPopover"] {{
+        .ff-trigger-wrap {{
+            position: relative;
             display: inline-block;
+            margin-left: 6px;
         }}
-        [class*="st-key-wl_ff_"] [data-testid="stPopover"] button {{
-            min-height: 22px !important;
-            height: 22px !important;
-            padding: 0 10px !important;
-            font-size: 0.70rem !important;
-            font-weight: 500 !important;
-            line-height: 1 !important;
-            border: 1px solid {T["border_medium"]} !important;
-            background: {T["row_alt"]} !important;
-            color: {T["text"]} !important;
-            border-radius: 999px !important;
-            cursor: pointer !important;
-            transition: background-color 0.15s ease, border-color 0.15s ease !important;
+        .ff-trigger {{
+            display: inline-block;
+            font-size: 0.65rem;
+            font-weight: 500;
+            color: {T["text_muted"]};
+            background: {T["row_alt"]};
+            border: 1px solid {T["border_medium"]};
+            border-radius: 999px;
+            padding: 1px 8px;
+            cursor: default;
+            user-select: none;
         }}
-        [class*="st-key-wl_ff_"] [data-testid="stPopover"] button:hover {{
-            background: {T["accent"]} !important;
-            border-color: {T["accent"]} !important;
-            color: white !important;
+        .ff-trigger-wrap:hover .ff-trigger {{
+            background: {T["accent"]};
+            border-color: {T["accent"]};
+            color: white;
+        }}
+        .ff-tooltip {{
+            display: none;
+            position: absolute;
+            bottom: calc(100% + 6px);
+            right: 0;
+            z-index: 1000;
+            background: {T["card"]};
+            border: 1px solid {T["border_medium"]};
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+            padding: 8px;
+            min-width: 480px;
+        }}
+        .ff-trigger-wrap:hover .ff-tooltip {{
+            display: block;
         }}
         </style>''',
         unsafe_allow_html=True,
