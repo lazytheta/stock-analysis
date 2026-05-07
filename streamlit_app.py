@@ -3715,7 +3715,7 @@ def _watchlist_overview():
             use_container_width=True,
             type="primary",
             key="wl_refresh_button",
-            help="Recompute multi-lens fair value for tickers without a recent summary.",
+            help="Recompute multi-lens fair value for all watchlist tickers.",
         )
 
     if wl_add and wl_ticker:
@@ -3772,32 +3772,31 @@ def _watchlist_overview():
         if not _refresh_cfgs:
             st.info("Watchlist is empty — nothing to refresh.")
         else:
-            _force = st.session_state.pop("_wl_force_refresh", False)
             _bar = st.progress(0.0, text="Computing valuations...")
 
             def _on_refresh_progress(done, total):
                 _bar.progress(done / total if total else 1.0,
                               text=f"Computing {done}/{total}...")
 
+            # User-triggered Refresh All always recomputes every ticker — the
+            # 7-day staleness check is only meaningful for an automatic /
+            # background path that we don't currently expose.
             _result = _refresh_stale_valuations(
                 _sb_client, _refresh_cfgs,
-                user_id=st.session_state["user"]["id"], force=_force,
+                user_id=st.session_state["user"]["id"], force=True,
                 on_progress=_on_refresh_progress,
             )
             _bar.empty()
             _total = len(_refresh_cfgs)
             _done = len(_result["computed"])
             _err = len(_result["errors"])
-            _skip = len(_result["skipped"])
             if _err:
                 st.warning(
-                    f"Refreshed {_done}/{_total}. {_err} errors, {_skip} skipped (still fresh). "
+                    f"Refreshed {_done}/{_total}. {_err} errors. "
                     f"Errors: {', '.join(_result['errors'][:5])}"
                 )
-            elif _done == 0:
-                st.success(f"All {_skip} tickers already fresh.")
             else:
-                st.success(f"Refreshed {_done} ticker{'s' if _done != 1 else ''}, {_skip} already fresh.")
+                st.success(f"Refreshed {_done} ticker{'s' if _done != 1 else ''}.")
             st.cache_data.clear()
             st.rerun()
 
