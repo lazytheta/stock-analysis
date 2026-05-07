@@ -4006,10 +4006,11 @@ def _watchlist_overview():
         .range-bar {{
             min-width:110px;
         }}
-        /* Football-field popover trigger: compact icon button that floats
-           up to sit on the same line as the "N lenses" label. */
+        /* Football-field popover trigger: compact pill button that floats
+           up to sit on the same line as the "N lenses" label. Visibly
+           clickable (subtle background + border + hover state). */
         [class*="st-key-wl_ff_"] {{
-            margin-top: -20px;
+            margin-top: -22px;
             margin-bottom: 0;
             text-align: right;
             line-height: 0;
@@ -4018,19 +4019,23 @@ def _watchlist_overview():
             display: inline-block;
         }}
         [class*="st-key-wl_ff_"] [data-testid="stPopover"] button {{
-            min-height: 18px !important;
-            height: 18px !important;
-            padding: 0 6px !important;
+            min-height: 22px !important;
+            height: 22px !important;
+            padding: 0 10px !important;
             font-size: 0.70rem !important;
-            border: none !important;
-            background: transparent !important;
-            color: {T["text_muted"]} !important;
+            font-weight: 500 !important;
             line-height: 1 !important;
-            border-radius: 4px !important;
-        }}
-        [class*="st-key-wl_ff_"] [data-testid="stPopover"] button:hover {{
+            border: 1px solid {T["border_medium"]} !important;
             background: {T["row_alt"]} !important;
             color: {T["text"]} !important;
+            border-radius: 999px !important;
+            cursor: pointer !important;
+            transition: background-color 0.15s ease, border-color 0.15s ease !important;
+        }}
+        [class*="st-key-wl_ff_"] [data-testid="stPopover"] button:hover {{
+            background: {T["accent"]} !important;
+            border-color: {T["accent"]} !important;
+            color: white !important;
         }}
         </style>''',
         unsafe_allow_html=True,
