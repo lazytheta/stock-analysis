@@ -35,9 +35,69 @@ def patch_yfinance_info(info_dict):
     return patch.dict("sys.modules", {"yfinance": fake_yf})
 
 
+def make_yf_history(months=48, base_price=100.0, growth_pct=0.10):
+    """Build a yfinance Ticker.history(period='4y', interval='1mo')-like
+    DataFrame with `months` rows of monthly Close prices growing at
+    growth_pct per year (linear)."""
+    import pandas as pd
+    dates = pd.date_range(end="2026-05-01", periods=months, freq="ME")
+    monthly_growth = (1 + growth_pct) ** (1 / 12) - 1
+    closes = [base_price * (1 + monthly_growth) ** i for i in range(months)]
+    return pd.DataFrame({"Close": closes}, index=dates)
+
+
+def make_yf_income_stmt(eps_per_year=None, ebitda_per_year=None):
+    """Build a yfinance Ticker.income_stmt-like DataFrame."""
+    import pandas as pd
+    if eps_per_year is None:
+        eps_per_year = {2025: 8.0, 2024: 7.0, 2023: 6.0, 2022: 5.0}
+    if ebitda_per_year is None:
+        ebitda_per_year = {2025: 100e9, 2024: 90e9, 2023: 80e9, 2022: 70e9}
+    columns = sorted(eps_per_year.keys(), reverse=True)
+    cols = pd.DatetimeIndex([f"{y}-12-31" for y in columns])
+    rows = {
+        "Diluted EPS": [eps_per_year[y] for y in columns],
+        "EBITDA": [ebitda_per_year.get(y) for y in columns],
+    }
+    return pd.DataFrame(rows, index=cols).T
+
+
+def make_yf_quarterly_balance_sheet(debt_per_quarter=None, cash_per_quarter=None):
+    """Build a yfinance Ticker.quarterly_balance_sheet-like DataFrame."""
+    import pandas as pd
+    if debt_per_quarter is None:
+        debt_per_quarter = [50e9] * 16
+    if cash_per_quarter is None:
+        cash_per_quarter = [80e9] * 16
+    cols = pd.date_range(end="2026-03-31", periods=len(debt_per_quarter), freq="QE")
+    rows = {
+        "Total Debt": debt_per_quarter,
+        "Cash And Cash Equivalents": cash_per_quarter,
+    }
+    return pd.DataFrame(rows, index=cols).T
+
+
+def patch_yfinance_full(info=None, history=None, income_stmt=None, qbs=None):
+    """Comprehensive yfinance mock for fetch_historical_multiples."""
+    fake_ticker = MagicMock()
+    fake_ticker.info = info or {}
+    fake_ticker.history = MagicMock(return_value=history if history is not None else make_yf_history())
+    fake_ticker.income_stmt = income_stmt if income_stmt is not None else make_yf_income_stmt()
+    fake_ticker.quarterly_balance_sheet = qbs if qbs is not None else make_yf_quarterly_balance_sheet()
+    fake_yf = MagicMock()
+    fake_yf.Ticker = MagicMock(return_value=fake_ticker)
+    return patch.dict("sys.modules", {"yfinance": fake_yf})
+
+
 def test_scaffold_present():
     """Sanity: the test file is discovered and runs."""
     assert True
+
+
+def test_yf_history_fixture_shape():
+    df = make_yf_history(months=48)
+    assert len(df) == 48
+    assert "Close" in df.columns
 
 
 def test_fetch_market_inputs_happy_path():
