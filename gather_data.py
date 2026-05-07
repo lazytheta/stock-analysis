@@ -1575,6 +1575,9 @@ def _interpolate_yearly_to_monthly(income_df, row_name, months_dt):
             continue
         try:
             v = float(val)
+            # pandas NaN passes through float() — explicit check
+            if v != v:  # NaN != NaN is the canonical NaN test
+                continue
             points.append((_strip_tz(col_dt), v))
         except (TypeError, ValueError):
             continue
