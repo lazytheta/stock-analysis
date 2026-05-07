@@ -395,19 +395,23 @@ def test_multiples_lens_drops_outlier_peer_fwd_pe():
 
 def test_dcf_only_fallback_when_no_valuation_inputs():
     """Acceptance #1: config without valuation_inputs → DCF-only summary,
-    weights renormalized to 1.0."""
+    weights renormalized to 1.0.
+
+    Note: reverse_dcf now has weight 0.0 by default (anchors at stock price
+    by construction), so it drops out of the weighted FV calculation. The
+    lens is still computed and stored, but doesn't contribute to weighted_fv_mid.
+    """
     cfg = make_cfg()  # no inputs, no peers with multiples
     summary = valuation_lenses.calculate_multi_lens_valuation(cfg)
     lenses = summary["lenses"]
     assert lenses["dcf"] is not None
     assert lenses["multiples"] is None
-    assert lenses["reverse_dcf"] is not None  # always active
-    # Active = dcf + reverse_dcf, weights renormalized
-    assert lenses["dcf"]["weight_normalized"] + lenses["reverse_dcf"]["weight_normalized"] \
-        == pytest.approx(1.0)
-    # weighted_fv must lie between dcf & reverse_dcf
-    mids = [lenses["dcf"]["fv_mid"], lenses["reverse_dcf"]["fv_mid"]]
-    assert min(mids) <= summary["weighted_fv_mid"] <= max(mids)
+    assert lenses["reverse_dcf"] is not None  # always computed, but...
+    assert lenses["reverse_dcf"]["weight_normalized"] == 0.0  # ...has zero weight
+    # With reverse_dcf weight 0, only DCF contributes → weighted_fv ≈ dcf_fv
+    # (rounded to 2 decimals in the summary)
+    assert summary["weighted_fv_mid"] == pytest.approx(lenses["dcf"]["fv_mid"], abs=0.01)
+    assert lenses["dcf"]["weight_normalized"] == pytest.approx(1.0)
 
 
 def test_all_lenses_active_weighted_in_range():
@@ -745,6 +749,6 @@ def test_default_lens_weights_post_split():
         "dcf":         0.30,
         "multiples":   0.30,
         "historical":  0.30,
-        "reverse_dcf": 0.10,
+        "reverse_dcf": 0.0,
         "dividend":    0.00,
     }

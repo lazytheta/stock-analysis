@@ -17,7 +17,7 @@ DEFAULT_LENS_WEIGHTS = {
     "dcf":         0.30,
     "multiples":   0.30,
     "historical":  0.30,
-    "reverse_dcf": 0.10,
+    "reverse_dcf": 0.0,    # anchors at current price by definition; not a true valuation
     "dividend":    0.00,
 }
 
