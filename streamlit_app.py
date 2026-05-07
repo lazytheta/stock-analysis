@@ -233,6 +233,8 @@ def _auto_fill_valuation_inputs(cfg: dict) -> None:
     inputs = cfg.setdefault("valuation_inputs", {})
     auto_filled = list(inputs.get("_auto_filled", []))
     fetched = gather_data.fetch_market_inputs(cfg.get("ticker", ""))
+    # Phase 2-B.2: also fetch historical multiples
+    fetched.update(gather_data.fetch_historical_multiples(cfg.get("ticker", "")))
 
     for key, value in fetched.items():
         existing = inputs.get(key)

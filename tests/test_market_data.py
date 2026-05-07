@@ -508,3 +508,27 @@ def test_fetch_historical_multiples_no_shares_outstanding():
         result = gather_data.fetch_historical_multiples("XYZ")
     assert "historical_trailing_pe" in result
     assert "historical_ev_ebitda" not in result
+
+
+def test_auto_fill_inputs_includes_historical_multiples():
+    """_auto_fill_valuation_inputs writes historical_trailing_pe, historical_ev_ebitda,
+    and ttm_eps from fetch_historical_multiples in addition to forward_eps + ttm_ebitda."""
+    cfg = {"ticker": "MSFT", "valuation_inputs": {}}
+    info = {
+        "forwardEps": 19.42, "trailingEbitda": 184e9, "trailingEps": 16.78,
+        "sharesOutstanding": 7.43e9,
+    }
+    with patch_yfinance_full(info=info):
+        streamlit_app._auto_fill_valuation_inputs(cfg)
+
+    inputs = cfg["valuation_inputs"]
+    # Phase 2-B fields:
+    assert inputs.get("forward_eps") == 19.42
+    assert inputs.get("ttm_ebitda") == round(184e9 / 1e6, 0)
+    # Phase 2-B.2 fields:
+    assert inputs.get("ttm_eps") == 16.78
+    assert "historical_trailing_pe" in inputs
+    assert "historical_ev_ebitda" in inputs
+    # All three new keys in _auto_filled
+    auto_filled = set(inputs.get("_auto_filled", []))
+    assert {"ttm_eps", "historical_trailing_pe", "historical_ev_ebitda"}.issubset(auto_filled)
