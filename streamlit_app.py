@@ -274,23 +274,23 @@ def _render_football_field(summary: dict | None, theme: dict) -> str:
             f'<div class="ff-row">'
             f'<div class="ff-label">{label}</div>'
             f'<div class="ff-bar">'
-            f'<div class="ff-range" style="left:{x_low:.1f}%;width:{width:.1f}%%"></div>'
+            f'<div class="ff-range" style="left:{x_low:.1f}%;width:{width:.1f}%"></div>'
             f'</div>'
             f'<div class="ff-range-label" style="color:{text}">${low:.0f} — ${high:.0f}</div>'
             f'</div>'
         )
 
     markers_html = (
-        f'<div class="ff-marker" style="left:{_x(price):.2f}%%;background:#fff" '
+        f'<div class="ff-marker" style="left:{_x(price):.2f}%;background:#fff" '
         f'  title="Current price ${price:.2f}"></div>'
-        f'<div class="ff-marker" style="left:{_x(mid):.2f}%%;background:{accent}" '
+        f'<div class="ff-marker" style="left:{_x(mid):.2f}%;background:{accent}" '
         f'  title="Weighted Mid ${mid:.2f}"></div>'
-        f'<div class="ff-marker" style="left:{_x(buy):.2f}%%;background:{accent_hover}" '
+        f'<div class="ff-marker" style="left:{_x(buy):.2f}%;background:{accent_hover}" '
         f'  title="Buy ${buy:.2f}"></div>'
     )
 
     css = f'''<style>
-.ff-container {{ position:relative; width:100%%; max-width:560px; padding:12px 4px; }}
+.ff-container {{ position:relative; width:100%; max-width:560px; padding:12px 4px; }}
 .ff-row {{ display:flex; align-items:center; gap:10px; margin-bottom:6px; font-size:0.78rem; }}
 .ff-label {{ width:88px; color:{text}; font-weight:500; }}
 .ff-bar {{
@@ -315,7 +315,7 @@ def _render_football_field(summary: dict | None, theme: dict) -> str:
   display:flex; gap:14px; padding-top:10px; font-size:0.72rem; color:{muted};
 }}
 .ff-legend-dot {{
-  display:inline-block; width:8px; height:8px; border-radius:50%%; margin-right:4px;
+  display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px;
 }}
 </style>'''
 
