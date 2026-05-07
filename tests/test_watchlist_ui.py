@@ -338,7 +338,9 @@ def test_render_lens_dots_omits_dividend_from_display():
 
 
 def test_render_football_field_renders_all_active_lenses():
-    """Full summary → HTML contains 4 bar elements + price/mid/buy markers."""
+    """Full summary → HTML contains 3 forward-lens bars (DCF, Multiples,
+    Historical) + price marker. Reverse DCF intentionally absent — its
+    bar would overlap with the Price marker."""
     summary = {
         "stock_price": 100.0,
         "weighted_fv_low": 80.0,
@@ -354,15 +356,16 @@ def test_render_football_field_renders_all_active_lenses():
         },
     }
     html = streamlit_app._render_football_field(summary, theme=_theme_stub())
-    # 4 lens labels in the HTML
+    # 3 forward-lens labels in the HTML
     assert "DCF" in html
     assert "Multiples" in html
     assert "Historical" in html
-    assert "Reverse DCF" in html
-    # Markers for current price, mid, buy
-    assert "$100" in html or "100.00" in html  # current price
-    # Class hooks for the bars
-    assert html.count("ff-bar") >= 4
+    # Reverse DCF intentionally absent
+    assert "Reverse DCF" not in html
+    # Markers for current price
+    assert "$100" in html or "100.00" in html
+    # Class hooks for the bars — count includes CSS definition + 3 actual bars
+    assert html.count('class="ff-bar"') == 3
 
 
 def test_render_football_field_handles_missing_lens():

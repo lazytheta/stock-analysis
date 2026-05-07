@@ -245,7 +245,9 @@ def _render_football_field(summary: dict | None, theme: dict) -> str:
         ("dcf", "DCF"),
         ("multiples", "Multiples"),
         ("historical", "Historical"),
-        ("reverse_dcf", "Reverse DCF"),
+        # "reverse_dcf" intentionally omitted — its bar would overlap the
+        # Price marker (lens always returns fv = stock_price). See
+        # docs/superpowers/specs/2026-05-07-reverse-dcf-demote-from-watchlist-design.md.
     ]
     lenses = summary.get("lenses") or {}
 
