@@ -331,3 +331,57 @@ def test_render_lens_dots_omits_dividend_from_display():
     # Only DCF dot shown, dividend ignored from display
     assert html.count('class="ld-on"') == 1
     assert "1 lens" in html
+
+
+def test_render_football_field_renders_all_active_lenses():
+    """Full summary → HTML contains 4 bar elements + price/mid/buy markers."""
+    summary = {
+        "stock_price": 100.0,
+        "weighted_fv_low": 80.0,
+        "weighted_fv_mid": 100.0,
+        "weighted_fv_high": 120.0,
+        "buy_price": 80.0,
+        "lenses": {
+            "dcf":         {"fv_low": 90.0,  "fv_mid": 100.0, "fv_high": 110.0},
+            "multiples":   {"fv_low": 70.0,  "fv_mid": 95.0,  "fv_high": 130.0},
+            "historical":  {"fv_low": 95.0,  "fv_mid": 105.0, "fv_high": 115.0},
+            "reverse_dcf": {"fv_low": 100.0, "fv_mid": 100.0, "fv_high": 100.0},
+            "dividend":    None,
+        },
+    }
+    html = streamlit_app._render_football_field(summary, theme=_theme_stub())
+    # 4 lens labels in the HTML
+    assert "DCF" in html
+    assert "Multiples" in html
+    assert "Historical" in html
+    assert "Reverse DCF" in html
+    # Markers for current price, mid, buy
+    assert "$100" in html or "100.00" in html  # current price
+    # Class hooks for the bars
+    assert html.count("ff-bar") >= 4
+
+
+def test_render_football_field_handles_missing_lens():
+    """Lens=None → bar greyed out with '(skipped)' label."""
+    summary = {
+        "stock_price": 100.0,
+        "weighted_fv_low": 90.0,
+        "weighted_fv_mid": 100.0,
+        "weighted_fv_high": 110.0,
+        "buy_price": 80.0,
+        "lenses": {
+            "dcf":         {"fv_low": 90.0, "fv_mid": 100.0, "fv_high": 110.0},
+            "multiples":   None,
+            "historical":  {"fv_low": 95.0, "fv_mid": 105.0, "fv_high": 115.0},
+            "reverse_dcf": {"fv_low": 100.0, "fv_mid": 100.0, "fv_high": 100.0},
+            "dividend":    None,
+        },
+    }
+    html = streamlit_app._render_football_field(summary, theme=_theme_stub())
+    assert "(skipped)" in html
+
+
+def test_render_football_field_handles_no_summary():
+    """Empty/None summary → returns a placeholder (no crash)."""
+    assert streamlit_app._render_football_field(None, theme=_theme_stub()) != ""
+    assert streamlit_app._render_football_field({}, theme=_theme_stub()) != ""

@@ -205,6 +205,138 @@ def _render_fv_cell(price: float, summary: dict | None,
     return f'<span style="color:{muted}">—</span>'
 
 
+def _render_football_field(summary: dict | None, theme: dict) -> str:
+    """Render a football-field HTML block: one horizontal range bar per lens
+    + vertical markers for current price, weighted mid, and buy price.
+
+    Used inside an st.popover triggered from the watchlist row. Pure CSS;
+    width fixes at ~600px so the popover sizes naturally.
+    """
+    text = theme.get("text", "#eee")
+    muted = theme.get("text_muted", "#888")
+    accent = theme.get("accent", "#6e8a76")
+    accent_hover = theme.get("accent_hover", "#5a7561")
+
+    if not summary or not isinstance(summary, dict) or not summary.get("lenses"):
+        return (
+            f'<div style="color:{muted};font-size:0.85rem;padding:12px">'
+            f'No valuation summary available — run "Refresh all" or '
+            f'<code>calculate_multi_lens_valuation</code>.'
+            f'</div>'
+        )
+
+    lens_order = [
+        ("dcf", "DCF"),
+        ("multiples", "Multiples"),
+        ("historical", "Historical"),
+        ("reverse_dcf", "Reverse DCF"),
+    ]
+    lenses = summary.get("lenses") or {}
+
+    price = summary.get("stock_price") or 0.0
+    mid = summary.get("weighted_fv_mid") or 0.0
+    buy = summary.get("buy_price") or 0.0
+
+    all_values = [price, mid, buy]
+    for key, _ in lens_order:
+        lens = lenses.get(key)
+        if lens:
+            all_values.extend([lens.get("fv_low") or 0, lens.get("fv_high") or 0])
+    all_values = [v for v in all_values if v]
+    if not all_values:
+        return f'<div style="color:{muted};font-size:0.85rem">No valuation data.</div>'
+    g_min, g_max = min(all_values), max(all_values)
+    span = max(g_max - g_min, 1e-9)
+    pad = span * 0.05
+    g_min -= pad
+    g_max += pad
+    span = g_max - g_min
+
+    def _x(v: float) -> float:
+        return ((v - g_min) / span) * 100.0
+
+    bar_rows = []
+    for key, label in lens_order:
+        lens = lenses.get(key)
+        if lens is None:
+            bar_rows.append(
+                f'<div class="ff-row"><div class="ff-label">{label}</div>'
+                f'<div class="ff-bar" style="background:#33333322"></div>'
+                f'<div class="ff-range-label" style="color:{muted}">(skipped)</div>'
+                f'</div>'
+            )
+            continue
+        low = lens.get("fv_low") or 0
+        high = lens.get("fv_high") or 0
+        x_low, x_high = _x(low), _x(high)
+        width = max(x_high - x_low, 0.5)
+        bar_rows.append(
+            f'<div class="ff-row">'
+            f'<div class="ff-label">{label}</div>'
+            f'<div class="ff-bar">'
+            f'<div class="ff-range" style="left:{x_low:.1f}%;width:{width:.1f}%%"></div>'
+            f'</div>'
+            f'<div class="ff-range-label" style="color:{text}">${low:.0f} — ${high:.0f}</div>'
+            f'</div>'
+        )
+
+    markers_html = (
+        f'<div class="ff-marker" style="left:{_x(price):.2f}%%;background:#fff" '
+        f'  title="Current price ${price:.2f}"></div>'
+        f'<div class="ff-marker" style="left:{_x(mid):.2f}%%;background:{accent}" '
+        f'  title="Weighted Mid ${mid:.2f}"></div>'
+        f'<div class="ff-marker" style="left:{_x(buy):.2f}%%;background:{accent_hover}" '
+        f'  title="Buy ${buy:.2f}"></div>'
+    )
+
+    css = f'''<style>
+.ff-container {{ position:relative; width:100%%; max-width:560px; padding:12px 4px; }}
+.ff-row {{ display:flex; align-items:center; gap:10px; margin-bottom:6px; font-size:0.78rem; }}
+.ff-label {{ width:88px; color:{text}; font-weight:500; }}
+.ff-bar {{
+  position:relative; flex:1; height:14px;
+  background:linear-gradient(90deg,#6cc07033,#d8a44833,#d96a5a33);
+  border-radius:3px; overflow:hidden;
+}}
+.ff-range {{
+  position:absolute; top:0; bottom:0;
+  background:linear-gradient(90deg,#6cc070,#d8a448,#d96a5a);
+  border-radius:3px; opacity:0.85;
+}}
+.ff-range-label {{ width:120px; font-size:0.72rem; }}
+.ff-markers {{
+  position:absolute; top:36px; left:98px; right:130px; bottom:24px; pointer-events:none;
+}}
+.ff-marker {{
+  position:absolute; top:0; bottom:0; width:2px;
+  box-shadow:0 0 2px rgba(0,0,0,0.6);
+}}
+.ff-legend {{
+  display:flex; gap:14px; padding-top:10px; font-size:0.72rem; color:{muted};
+}}
+.ff-legend-dot {{
+  display:inline-block; width:8px; height:8px; border-radius:50%%; margin-right:4px;
+}}
+</style>'''
+
+    legend_html = (
+        f'<div class="ff-legend">'
+        f'<span><span class="ff-legend-dot" style="background:#fff"></span>Price ${price:.2f}</span>'
+        f'<span><span class="ff-legend-dot" style="background:{accent}"></span>Mid ${mid:.2f}</span>'
+        f'<span><span class="ff-legend-dot" style="background:{accent_hover}"></span>Buy ${buy:.2f}</span>'
+        f'</div>'
+    )
+
+    return (
+        f'{css}'
+        f'<div class="ff-container">'
+        f'{"".join(bar_rows)}'
+        f'<div class="ff-markers">{markers_html}</div>'
+        f'{legend_html}'
+        f'</div>'
+    )
+
+
 def calculate_multi_lens_valuation_remote(cfg: dict) -> dict:
     """Thin wrapper so tests can monkey-patch this name without touching
     the pure orchestrator."""
