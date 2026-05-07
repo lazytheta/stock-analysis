@@ -111,36 +111,29 @@ def _range_bar_marker_position(price: float, low: float, high: float) -> tuple[f
 
 
 def _render_lens_dots(lenses: dict, theme: dict) -> str:
-    """Render the 3-dot lens indicator + summary label.
+    """Render N dots showing which lenses are active + a generic count label.
 
-    Three dots in order: DCF · Multiples · Reverse DCF.
-    Filled green when active (lens dict is truthy), grey when None/missing.
-    Label after the dots: '3 lenses', 'DCF + reverse', 'DCF only', 'no lenses'.
+    Order: dcf · multiples · historical · reverse_dcf. Dividend stub is
+    deliberately omitted from display (always greyed out under Phase 2 scope).
+
+    Each lens key maps to a non-None lens dict (active, green dot) or None
+    (skipped, grey dot). Label: "{N} lens" or "{N} lenses" or "no lenses".
     """
-    order = ["dcf", "multiples", "reverse_dcf"]
+    order = ["dcf", "multiples", "historical", "reverse_dcf"]
     actives = [name for name in order if lenses.get(name) is not None]
+
     parts = []
     for name in order:
         cls = "ld-on" if lenses.get(name) is not None else "ld-off"
         parts.append(f'<span class="{cls}"></span>')
 
-    if not actives:
+    n = len(actives)
+    if n == 0:
         label = "no lenses"
-    elif len(actives) == 3:
-        label = "3 lenses"
-    elif actives == ["dcf"]:
-        label = "DCF only"
-    elif actives == ["dcf", "reverse_dcf"]:
-        label = "DCF + reverse"
-    elif actives == ["multiples"]:
-        label = "multiples only"
-    elif actives == ["multiples", "reverse_dcf"]:
-        label = "multiples + reverse"
-    elif actives == ["reverse_dcf"]:
-        label = "reverse only"
+    elif n == 1:
+        label = "1 lens"
     else:
-        # any remaining 2-active combo, e.g. ["dcf", "multiples"]
-        label = " + ".join(a.replace("_", " ") for a in actives)
+        label = f"{n} lenses"
 
     color = theme.get("text_muted", "#888")
     return (

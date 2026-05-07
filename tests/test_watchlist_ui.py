@@ -97,34 +97,34 @@ def test_range_bar_marker_invalid_inputs_return_50():
 
 
 def test_render_lens_dots_all_active():
-    lenses = {"dcf": {}, "multiples": {}, "reverse_dcf": {}, "dividend": None}
+    lenses = {"dcf": {}, "multiples": {}, "historical": {}, "reverse_dcf": {}, "dividend": None}
     html = streamlit_app._render_lens_dots(lenses, theme={"text_muted": "#888"})
-    # Three filled dots
-    assert html.count('class="ld-on"') == 3
+    # Four filled dots (dcf, multiples, historical, reverse_dcf)
+    assert html.count('class="ld-on"') == 4
     assert 'class="ld-off"' not in html
-    assert "3 lenses" in html
+    assert "4 lenses" in html
 
 
 def test_render_lens_dots_dcf_only():
-    lenses = {"dcf": {}, "multiples": None, "reverse_dcf": None, "dividend": None}
+    lenses = {"dcf": {}, "multiples": None, "historical": None, "reverse_dcf": None, "dividend": None}
     html = streamlit_app._render_lens_dots(lenses, theme={"text_muted": "#888"})
     assert html.count('class="ld-on"') == 1
-    assert html.count('class="ld-off"') == 2
-    assert "DCF only" in html
+    assert html.count('class="ld-off"') == 3
+    assert "1 lens" in html
 
 
 def test_render_lens_dots_dcf_plus_reverse():
-    lenses = {"dcf": {}, "multiples": None, "reverse_dcf": {}, "dividend": None}
+    lenses = {"dcf": {}, "multiples": None, "historical": None, "reverse_dcf": {}, "dividend": None}
     html = streamlit_app._render_lens_dots(lenses, theme={"text_muted": "#888"})
     assert html.count('class="ld-on"') == 2
-    assert "DCF + reverse" in html
+    assert "2 lenses" in html
 
 
 def test_render_lens_dots_empty_dict():
     """No lenses at all → 'no lenses' label, all grey."""
     html = streamlit_app._render_lens_dots({}, theme={"text_muted": "#888"})
     assert 'class="ld-on"' not in html
-    assert html.count('class="ld-off"') == 3
+    assert html.count('class="ld-off"') == 4
     assert "no lenses" in html
 
 
@@ -291,9 +291,43 @@ def test_render_lens_dots_empty_dict_is_active_not_inactive():
     """Pin the data contract: an empty dict {} is an ACTIVE lens (not None),
     even though {} is falsy. This guards against regressions if someone
     changes the active-check from `is not None` to bare truthiness."""
-    lenses_with_empty = {"dcf": {}, "multiples": None, "reverse_dcf": None, "dividend": None}
+    lenses_with_empty = {"dcf": {}, "multiples": None, "historical": None, "reverse_dcf": None, "dividend": None}
     html = streamlit_app._render_lens_dots(lenses_with_empty, theme={"text_muted": "#888"})
     # {} is active → 1 ld-on (not 0)
     assert html.count('class="ld-on"') == 1, \
         "Empty dict {} should be treated as active lens (not None semantics)"
-    assert "DCF only" in html
+    assert "1 lens" in html
+
+
+def test_render_lens_dots_4_active_after_split():
+    """After Phase 2-D, four lenses can be active. Label scales generically."""
+    lenses = {
+        "dcf": {}, "multiples": {}, "historical": {}, "reverse_dcf": {},
+        "dividend": None,
+    }
+    html = streamlit_app._render_lens_dots(lenses, theme={"text_muted": "#888"})
+    assert html.count('class="ld-on"') == 4
+    assert "4 lenses" in html
+
+
+def test_render_lens_dots_zero_active():
+    """No lenses active → 'no lenses' label, all dots grey."""
+    lenses = {
+        "dcf": None, "multiples": None, "historical": None, "reverse_dcf": None,
+        "dividend": None,
+    }
+    html = streamlit_app._render_lens_dots(lenses, theme={"text_muted": "#888"})
+    assert 'class="ld-on"' not in html
+    assert "no lenses" in html
+
+
+def test_render_lens_dots_omits_dividend_from_display():
+    """Dividend stub never renders a dot, even if non-None."""
+    lenses = {
+        "dcf": {}, "multiples": None, "historical": None, "reverse_dcf": None,
+        "dividend": {"fv_mid": 50.0},  # hypothetical: dividend with value
+    }
+    html = streamlit_app._render_lens_dots(lenses, theme={"text_muted": "#888"})
+    # Only DCF dot shown, dividend ignored from display
+    assert html.count('class="ld-on"') == 1
+    assert "1 lens" in html
