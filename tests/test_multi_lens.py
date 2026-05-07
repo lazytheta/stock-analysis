@@ -686,3 +686,36 @@ def test_historical_lens_uses_all_three_subanchors():
     assert lens["fv_high"] == pytest.approx(145.0)
     # Mid is the mean: (100 + 100 + 145) / 3 = 115
     assert lens["fv_mid"] == pytest.approx(115.0, abs=0.5)
+
+
+def test_historical_lens_returns_none_when_no_inputs():
+    """Empty valuation_inputs → all three sub-anchors skip → lens returns None."""
+    cfg = make_cfg()  # default has empty valuation_inputs
+    assert valuation_lenses.compute_historical_lens(cfg) is None
+
+
+def test_historical_lens_only_a2_active():
+    """Only A.2 inputs present → lens returns single-anchor result."""
+    cfg = make_cfg(
+        valuation_inputs={"historical_trailing_pe": 30.0, "ttm_eps": 5.0},
+    )
+    lens = valuation_lenses.compute_historical_lens(cfg)
+    assert lens is not None
+    assert lens["details"]["fwd_pe_own"] is None
+    assert lens["details"]["historical_trailing_pe_fv"] == pytest.approx(150.0)
+    assert lens["details"]["historical_ev_ebitda_fv"] is None
+    # Single anchor → fv_low == fv_mid == fv_high
+    assert lens["fv_low"] == lens["fv_mid"] == lens["fv_high"] == pytest.approx(150.0)
+
+
+def test_historical_lens_only_d_active():
+    """Only D (own EV/EBITDA) inputs present → lens returns single-anchor."""
+    cfg = make_cfg(
+        valuation_inputs={"historical_ev_ebitda": 20.0, "ttm_ebitda": 5_000.0},
+    )
+    lens = valuation_lenses.compute_historical_lens(cfg)
+    assert lens is not None
+    # net_debt = 5_000, shares = 1_000 (defaults)
+    # fv = (20.0 * 5_000 - 5_000) / 1_000 = 95.0
+    assert lens["details"]["historical_ev_ebitda_fv"] == pytest.approx(95.0)
+    assert lens["fv_mid"] == pytest.approx(95.0)
