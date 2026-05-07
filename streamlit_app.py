@@ -219,92 +219,13 @@ def calculate_multi_lens_valuation_remote(cfg: dict) -> dict:
     return valuation_lenses.calculate_multi_lens_valuation(cfg, scenario_grid=False)
 
 
-def _auto_fill_valuation_inputs(cfg: dict) -> None:
-    """Auto-fill valuation_inputs from yfinance, respecting user-set values.
-
-    Mutates cfg["valuation_inputs"] in place. Fields listed in `_auto_filled`
-    or absent are written; user-set fields (present, not in _auto_filled) are
-    preserved. Updates `_fetched_at` ISO timestamp.
-    """
-    from datetime import UTC, datetime
-
-    import gather_data
-
-    inputs = cfg.setdefault("valuation_inputs", {})
-    auto_filled = list(inputs.get("_auto_filled", []))
-    fetched = gather_data.fetch_market_inputs(cfg.get("ticker", ""))
-    # Phase 2-B.2: also fetch historical multiples
-    fetched.update(gather_data.fetch_historical_multiples(cfg.get("ticker", "")))
-
-    for key, value in fetched.items():
-        existing = inputs.get(key)
-        if existing is None or key in auto_filled:
-            inputs[key] = value
-            if key not in auto_filled:
-                auto_filled.append(key)
-        else:
-            logger.info(
-                "Auto-fill skipped for %s.%s: user-set value preserved",
-                cfg.get("ticker", "?"), key,
-            )
-
-    inputs["_auto_filled"] = auto_filled
-    inputs["_fetched_at"] = datetime.now(UTC).isoformat()
-
-
-def _auto_fill_peer_market_data(cfg: dict) -> None:
-    """Auto-fill yfinance fwd_pe and real ev_ebitda for each peer in cfg["peers"].
-
-    fwd_pe: user-set values (present, not in _auto_filled) are preserved.
-    ev_ebitda: ALWAYS overwritten when yfinance provides real data. This is an
-    intentional Phase-2-B limitation: the existing values come from
-    gather_data.fetch_peer_data's oi*1.3 approximation and are never marked
-    as _auto_filled, so the standard precedence rule would treat them as
-    user-set. To keep the workflow simple we always replace them with the real
-    yfinance value. Side effect: a user who manually edits a peer's ev_ebitda
-    via Claude Desktop will see that override wiped on the next refresh. If
-    that ever matters, mark the field in peer["_auto_filled"] = ["ev_ebitda"]
-    when fetch_peer_data writes it.
-
-    Updates peer["_fetched_at"]. Non-dict or ticker-less peers are skipped.
-    """
-    from datetime import UTC, datetime
-    import gather_data
-
-    peers = cfg.get("peers") or []
-    fetched_at = datetime.now(UTC).isoformat()
-
-    for peer in peers:
-        if not isinstance(peer, dict) or not peer.get("ticker"):
-            continue
-
-        auto_filled = list(peer.get("_auto_filled", []))
-        enriched = gather_data.enrich_peer_with_market_data(peer)
-
-        for key in ("fwd_pe", "ev_ebitda"):
-            yfinance_value = enriched.get(key)
-            original_value = peer.get(key)
-            # Skip when yfinance didn't return a value. We deliberately do NOT
-            # skip when yfinance_value == original_value — if yfinance said
-            # this field, _auto_filled should track it even when the value
-            # happens to match (otherwise a coincidental match permanently
-            # marks the field as user-set).
-            if yfinance_value is None:
-                continue
-            # ev_ebitda is always a computed metric — always update from yfinance.
-            # fwd_pe respects user-set values (present and not in _auto_filled).
-            if key == "ev_ebitda" or original_value is None or key in auto_filled:
-                peer[key] = yfinance_value
-                if key not in auto_filled:
-                    auto_filled.append(key)
-            else:
-                logger.info(
-                    "Auto-fill skipped for %s peer %s.%s: user-set value preserved",
-                    cfg.get("ticker", "?"), peer["ticker"], key,
-                )
-
-        peer["_auto_filled"] = auto_filled
-        peer["_fetched_at"] = fetched_at
+# Auto-fill helpers live in auto_fetch (shared with mcp_server). Re-exported
+# under their underscore-prefixed names so existing call sites in this file
+# (and tests that monkey-patch streamlit_app._auto_fill_*) keep working.
+from auto_fetch import (
+    auto_fill_peer_market_data as _auto_fill_peer_market_data,
+    auto_fill_valuation_inputs as _auto_fill_valuation_inputs,
+)
 
 
 def _refresh_stale_valuations(client, cfgs: dict, user_id: str | None = None,
