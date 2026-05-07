@@ -289,21 +289,19 @@ def test_multiples_lens_returns_none_when_no_inputs():
     assert valuation_lenses.compute_multiples_lens(cfg) is None
 
 
-def test_multiples_lens_own_pe_only():
+def test_historical_lens_own_pe_only():
     cfg = make_cfg(
         valuation_inputs={"forward_eps": 5.0, "historical_fwd_pe": 20.0},
     )
-    lens = valuation_lenses.compute_multiples_lens(cfg)
+    lens = valuation_lenses.compute_historical_lens(cfg)
     assert lens is not None
-    # Only own_pe anchor (5.0 * 20.0 = 100.0); no peer/ev_ebitda data
+    # Only own_pe anchor (5.0 * 20.0 = 100.0); no trailing_pe/ev_ebitda data
     assert lens["fv_mid"] == pytest.approx(100.0)
     assert lens["fv_low"] == pytest.approx(100.0)
     assert lens["fv_high"] == pytest.approx(100.0)
     assert lens["details"]["fwd_pe_own"] == pytest.approx(100.0)
-    assert lens["details"]["fwd_pe_peer_median"] is None
-    assert lens["details"]["ev_ebitda_peer_median"] is None
-    assert any("fwd_pe_peer" in s for s in lens["details"]["skipped"])
-    assert any("ev_ebitda_peer" in s for s in lens["details"]["skipped"])
+    assert any("historical_trailing_pe" in s for s in lens["details"]["skipped"])
+    assert any("historical_ev_ebitda" in s for s in lens["details"]["skipped"])
 
 
 def test_multiples_lens_peer_pe_and_ev_ebitda():
@@ -340,7 +338,6 @@ def test_multiples_lens_partial_inputs_skips_components():
     )
     lens = valuation_lenses.compute_multiples_lens(cfg)
     assert lens is not None
-    assert lens["details"]["fwd_pe_own"] is None
     assert lens["details"]["fwd_pe_peer_median"] is None
     assert lens["details"]["ev_ebitda_peer_median"] is not None
 
@@ -625,7 +622,7 @@ def test_calculate_valuation_impl_shape_unchanged():
     assert out["valuation_basis"] == "nominal"
 
 
-def test_multiples_lens_uses_historical_trailing_pe():
+def test_historical_lens_uses_historical_trailing_pe():
     """Sub-anchor A.2: historical_trailing_pe × ttm_eps contributes to fv_anchors."""
     cfg = make_cfg(
         valuation_inputs={
@@ -634,7 +631,7 @@ def test_multiples_lens_uses_historical_trailing_pe():
             # Other inputs missing → A.2 is the only sub-anchor that fires
         },
     )
-    lens = valuation_lenses.compute_multiples_lens(cfg)
+    lens = valuation_lenses.compute_historical_lens(cfg)
     assert lens is not None
     # 25.0 * 4.0 = 100.0
     assert lens["details"]["historical_trailing_pe_fv"] == pytest.approx(100.0)
@@ -644,7 +641,7 @@ def test_multiples_lens_uses_historical_trailing_pe():
     assert lens["fv_high"] == pytest.approx(100.0)
 
 
-def test_multiples_lens_uses_historical_ev_ebitda():
+def test_historical_lens_uses_historical_ev_ebitda():
     """Sub-anchor D: historical_ev_ebitda × ttm_ebitda - net_debt → /shares."""
     cfg = make_cfg(
         valuation_inputs={
@@ -657,7 +654,7 @@ def test_multiples_lens_uses_historical_ev_ebitda():
     # ev = 15.0 * 10_000 = 150_000  (in $M)
     # equity = ev - net_debt = 145_000  (in $M)
     # per share = 145_000 / 1_000 shares_outstanding = 145.0
-    lens = valuation_lenses.compute_multiples_lens(cfg)
+    lens = valuation_lenses.compute_historical_lens(cfg)
     assert lens is not None
     assert lens["details"]["historical_ev_ebitda_fv"] == pytest.approx(145.0)
 

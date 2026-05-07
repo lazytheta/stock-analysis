@@ -238,55 +238,28 @@ def compute_historical_lens(cfg):
 
 
 def compute_multiples_lens(cfg):
-    """Trading-multiples lens with three independent sub-anchors:
+    """Peer-relative multiples lens. Two sub-anchors:
 
-    A) own historical forward P/E x forward_eps
-    B) peer-set forward P/E (median, min, max) x forward_eps
-    C) peer-set EV/EBITDA (median, min, max) x ttm_ebitda - net_debt -> /shares
+    B) peer-set forward P/E (median, min, max, Tukey-filtered) × forward_eps
+    C) peer-set EV/EBITDA (median, min, max, Tukey-filtered) × ttm_ebitda - net_debt → /shares
 
-    Sub-anchors silently skipped when their inputs are missing. Lens fully
-    returns None when all three skip.
+    Own-history sub-anchors (A, A.2, D) live in compute_historical_lens.
+    Sub-anchors silently skipped when their inputs are missing. Lens returns
+    None when both peer sub-anchors skip.
     """
     inputs = cfg.get("valuation_inputs") or {}
     peers = cfg.get("peers") or []
 
+    forward_eps = inputs.get("forward_eps")
+    ttm_ebitda = inputs.get("ttm_ebitda")
+
     fv_anchors = []
     details = {
-        "fwd_pe_own": None,
         "fwd_pe_peer_median": None,
         "ev_ebitda_peer_median": None,
-        "historical_trailing_pe_fv": None,    # NEW (Phase 2-B.2)
-        "historical_ev_ebitda_fv": None,      # NEW (Phase 2-B.2)
         "closest_peer": None,
         "skipped": [],
     }
-
-    forward_eps = inputs.get("forward_eps")
-    historical_fwd_pe = inputs.get("historical_fwd_pe")
-    ttm_ebitda = inputs.get("ttm_ebitda")
-    historical_trailing_pe = inputs.get("historical_trailing_pe")    # NEW (Phase 2-B.2)
-    historical_ev_ebitda = inputs.get("historical_ev_ebitda")        # NEW (Phase 2-B.2)
-    ttm_eps = inputs.get("ttm_eps")                                  # NEW (Phase 2-B.2)
-
-    # A) own historical forward P/E
-    if forward_eps and historical_fwd_pe:
-        own_fv = historical_fwd_pe * forward_eps
-        fv_anchors.append(own_fv)
-        details["fwd_pe_own"] = own_fv
-    else:
-        reason = "fwd_pe_own (forward_eps or historical_fwd_pe missing)"
-        details["skipped"].append(reason)
-        logger.info("Multiples lens: skipping %s", reason)
-
-    # A.2) own historical trailing P/E × ttm_eps (Phase 2-B.2)
-    if historical_trailing_pe and ttm_eps and ttm_eps > 0:
-        own_trailing_fv = historical_trailing_pe * ttm_eps
-        fv_anchors.append(own_trailing_fv)
-        details["historical_trailing_pe_fv"] = own_trailing_fv
-    else:
-        reason = "historical_trailing_pe (no historical_trailing_pe or ttm_eps)"
-        details["skipped"].append(reason)
-        logger.info("Multiples lens: skipping %s", reason)
 
     # B) peer fwd P/E
     peer_fwd_pe_pairs = [(p["ticker"], p["fwd_pe"]) for p in peers if p.get("fwd_pe")]
@@ -300,7 +273,6 @@ def compute_multiples_lens(cfg):
         fv_high_p = max(peer_fwd_pes) * forward_eps
         fv_anchors.extend([fv_low_p, fv_mid_p, fv_high_p])
         details["fwd_pe_peer_median"] = fv_mid_p
-        # informational closest peer
         avg_growth = sum(cfg.get("revenue_growth", [0.0])) / max(
             len(cfg.get("revenue_growth", [0.0])), 1
         )
@@ -336,24 +308,8 @@ def compute_multiples_lens(cfg):
         details["skipped"].append(reason)
         logger.info("Multiples lens: skipping %s", reason)
 
-    # D) own historical EV/EBITDA × ttm_ebitda - net_debt → /shares (Phase 2-B.2)
-    if historical_ev_ebitda and ttm_ebitda:
-        net_debt_d = (
-            cfg.get("debt_market_value", 0.0)
-            - cfg.get("cash_bridge", 0.0)
-            - cfg.get("securities", 0.0)
-        )
-        shares_d = cfg.get("shares_outstanding") or 1.0
-        own_evebitda_fv = (historical_ev_ebitda * ttm_ebitda - net_debt_d) / shares_d
-        fv_anchors.append(own_evebitda_fv)
-        details["historical_ev_ebitda_fv"] = own_evebitda_fv
-    else:
-        reason = "historical_ev_ebitda (no historical_ev_ebitda or ttm_ebitda)"
-        details["skipped"].append(reason)
-        logger.info("Multiples lens: skipping %s", reason)
-
     if not fv_anchors:
-        logger.info("Multiples lens fully skipped (no anchors)")
+        logger.info("Multiples lens fully skipped (no peer anchors)")
         return None
 
     return {
