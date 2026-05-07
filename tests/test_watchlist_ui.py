@@ -230,7 +230,10 @@ def test_refresh_one_ticker_error_others_succeed():
         return {"calculated_at": now.isoformat(), "weighted_fv_mid": 50.0}
 
     with patch.object(streamlit_app, "calculate_multi_lens_valuation_remote", side_effect=fake_calc), \
-         patch.object(streamlit_app, "save_config"):
+         patch.object(streamlit_app, "save_config"), \
+         patch("gather_data.fetch_market_inputs", return_value={}), \
+         patch("gather_data.fetch_historical_multiples", return_value={}), \
+         patch("gather_data.enrich_peer_with_market_data", side_effect=lambda p: dict(p)):
         # Ensure cfgs have ticker so the side_effect can branch
         cfgs["GOOD"]["ticker"] = "GOOD"
         cfgs["BAD"]["ticker"] = "BAD"
@@ -266,7 +269,10 @@ def test_refresh_invokes_on_progress_callback():
         progress_calls.append((done, total))
 
     with patch.object(streamlit_app, "calculate_multi_lens_valuation_remote") as mock_calc, \
-         patch.object(streamlit_app, "save_config"):
+         patch.object(streamlit_app, "save_config"), \
+         patch("gather_data.fetch_market_inputs", return_value={}), \
+         patch("gather_data.fetch_historical_multiples", return_value={}), \
+         patch("gather_data.enrich_peer_with_market_data", side_effect=lambda p: dict(p)):
         mock_calc.return_value = {"calculated_at": now.isoformat(), "weighted_fv_mid": 50.0}
         result = streamlit_app._refresh_stale_valuations(
             client=MagicMock(), cfgs=cfgs, user_id="u1", on_progress=cb

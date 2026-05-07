@@ -1555,7 +1555,17 @@ def _interpolate_yearly_to_monthly(income_df, row_name, months_dt):
     months get linear interpolation between adjacent anchors. Months before
     the earliest anchor get the earliest value (extrapolation back); months
     after the latest get the latest value.
+
+    Yfinance returns price history as tz-aware (e.g. America/New_York) and
+    income statements as tz-naive. We strip tz from both sides so comparisons
+    don't raise "Cannot compare tz-naive and tz-aware" errors.
     """
+    def _strip_tz(ts):
+        try:
+            return ts.tz_localize(None) if ts.tzinfo is not None else ts
+        except (AttributeError, TypeError):
+            return ts
+
     if income_df is None or row_name not in income_df.index:
         return []
     annual_row = income_df.loc[row_name]
@@ -1565,15 +1575,16 @@ def _interpolate_yearly_to_monthly(income_df, row_name, months_dt):
             continue
         try:
             v = float(val)
-            points.append((col_dt, v))
+            points.append((_strip_tz(col_dt), v))
         except (TypeError, ValueError):
             continue
     if not points:
         return []
     points.sort(key=lambda p: p[0])
+    naive_months = [_strip_tz(m) for m in months_dt]
 
     series = []
-    for m in months_dt:
+    for m in naive_months:
         if m <= points[0][0]:
             series.append(points[0][1])
             continue
