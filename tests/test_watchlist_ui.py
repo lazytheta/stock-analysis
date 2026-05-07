@@ -97,34 +97,38 @@ def test_range_bar_marker_invalid_inputs_return_50():
 
 
 def test_render_lens_dots_all_active():
+    """All forward-looking lenses active → 3 filled dots, '3 lenses' label.
+    (reverse_dcf intentionally not rendered — it anchors at price.)"""
     lenses = {"dcf": {}, "multiples": {}, "historical": {}, "reverse_dcf": {}, "dividend": None}
     html = streamlit_app._render_lens_dots(lenses, theme={"text_muted": "#888"})
-    # Four filled dots (dcf, multiples, historical, reverse_dcf)
-    assert html.count('class="ld-on"') == 4
+    assert html.count('class="ld-on"') == 3
     assert 'class="ld-off"' not in html
-    assert "4 lenses" in html
+    assert "3 lenses" in html
 
 
 def test_render_lens_dots_dcf_only():
+    """Only DCF active → 1 filled dot, 2 grey dots, '1 lens' label."""
     lenses = {"dcf": {}, "multiples": None, "historical": None, "reverse_dcf": None, "dividend": None}
     html = streamlit_app._render_lens_dots(lenses, theme={"text_muted": "#888"})
     assert html.count('class="ld-on"') == 1
-    assert html.count('class="ld-off"') == 3
+    assert html.count('class="ld-off"') == 2
     assert "1 lens" in html
 
 
-def test_render_lens_dots_dcf_plus_reverse():
-    lenses = {"dcf": {}, "multiples": None, "historical": None, "reverse_dcf": {}, "dividend": None}
+def test_render_lens_dots_dcf_plus_historical():
+    """DCF + Historical active → 2 filled dots, '2 lenses' label.
+    (Replaces test_render_lens_dots_dcf_plus_reverse — reverse_dcf no longer renders.)"""
+    lenses = {"dcf": {}, "multiples": None, "historical": {}, "reverse_dcf": None, "dividend": None}
     html = streamlit_app._render_lens_dots(lenses, theme={"text_muted": "#888"})
     assert html.count('class="ld-on"') == 2
     assert "2 lenses" in html
 
 
 def test_render_lens_dots_empty_dict():
-    """No lenses at all → 'no lenses' label, all grey."""
+    """No lenses at all → 'no lenses' label, all 3 dots grey."""
     html = streamlit_app._render_lens_dots({}, theme={"text_muted": "#888"})
     assert 'class="ld-on"' not in html
-    assert html.count('class="ld-off"') == 4
+    assert html.count('class="ld-off"') == 3
     assert "no lenses" in html
 
 
@@ -299,15 +303,15 @@ def test_render_lens_dots_empty_dict_is_active_not_inactive():
     assert "1 lens" in html
 
 
-def test_render_lens_dots_4_active_after_split():
-    """After Phase 2-D, four lenses can be active. Label scales generically."""
+def test_render_lens_dots_3_active_after_demote():
+    """After Reverse-DCF demotion, max 3 lenses render as dots."""
     lenses = {
         "dcf": {}, "multiples": {}, "historical": {}, "reverse_dcf": {},
         "dividend": None,
     }
     html = streamlit_app._render_lens_dots(lenses, theme={"text_muted": "#888"})
-    assert html.count('class="ld-on"') == 4
-    assert "4 lenses" in html
+    assert html.count('class="ld-on"') == 3
+    assert "3 lenses" in html
 
 
 def test_render_lens_dots_zero_active():
