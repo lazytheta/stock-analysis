@@ -660,3 +660,29 @@ def test_multiples_lens_uses_historical_ev_ebitda():
     lens = valuation_lenses.compute_multiples_lens(cfg)
     assert lens is not None
     assert lens["details"]["historical_ev_ebitda_fv"] == pytest.approx(145.0)
+
+
+def test_historical_lens_uses_all_three_subanchors():
+    """All inputs present → 3 anchors collected (A + A.2 + D)."""
+    cfg = make_cfg(
+        valuation_inputs={
+            "forward_eps": 5.0,
+            "historical_fwd_pe": 20.0,             # → A: 100
+            "historical_trailing_pe": 25.0,
+            "ttm_eps": 4.0,                         # → A.2: 100
+            "historical_ev_ebitda": 15.0,
+            "ttm_ebitda": 10_000.0,                 # → D: depends on net_debt + shares
+        },
+    )
+    # net_debt = 10_000 - 5_000 - 0 = 5_000
+    # D fv = (15.0 * 10_000 - 5_000) / 1_000 = 145.0
+    lens = valuation_lenses.compute_historical_lens(cfg)
+    assert lens is not None
+    assert lens["details"]["fwd_pe_own"] == pytest.approx(100.0)
+    assert lens["details"]["historical_trailing_pe_fv"] == pytest.approx(100.0)
+    assert lens["details"]["historical_ev_ebitda_fv"] == pytest.approx(145.0)
+    # 3 anchors collected: 100, 100, 145
+    assert lens["fv_low"] == pytest.approx(100.0)
+    assert lens["fv_high"] == pytest.approx(145.0)
+    # Mid is the mean: (100 + 100 + 145) / 3 = 115
+    assert lens["fv_mid"] == pytest.approx(115.0, abs=0.5)

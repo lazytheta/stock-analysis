@@ -162,6 +162,81 @@ def _closest_peer_ticker(peers, target_op_margin, target_rev_growth):
     return best_ticker
 
 
+def compute_historical_lens(cfg):
+    """Time-series 'own history' lens. Three sub-anchors:
+
+    A   own historical forward P/E × forward_eps        (manual: requires historical_fwd_pe)
+    A.2 own historical trailing P/E × ttm_eps           (auto-fetched in Phase 2-B.2)
+    D   own historical EV/EBITDA × ttm_ebitda - net_debt (auto-fetched in Phase 2-B.2)
+
+    Sub-anchors silently skipped when their inputs are missing. Lens fully
+    returns None when all three skip.
+    """
+    inputs = cfg.get("valuation_inputs") or {}
+
+    forward_eps = inputs.get("forward_eps")
+    historical_fwd_pe = inputs.get("historical_fwd_pe")
+    historical_trailing_pe = inputs.get("historical_trailing_pe")
+    historical_ev_ebitda = inputs.get("historical_ev_ebitda")
+    ttm_eps = inputs.get("ttm_eps")
+    ttm_ebitda = inputs.get("ttm_ebitda")
+
+    fv_anchors = []
+    details = {
+        "fwd_pe_own": None,
+        "historical_trailing_pe_fv": None,
+        "historical_ev_ebitda_fv": None,
+        "skipped": [],
+    }
+
+    # A) own forward P/E (manual)
+    if forward_eps and historical_fwd_pe:
+        own_fv = historical_fwd_pe * forward_eps
+        fv_anchors.append(own_fv)
+        details["fwd_pe_own"] = own_fv
+    else:
+        reason = "fwd_pe_own (forward_eps or historical_fwd_pe missing)"
+        details["skipped"].append(reason)
+        logger.info("Historical lens: skipping %s", reason)
+
+    # A.2) own historical trailing P/E × ttm_eps
+    if historical_trailing_pe and ttm_eps and ttm_eps > 0:
+        own_trailing_fv = historical_trailing_pe * ttm_eps
+        fv_anchors.append(own_trailing_fv)
+        details["historical_trailing_pe_fv"] = own_trailing_fv
+    else:
+        reason = "historical_trailing_pe (no historical_trailing_pe or ttm_eps)"
+        details["skipped"].append(reason)
+        logger.info("Historical lens: skipping %s", reason)
+
+    # D) own historical EV/EBITDA × ttm_ebitda - net_debt → /shares
+    if historical_ev_ebitda and ttm_ebitda:
+        net_debt = (
+            cfg.get("debt_market_value", 0.0)
+            - cfg.get("cash_bridge", 0.0)
+            - cfg.get("securities", 0.0)
+        )
+        shares = cfg.get("shares_outstanding") or 1.0
+        own_evebitda_fv = (historical_ev_ebitda * ttm_ebitda - net_debt) / shares
+        fv_anchors.append(own_evebitda_fv)
+        details["historical_ev_ebitda_fv"] = own_evebitda_fv
+    else:
+        reason = "historical_ev_ebitda (no historical_ev_ebitda or ttm_ebitda)"
+        details["skipped"].append(reason)
+        logger.info("Historical lens: skipping %s", reason)
+
+    if not fv_anchors:
+        logger.info("Historical lens fully skipped (no anchors)")
+        return None
+
+    return {
+        "fv_low": min(fv_anchors),
+        "fv_mid": sum(fv_anchors) / len(fv_anchors),
+        "fv_high": max(fv_anchors),
+        "details": details,
+    }
+
+
 def compute_multiples_lens(cfg):
     """Trading-multiples lens with three independent sub-anchors:
 
