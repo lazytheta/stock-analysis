@@ -220,15 +220,6 @@ def test_save_config_recovers_explicit_null_or_empty_guarded_values():
 import valuation_lenses
 
 
-def test_default_lens_weights():
-    assert valuation_lenses.DEFAULT_LENS_WEIGHTS == {
-        "dcf": 0.30,
-        "multiples": 0.40,
-        "reverse_dcf": 0.10,
-        "dividend": 0.00,
-    }
-
-
 def test_dividend_lens_returns_none():
     assert valuation_lenses.compute_dividend_lens(make_cfg()) is None
 
@@ -420,7 +411,7 @@ def test_dcf_only_fallback_when_no_valuation_inputs():
 
 
 def test_all_lenses_active_weighted_in_range():
-    """Acceptance #2: full config → 3 active lenses, weighted FV in [min,max]
+    """Acceptance #2: full config → 4 active lenses, weighted FV in [min,max]
     of individual lens mids."""
     peers = [
         make_peer(ticker="P1", fwd_pe=18.0, ev_ebitda=10.0),
@@ -429,12 +420,16 @@ def test_all_lenses_active_weighted_in_range():
     ]
     cfg = make_cfg(
         peers=peers,
-        valuation_inputs=dict(SAMPLE_VALUATION_INPUTS),
+        valuation_inputs={
+            **dict(SAMPLE_VALUATION_INPUTS),
+            "historical_trailing_pe": 25.0,
+            "ttm_eps": 4.0,
+        },
     )
     summary = valuation_lenses.calculate_multi_lens_valuation(cfg)
     lenses = summary["lenses"]
-    active = [n for n in ("dcf", "multiples", "reverse_dcf") if lenses[n] is not None]
-    assert active == ["dcf", "multiples", "reverse_dcf"]
+    active = [n for n in ("dcf", "multiples", "historical", "reverse_dcf") if lenses[n] is not None]
+    assert active == ["dcf", "multiples", "historical", "reverse_dcf"]
 
     mids = [lenses[n]["fv_mid"] for n in active]
     assert min(mids) <= summary["weighted_fv_mid"] <= max(mids)
@@ -455,7 +450,7 @@ def test_lens_weights_override_from_config():
     cfg = make_cfg(
         peers=[make_peer(fwd_pe=20.0, ev_ebitda=12.0)],
         valuation_inputs=dict(SAMPLE_VALUATION_INPUTS),
-        lens_weights={"dcf": 0.5, "multiples": 0.5, "reverse_dcf": 0.0, "dividend": 0.0},
+        lens_weights={"dcf": 0.5, "multiples": 0.5, "historical": 0.0, "reverse_dcf": 0.0, "dividend": 0.0},
     )
     summary = valuation_lenses.calculate_multi_lens_valuation(cfg)
     # reverse_dcf has weight 0 → normalized 0 → drops out of weighted FV
@@ -716,3 +711,40 @@ def test_historical_lens_only_d_active():
     # fv = (20.0 * 5_000 - 5_000) / 1_000 = 95.0
     assert lens["details"]["historical_ev_ebitda_fv"] == pytest.approx(95.0)
     assert lens["fv_mid"] == pytest.approx(95.0)
+
+
+def test_orchestrator_includes_historical_lens():
+    """Full config produces a valuation_summary with 4 active lenses
+    (dcf, multiples, historical, reverse_dcf), dividend stays None."""
+    peers = [
+        make_peer(ticker="P1", fwd_pe=18.0, ev_ebitda=10.0),
+        make_peer(ticker="P2", fwd_pe=20.0, ev_ebitda=12.0),
+        make_peer(ticker="P3", fwd_pe=22.0, ev_ebitda=14.0),
+    ]
+    cfg = make_cfg(
+        peers=peers,
+        valuation_inputs={
+            **dict(SAMPLE_VALUATION_INPUTS),
+            "historical_trailing_pe": 25.0,
+            "ttm_eps": 4.0,
+            "historical_ev_ebitda": 15.0,
+        },
+    )
+    summary = valuation_lenses.calculate_multi_lens_valuation(cfg)
+
+    lenses = summary["lenses"]
+    assert lenses["dcf"] is not None
+    assert lenses["multiples"] is not None
+    assert lenses["historical"] is not None
+    assert lenses["reverse_dcf"] is not None
+    assert lenses["dividend"] is None  # Phase 2-C stub
+
+
+def test_default_lens_weights_post_split():
+    assert valuation_lenses.DEFAULT_LENS_WEIGHTS == {
+        "dcf":         0.30,
+        "multiples":   0.30,
+        "historical":  0.30,
+        "reverse_dcf": 0.10,
+        "dividend":    0.00,
+    }

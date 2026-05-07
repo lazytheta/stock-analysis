@@ -14,10 +14,11 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_LENS_WEIGHTS = {
-    "dcf": 0.30,
-    "multiples": 0.40,
+    "dcf":         0.30,
+    "multiples":   0.30,
+    "historical":  0.30,
     "reverse_dcf": 0.10,
-    "dividend": 0.00,
+    "dividend":    0.00,
 }
 
 
@@ -329,6 +330,7 @@ def calculate_multi_lens_valuation(cfg, scenario_grid=False):
     lenses = {
         "dcf":         compute_dcf_lens(cfg, scenario_grid=scenario_grid),
         "multiples":   compute_multiples_lens(cfg),
+        "historical":  compute_historical_lens(cfg),
         "reverse_dcf": compute_reverse_dcf_lens(cfg),
         "dividend":    compute_dividend_lens(cfg),
     }
