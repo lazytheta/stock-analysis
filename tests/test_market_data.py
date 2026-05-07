@@ -452,3 +452,59 @@ def test_fetch_historical_multiples_happy_path():
     assert "historical_ev_ebitda" in result
     assert result["historical_ev_ebitda"] > 0
     assert result["ttm_eps"] == 8.5
+
+
+def test_fetch_historical_multiples_negative_eps_quarter_skipped():
+    """A loss year doesn't crash the median; negative-eps months are excluded."""
+    info = {"trailingEps": 8.0}
+    income = make_yf_income_stmt(
+        eps_per_year={2025: 8.0, 2024: 7.0, 2023: -1.0, 2022: 5.0},  # 2023 was a loss
+    )
+    with patch_yfinance_full(info=info, income_stmt=income):
+        result = gather_data.fetch_historical_multiples("XYZ")
+
+    assert "historical_trailing_pe" in result
+    assert result["historical_trailing_pe"] > 0  # negative-eps months excluded; rest still positive
+
+
+def test_fetch_historical_multiples_insufficient_history():
+    """Too few months → returns only ttm_eps; historical metrics absent."""
+    info = {"trailingEps": 5.0}
+    short_history = make_yf_history(months=6)
+    with patch_yfinance_full(info=info, history=short_history):
+        result = gather_data.fetch_historical_multiples("RECENT_IPO")
+    # ttm_eps still populated (info has it), but historical metrics absent
+    assert "historical_trailing_pe" not in result
+    assert "historical_ev_ebitda" not in result
+    assert result.get("ttm_eps") == 5.0
+
+
+def test_fetch_historical_multiples_yfinance_error():
+    """yf.Ticker(...) raises → returns empty dict, no crash."""
+    fake_yf = MagicMock()
+    fake_yf.Ticker = MagicMock(side_effect=Exception("network down"))
+    with patch.dict("sys.modules", {"yfinance": fake_yf}):
+        result = gather_data.fetch_historical_multiples("XYZ")
+    assert result == {}
+
+
+def test_fetch_historical_multiples_missing_ebitda():
+    """No EBITDA data → trailing-PE still computed, EV/EBITDA absent."""
+    info = {"trailingEps": 5.0, "sharesOutstanding": 1e9}
+    income = make_yf_income_stmt(
+        eps_per_year={2025: 5.0, 2024: 4.5, 2023: 4.0, 2022: 3.5},
+        ebitda_per_year={2025: None, 2024: None, 2023: None, 2022: None},
+    )
+    with patch_yfinance_full(info=info, income_stmt=income):
+        result = gather_data.fetch_historical_multiples("XYZ")
+    assert "historical_trailing_pe" in result
+    assert "historical_ev_ebitda" not in result
+
+
+def test_fetch_historical_multiples_no_shares_outstanding():
+    """Missing sharesOutstanding → EV cannot be computed → ev_ebitda absent."""
+    info = {"trailingEps": 5.0}  # no sharesOutstanding
+    with patch_yfinance_full(info=info):
+        result = gather_data.fetch_historical_multiples("XYZ")
+    assert "historical_trailing_pe" in result
+    assert "historical_ev_ebitda" not in result
