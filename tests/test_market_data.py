@@ -601,3 +601,134 @@ def test_mcp_calculate_multi_lens_valuation_does_auto_fetch():
     assert saved_inputs.get("ttm_ebitda") == 14_000.0
     # Phase 2-B.2 fields populated from fetch_historical_multiples
     assert saved_inputs.get("ttm_eps") == 3.10
+
+
+def test_refresh_all_valuations_force_true_processes_everything():
+    """force=True processes every ticker including fresh ones."""
+    import json as _json
+    import mcp_server
+    from unittest.mock import patch as _patch, MagicMock as _Mock
+    from datetime import datetime as _dt, UTC as _UTC
+
+    fresh_ts = _dt.now(_UTC).isoformat()
+    cfgs = {
+        "AAPL": {
+            "ticker": "AAPL", "company": "Apple", "stock_price": 100.0,
+            "equity_market_value": 100_000, "debt_market_value": 10_000,
+            "risk_free_rate": 0.04, "erp": 0.05, "credit_spread": 0.01,
+            "tax_rate": 0.21, "sector_betas": [("Tech", 1.1, 1.0)],
+            "base_revenue": 50_000, "revenue_growth": [0.05] * 5,
+            "op_margins": [0.20] * 5, "terminal_growth": 0.025,
+            "terminal_margin": 0.18, "sales_to_capital": 1.5, "sbc_pct": 0.02,
+            "shares_outstanding": 1_000, "buyback_rate": 0.0,
+            "margin_of_safety": 0.20, "cash_bridge": 5_000, "securities": 0,
+            "bull_growth_adj": 0.02, "bear_growth_adj": -0.04,
+            "bull_margin_adj": 0.02, "bear_margin_adj": -0.02,
+            "peers": [],
+            "valuation_summary": {"calculated_at": fresh_ts, "weighted_fv_mid": 99.0},
+        },
+    }
+
+    def fake_load(client, ticker, user_id=None):
+        return dict(cfgs[ticker])
+
+    def fake_save(client, ticker, cfg, user_id=None):
+        cfgs[ticker] = dict(cfg)
+
+    def fake_list(client, user_id=None):
+        return [{"ticker": t} for t in cfgs]
+
+    with _patch.object(mcp_server, "get_supabase_client", lambda: _Mock()), \
+         _patch.object(mcp_server.config_store, "load_config", side_effect=fake_load), \
+         _patch.object(mcp_server.config_store, "save_config", side_effect=fake_save), \
+         _patch.object(mcp_server.config_store, "list_watchlist", side_effect=fake_list), \
+         _patch.object(mcp_server, "USER_ID", "u1"), \
+         patch_yfinance_full(info={"trailingEps": 5.0, "sharesOutstanding": 1_000_000_000}):
+        result = _json.loads(mcp_server._refresh_all_valuations_impl(force=True))
+
+    assert result["computed"] == ["AAPL"]
+    assert result["skipped"] == []
+    assert result["errors"] == []
+
+
+def test_refresh_all_valuations_default_skips_fresh():
+    """force=False (default) skips tickers whose summary is < 7 days old."""
+    import json as _json
+    import mcp_server
+    from unittest.mock import patch as _patch, MagicMock as _Mock
+    from datetime import datetime as _dt, UTC as _UTC
+
+    fresh_ts = _dt.now(_UTC).isoformat()
+    cfgs = {
+        "FRESH": {
+            "ticker": "FRESH",
+            "valuation_summary": {"calculated_at": fresh_ts, "weighted_fv_mid": 50.0},
+        },
+        "EMPTY": {"ticker": "EMPTY"},
+    }
+
+    def fake_load(client, ticker, user_id=None):
+        return dict(cfgs[ticker])
+
+    def fake_save(client, ticker, cfg, user_id=None):
+        cfgs[ticker] = dict(cfg)
+
+    def fake_list(client, user_id=None):
+        return [{"ticker": t} for t in cfgs]
+
+    def fake_calc(cfg, scenario_grid=False):
+        return {"calculated_at": _dt.now(_UTC).isoformat(), "weighted_fv_mid": 99.0,
+                "stock_price": 100.0, "lenses": {}}
+
+    with _patch.object(mcp_server, "get_supabase_client", lambda: _Mock()), \
+         _patch.object(mcp_server.config_store, "load_config", side_effect=fake_load), \
+         _patch.object(mcp_server.config_store, "save_config", side_effect=fake_save), \
+         _patch.object(mcp_server.config_store, "list_watchlist", side_effect=fake_list), \
+         _patch.object(mcp_server.valuation_lenses, "calculate_multi_lens_valuation", side_effect=fake_calc), \
+         _patch.object(mcp_server, "USER_ID", "u1"), \
+         _patch("auto_fetch.gather_data.fetch_market_inputs", return_value={}), \
+         _patch("auto_fetch.gather_data.fetch_historical_multiples", return_value={}), \
+         _patch("auto_fetch.gather_data.enrich_peer_with_market_data", side_effect=lambda p: dict(p)):
+        result = _json.loads(mcp_server._refresh_all_valuations_impl(force=False))
+
+    assert "EMPTY" in result["computed"]
+    assert "FRESH" in result["skipped"]
+
+
+def test_refresh_all_valuations_per_ticker_error_isolated():
+    """One ticker raising during compute doesn't kill the others."""
+    import json as _json
+    import mcp_server
+    from unittest.mock import patch as _patch, MagicMock as _Mock
+    from datetime import datetime as _dt, UTC as _UTC
+
+    cfgs = {"GOOD": {"ticker": "GOOD"}, "BAD": {"ticker": "BAD"}}
+
+    def fake_load(client, ticker, user_id=None):
+        return dict(cfgs[ticker])
+
+    def fake_save(client, ticker, cfg, user_id=None):
+        cfgs[ticker] = dict(cfg)
+
+    def fake_list(client, user_id=None):
+        return [{"ticker": t} for t in cfgs]
+
+    def fake_calc(cfg, scenario_grid=False):
+        if cfg.get("ticker") == "BAD":
+            raise ValueError("boom")
+        return {"calculated_at": _dt.now(_UTC).isoformat(), "weighted_fv_mid": 50.0,
+                "stock_price": 100.0, "lenses": {}}
+
+    with _patch.object(mcp_server, "get_supabase_client", lambda: _Mock()), \
+         _patch.object(mcp_server.config_store, "load_config", side_effect=fake_load), \
+         _patch.object(mcp_server.config_store, "save_config", side_effect=fake_save), \
+         _patch.object(mcp_server.config_store, "list_watchlist", side_effect=fake_list), \
+         _patch.object(mcp_server.valuation_lenses, "calculate_multi_lens_valuation", side_effect=fake_calc), \
+         _patch.object(mcp_server, "USER_ID", "u1"), \
+         _patch("auto_fetch.gather_data.fetch_market_inputs", return_value={}), \
+         _patch("auto_fetch.gather_data.fetch_historical_multiples", return_value={}), \
+         _patch("auto_fetch.gather_data.enrich_peer_with_market_data", side_effect=lambda p: dict(p)):
+        result = _json.loads(mcp_server._refresh_all_valuations_impl(force=True))
+
+    assert "GOOD" in result["computed"]
+    assert any("BAD" in e for e in result["errors"])

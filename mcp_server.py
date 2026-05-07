@@ -243,6 +243,78 @@ def _calculate_multi_lens_valuation_impl(ticker, scenario_grid=False):
     return json.dumps(summary, default=str)
 
 
+def _refresh_all_valuations_impl(force: bool = False) -> str:
+    """Run multi-lens fair value across all watchlist tickers in parallel.
+
+    Stale = no valuation_summary OR calculated_at older than 7 days OR
+    unparseable. Stale tickers get auto-fetched from yfinance + orchestrator
+    + saved. Fresh tickers are skipped unless force=True.
+
+    Returns JSON {computed: [...], errors: [...], skipped: [...]}.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from datetime import UTC, datetime, timedelta
+
+    client = get_supabase_client()
+    entries = config_store.list_watchlist(client, user_id=USER_ID)
+    tickers = [e["ticker"] for e in entries]
+
+    threshold = datetime.now(UTC) - timedelta(days=7)
+
+    def _is_stale(cfg: dict) -> bool:
+        s = cfg.get("valuation_summary") if isinstance(cfg, dict) else None
+        if not s:
+            return True
+        ts_str = s.get("calculated_at")
+        if not ts_str:
+            return True
+        try:
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+        except (ValueError, AttributeError):
+            return True
+        return ts < threshold
+
+    # Load configs in parallel and decide stale set
+    def _load(t):
+        c = config_store.load_config(client, t, user_id=USER_ID)
+        return (t, c) if c is not None else None
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        loaded = {r[0]: r[1] for r in pool.map(_load, tickers) if r}
+
+    targets = list(loaded.keys()) if force else [t for t, c in loaded.items() if _is_stale(c)]
+    skipped = [t for t in loaded if t not in targets]
+
+    computed: list[str] = []
+    errors: list[str] = []
+
+    def _refresh_one(ticker: str) -> str:
+        cfg = dict(loaded[ticker])
+        cfg.setdefault("ticker", ticker)
+        auto_fetch.auto_fill_valuation_inputs(cfg)
+        auto_fetch.auto_fill_peer_market_data(cfg)
+        summary = valuation_lenses.calculate_multi_lens_valuation(cfg, scenario_grid=False)
+        cfg["valuation_summary"] = summary
+        config_store.save_config(client, ticker, cfg, user_id=USER_ID)
+        return ticker
+
+    if targets:
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            futures = {pool.submit(_refresh_one, t): t for t in targets}
+            for future in as_completed(futures):
+                t = futures[future]
+                try:
+                    future.result()
+                    computed.append(t)
+                except Exception as e:
+                    logger.warning("Refresh failed for %s: %s", t, e)
+                    errors.append(f"{t}: {e}")
+
+    return json.dumps({"computed": computed, "errors": errors, "skipped": skipped})
+
+
 def _save_to_watchlist_impl(ticker, cfg):
     """Core logic for save_to_watchlist."""
     client = get_supabase_client()
@@ -361,6 +433,35 @@ def calculate_multi_lens_valuation(ticker: str, scenario_grid: bool = False) -> 
     """
     try:
         return _calculate_multi_lens_valuation_impl(ticker, scenario_grid)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def refresh_all_valuations(force: bool = False) -> str:
+    """Refresh multi-lens fair value for the entire watchlist in one call.
+
+    Stale = no valuation_summary OR calculated_at older than 7 days OR
+    unparseable. Stale tickers get auto-fetched from yfinance + orchestrator
+    + saved. Fresh tickers are skipped unless force=True.
+
+    Use this after editing peers/inputs across multiple tickers, or after
+    a long period without refresh, to bring the watchlist's fair-value
+    range back in sync with current yfinance data.
+
+    Args:
+        force: When True, recompute every ticker regardless of freshness.
+            Default False uses the same 7-day stale-check as the Streamlit
+            "↻ Refresh all" button.
+
+    Returns:
+        JSON with three keys:
+            computed: list of tickers successfully refreshed
+            errors: list of "TICKER: error" strings
+            skipped: list of tickers that were fresh and not forced
+    """
+    try:
+        return _refresh_all_valuations_impl(force)
     except Exception as e:
         return json.dumps({"error": str(e)})
 
