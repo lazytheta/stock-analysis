@@ -3942,13 +3942,15 @@ def _watchlist_overview():
                 ),
                 unsafe_allow_html=True,
             )
-            # Football-field popover trigger — only show when there's a summary
+            # Football-field popover trigger — compact icon button that floats
+            # to the top-right of the FV cell (CSS in _watchlist_overview style block).
             if row.get('valuation_summary'):
-                with st.popover("📊", use_container_width=False, help="Open valuation breakdown"):
-                    st.markdown(
-                        _render_football_field(row['valuation_summary'], theme=T),
-                        unsafe_allow_html=True,
-                    )
+                with st.container(key=f"wl_ff_{t}"):
+                    with st.popover("details ›", use_container_width=False, help="Show valuation breakdown across methodologies"):
+                        st.markdown(
+                            _render_football_field(row['valuation_summary'], theme=T),
+                            unsafe_allow_html=True,
+                        )
         cols[5].markdown(f"${row['buy_price']:.2f}")
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
         cols[7].markdown(f"{row['pe']:.1f}x" if row['pe'] else "—")
@@ -4003,6 +4005,32 @@ def _watchlist_overview():
         }}
         .range-bar {{
             min-width:110px;
+        }}
+        /* Football-field popover trigger: compact icon button that floats
+           up to sit on the same line as the "N lenses" label. */
+        [class*="st-key-wl_ff_"] {{
+            margin-top: -20px;
+            margin-bottom: 0;
+            text-align: right;
+            line-height: 0;
+        }}
+        [class*="st-key-wl_ff_"] [data-testid="stPopover"] > div {{
+            display: inline-block;
+        }}
+        [class*="st-key-wl_ff_"] [data-testid="stPopover"] button {{
+            min-height: 18px !important;
+            height: 18px !important;
+            padding: 0 6px !important;
+            font-size: 0.70rem !important;
+            border: none !important;
+            background: transparent !important;
+            color: {T["text_muted"]} !important;
+            line-height: 1 !important;
+            border-radius: 4px !important;
+        }}
+        [class*="st-key-wl_ff_"] [data-testid="stPopover"] button:hover {{
+            background: {T["row_alt"]} !important;
+            color: {T["text"]} !important;
         }}
         </style>''',
         unsafe_allow_html=True,
