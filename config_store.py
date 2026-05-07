@@ -160,12 +160,18 @@ def list_watchlist(client, user_id=None):
     if not (resp and resp.data):
         return []
 
+    # Forward-looking lenses surfaced in the watchlist row.
+    # reverse_dcf is computed and stored, but excluded from the count
+    # because it anchors at current price (see
+    # docs/superpowers/specs/2026-05-07-reverse-dcf-demote-from-watchlist-design.md).
+    _COUNTED_LENSES = ("dcf", "multiples", "historical")
+
     out = []
     for row in resp.data:
         cfg = row.get("config") or {}
         summary = cfg.get("valuation_summary") or {}
         lenses = summary.get("lenses") or {}
-        lens_count = sum(1 for v in lenses.values() if v is not None)
+        lens_count = sum(1 for k in _COUNTED_LENSES if lenses.get(k) is not None)
 
         scorecard = parse_scorecard(cfg.get("ai_notes"))
 

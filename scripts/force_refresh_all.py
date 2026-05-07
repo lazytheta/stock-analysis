@@ -78,7 +78,11 @@ def main():
                 errors.append(f"{ticker}: {err}")
                 print(f"  [{i:2}/{len(tickers)}] {ticker:6} ERROR — {err}")
             else:
-                lens_count = sum(1 for v in (summary["lenses"] or {}).values() if v is not None)
+                # Count only forward-looking lenses to match the watchlist UI
+                # (reverse_dcf and dividend are computed but not surfaced as "active").
+                _counted = ("dcf", "multiples", "historical")
+                _ls = summary["lenses"] or {}
+                lens_count = sum(1 for k in _counted if _ls.get(k) is not None)
                 fv_mid = summary["weighted_fv_mid"]
                 print(f"  [{i:2}/{len(tickers)}] {ticker:6} ok — fv_mid=${fv_mid:>8.2f}  lenses={lens_count}")
                 computed.append(ticker)
