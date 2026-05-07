@@ -574,3 +574,22 @@ def test_calculate_valuation_impl_shape_unchanged():
     assert isinstance(out["wacc"], float)
     assert isinstance(out["intrinsic_value"], float)
     assert out["valuation_basis"] == "nominal"
+
+
+def test_multiples_lens_uses_historical_trailing_pe():
+    """Sub-anchor A.2: historical_trailing_pe × ttm_eps contributes to fv_anchors."""
+    cfg = make_cfg(
+        valuation_inputs={
+            "historical_trailing_pe": 25.0,
+            "ttm_eps": 4.0,
+            # Other inputs missing → A.2 is the only sub-anchor that fires
+        },
+    )
+    lens = valuation_lenses.compute_multiples_lens(cfg)
+    assert lens is not None
+    # 25.0 * 4.0 = 100.0
+    assert lens["details"]["historical_trailing_pe_fv"] == pytest.approx(100.0)
+    # Single anchor → low/mid/high all equal
+    assert lens["fv_low"] == pytest.approx(100.0)
+    assert lens["fv_mid"] == pytest.approx(100.0)
+    assert lens["fv_high"] == pytest.approx(100.0)

@@ -180,6 +180,8 @@ def compute_multiples_lens(cfg):
         "fwd_pe_own": None,
         "fwd_pe_peer_median": None,
         "ev_ebitda_peer_median": None,
+        "historical_trailing_pe_fv": None,    # NEW (Phase 2-B.2)
+        "historical_ev_ebitda_fv": None,      # NEW (Phase 2-B.2)
         "closest_peer": None,
         "skipped": [],
     }
@@ -187,6 +189,8 @@ def compute_multiples_lens(cfg):
     forward_eps = inputs.get("forward_eps")
     historical_fwd_pe = inputs.get("historical_fwd_pe")
     ttm_ebitda = inputs.get("ttm_ebitda")
+    historical_trailing_pe = inputs.get("historical_trailing_pe")    # NEW (Phase 2-B.2)
+    ttm_eps = inputs.get("ttm_eps")                                  # NEW (Phase 2-B.2)
 
     # A) own historical forward P/E
     if forward_eps and historical_fwd_pe:
@@ -195,6 +199,16 @@ def compute_multiples_lens(cfg):
         details["fwd_pe_own"] = own_fv
     else:
         reason = "fwd_pe_own (forward_eps or historical_fwd_pe missing)"
+        details["skipped"].append(reason)
+        logger.info("Multiples lens: skipping %s", reason)
+
+    # A.2) own historical trailing P/E × ttm_eps (Phase 2-B.2)
+    if historical_trailing_pe and ttm_eps and ttm_eps > 0:
+        own_trailing_fv = historical_trailing_pe * ttm_eps
+        fv_anchors.append(own_trailing_fv)
+        details["historical_trailing_pe_fv"] = own_trailing_fv
+    else:
+        reason = "historical_trailing_pe (no historical_trailing_pe or ttm_eps)"
         details["skipped"].append(reason)
         logger.info("Multiples lens: skipping %s", reason)
 
