@@ -294,17 +294,29 @@ def _render_football_field(summary: dict | None, theme: dict) -> str:
             f'</div>'
         )
 
+    # Each marker: vertical line + filled circle cap on top + inline label
+    # above the cap. Three distinct colors (price=dark, mid=sage, buy=darker
+    # sage), labels positioned to avoid overlap when values cluster.
+    price_x = _x(price)
+    mid_x = _x(mid)
+    buy_x = _x(buy)
     markers_html = (
-        f'<div class="ff-marker" style="left:{_x(price):.2f}%;background:#fff" '
-        f'  title="Current price ${price:.2f}"></div>'
-        f'<div class="ff-marker" style="left:{_x(mid):.2f}%;background:{accent}" '
-        f'  title="Weighted Mid ${mid:.2f}"></div>'
-        f'<div class="ff-marker" style="left:{_x(buy):.2f}%;background:{accent_hover}" '
-        f'  title="Buy ${buy:.2f}"></div>'
+        f'<div class="ff-marker ff-marker-price" style="left:{price_x:.2f}%">'
+        f'  <span class="ff-marker-cap"></span>'
+        f'  <span class="ff-marker-label">Price ${price:.2f}</span>'
+        f'</div>'
+        f'<div class="ff-marker ff-marker-mid" style="left:{mid_x:.2f}%">'
+        f'  <span class="ff-marker-cap"></span>'
+        f'  <span class="ff-marker-label">Mid ${mid:.2f}</span>'
+        f'</div>'
+        f'<div class="ff-marker ff-marker-buy" style="left:{buy_x:.2f}%">'
+        f'  <span class="ff-marker-cap"></span>'
+        f'  <span class="ff-marker-label">Buy ${buy:.2f}</span>'
+        f'</div>'
     )
 
     css = f'''<style>
-.ff-container {{ position:relative; width:100%; max-width:560px; padding:12px 4px; }}
+.ff-container {{ position:relative; width:100%; max-width:560px; padding:24px 4px 4px; }}
 .ff-row {{ display:flex; align-items:center; gap:10px; margin-bottom:6px; font-size:0.78rem; }}
 .ff-label {{ width:88px; color:{text}; font-weight:500; }}
 .ff-bar {{
@@ -319,34 +331,41 @@ def _render_football_field(summary: dict | None, theme: dict) -> str:
 }}
 .ff-range-label {{ width:120px; font-size:0.72rem; }}
 .ff-markers {{
-  position:absolute; top:36px; left:98px; right:130px; bottom:24px; pointer-events:none;
+  position:absolute; top:8px; left:98px; right:130px; bottom:0; pointer-events:none;
 }}
 .ff-marker {{
-  position:absolute; top:0; bottom:0; width:2px;
-  box-shadow:0 0 2px rgba(0,0,0,0.6);
+  position:absolute; top:14px; bottom:0;
+  pointer-events:auto;
 }}
-.ff-legend {{
-  display:flex; gap:14px; padding-top:10px; font-size:0.72rem; color:{muted};
+.ff-marker::before {{
+  content:""; position:absolute; top:0; bottom:0; left:-1px; width:3px; border-radius:1px;
 }}
-.ff-legend-dot {{
-  display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px;
+.ff-marker-cap {{
+  position:absolute; top:-5px; left:-5px; width:11px; height:11px;
+  border-radius:50%; border:2px solid {theme.get("card", "#fff")};
+  box-shadow:0 1px 3px rgba(0,0,0,0.3);
 }}
+.ff-marker-label {{
+  position:absolute; top:-22px; transform:translateX(-50%); left:0;
+  font-size:0.65rem; font-weight:600; white-space:nowrap;
+  padding:1px 5px; border-radius:3px;
+}}
+.ff-marker-price::before {{ background:#444; }}
+.ff-marker-price .ff-marker-cap {{ background:#444; }}
+.ff-marker-price .ff-marker-label {{ color:#444; background:rgba(255,255,255,0.85); }}
+.ff-marker-mid::before {{ background:{accent}; }}
+.ff-marker-mid .ff-marker-cap {{ background:{accent}; }}
+.ff-marker-mid .ff-marker-label {{ color:white; background:{accent}; }}
+.ff-marker-buy::before {{ background:{accent_hover}; }}
+.ff-marker-buy .ff-marker-cap {{ background:{accent_hover}; }}
+.ff-marker-buy .ff-marker-label {{ color:white; background:{accent_hover}; }}
 </style>'''
-
-    legend_html = (
-        f'<div class="ff-legend">'
-        f'<span><span class="ff-legend-dot" style="background:#fff"></span>Price ${price:.2f}</span>'
-        f'<span><span class="ff-legend-dot" style="background:{accent}"></span>Mid ${mid:.2f}</span>'
-        f'<span><span class="ff-legend-dot" style="background:{accent_hover}"></span>Buy ${buy:.2f}</span>'
-        f'</div>'
-    )
 
     return (
         f'{css}'
         f'<div class="ff-container">'
         f'{"".join(bar_rows)}'
         f'<div class="ff-markers">{markers_html}</div>'
-        f'{legend_html}'
         f'</div>'
     )
 
