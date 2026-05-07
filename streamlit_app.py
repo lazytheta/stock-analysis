@@ -3932,15 +3932,23 @@ def _watchlist_overview():
         else:
             cols[2].markdown(row['company'])
         cols[3].markdown(f"${row['price']:.2f}")
-        cols[4].markdown(
-            _render_fv_cell(
-                price=row['price'],
-                summary=row.get('valuation_summary'),
-                legacy_intrinsic=row.get('intrinsic'),
-                theme=T,
-            ),
-            unsafe_allow_html=True,
-        )
+        with cols[4]:
+            st.markdown(
+                _render_fv_cell(
+                    price=row['price'],
+                    summary=row.get('valuation_summary'),
+                    legacy_intrinsic=row.get('intrinsic'),
+                    theme=T,
+                ),
+                unsafe_allow_html=True,
+            )
+            # Football-field popover trigger — only show when there's a summary
+            if row.get('valuation_summary'):
+                with st.popover("📊", use_container_width=False, help="Open valuation breakdown"):
+                    st.markdown(
+                        _render_football_field(row['valuation_summary'], theme=T),
+                        unsafe_allow_html=True,
+                    )
         cols[5].markdown(f"${row['buy_price']:.2f}")
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
         cols[7].markdown(f"{row['pe']:.1f}x" if row['pe'] else "—")
