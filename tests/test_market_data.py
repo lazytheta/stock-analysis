@@ -432,3 +432,23 @@ def test_refresh_one_calls_auto_fill_before_orchestrator():
     # Orchestrator ran (summary present)
     assert "valuation_summary" in saved_cfg
     assert saved_cfg["valuation_summary"]["weighted_fv_mid"] > 0
+
+
+def test_fetch_historical_multiples_happy_path():
+    """All inputs available → returns three keys with reasonable values."""
+    info = {"trailingEps": 8.5, "sharesOutstanding": 7.43e9}
+    history = make_yf_history(months=48, base_price=200.0, growth_pct=0.05)
+    income = make_yf_income_stmt(
+        eps_per_year={2025: 8.0, 2024: 7.0, 2023: 6.0, 2022: 5.0},
+        ebitda_per_year={2025: 100e9, 2024: 90e9, 2023: 80e9, 2022: 70e9},
+    )
+    qbs = make_yf_quarterly_balance_sheet()
+    with patch_yfinance_full(info=info, history=history, income_stmt=income, qbs=qbs):
+        result = gather_data.fetch_historical_multiples("MSFT")
+
+    assert "historical_trailing_pe" in result
+    assert result["historical_trailing_pe"] > 0
+    assert result["historical_trailing_pe"] < 100  # sanity: P/E within reasonable range
+    assert "historical_ev_ebitda" in result
+    assert result["historical_ev_ebitda"] > 0
+    assert result["ttm_eps"] == 8.5

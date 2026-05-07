@@ -1464,6 +1464,143 @@ def enrich_peer_with_market_data(peer: dict) -> dict:
     return out
 
 
+def fetch_historical_multiples(ticker: str) -> dict:
+    """Compute 4-year median historical trailing P/E and EV/EBITDA from yfinance.
+
+    Returns a dict with these keys (any may be absent when data insufficient):
+        historical_trailing_pe:  float, 4-year monthly median price/ttm_eps
+        historical_ev_ebitda:    float, 4-year monthly median EV/ttm_ebitda
+        ttm_eps:                 float, current trailing EPS
+
+    Skips months where the TTM denominator is <= 0.
+    yfinance failures or insufficient data → returns empty dict, never raises.
+    """
+    import statistics
+
+    try:
+        import yfinance as yf
+        ticker_obj = yf.Ticker(ticker)
+        info = ticker_obj.info
+        history = ticker_obj.history(period="4y", interval="1mo")
+        income = ticker_obj.income_stmt
+        qbs = ticker_obj.quarterly_balance_sheet
+    except ImportError:
+        logger.warning("yfinance not installed; skipping historical multiples for %s", ticker)
+        return {}
+    except Exception as e:
+        logger.warning("yfinance historical fetch failed for %s: %s", ticker, e)
+        return {}
+
+    out = {}
+
+    # ttm_eps from current info (no computation)
+    ttm_eps_current = info.get("trailingEps")
+    if isinstance(ttm_eps_current, (int, float)) and ttm_eps_current > 0:
+        out["ttm_eps"] = round(float(ttm_eps_current), 2)
+
+    if history is None or len(history) < 24:
+        logger.info(
+            "Historical multiples: %s has only %s months of price history; skipping",
+            ticker, 0 if history is None else len(history),
+        )
+        return out
+
+    months_dt = list(history.index)
+    closes = [float(p) for p in history["Close"].values]
+
+    # ---- Build monthly TTM-EPS series via linear interpolation between annual anchors ----
+    eps_series_monthly = _interpolate_yearly_to_monthly(income, "Diluted EPS", months_dt)
+    if eps_series_monthly:
+        pe_values = []
+        for price, eps in zip(closes, eps_series_monthly):
+            if eps is None or eps <= 0:
+                continue
+            pe_values.append(price / eps)
+        if len(pe_values) >= 12:
+            out["historical_trailing_pe"] = round(statistics.median(pe_values), 1)
+
+    # ---- Build monthly EV/EBITDA series via interpolation of EBITDA, debt, cash ----
+    ebitda_series_monthly = _interpolate_yearly_to_monthly(income, "EBITDA", months_dt)
+    debt_series_monthly = _interpolate_quarterly_to_monthly(qbs, "Total Debt", months_dt)
+    cash_series_monthly = _interpolate_quarterly_to_monthly(
+        qbs, "Cash And Cash Equivalents", months_dt
+    )
+
+    shares = info.get("sharesOutstanding")
+    if (ebitda_series_monthly and debt_series_monthly and cash_series_monthly
+            and isinstance(shares, (int, float)) and shares > 0):
+        ev_ebitda_values = []
+        for price, ebitda, debt, cash in zip(
+            closes, ebitda_series_monthly, debt_series_monthly, cash_series_monthly
+        ):
+            if ebitda is None or ebitda <= 0:
+                continue
+            mkt_cap = price * shares
+            ev = mkt_cap + (debt or 0) - (cash or 0)
+            if ev <= 0:
+                continue
+            ev_ebitda_values.append(ev / ebitda)
+        if len(ev_ebitda_values) >= 12:
+            out["historical_ev_ebitda"] = round(statistics.median(ev_ebitda_values), 1)
+
+    return out
+
+
+def _interpolate_yearly_to_monthly(income_df, row_name, months_dt):
+    """Linear-interpolate an annual or quarterly income-statement / balance-sheet
+    row to a monthly series aligned to months_dt. Returns list of floats (or
+    None for months that fall before the earliest anchor).
+
+    Each timestamp column in income_df becomes an anchor point; intermediate
+    months get linear interpolation between adjacent anchors. Months before
+    the earliest anchor get the earliest value (extrapolation back); months
+    after the latest get the latest value.
+    """
+    if income_df is None or row_name not in income_df.index:
+        return []
+    annual_row = income_df.loc[row_name]
+    points = []
+    for col_dt, val in annual_row.items():
+        if val is None:
+            continue
+        try:
+            v = float(val)
+            points.append((col_dt, v))
+        except (TypeError, ValueError):
+            continue
+    if not points:
+        return []
+    points.sort(key=lambda p: p[0])
+
+    series = []
+    for m in months_dt:
+        if m <= points[0][0]:
+            series.append(points[0][1])
+            continue
+        if m >= points[-1][0]:
+            series.append(points[-1][1])
+            continue
+        for i in range(len(points) - 1):
+            a_dt, a_val = points[i]
+            b_dt, b_val = points[i + 1]
+            if a_dt <= m <= b_dt:
+                span = (b_dt - a_dt).total_seconds()
+                pos = (m - a_dt).total_seconds()
+                t = pos / span if span > 0 else 0.0
+                series.append(a_val + (b_val - a_val) * t)
+                break
+        else:
+            series.append(None)
+    return series
+
+
+def _interpolate_quarterly_to_monthly(qbs_df, row_name, months_dt):
+    """Thin alias for _interpolate_yearly_to_monthly. Kept as separate name
+    for readability and possible future divergence (quarterly data may
+    eventually warrant TTM smoothing here)."""
+    return _interpolate_yearly_to_monthly(qbs_df, row_name, months_dt)
+
+
 # ── Peer Discovery Module ─────────────────────────────────────────────
 
 def _fetch_exchange_tickers():
