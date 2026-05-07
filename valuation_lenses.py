@@ -190,6 +190,7 @@ def compute_multiples_lens(cfg):
     historical_fwd_pe = inputs.get("historical_fwd_pe")
     ttm_ebitda = inputs.get("ttm_ebitda")
     historical_trailing_pe = inputs.get("historical_trailing_pe")    # NEW (Phase 2-B.2)
+    historical_ev_ebitda = inputs.get("historical_ev_ebitda")        # NEW (Phase 2-B.2)
     ttm_eps = inputs.get("ttm_eps")                                  # NEW (Phase 2-B.2)
 
     # A) own historical forward P/E
@@ -257,6 +258,22 @@ def compute_multiples_lens(cfg):
         details["ev_ebitda_peer_median"] = fv_mid_e
     else:
         reason = "ev_ebitda_peer (no peers with ev_ebitda or no ttm_ebitda)"
+        details["skipped"].append(reason)
+        logger.info("Multiples lens: skipping %s", reason)
+
+    # D) own historical EV/EBITDA × ttm_ebitda - net_debt → /shares (Phase 2-B.2)
+    if historical_ev_ebitda and ttm_ebitda:
+        net_debt_d = (
+            cfg.get("debt_market_value", 0.0)
+            - cfg.get("cash_bridge", 0.0)
+            - cfg.get("securities", 0.0)
+        )
+        shares_d = cfg.get("shares_outstanding") or 1.0
+        own_evebitda_fv = (historical_ev_ebitda * ttm_ebitda - net_debt_d) / shares_d
+        fv_anchors.append(own_evebitda_fv)
+        details["historical_ev_ebitda_fv"] = own_evebitda_fv
+    else:
+        reason = "historical_ev_ebitda (no historical_ev_ebitda or ttm_ebitda)"
         details["skipped"].append(reason)
         logger.info("Multiples lens: skipping %s", reason)
 

@@ -593,3 +593,21 @@ def test_multiples_lens_uses_historical_trailing_pe():
     assert lens["fv_low"] == pytest.approx(100.0)
     assert lens["fv_mid"] == pytest.approx(100.0)
     assert lens["fv_high"] == pytest.approx(100.0)
+
+
+def test_multiples_lens_uses_historical_ev_ebitda():
+    """Sub-anchor D: historical_ev_ebitda × ttm_ebitda - net_debt → /shares."""
+    cfg = make_cfg(
+        valuation_inputs={
+            "historical_ev_ebitda": 15.0,
+            "ttm_ebitda": 10_000.0,  # in $M
+            # ttm_eps missing → A.2 doesn't fire
+        },
+    )
+    # net_debt = debt(10_000) - cash(5_000) - securities(0) = 5_000
+    # ev = 15.0 * 10_000 = 150_000  (in $M)
+    # equity = ev - net_debt = 145_000  (in $M)
+    # per share = 145_000 / 1_000 shares_outstanding = 145.0
+    lens = valuation_lenses.compute_multiples_lens(cfg)
+    assert lens is not None
+    assert lens["details"]["historical_ev_ebitda_fv"] == pytest.approx(145.0)
