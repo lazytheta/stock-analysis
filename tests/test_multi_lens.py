@@ -746,9 +746,9 @@ def test_orchestrator_includes_historical_lens():
 
 def test_default_lens_weights_post_split():
     assert valuation_lenses.DEFAULT_LENS_WEIGHTS == {
-        "dcf":         0.30,
-        "multiples":   0.30,
-        "historical":  0.30,
+        "dcf":         0.50,
+        "multiples":   0.25,
+        "historical":  0.25,
         "reverse_dcf": 0.0,
         "dividend":    0.00,
     }

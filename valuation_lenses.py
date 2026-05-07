@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_LENS_WEIGHTS = {
-    "dcf":         0.30,
-    "multiples":   0.30,
-    "historical":  0.30,
-    "reverse_dcf": 0.0,    # anchors at current price by definition; not a true valuation
+    "dcf":         0.50,    # primary anchor — intrinsic value via cash flows (Damodaran-style)
+    "multiples":   0.25,    # peer-relative cross-check
+    "historical":  0.25,    # own-history cross-check
+    "reverse_dcf": 0.0,     # anchors at current price by definition; not a true valuation
     "dividend":    0.00,
 }
 
