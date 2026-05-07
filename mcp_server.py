@@ -59,6 +59,7 @@ mcp = FastMCP(
 
 import gather_data
 import dcf_calculator
+import auto_fetch
 import config_store
 import valuation_lenses
 
@@ -219,12 +220,20 @@ def _calculate_valuation_impl(cfg):
 
 
 def _calculate_multi_lens_valuation_impl(ticker, scenario_grid=False):
-    """Core logic for calculate_multi_lens_valuation: load cfg, run all
-    lenses, persist summary, return JSON."""
+    """Core logic for calculate_multi_lens_valuation: load cfg, auto-fetch
+    yfinance market data + historical multiples, run all lenses, persist
+    summary, return JSON."""
     client = get_supabase_client()
     cfg = config_store.load_config(client, ticker, user_id=USER_ID)
     if cfg is None:
         return json.dumps({"error": f"{ticker.upper()} not on watchlist"})
+
+    # Auto-fetch yfinance market data + historical multiples before the
+    # orchestrator. Matches Streamlit's _refresh_one. Best-effort: yfinance
+    # failures don't block the lens computation.
+    cfg.setdefault("ticker", ticker)
+    auto_fetch.auto_fill_valuation_inputs(cfg)
+    auto_fetch.auto_fill_peer_market_data(cfg)
 
     summary = valuation_lenses.calculate_multi_lens_valuation(
         cfg, scenario_grid=scenario_grid

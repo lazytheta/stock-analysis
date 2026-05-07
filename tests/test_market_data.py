@@ -533,3 +533,71 @@ def test_auto_fill_inputs_includes_historical_multiples():
     # All three new keys in _auto_filled
     auto_filled = set(inputs.get("_auto_filled", []))
     assert {"ttm_eps", "historical_trailing_pe", "historical_ev_ebitda"}.issubset(auto_filled)
+
+
+def test_mcp_calculate_multi_lens_valuation_does_auto_fetch():
+    """The MCP per-ticker tool runs auto_fetch helpers before the orchestrator,
+    so saved valuation_inputs include forward_eps, ttm_ebitda, and the
+    historical multiples — fixing the NFLX-incident gap."""
+    import json as _json
+    import mcp_server
+    from unittest.mock import patch as _patch, MagicMock as _Mock
+
+    # Minimal config that compute_intrinsic_value can run on
+    cfg_in = {
+        "ticker": "NFLX",
+        "company": "Netflix",
+        "stock_price": 680.0,
+        "equity_market_value": 300_000,
+        "debt_market_value": 15_000,
+        "risk_free_rate": 0.04,
+        "erp": 0.05,
+        "credit_spread": 0.01,
+        "tax_rate": 0.21,
+        "sector_betas": [("Internet", 1.1, 1.0)],
+        "base_revenue": 35_000,
+        "revenue_growth": [0.10] * 5,
+        "op_margins": [0.22] * 5,
+        "terminal_growth": 0.025,
+        "terminal_margin": 0.20,
+        "sales_to_capital": 1.5,
+        "sbc_pct": 0.03,
+        "shares_outstanding": 430,
+        "buyback_rate": 0.0,
+        "margin_of_safety": 0.20,
+        "cash_bridge": 8_000,
+        "securities": 0,
+        "bull_growth_adj": 0.02,
+        "bear_growth_adj": -0.04,
+        "bull_margin_adj": 0.02,
+        "bear_margin_adj": -0.02,
+        "peers": [],
+    }
+    saved_cfg_holder = {}
+    yfinance_info = {
+        "forwardEps": 3.84, "trailingEbitda": 14_000_000_000,
+        "trailingEps": 3.10, "sharesOutstanding": 430_000_000,
+    }
+
+    def fake_save(client, ticker, cfg, user_id=None):
+        saved_cfg_holder["cfg"] = dict(cfg)
+
+    with _patch.object(mcp_server, "get_supabase_client", lambda: _Mock()), \
+         _patch.object(mcp_server.config_store, "load_config", return_value=cfg_in), \
+         _patch.object(mcp_server.config_store, "save_config", side_effect=fake_save), \
+         _patch.object(mcp_server, "USER_ID", "u1"), \
+         patch_yfinance_full(info=yfinance_info):
+        result_json = mcp_server._calculate_multi_lens_valuation_impl(
+            "NFLX", scenario_grid=False
+        )
+
+    summary = _json.loads(result_json)
+    assert "weighted_fv_mid" in summary
+
+    saved_inputs = saved_cfg_holder["cfg"]["valuation_inputs"]
+    # Auto-fetch wrote forward_eps from yfinance.forwardEps
+    assert saved_inputs.get("forward_eps") == 3.84
+    # Auto-fetch wrote ttm_ebitda from yfinance.trailingEbitda (in $M)
+    assert saved_inputs.get("ttm_ebitda") == 14_000.0
+    # Phase 2-B.2 fields populated from fetch_historical_multiples
+    assert saved_inputs.get("ttm_eps") == 3.10
