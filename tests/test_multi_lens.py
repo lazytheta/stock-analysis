@@ -165,28 +165,30 @@ def test_save_config_preserves_valuation_keys():
     assert saved["peers"] == [{"ticker": "P"}]
 
 
-def test_save_config_recovers_explicit_null_or_empty_guarded_values():
-    """save_config must also recover when the caller passes None or empty
-    dict/list for a guarded key (not just when the key is absent).
+def test_save_config_recovers_explicit_null_or_empty_for_compute_only_keys():
+    """For keys that are only ever populated by compute paths (not user
+    intent), explicit None / empty dict triggers DB recovery.
 
     This caught the MSFT incident: some code path saved cfg with
-    `valuation_summary: None`, and the existing guard (which only checks
+    `valuation_summary: None`, and the original guard (which only checked
     `key not in cfg`) silently let the null overwrite the real summary.
+
+    Note: `peers` and `lens_weights` are NOT in this group — empty values
+    there represent intentional user actions (e.g. removing the last peer,
+    reverting to default weights). See companion tests below.
     """
     import config_store
 
     existing = {
         "company": "X",
         "ai_notes": {"section": "real content"},
-        "peers": [{"ticker": "AAPL"}],
         "valuation_summary": {"weighted_fv_mid": 80.0},
     }
-    # Explicit None / empty dict / empty list — all should trigger recovery
+    # Explicit None / empty dict for compute-only keys — both trigger recovery
     bad_cfg = {
         "company": "X",
         "valuation_summary": None,
         "ai_notes": {},
-        "peers": [],
     }
 
     captured = {}
@@ -208,10 +210,101 @@ def test_save_config_recovers_explicit_null_or_empty_guarded_values():
         config_store.load_config = orig_load
 
     saved = captured["row"]["config"]
-    # All three guarded keys recovered from existing DB row
     assert saved["valuation_summary"] == {"weighted_fv_mid": 80.0}
     assert saved["ai_notes"] == {"section": "real content"}
-    assert saved["peers"] == [{"ticker": "AAPL"}]
+
+
+def test_save_config_allows_intentional_empty_peers():
+    """Removing the last peer must persist as an empty list — the guard
+    must NOT restore peers from the DB just because the new list is empty.
+
+    Regression: Disney user couldn't remove the last peer "Ginny" because
+    save_config saw `peers: []` and treated it as caller-forgot, restoring
+    the old peers from DB on every save → user-deleted peer kept reappearing.
+    """
+    import config_store
+
+    existing = {"company": "X", "peers": [{"ticker": "GINNY"}]}
+    new_cfg = {"company": "X", "peers": []}  # explicit clear
+
+    captured = {}
+
+    def upsert(row):
+        captured["row"] = row
+        return MagicMock(execute=lambda: None)
+
+    fake_table = MagicMock()
+    fake_table.upsert = upsert
+    fake_client = MagicMock()
+    fake_client.table.return_value = fake_table
+
+    orig_load = config_store.load_config
+    config_store.load_config = lambda c, t, user_id=None: existing
+    try:
+        config_store.save_config(fake_client, "TEST", new_cfg, user_id="u1")
+    finally:
+        config_store.load_config = orig_load
+
+    assert captured["row"]["config"]["peers"] == []
+
+
+def test_save_config_recovers_missing_peers_key():
+    """If the caller's cfg omits the `peers` key entirely (key not in cfg),
+    the guard must still restore peers from the DB. This preserves the
+    original AI-Research-Section style protection against caller bugs."""
+    import config_store
+
+    existing = {"company": "X", "peers": [{"ticker": "AAPL"}]}
+    new_cfg = {"company": "X"}  # peers key entirely missing
+
+    captured = {}
+
+    def upsert(row):
+        captured["row"] = row
+        return MagicMock(execute=lambda: None)
+
+    fake_table = MagicMock()
+    fake_table.upsert = upsert
+    fake_client = MagicMock()
+    fake_client.table.return_value = fake_table
+
+    orig_load = config_store.load_config
+    config_store.load_config = lambda c, t, user_id=None: existing
+    try:
+        config_store.save_config(fake_client, "TEST", new_cfg, user_id="u1")
+    finally:
+        config_store.load_config = orig_load
+
+    assert captured["row"]["config"]["peers"] == [{"ticker": "AAPL"}]
+
+
+def test_save_config_allows_intentional_empty_lens_weights():
+    """Setting `lens_weights = {}` reverts to default weights — must persist
+    as empty dict, not get restored from DB."""
+    import config_store
+
+    existing = {"company": "X", "lens_weights": {"dcf": 0.7}}
+    new_cfg = {"company": "X", "lens_weights": {}}  # explicit revert to defaults
+
+    captured = {}
+
+    def upsert(row):
+        captured["row"] = row
+        return MagicMock(execute=lambda: None)
+
+    fake_table = MagicMock()
+    fake_table.upsert = upsert
+    fake_client = MagicMock()
+    fake_client.table.return_value = fake_table
+
+    orig_load = config_store.load_config
+    config_store.load_config = lambda c, t, user_id=None: existing
+    try:
+        config_store.save_config(fake_client, "TEST", new_cfg, user_id="u1")
+    finally:
+        config_store.load_config = orig_load
+
+    assert captured["row"]["config"]["lens_weights"] == {}
 
 
 # ---------------------------------------------------------------- valuation_lenses

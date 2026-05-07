@@ -46,29 +46,46 @@ def _restore_tuples(cfg):
 # Watchlist config CRUD
 # ---------------------------------------------------------------------------
 
-_AI_NOTES_GUARDED_KEYS = (
+# Compute-only guarded keys: populated by code paths, never legitimately
+# emptied by user intent. Empty/null here = caller bug → restore from DB.
+# (Caught the AI-Research-Section wipe and the MSFT valuation_summary=None
+# incident.)
+_GUARDED_KEYS_RESTORE_EMPTY = (
     "ai_notes",
-    "peers",
     "valuation_inputs",
     "valuation_summary",
+)
+
+# User-intent guarded keys: empty value is a legitimate user action
+# (removing the last peer, reverting to default lens weights). Only
+# trigger DB recovery when the key is entirely missing — never when
+# the caller explicitly passes []/{}.
+_GUARDED_KEYS_RESTORE_MISSING_ONLY = (
+    "peers",
     "lens_weights",
 )
+
+# Backward-compat alias — the union of both sets, used by callers that
+# only need to know "is this key guarded at all?".
+_AI_NOTES_GUARDED_KEYS = _GUARDED_KEYS_RESTORE_EMPTY + _GUARDED_KEYS_RESTORE_MISSING_ONLY
 
 
 def save_config(client, ticker, cfg, user_id=None):
     """Upsert a DCF config dict to Supabase.
 
-    Defends against silent data loss for guarded keys (`ai_notes`, `peers`,
-    `valuation_inputs`, `valuation_summary`, `lens_weights`):
+    Defends against silent data loss for guarded keys, with two policies:
 
-    - **Missing key** (caller omitted entirely) — merge in the existing DB value.
-      Caught multiple watchlist tickers losing their AI Research Sections —
-      some code path was calling save_config with a cfg that didn't include
-      `ai_notes`, and the upsert was wiping the column.
-    - **Empty/null value** (caller passed None or empty dict/list) — also
-      merge in the existing DB value, but only if the existing one is
-      non-empty. Caught MSFT losing its valuation_summary after a peer-edit
-      flow that re-saved cfg with `valuation_summary: None`.
+    - **Compute-only keys** (`ai_notes`, `valuation_inputs`,
+      `valuation_summary`): missing key OR empty/null value → restore
+      from DB. These are populated by code paths; an empty value is
+      almost always a caller bug. Caught the AI-Research-Section wipe
+      and the MSFT `valuation_summary: None` incident.
+
+    - **User-intent keys** (`peers`, `lens_weights`): only missing key
+      → restore from DB. Empty list / empty dict is a legitimate user
+      action (remove the last peer; revert to default weights) and must
+      be persisted as-is. Caught the Disney "Ginny" peer that kept
+      reappearing because the guard treated `peers: []` as caller-forgot.
 
     Both paths log a WARNING with a short call-stack so the offending caller
     can be identified.
@@ -85,8 +102,11 @@ def save_config(client, ticker, cfg, user_id=None):
         return v is None or (isinstance(v, (dict, list, str)) and len(v) == 0)
 
     needs_recovery = [
-        k for k in _AI_NOTES_GUARDED_KEYS
+        k for k in _GUARDED_KEYS_RESTORE_EMPTY
         if k not in cfg or _is_empty(cfg[k])
+    ] + [
+        k for k in _GUARDED_KEYS_RESTORE_MISSING_ONLY
+        if k not in cfg
     ]
     if needs_recovery:
         existing = load_config(client, ticker, user_id=user_id)
