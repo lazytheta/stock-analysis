@@ -4015,7 +4015,7 @@ def _watchlist_overview():
             text-align: right;
             line-height: 0;
         }}
-        [class*="st-key-wl_ff_"] [data-testid="stPopover"] > div {{
+        [class*="st-key-wl_ff_"] [data-testid="stPopover"] {{
             display: inline-block;
         }}
         [class*="st-key-wl_ff_"] [data-testid="stPopover"] button {{
