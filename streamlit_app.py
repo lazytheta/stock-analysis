@@ -243,7 +243,7 @@ def _render_football_field(summary: dict | None, theme: dict) -> str:
 
     lens_order = [
         ("dcf", "DCF"),
-        ("multiples", "Multiples"),
+        ("multiples", "Peers"),
         ("historical", "Historical"),
         # "reverse_dcf" intentionally omitted — its bar would overlap the
         # Price marker (lens always returns fv = stock_price). See

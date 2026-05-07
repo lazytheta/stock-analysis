@@ -358,7 +358,7 @@ def test_render_football_field_renders_all_active_lenses():
     html = streamlit_app._render_football_field(summary, theme=_theme_stub())
     # 3 forward-lens labels in the HTML
     assert "DCF" in html
-    assert "Multiples" in html
+    assert "Peers" in html
     assert "Historical" in html
     # Reverse DCF intentionally absent
     assert "Reverse DCF" not in html
