@@ -21,7 +21,6 @@ import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime
 from pathlib import Path
 
 # Load creds from claude_desktop_config.json
@@ -37,56 +36,12 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 import config_store
-import gather_data
 import valuation_lenses
+from auto_fetch import auto_fill_peer_market_data, auto_fill_valuation_inputs
 from supabase import create_client
 
 USER_ID = os.environ["LAZYTHETA_USER_ID"]
 client = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
-
-
-def auto_fill_valuation_inputs(cfg: dict) -> None:
-    """Mirror of streamlit_app._auto_fill_valuation_inputs (no Streamlit dep)."""
-    inputs = cfg.setdefault("valuation_inputs", {})
-    auto_filled = list(inputs.get("_auto_filled", []))
-    fetched = gather_data.fetch_market_inputs(cfg.get("ticker", ""))
-    # Phase 2-B.2: also fetch historical multiples
-    fetched.update(gather_data.fetch_historical_multiples(cfg.get("ticker", "")))
-
-    for key, value in fetched.items():
-        existing = inputs.get(key)
-        if existing is None or key in auto_filled:
-            inputs[key] = value
-            if key not in auto_filled:
-                auto_filled.append(key)
-
-    inputs["_auto_filled"] = auto_filled
-    inputs["_fetched_at"] = datetime.now(UTC).isoformat()
-
-
-def auto_fill_peer_market_data(cfg: dict) -> None:
-    """Mirror of streamlit_app._auto_fill_peer_market_data (no Streamlit dep)."""
-    peers = cfg.get("peers") or []
-    fetched_at = datetime.now(UTC).isoformat()
-
-    for peer in peers:
-        if not isinstance(peer, dict) or not peer.get("ticker"):
-            continue
-        auto_filled = list(peer.get("_auto_filled", []))
-        enriched = gather_data.enrich_peer_with_market_data(peer)
-
-        for key in ("fwd_pe", "ev_ebitda"):
-            yfinance_value = enriched.get(key)
-            if yfinance_value is None:
-                continue
-            existing = peer.get(key)
-            if key == "ev_ebitda" or existing is None or key in auto_filled:
-                peer[key] = yfinance_value
-                if key not in auto_filled:
-                    auto_filled.append(key)
-
-        peer["_auto_filled"] = auto_filled
-        peer["_fetched_at"] = fetched_at
 
 
 def refresh_one(ticker: str) -> tuple[str, dict | None, str | None]:
