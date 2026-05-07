@@ -294,24 +294,13 @@ def _render_football_field(summary: dict | None, theme: dict) -> str:
             f'</div>'
         )
 
-    # Each marker: vertical line + filled circle cap on top + inline label
-    # above the cap. Three distinct colors (price=dark, mid=sage, buy=darker
-    # sage), labels positioned to avoid overlap when values cluster.
+    # Single marker: current price. Mid and Buy were too noisy alongside
+    # the per-lens ranges; the user reads those from the watchlist row directly.
     price_x = _x(price)
-    mid_x = _x(mid)
-    buy_x = _x(buy)
     markers_html = (
         f'<div class="ff-marker ff-marker-price" style="left:{price_x:.2f}%">'
         f'  <span class="ff-marker-cap"></span>'
         f'  <span class="ff-marker-label">Price ${price:.2f}</span>'
-        f'</div>'
-        f'<div class="ff-marker ff-marker-mid" style="left:{mid_x:.2f}%">'
-        f'  <span class="ff-marker-cap"></span>'
-        f'  <span class="ff-marker-label">Mid ${mid:.2f}</span>'
-        f'</div>'
-        f'<div class="ff-marker ff-marker-buy" style="left:{buy_x:.2f}%">'
-        f'  <span class="ff-marker-cap"></span>'
-        f'  <span class="ff-marker-label">Buy ${buy:.2f}</span>'
         f'</div>'
     )
 
@@ -352,13 +341,7 @@ def _render_football_field(summary: dict | None, theme: dict) -> str:
 }}
 .ff-marker-price::before {{ background:#444; }}
 .ff-marker-price .ff-marker-cap {{ background:#444; }}
-.ff-marker-price .ff-marker-label {{ color:#444; background:rgba(255,255,255,0.85); }}
-.ff-marker-mid::before {{ background:{accent}; }}
-.ff-marker-mid .ff-marker-cap {{ background:{accent}; }}
-.ff-marker-mid .ff-marker-label {{ color:white; background:{accent}; }}
-.ff-marker-buy::before {{ background:{accent_hover}; }}
-.ff-marker-buy .ff-marker-cap {{ background:{accent_hover}; }}
-.ff-marker-buy .ff-marker-label {{ color:white; background:{accent_hover}; }}
+.ff-marker-price .ff-marker-label {{ color:white; background:#444; }}
 </style>'''
 
     return (
