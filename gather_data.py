@@ -430,7 +430,6 @@ def parse_financials(facts, n_years=6):
     interest_expense = _get_values(["InterestExpense", "InterestExpenseDebt"])
     lt_leases = _get_values(["OperatingLeaseLiabilityNoncurrent"])
     finance_leases = _get_values(["FinanceLeaseLiability"])
-    buyback = _get_values(["PaymentsForRepurchaseOfCommonStock"])
 
     # Equity bridge items (point-in-time)
     minority_interest = _get_values(["MinorityInterest",
@@ -473,7 +472,6 @@ def parse_financials(facts, n_years=6):
         "equity_investments_latest": round(equity_investments[-1] / M, 0) if equity_investments and equity_investments[-1] else 0,
         "unfunded_pension_latest": round(abs(unfunded_pension[-1]) / M, 0) if unfunded_pension and unfunded_pension[-1] else 0,
         "entity_public_float": round(entity_public_float / M, 0) if entity_public_float else 0,
-        "buyback": _to_millions(buyback),
         "tax_provision": _to_millions(tax_provision),
         "pretax_income": _to_millions(pretax_income),
     }

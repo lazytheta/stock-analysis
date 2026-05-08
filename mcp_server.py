@@ -362,7 +362,7 @@ def build_dcf_config(
         financial_data: Parsed financials dict with keys: years, revenue,
             operating_income, net_income, cost_of_revenue, sbc, shares,
             current_assets, cash, st_investments, current_liabilities,
-            st_debt, st_leases, net_ppe, goodwill_intang, buyback,
+            st_debt, st_leases, net_ppe, goodwill_intang,
             tax_provision, pretax_income, lt_debt_latest, lt_leases_latest,
             st_debt_latest, interest_expense_latest, finance_leases_latest,
             minority_interest_latest, equity_investments_latest,

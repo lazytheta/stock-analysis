@@ -92,10 +92,9 @@ cfg = {
     'sbc_pct': 0.038,                     # SBC as % of revenue (~$10.5B on $277B)
 
     # ──────────────────────────────────────────────
-    # SHARES & BUYBACKS
+    # SHARES
     # ──────────────────────────────────────────────
     'shares_outstanding': 7_432,          # Diluted shares (M), FY2025
-    'buyback_rate': 0.01,                 # Gross annual buyback reduction (~1%)
     'margin_of_safety': 0.25,             # 25% discount for buy price
 
     # ──────────────────────────────────────────────

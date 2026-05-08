@@ -24,7 +24,6 @@ def make_cfg(**overrides):
         "sales_to_capital": 1.5,
         "sbc_pct": 0.02,
         "shares_outstanding": 1_000,
-        "buyback_rate": 0.0,
         "margin_of_safety": 0.20,
         "cash_bridge": 5_000,
         "securities": 0,

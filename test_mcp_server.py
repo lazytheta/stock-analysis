@@ -271,7 +271,6 @@ def _make_test_financials():
         "st_leases": [1000, 1000, 1000, 1000],
         "net_ppe": [15000, 16000, 17000, 18000],
         "goodwill_intang": [10000, 10000, 10000, 10000],
-        "buyback": [0, 0, 0, 0],
         "tax_provision": [4000, 4250, 4500, 4750],
         "pretax_income": [20000, 21000, 22000, 23000],
         "lt_debt_latest": 20000,
