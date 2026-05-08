@@ -340,6 +340,27 @@ def _get_watchlist_impl():
     return json.dumps(entries, default=str)
 
 
+def _update_valuation_inputs_impl(ticker: str, fields: dict) -> str:
+    """Core logic for update_valuation_inputs. Merges fields into
+    cfg["valuation_inputs"] and removes them from _auto_filled so the
+    user override survives the next refresh."""
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=USER_ID)
+    if cfg is None:
+        return json.dumps({"error": f"{ticker.upper()} not found on watchlist"})
+
+    inputs = cfg.setdefault("valuation_inputs", {})
+    auto_filled = list(inputs.get("_auto_filled", []))
+    for k, v in fields.items():
+        inputs[k] = v
+        if k in auto_filled:
+            auto_filled.remove(k)
+    inputs["_auto_filled"] = auto_filled
+
+    config_store.save_config(client, ticker, cfg, user_id=USER_ID)
+    return json.dumps(inputs, default=str)
+
+
 # ---------------------------------------------------------------------------
 # MCP Tools
 # ---------------------------------------------------------------------------
@@ -516,6 +537,32 @@ def get_watchlist() -> str:
     """
     try:
         return _get_watchlist_impl()
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def update_valuation_inputs(ticker: str, fields: dict) -> str:
+    """Override one or more valuation_inputs fields for a watchlist ticker.
+
+    Use this to inject your own view (e.g. expected dividend growth, forward
+    EPS) that should NOT be overwritten by the next yfinance auto-refresh.
+    Each updated field is removed from `_auto_filled` so subsequent refreshes
+    preserve the override.
+
+    Args:
+        ticker: Stock ticker (e.g. "PEP")
+        fields: Dict of valuation_inputs keys to set. Examples:
+            {"dividend_5y_cagr": 0.08}
+            {"forward_eps": 6.50, "ttm_ebitda": 15000}
+            {"median_5y_yield": 0.025}
+
+    Returns:
+        JSON string with the updated valuation_inputs dict, or
+        {"error": "..."} if ticker is not on the watchlist.
+    """
+    try:
+        return _update_valuation_inputs_impl(ticker, fields)
     except Exception as e:
         return json.dumps({"error": str(e)})
 

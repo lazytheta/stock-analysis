@@ -433,3 +433,129 @@ def test_convert_to_real_floors_at_zero():
     assert real_cfg["revenue_growth"][1] == 0.0
     # terminal: 0.025 - 0.021 = 0.004
     assert real_cfg["terminal_growth"] == pytest.approx(0.004, abs=0.001)
+
+
+# ---------------------------------------------------------------------------
+# update_valuation_inputs tool
+# ---------------------------------------------------------------------------
+
+def test_update_valuation_inputs_writes_field(monkeypatch):
+    """Calling the tool writes the field into cfg.valuation_inputs and saves."""
+    import json as _json
+    import mcp_server
+
+    storage = {
+        "TEST": {
+            "company": "Test",
+            "ticker": "TEST",
+            "valuation_inputs": {
+                "_auto_filled": ["dividend_5y_cagr"],
+                "dividend_5y_cagr": 0.05,
+            },
+        },
+    }
+
+    def fake_load(client, ticker, user_id=None):
+        return dict(storage[ticker.upper()])
+
+    def fake_save(client, ticker, cfg, user_id=None):
+        storage[ticker.upper()] = dict(cfg)
+
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(mcp_server.config_store, "load_config", fake_load)
+    monkeypatch.setattr(mcp_server.config_store, "save_config", fake_save)
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+
+    result_json = mcp_server._update_valuation_inputs_impl(
+        "TEST", {"dividend_5y_cagr": 0.10}
+    )
+    result = _json.loads(result_json)
+
+    assert result["dividend_5y_cagr"] == 0.10
+    saved = storage["TEST"]
+    assert saved["valuation_inputs"]["dividend_5y_cagr"] == 0.10
+
+
+def test_update_valuation_inputs_removes_from_auto_filled(monkeypatch):
+    """Overriding a field removes it from _auto_filled so future refresh
+    won't overwrite the user value."""
+    import mcp_server
+
+    storage = {
+        "TEST": {
+            "ticker": "TEST",
+            "valuation_inputs": {
+                "_auto_filled": ["dividend_5y_cagr", "ttm_dividend"],
+                "dividend_5y_cagr": 0.05,
+                "ttm_dividend": 4.00,
+            },
+        },
+    }
+
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(
+        mcp_server.config_store, "load_config",
+        lambda c, t, user_id=None: dict(storage[t.upper()]),
+    )
+    monkeypatch.setattr(
+        mcp_server.config_store, "save_config",
+        lambda c, t, cfg, user_id=None: storage.update({t.upper(): dict(cfg)}),
+    )
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+
+    mcp_server._update_valuation_inputs_impl("TEST", {"dividend_5y_cagr": 0.10})
+    saved = storage["TEST"]
+    assert "dividend_5y_cagr" not in saved["valuation_inputs"]["_auto_filled"]
+    # Other auto-filled fields untouched
+    assert "ttm_dividend" in saved["valuation_inputs"]["_auto_filled"]
+
+
+def test_update_valuation_inputs_preserves_other_fields(monkeypatch):
+    """Updating one field doesn't disturb others."""
+    import mcp_server
+
+    storage = {
+        "TEST": {
+            "ticker": "TEST",
+            "valuation_inputs": {
+                "_auto_filled": ["dividend_5y_cagr", "ttm_dividend", "forward_eps"],
+                "dividend_5y_cagr": 0.05,
+                "ttm_dividend": 4.00,
+                "forward_eps": 8.00,
+            },
+        },
+    }
+
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(
+        mcp_server.config_store, "load_config",
+        lambda c, t, user_id=None: dict(storage[t.upper()]),
+    )
+    monkeypatch.setattr(
+        mcp_server.config_store, "save_config",
+        lambda c, t, cfg, user_id=None: storage.update({t.upper(): dict(cfg)}),
+    )
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+
+    mcp_server._update_valuation_inputs_impl("TEST", {"dividend_5y_cagr": 0.10})
+    saved = storage["TEST"]
+    assert saved["valuation_inputs"]["ttm_dividend"] == 4.00
+    assert saved["valuation_inputs"]["forward_eps"] == 8.00
+
+
+def test_update_valuation_inputs_unknown_ticker_returns_error(monkeypatch):
+    """If the ticker isn't on the watchlist, return a JSON error string."""
+    import json as _json
+    import mcp_server
+
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(
+        mcp_server.config_store, "load_config",
+        lambda c, t, user_id=None: None,
+    )
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+
+    result_json = mcp_server._update_valuation_inputs_impl(
+        "UNKNOWN", {"dividend_5y_cagr": 0.10}
+    )
+    assert "error" in _json.loads(result_json)
