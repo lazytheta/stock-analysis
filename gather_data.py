@@ -1544,6 +1544,108 @@ def fetch_historical_multiples(ticker: str) -> dict:
     return out
 
 
+def fetch_dividend_history(ticker: str, n_years: int = 5) -> dict:
+    """Fetch dividend-related inputs for the Dividend lens from yfinance.
+
+    Returns a dict with these keys (always present; values may be 0/None):
+        ttm_dividend:          float, sum of ex-div dates in trailing 365 days
+        dividend_5y_cagr:      float | None, capped at 0.15 for sanity
+        median_5y_yield:       float | None, median of monthly TTM-div / close
+                               across up to 60 months. None when <36 months
+                               of usable observations.
+        n_years_available:     int, span (rounded) of dividend history
+
+    yfinance failure → returns the all-zero / all-None shape (never raises,
+    never returns an empty dict — consumers rely on the keys existing).
+    """
+    import statistics
+    from datetime import timedelta
+
+    empty_result = {
+        "ttm_dividend": 0.0,
+        "dividend_5y_cagr": None,
+        "median_5y_yield": None,
+        "n_years_available": 0,
+    }
+
+    try:
+        import yfinance as yf
+        ticker_obj = yf.Ticker(ticker)
+        divs = ticker_obj.dividends  # pandas Series indexed by ex-div date
+        history = ticker_obj.history(period=f"{n_years}y", interval="1mo")
+    except ImportError:
+        logger.warning("yfinance not installed; skipping dividend history for %s", ticker)
+        return empty_result
+    except Exception as e:
+        logger.warning("yfinance dividend fetch failed for %s: %s", ticker, e)
+        return empty_result
+
+    if divs is None or len(divs) == 0:
+        return empty_result
+
+    # Strip tz so we can compare with tz-naive arithmetic
+    try:
+        divs_idx = divs.index.tz_localize(None) if divs.index.tz is not None else divs.index
+    except (AttributeError, TypeError):
+        divs_idx = divs.index
+
+    most_recent = divs_idx.max()
+    # TTM = sum of dividends with ex-div in trailing 365 days from most recent
+    ttm_window_start = most_recent - timedelta(days=365)
+    ttm_mask = (divs_idx > ttm_window_start) & (divs_idx <= most_recent)
+    ttm_dividend = float(divs.values[ttm_mask].sum())
+
+    # Span of history available (years)
+    earliest = divs_idx.min()
+    n_years_available = round((most_recent - earliest).days / 365.0, 1)
+
+    out = dict(empty_result)
+    out["ttm_dividend"] = round(ttm_dividend, 4)
+    out["n_years_available"] = n_years_available
+
+    # 5y CAGR: TTM dividend now vs TTM dividend 5y ago
+    five_years_ago = most_recent - timedelta(days=5 * 365)
+    past_window_start = five_years_ago - timedelta(days=365)
+    past_mask = (divs_idx > past_window_start) & (divs_idx <= five_years_ago)
+    past_ttm = float(divs.values[past_mask].sum())
+    cagr_years = 5
+    # Fallback when 5y back overshoots available data: use earliest 365d TTM
+    # as the baseline and compute CAGR over the actual span (≥3y required).
+    if past_ttm <= 0 and n_years_available >= 3:
+        # Anchor on the trailing edge of the first 365d window so the [<=]
+        # convention matches the recent TTM window. Use a 1-day grace before
+        # `earliest` so the earliest dividend itself is included.
+        early_anchor = earliest - timedelta(days=1) + timedelta(days=365)
+        early_mask = (divs_idx > earliest - timedelta(days=1)) & (divs_idx <= early_anchor)
+        past_ttm = float(divs.values[early_mask].sum())
+        cagr_years = max((most_recent - early_anchor).days / 365.0, 1.0)
+    if ttm_dividend > 0 and past_ttm > 0:
+        cagr = (ttm_dividend / past_ttm) ** (1 / cagr_years) - 1
+        out["dividend_5y_cagr"] = min(round(cagr, 4), 0.15)
+
+    # Median yield across monthly observations: rolling-TTM-div / close
+    if history is not None and len(history) >= 36:
+        try:
+            hist_idx = history.index.tz_localize(None) if history.index.tz is not None else history.index
+        except (AttributeError, TypeError):
+            hist_idx = history.index
+        closes = [float(p) for p in history["Close"].values]
+
+        yields = []
+        for month_dt, close in zip(hist_idx, closes):
+            if close <= 0:
+                continue
+            window_start = month_dt - timedelta(days=365)
+            mask = (divs_idx > window_start) & (divs_idx <= month_dt)
+            rolling_ttm = float(divs.values[mask].sum())
+            if rolling_ttm > 0:
+                yields.append(rolling_ttm / close)
+        if len(yields) >= 36:
+            out["median_5y_yield"] = round(statistics.median(yields), 6)
+
+    return out
+
+
 def _interpolate_yearly_to_monthly(income_df, row_name, months_dt):
     """Linear-interpolate an annual or quarterly income-statement / balance-sheet
     row to a monthly series aligned to months_dt. Returns list of floats (or

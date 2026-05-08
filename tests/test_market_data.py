@@ -77,6 +77,36 @@ def make_yf_quarterly_balance_sheet(debt_per_quarter=None, cash_per_quarter=None
     return pd.DataFrame(rows, index=cols).T
 
 
+def make_yf_dividends(quarterly_amounts=None, n_years=5):
+    """Build a yfinance Ticker.dividends-like pandas Series of quarterly
+    payments. quarterly_amounts is a list of dollar amounts (length defaults
+    to n_years*4). Index is quarterly ex-div dates ending around 2026-05-01.
+    """
+    import pandas as pd
+    if quarterly_amounts is None:
+        # Default: ~$0.50/quarter growing 5%/yr → realistic mature payer
+        per_quarter = 0.50
+        annual_growth = 0.05
+        quarterly_amounts = []
+        for q in range(n_years * 4):
+            year_offset = q // 4
+            quarterly_amounts.append(per_quarter * (1 + annual_growth) ** year_offset)
+    dates = pd.date_range(end="2026-05-01", periods=len(quarterly_amounts), freq="QE")
+    return pd.Series(quarterly_amounts, index=dates, name="Dividends")
+
+
+def patch_yfinance_dividends(dividends_series, history_df=None):
+    """Mock yf.Ticker(t).dividends + .history(...) for fetch_dividend_history."""
+    fake_ticker = MagicMock()
+    fake_ticker.dividends = dividends_series
+    fake_ticker.history = MagicMock(
+        return_value=history_df if history_df is not None else make_yf_history(months=60)
+    )
+    fake_yf = MagicMock()
+    fake_yf.Ticker = MagicMock(return_value=fake_ticker)
+    return patch.dict("sys.modules", {"yfinance": fake_yf})
+
+
 def patch_yfinance_full(info=None, history=None, income_stmt=None, qbs=None):
     """Comprehensive yfinance mock for fetch_historical_multiples."""
     fake_ticker = MagicMock()
@@ -508,6 +538,71 @@ def test_fetch_historical_multiples_no_shares_outstanding():
         result = gather_data.fetch_historical_multiples("XYZ")
     assert "historical_trailing_pe" in result
     assert "historical_ev_ebitda" not in result
+
+
+def test_fetch_dividend_history_full_5y_payer():
+    """Mature payer with 5y of growing dividends → all three fields populated."""
+    divs = make_yf_dividends(n_years=5)  # 20 quarterly dividends, growing
+    with patch_yfinance_dividends(divs):
+        result = gather_data.fetch_dividend_history("PEP")
+    assert result["ttm_dividend"] > 0
+    assert 0 < result["dividend_5y_cagr"] < 0.15
+    assert result["median_5y_yield"] is not None
+    assert result["median_5y_yield"] > 0
+    assert result["n_years_available"] == pytest.approx(5, abs=0.5)
+
+
+def test_fetch_dividend_history_non_payer_returns_zeros():
+    """Empty dividends Series → ttm_dividend=0, growth=None, yield=None."""
+    import pandas as pd
+    empty = pd.Series([], dtype=float, name="Dividends")
+    with patch_yfinance_dividends(empty):
+        result = gather_data.fetch_dividend_history("ABNB")
+    assert result["ttm_dividend"] == 0.0
+    assert result["dividend_5y_cagr"] is None
+    assert result["median_5y_yield"] is None
+    assert result["n_years_available"] == 0
+
+
+def test_fetch_dividend_history_short_history_no_yield():
+    """Recent initiator (<3y of data) → median_5y_yield=None, others may
+    still populate or be None depending on data sufficiency."""
+    divs = make_yf_dividends(n_years=2)  # 8 quarterly dividends, ~2y
+    with patch_yfinance_dividends(divs, history_df=make_yf_history(months=24)):
+        result = gather_data.fetch_dividend_history("GOOG")
+    assert result["ttm_dividend"] > 0
+    assert result["median_5y_yield"] is None  # <36 months of data
+
+
+def test_fetch_dividend_history_yfinance_error():
+    """yfinance raises → returns dict with ttm_dividend=0 and all-None,
+    not a crash and not an empty dict (consumers expect the keys)."""
+    fake_yf = MagicMock()
+    fake_yf.Ticker = MagicMock(side_effect=Exception("network down"))
+    with patch.dict("sys.modules", {"yfinance": fake_yf}):
+        result = gather_data.fetch_dividend_history("XYZ")
+    assert result == {
+        "ttm_dividend": 0.0,
+        "dividend_5y_cagr": None,
+        "median_5y_yield": None,
+        "n_years_available": 0,
+    }
+
+
+def test_fetch_dividend_history_caps_growth_at_15pct():
+    """If raw 5y CAGR exceeds 15%, the function caps it for sanity
+    (dividend growth above 15% per year sustained 5y is a red flag)."""
+    # Build dividends growing 25%/yr — should be capped to 0.15
+    quarterly = []
+    base = 0.20
+    for q in range(20):
+        year_offset = q // 4
+        quarterly.append(base * (1.25) ** year_offset)
+    divs = make_yf_dividends(quarterly_amounts=quarterly)
+    with patch_yfinance_dividends(divs):
+        result = gather_data.fetch_dividend_history("HOTSTOCK")
+    # Cap is applied — never above 0.15
+    assert result["dividend_5y_cagr"] == pytest.approx(0.15, abs=1e-9)
 
 
 def test_auto_fill_inputs_includes_historical_multiples():
