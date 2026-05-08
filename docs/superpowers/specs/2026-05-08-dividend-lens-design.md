@@ -45,7 +45,7 @@ fv_a = PV stage 1 + Terminal value
 | `D₀` (TTM dividend) | yfinance `Ticker(t).dividends` time-series, sum of all ex-div dates in the last 365 days (handles quarterly, semi-annual, annual schedules uniformly) |
 | `g₁` (stage 1 growth) | 5-year CAGR computed from yfinance dividend history; capped at 15% for sanity |
 | `g_term` (terminal growth) | `cfg["terminal_growth"]` (reused from DCF, typically 2.0–2.5%) |
-| `r` (discount rate) | `dcf_calculator.compute_wacc(cfg)["cost_of_equity"]` |
+| `r` (discount rate) | New helper `dcf_calculator.compute_cost_of_equity(cfg)` returning `ke = risk_free_rate + lev_beta × erp` (extracted from existing `compute_wacc` logic; same inputs, separate concern) |
 | Stage 1 length | 5 years (matches the CAGR window; not configurable in this phase) |
 
 ### Sub-anchor B — Yield Mean-Reversion (active when ≥3y of dividend history)
