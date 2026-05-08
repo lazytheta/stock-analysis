@@ -181,10 +181,11 @@ def list_watchlist(client, user_id=None):
         return []
 
     # Forward-looking lenses surfaced in the watchlist row.
-    # reverse_dcf is computed and stored, but excluded from the count
-    # because it anchors at current price (see
+    # dividend is now included alongside dcf/multiples/historical (Phase 2-C
+    # Dividend Lens). reverse_dcf is computed and stored, but excluded from
+    # the count because it anchors at current price (see
     # docs/superpowers/specs/2026-05-07-reverse-dcf-demote-from-watchlist-design.md).
-    _COUNTED_LENSES = ("dcf", "multiples", "historical")
+    _COUNTED_LENSES = ("dcf", "multiples", "historical", "dividend")
 
     out = []
     for row in resp.data:

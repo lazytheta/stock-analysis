@@ -113,15 +113,14 @@ def _range_bar_marker_position(price: float, low: float, high: float) -> tuple[f
 def _render_lens_dots(lenses: dict, theme: dict) -> str:
     """Render N dots showing which forward-looking lenses are active + a count label.
 
-    Order: dcf · multiples · historical. Reverse DCF is intentionally not
+    Order: dcf · multiples · historical · dividend. Reverse DCF is intentionally not
     rendered — it anchors at current price by definition (see
     docs/superpowers/specs/2026-05-07-reverse-dcf-demote-from-watchlist-design.md).
-    Dividend stub is also omitted (always greyed out under Phase 2 scope).
 
     Each lens key maps to a non-None lens dict (active, green dot) or None
     (skipped, grey dot). Label: "{N} lens" or "{N} lenses" or "no lenses".
     """
-    order = ["dcf", "multiples", "historical"]
+    order = ["dcf", "multiples", "historical", "dividend"]
     actives = [name for name in order if lenses.get(name) is not None]
 
     parts = []
@@ -245,6 +244,7 @@ def _render_football_field(summary: dict | None, theme: dict) -> str:
         ("dcf", "DCF"),
         ("multiples", "Peers"),
         ("historical", "Historical"),
+        ("dividend", "Dividend"),
         # "reverse_dcf" intentionally omitted — its bar would overlap the
         # Price marker (lens always returns fv = stock_price). See
         # docs/superpowers/specs/2026-05-07-reverse-dcf-demote-from-watchlist-design.md.

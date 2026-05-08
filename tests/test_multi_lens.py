@@ -736,7 +736,7 @@ def test_list_watchlist_enriched_shape():
         "weighted_fv_high": 100.0,
         "buy_price": 64.0,
         "current_vs_mid": 0.10,
-        "lenses": {"dcf": {}, "multiples": {}, "historical": {}, "reverse_dcf": {}, "dividend": None},
+        "lenses": {"dcf": {}, "multiples": {}, "historical": {}, "dividend": {}, "reverse_dcf": {}},
     }
     rows = [
         {
@@ -784,7 +784,7 @@ def test_list_watchlist_enriched_shape():
     assert with_row["fv_high"] == 100.0
     assert with_row["buy_price"] == 64.0
     assert with_row["current_vs_mid"] == 0.10
-    assert with_row["lens_count"] == 3  # dcf + multiples + historical (reverse_dcf and dividend excluded from count)
+    assert with_row["lens_count"] == 4  # dcf + multiples + historical + dividend (reverse_dcf excluded)
     assert with_row["verdict"] == "deep_dive"
     assert with_row["phase"] == 3
 
