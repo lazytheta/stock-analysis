@@ -605,6 +605,36 @@ def test_fetch_dividend_history_caps_growth_at_15pct():
     assert result["dividend_5y_cagr"] == pytest.approx(0.15, abs=1e-9)
 
 
+def test_fetch_dividend_history_stopped_payer_ttm_zero():
+    """Ticker that paid dividends for years but stopped — TTM window anchors
+    on today, so once the last payment is more than 365 days ago, ttm_dividend
+    drops to 0 (the lens then skips this ticker as a non-payer).
+
+    This guards against the trap where a delisted-payer / suspended-dividend
+    ticker would otherwise be treated as an active payer based on its
+    historical record."""
+    import pandas as pd
+    # Build 10y of quarterly dividends ending 2 YEARS BEFORE the
+    # patch_yfinance_dividends fixture's default "today" anchor.
+    # Easiest: build a series whose latest ex-div is ~2y before today.
+    quarterly = [0.50] * 40  # 10 years of $0.50/quarter
+    # Most-recent ex-div should be ~2 years before today
+    end = pd.Timestamp.now(tz=None) - pd.Timedelta(days=730)
+    dates = pd.date_range(end=end, periods=len(quarterly), freq="QE")
+    divs = pd.Series(quarterly, index=dates, name="Dividends")
+    with patch_yfinance_dividends(divs):
+        result = gather_data.fetch_dividend_history("STOPPED")
+    assert result["ttm_dividend"] == 0.0
+    # n_years_available reflects the historical span (~10y); that's diagnostic, not a payer signal
+    assert result["n_years_available"] >= 9.0
+    # Yield median should also be None — there are no observations in the
+    # 60-month window centered on today where the rolling TTM is non-zero
+    # ...actually median yield computes over ALL months in history. With our
+    # current anchoring on today, those months 2-12y ago would all see
+    # rolling-TTM>0 from past dividends. So this assertion depends on the
+    # implementation choice. Pinning the simpler invariant: ttm_dividend == 0.
+
+
 def test_auto_fill_inputs_includes_historical_multiples():
     """_auto_fill_valuation_inputs writes historical_trailing_pe, historical_ev_ebitda,
     and ttm_eps from fetch_historical_multiples in addition to forward_eps + ttm_ebitda."""

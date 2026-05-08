@@ -1549,23 +1549,26 @@ def fetch_dividend_history(ticker: str, n_years: int = 5) -> dict:
 
     Returns a dict with these keys (always present; values may be 0/None):
         ttm_dividend:          float, sum of ex-div dates in trailing 365 days
-        dividend_5y_cagr:      float | None, capped at 0.15 for sanity
+        dividend_5y_cagr:      float | None, capped at 0.15 for sanity. When
+                               the 5y-back window is empty and history span
+                               >=3y, the CAGR is computed over the actual
+                               span using the earliest 365d window as baseline.
         median_5y_yield:       float | None, median of monthly TTM-div / close
                                across up to 60 months. None when <36 months
                                of usable observations.
-        n_years_available:     int, span (rounded) of dividend history
+        n_years_available:     float, span (rounded) of dividend history
 
     yfinance failure → returns the all-zero / all-None shape (never raises,
     never returns an empty dict — consumers rely on the keys existing).
     """
     import statistics
-    from datetime import timedelta
+    from datetime import UTC, datetime, timedelta
 
     empty_result = {
         "ttm_dividend": 0.0,
         "dividend_5y_cagr": None,
         "median_5y_yield": None,
-        "n_years_available": 0,
+        "n_years_available": 0.0,
     }
 
     try:
@@ -1589,13 +1592,16 @@ def fetch_dividend_history(ticker: str, n_years: int = 5) -> dict:
     except (AttributeError, TypeError):
         divs_idx = divs.index
 
-    most_recent = divs_idx.max()
-    # TTM = sum of dividends with ex-div in trailing 365 days from most recent
+    import pandas as pd
+    today = datetime.now(UTC).date()
+    most_recent = pd.Timestamp(today)
+    # TTM = sum of dividends with ex-div in trailing 365 days from today (so
+    # suspended payers naturally produce ttm_dividend = 0)
     ttm_window_start = most_recent - timedelta(days=365)
     ttm_mask = (divs_idx > ttm_window_start) & (divs_idx <= most_recent)
     ttm_dividend = float(divs.values[ttm_mask].sum())
 
-    # Span of history available (years)
+    # Span of history available (years), anchored on today
     earliest = divs_idx.min()
     n_years_available = round((most_recent - earliest).days / 365.0, 1)
 
