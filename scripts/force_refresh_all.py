@@ -37,7 +37,11 @@ sys.path.insert(0, str(ROOT))
 
 import config_store
 import valuation_lenses
-from auto_fetch import auto_fill_peer_market_data, auto_fill_valuation_inputs
+from auto_fetch import (
+    auto_fill_dividend_inputs,
+    auto_fill_peer_market_data,
+    auto_fill_valuation_inputs,
+)
 from supabase import create_client
 
 USER_ID = os.environ["LAZYTHETA_USER_ID"]
@@ -53,6 +57,7 @@ def refresh_one(ticker: str) -> tuple[str, dict | None, str | None]:
         cfg.setdefault("ticker", ticker)
         auto_fill_valuation_inputs(cfg)
         auto_fill_peer_market_data(cfg)
+        auto_fill_dividend_inputs(cfg)
         summary = valuation_lenses.calculate_multi_lens_valuation(cfg, scenario_grid=False)
         cfg["valuation_summary"] = summary
         config_store.save_config(client, ticker, cfg, user_id=USER_ID)
