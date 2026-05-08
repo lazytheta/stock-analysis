@@ -23,13 +23,90 @@ DEFAULT_LENS_WEIGHTS = {
 
 
 def compute_dividend_lens(cfg):
-    """Phase 2 placeholder.
+    """Hybrid Two-stage DDM + Yield Mean-Reversion lens.
 
-    TODO Phase 2: Gordon Growth + yield mean-reversion using
-    valuation_inputs.target_dividend_yield, current_dividend,
-    expected_dividend_growth.
+    Sub-anchor A (DDM): 5y explicit dividend growth + Gordon terminal,
+    discounted at cost of equity.
+    Sub-anchor B (yield mean-reversion): TTM dividend / median 5y yield.
+    Active only when ≥3y history (median_5y_yield available).
+
+    Returns None when:
+      - TTM dividend = 0 (non-payer)
+      - dividend_5y_cagr is None (insufficient growth history)
+      - cost_of_equity ≤ terminal_growth (Gordon would blow up)
+      - any input is non-finite (NaN guard)
     """
-    return None
+    inputs = cfg.get("valuation_inputs") or {}
+    ttm = inputs.get("ttm_dividend") or 0.0
+    raw_g = inputs.get("dividend_5y_cagr")
+    median_yield = inputs.get("median_5y_yield")
+
+    if ttm <= 0:
+        return None
+    if raw_g is None:
+        return None
+
+    # Cap growth at 15% (defense in depth — gather_data already caps,
+    # but a user override via update_valuation_inputs could be higher).
+    g = min(raw_g, 0.15)
+    g_term = cfg.get("terminal_growth", 0.025)
+
+    try:
+        ke = dcf_calculator.compute_cost_of_equity(cfg)
+    except (KeyError, ZeroDivisionError, TypeError):
+        return None
+
+    # NaN / non-finite guards
+    for v in (ttm, g, g_term, ke):
+        if v != v or v in (float("inf"), float("-inf")):
+            return None
+
+    if ke <= g_term:
+        return None
+
+    # ── Sub-anchor A: Two-stage DDM ─────────────────────────────
+    stage1_years = 5
+    pv_stage1 = 0.0
+    d = ttm
+    for n in range(1, stage1_years + 1):
+        d = d * (1 + g)
+        pv_stage1 += d / ((1 + ke) ** n)
+
+    d_terminal = d  # D_5
+    terminal_value = d_terminal * (1 + g_term) / (ke - g_term)
+    pv_terminal = terminal_value / ((1 + ke) ** stage1_years)
+    ddm_fv = pv_stage1 + pv_terminal
+
+    # ── Sub-anchor B: Yield Mean-Reversion ──────────────────────
+    yield_mr_fv = None
+    if median_yield is not None and median_yield > 0:
+        yield_mr_fv = ttm / median_yield
+
+    # ── Range derivation ───────────────────────────────────────
+    if yield_mr_fv is not None:
+        fv_low = min(ddm_fv, yield_mr_fv)
+        fv_high = max(ddm_fv, yield_mr_fv)
+        fv_mid = (ddm_fv + yield_mr_fv) / 2.0
+    else:
+        fv_low = ddm_fv * 0.85
+        fv_mid = ddm_fv
+        fv_high = ddm_fv * 1.15
+
+    return {
+        "fv_low": fv_low,
+        "fv_mid": fv_mid,
+        "fv_high": fv_high,
+        "details": {
+            "ttm_dividend": ttm,
+            "growth_rate_stage1": g,
+            "terminal_growth": g_term,
+            "cost_of_equity": ke,
+            "stage1_years": stage1_years,
+            "ddm_fv": ddm_fv,
+            "yield_mr_fv": yield_mr_fv,
+            "median_5y_yield": median_yield,
+        },
+    }
 
 
 def compute_dcf_lens(cfg, scenario_grid=False):

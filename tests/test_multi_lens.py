@@ -106,6 +106,135 @@ def test_compute_cost_of_equity_matches_wacc_internals():
     assert ke == pytest.approx(wacc, abs=1e-9)
 
 
+# ---------------------------------------------------------------- dividend lens
+
+# Helpers for dividend-lens tests
+_DIVIDEND_BASE_CFG = {
+    "stock_price": 100.0,
+    "equity_market_value": 1000,
+    "debt_market_value": 100,
+    "sector_betas": [("Software", 1.0, 1.0)],
+    "tax_rate": 0.21,
+    "risk_free_rate": 0.04,
+    "erp": 0.05,
+    "credit_spread": 0.01,
+    "terminal_growth": 0.025,
+    "valuation_inputs": {
+        "ttm_dividend": 4.00,
+        "dividend_5y_cagr": 0.06,
+        "median_5y_yield": 0.030,
+    },
+}
+
+
+def test_dividend_lens_skips_non_payer():
+    """ttm_dividend = 0 → lens returns None."""
+    cfg = dict(_DIVIDEND_BASE_CFG)
+    cfg["valuation_inputs"] = {
+        "ttm_dividend": 0.0,
+        "dividend_5y_cagr": None,
+        "median_5y_yield": None,
+    }
+    assert valuation_lenses.compute_dividend_lens(cfg) is None
+
+
+def test_dividend_lens_skips_no_growth_history():
+    """dividend_5y_cagr is None (insufficient history) → skip lens."""
+    cfg = dict(_DIVIDEND_BASE_CFG)
+    cfg["valuation_inputs"] = {
+        "ttm_dividend": 1.50,
+        "dividend_5y_cagr": None,        # no growth baseline
+        "median_5y_yield": None,
+    }
+    assert valuation_lenses.compute_dividend_lens(cfg) is None
+
+
+def test_dividend_lens_skips_when_ke_le_terminal():
+    """cost_of_equity ≤ terminal_growth → Gordon perpetuity blows up → skip."""
+    cfg = dict(_DIVIDEND_BASE_CFG)
+    cfg["risk_free_rate"] = 0.01  # very low rf → low ke
+    cfg["erp"] = 0.005             # very low erp
+    cfg["terminal_growth"] = 0.05  # high terminal growth → ke < g
+    lens = valuation_lenses.compute_dividend_lens(cfg)
+    assert lens is None
+
+
+def test_dividend_lens_active_with_both_anchors():
+    """Full payer with median_5y_yield → range spans both DDM and yield-MR."""
+    cfg = dict(_DIVIDEND_BASE_CFG)
+    lens = valuation_lenses.compute_dividend_lens(cfg)
+    assert lens is not None
+    assert lens["fv_low"] < lens["fv_high"]
+    assert lens["fv_low"] <= lens["fv_mid"] <= lens["fv_high"]
+    details = lens["details"]
+    assert details["ttm_dividend"] == 4.00
+    assert details["growth_rate_stage1"] == 0.06
+    assert details["terminal_growth"] == 0.025
+    assert details["cost_of_equity"] > 0
+    assert details["ddm_fv"] > 0
+    assert details["yield_mr_fv"] > 0
+    assert details["median_5y_yield"] == 0.030
+
+
+def test_dividend_lens_active_anchor_a_only_when_no_yield():
+    """No median_5y_yield → fv ±15% band on DDM result, not min/max."""
+    cfg = dict(_DIVIDEND_BASE_CFG)
+    cfg["valuation_inputs"] = {
+        "ttm_dividend": 4.00,
+        "dividend_5y_cagr": 0.06,
+        "median_5y_yield": None,
+    }
+    lens = valuation_lenses.compute_dividend_lens(cfg)
+    assert lens is not None
+    ddm = lens["details"]["ddm_fv"]
+    assert lens["fv_mid"] == pytest.approx(ddm, abs=0.01)
+    assert lens["fv_low"] == pytest.approx(ddm * 0.85, abs=0.01)
+    assert lens["fv_high"] == pytest.approx(ddm * 1.15, abs=0.01)
+    assert lens["details"]["yield_mr_fv"] is None
+
+
+def test_dividend_lens_caps_growth_at_15pct_in_details():
+    """Even if upstream produced an uncapped CAGR somehow, the lens caps at 15%."""
+    cfg = dict(_DIVIDEND_BASE_CFG)
+    cfg["valuation_inputs"] = dict(_DIVIDEND_BASE_CFG["valuation_inputs"])
+    cfg["valuation_inputs"]["dividend_5y_cagr"] = 0.25  # absurd
+    lens = valuation_lenses.compute_dividend_lens(cfg)
+    assert lens is not None
+    assert lens["details"]["growth_rate_stage1"] == 0.15
+
+
+def test_default_lens_weights_dividend_zero():
+    """Dividend default weight stays 0.0 — opt-in per ticker."""
+    assert valuation_lenses.DEFAULT_LENS_WEIGHTS["dividend"] == 0.0
+
+
+def test_orchestrator_includes_dividend_when_payer():
+    """Full dividend-paying cfg with all multi-lens inputs → 4 active lenses."""
+    cfg = dict(_DIVIDEND_BASE_CFG)
+    # We need the other lenses to be skipped or to also activate; easiest is
+    # to provide enough inputs to keep DCF active and skip multiples/historical.
+    cfg.update({
+        "company": "Test",
+        "ticker": "TEST",
+        "shares_outstanding": 1000,
+        "base_revenue": 50_000,
+        "revenue_growth": [0.05] * 5,
+        "op_margins": [0.20] * 5,
+        "terminal_margin": 0.20,
+        "sales_to_capital": 1.5,
+        "sbc_pct": 0.02,
+        "margin_of_safety": 0.20,
+        "cash_bridge": 1_000,
+        "securities": 0,
+    })
+    summary = valuation_lenses.calculate_multi_lens_valuation(cfg)
+    lenses = summary["lenses"]
+    assert lenses["dcf"] is not None
+    assert lenses["dividend"] is not None
+    # Dividend has weight 0 by default → contributes nothing to weighted_fv
+    assert lenses["dividend"]["weight_normalized"] == 0.0
+
+
 # ---------------------------------------------------------------- scorecard
 
 def test_parse_scorecard_json_fenced():
