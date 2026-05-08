@@ -65,6 +65,47 @@ SAMPLE_VALUATION_INPUTS = {
 from scorecard_utils import parse_scorecard, parse_scorecard_json
 
 
+# ---------------------------------------------------------------- compute_cost_of_equity
+
+def test_compute_cost_of_equity_basic():
+    """Cost of equity = risk_free_rate + levered_beta × erp."""
+    import dcf_calculator
+    cfg = {
+        "equity_market_value": 1000,
+        "debt_market_value": 200,
+        "sector_betas": [("Software", 1.10, 1.0)],
+        "tax_rate": 0.21,
+        "risk_free_rate": 0.04,
+        "erp": 0.05,
+    }
+    # de_ratio = 200/1000 = 0.2
+    # lev_beta = 1.10 * (1 + (1 - 0.21) * 0.2) = 1.10 * 1.158 = 1.2738
+    # ke = 0.04 + 1.2738 * 0.05 = 0.10369
+    ke = dcf_calculator.compute_cost_of_equity(cfg)
+    assert ke == pytest.approx(0.10369, abs=1e-4)
+
+
+def test_compute_cost_of_equity_matches_wacc_internals():
+    """Cost of equity from the new helper must equal the ke that compute_wacc
+    computes internally — they share the same formula and inputs.
+
+    We verify this indirectly: build a config with debt = 0 so WACC == ke,
+    then check the two functions agree."""
+    import dcf_calculator
+    cfg = {
+        "equity_market_value": 1000,
+        "debt_market_value": 0,           # no debt → WACC == ke
+        "sector_betas": [("Software", 0.9, 1.0)],
+        "tax_rate": 0.21,
+        "risk_free_rate": 0.04,
+        "erp": 0.055,
+        "credit_spread": 0.01,            # ignored when debt = 0
+    }
+    ke = dcf_calculator.compute_cost_of_equity(cfg)
+    wacc = dcf_calculator.compute_wacc(cfg)
+    assert ke == pytest.approx(wacc, abs=1e-9)
+
+
 # ---------------------------------------------------------------- scorecard
 
 def test_parse_scorecard_json_fenced():

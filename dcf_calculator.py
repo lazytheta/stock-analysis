@@ -6,6 +6,25 @@ without generating a full Excel workbook.
 """
 
 
+def compute_cost_of_equity(cfg):
+    """Compute the cost of equity (CAPM) from the config dict.
+
+    ke = risk_free_rate + levered_beta × erp
+
+    Levered beta uses the existing weighted-unlevered-beta + Hamada
+    re-levering convention from compute_wacc, kept consistent so that
+    when debt = 0, this function returns exactly compute_wacc(cfg).
+
+    Returns the cost of equity as a float (e.g. 0.087 for 8.7%).
+    """
+    eq_val = cfg["equity_market_value"]
+    debt_val = cfg["debt_market_value"]
+    wu_beta = sum(ub * wt for _, ub, wt in cfg["sector_betas"])
+    de_ratio = debt_val / eq_val if eq_val > 0 else 0
+    lev_beta = wu_beta * (1 + (1 - cfg["tax_rate"]) * de_ratio)
+    return cfg["risk_free_rate"] + lev_beta * cfg["erp"]
+
+
 def compute_wacc(cfg):
     """Compute Weighted Average Cost of Capital from config dict.
 
