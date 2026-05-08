@@ -234,6 +234,7 @@ def _calculate_multi_lens_valuation_impl(ticker, scenario_grid=False):
     cfg.setdefault("ticker", ticker)
     auto_fetch.auto_fill_valuation_inputs(cfg)
     auto_fetch.auto_fill_peer_market_data(cfg)
+    auto_fetch.auto_fill_dividend_inputs(cfg)
 
     summary = valuation_lenses.calculate_multi_lens_valuation(
         cfg, scenario_grid=scenario_grid
@@ -295,6 +296,7 @@ def _refresh_all_valuations_impl(force: bool = False) -> str:
         cfg.setdefault("ticker", ticker)
         auto_fetch.auto_fill_valuation_inputs(cfg)
         auto_fetch.auto_fill_peer_market_data(cfg)
+        auto_fetch.auto_fill_dividend_inputs(cfg)
         summary = valuation_lenses.calculate_multi_lens_valuation(cfg, scenario_grid=False)
         cfg["valuation_summary"] = summary
         config_store.save_config(client, ticker, cfg, user_id=USER_ID)

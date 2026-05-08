@@ -84,3 +84,34 @@ def auto_fill_peer_market_data(cfg: dict) -> None:
 
         peer["_auto_filled"] = auto_filled
         peer["_fetched_at"] = fetched_at
+
+
+def auto_fill_dividend_inputs(cfg: dict) -> None:
+    """Auto-fill `cfg["valuation_inputs"]` with dividend-history fields.
+
+    Writes ttm_dividend, dividend_5y_cagr, median_5y_yield from
+    gather_data.fetch_dividend_history. Respects the same `_auto_filled`
+    precedence as auto_fill_valuation_inputs: user-set values are
+    preserved on subsequent refreshes. Updates `_fetched_at`.
+    """
+    inputs = cfg.setdefault("valuation_inputs", {})
+    auto_filled = list(inputs.get("_auto_filled", []))
+    fetched = gather_data.fetch_dividend_history(cfg.get("ticker", ""))
+
+    for key, value in fetched.items():
+        # n_years_available is diagnostic, not a valuation_inputs field
+        if key == "n_years_available":
+            continue
+        existing = inputs.get(key)
+        if existing is None or key in auto_filled:
+            inputs[key] = value
+            if key not in auto_filled:
+                auto_filled.append(key)
+        else:
+            logger.info(
+                "Auto-fill skipped for %s.%s: user-set value preserved",
+                cfg.get("ticker", "?"), key,
+            )
+
+    inputs["_auto_filled"] = auto_filled
+    inputs["_fetched_at"] = datetime.now(UTC).isoformat()

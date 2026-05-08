@@ -339,6 +339,73 @@ def test_auto_fill_inputs_fetched_at_always_set():
     assert "_fetched_at" in cfg["valuation_inputs"]
 
 
+def test_auto_fill_dividend_inputs_full(monkeypatch):
+    """Full payer history → all three fields written and added to _auto_filled."""
+    import auto_fetch
+    cfg = {"ticker": "PEP", "valuation_inputs": {}}
+    fake_history = {
+        "ttm_dividend": 5.20,
+        "dividend_5y_cagr": 0.062,
+        "median_5y_yield": 0.027,
+        "n_years_available": 5.2,
+    }
+    monkeypatch.setattr(gather_data, "fetch_dividend_history", lambda t, n_years=5: fake_history)
+    auto_fetch.auto_fill_dividend_inputs(cfg)
+    inputs = cfg["valuation_inputs"]
+    assert inputs["ttm_dividend"] == 5.20
+    assert inputs["dividend_5y_cagr"] == 0.062
+    assert inputs["median_5y_yield"] == 0.027
+    assert "ttm_dividend" in inputs["_auto_filled"]
+    assert "dividend_5y_cagr" in inputs["_auto_filled"]
+    assert "median_5y_yield" in inputs["_auto_filled"]
+    assert "_fetched_at" in inputs
+
+
+def test_auto_fill_dividend_inputs_respects_user_override(monkeypatch):
+    """Field present in cfg but NOT in _auto_filled = user-set → preserved."""
+    import auto_fetch
+    cfg = {
+        "ticker": "PEP",
+        "valuation_inputs": {
+            "dividend_5y_cagr": 0.10,           # user has a forward view
+            "_auto_filled": ["ttm_dividend"],   # only ttm was auto-set previously
+            "ttm_dividend": 4.50,
+        },
+    }
+    fake_history = {
+        "ttm_dividend": 5.20,
+        "dividend_5y_cagr": 0.062,
+        "median_5y_yield": 0.027,
+        "n_years_available": 5.2,
+    }
+    monkeypatch.setattr(gather_data, "fetch_dividend_history", lambda t, n_years=5: fake_history)
+    auto_fetch.auto_fill_dividend_inputs(cfg)
+    inputs = cfg["valuation_inputs"]
+    assert inputs["ttm_dividend"] == 5.20  # was in _auto_filled → overwritten
+    assert inputs["dividend_5y_cagr"] == 0.10  # user-set → preserved
+    assert inputs["median_5y_yield"] == 0.027  # was absent → written + auto_filled
+
+
+def test_auto_fill_dividend_inputs_non_payer_writes_zeros(monkeypatch):
+    """Non-payer (ABNB-like) → zeros/None still written and marked auto-filled,
+    so a future actual dividend payment will overwrite them."""
+    import auto_fetch
+    cfg = {"ticker": "ABNB", "valuation_inputs": {}}
+    monkeypatch.setattr(
+        gather_data, "fetch_dividend_history",
+        lambda t, n_years=5: {
+            "ttm_dividend": 0.0, "dividend_5y_cagr": None,
+            "median_5y_yield": None, "n_years_available": 0,
+        },
+    )
+    auto_fetch.auto_fill_dividend_inputs(cfg)
+    inputs = cfg["valuation_inputs"]
+    assert inputs["ttm_dividend"] == 0.0
+    assert inputs["dividend_5y_cagr"] is None
+    assert inputs["median_5y_yield"] is None
+    assert "ttm_dividend" in inputs["_auto_filled"]
+
+
 def test_auto_fill_peer_populates_empty():
     """All peer fields auto-filled, _auto_filled lists tracked per peer."""
     cfg = {
