@@ -7,7 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Cloud Run handler files
 COPY lazytheta-mcp-cloudrun/main.py \
-     lazytheta-mcp-cloudrun/auth.py \
+     lazytheta-mcp-cloudrun/mcp_auth.py \
      lazytheta-mcp-cloudrun/mcp_handler.py \
      /app/
 

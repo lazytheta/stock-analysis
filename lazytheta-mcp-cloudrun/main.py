@@ -22,7 +22,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from auth import verify_jwt
+from mcp_auth import verify_jwt
 from mcp_handler import mcp_endpoint
 
 

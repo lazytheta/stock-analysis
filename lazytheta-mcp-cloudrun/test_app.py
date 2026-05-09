@@ -17,7 +17,7 @@ def _set_jwt_key(monkeypatch):
 
 def test_jwt_round_trip():
     """sign_jwt + verify_jwt round-trip preserves claims."""
-    from auth import sign_jwt, verify_jwt
+    from mcp_auth import sign_jwt, verify_jwt
 
     token = sign_jwt({"type": "access_token", "user_id": "abc"}, ttl_seconds=60)
     payload = verify_jwt(token)
@@ -26,14 +26,14 @@ def test_jwt_round_trip():
 
 
 def test_jwt_invalid_token_returns_none():
-    from auth import verify_jwt
+    from mcp_auth import verify_jwt
     assert verify_jwt("not.a.token") is None
     assert verify_jwt("") is None
 
 
 def test_jwt_expired_token_returns_none(monkeypatch):
     """A JWT past its expiry returns None."""
-    from auth import sign_jwt, verify_jwt
+    from mcp_auth import sign_jwt, verify_jwt
 
     token = sign_jwt({"type": "access_token", "user_id": "abc"}, ttl_seconds=-1)
     # Already expired (ttl is -1 second). verify_jwt should return None.
@@ -64,7 +64,7 @@ def test_mcp_without_jwt_returns_401():
 def test_mcp_with_valid_jwt_passes_to_handler():
     """POST /mcp with a valid Bearer JWT reaches the handler."""
     from starlette.testclient import TestClient
-    from auth import sign_jwt
+    from mcp_auth import sign_jwt
     from main import app
 
     token = sign_jwt({"type": "access_token", "user_id": "smoke-uid"}, ttl_seconds=60)
@@ -82,7 +82,7 @@ def test_mcp_with_valid_jwt_passes_to_handler():
 
 def test_mcp_initialize_returns_server_info():
     from starlette.testclient import TestClient
-    from auth import sign_jwt
+    from mcp_auth import sign_jwt
     from main import app
 
     token = sign_jwt({"type": "access_token", "user_id": "smoke-uid"}, ttl_seconds=60)
@@ -105,7 +105,7 @@ def test_mcp_initialize_returns_server_info():
 def test_mcp_tools_list_returns_empty_list_in_scaffold():
     """Task 2 stub: tools/list returns []. Task 4 wires the actual 11 tools."""
     from starlette.testclient import TestClient
-    from auth import sign_jwt
+    from mcp_auth import sign_jwt
     from main import app
 
     token = sign_jwt({"type": "access_token", "user_id": "smoke-uid"}, ttl_seconds=60)
