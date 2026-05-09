@@ -5,9 +5,13 @@ from pathlib import Path
 
 import pytest
 
-# Add the cloudrun dir to sys.path so we can import its modules.
+# Add the cloudrun dir + repo root to sys.path so we can import both
+# the cloudrun modules and the repo-root mcp_server module (which the
+# Dockerfile copies into /app at build time).
 HERE = Path(__file__).parent
+REPO_ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(REPO_ROOT))
 
 
 @pytest.fixture(autouse=True)
@@ -102,8 +106,8 @@ def test_mcp_initialize_returns_server_info():
     assert body["result"]["serverInfo"]["name"] == "lazytheta-mcp"
 
 
-def test_mcp_tools_list_returns_empty_list_in_scaffold():
-    """Task 2 stub: tools/list returns []. Task 4 wires the actual 11 tools."""
+def test_mcp_tools_list_returns_non_empty_list():
+    """Task 4 wires the actual 11 tools — list is no longer empty."""
     from starlette.testclient import TestClient
     from mcp_auth import sign_jwt
     from main import app
@@ -116,7 +120,8 @@ def test_mcp_tools_list_returns_empty_list_in_scaffold():
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 200
-    assert response.json()["result"]["tools"] == []
+    tools = response.json()["result"]["tools"]
+    assert isinstance(tools, list) and len(tools) > 0
 
 
 @pytest.fixture(autouse=True)
@@ -531,3 +536,157 @@ def test_oauth_magic_finalize_rejects_invalid_supabase_token(monkeypatch):
     )
     assert r.status_code == 400
     assert "Supabase token-validatie" in r.text
+
+
+# ---------------------------------------------------------------------------
+# Task 4: Tool dispatcher tests
+# ---------------------------------------------------------------------------
+
+
+def test_tools_list_returns_11_tools():
+    """tools/list now returns the full set of 11 tools."""
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt
+    from main import app
+
+    token = sign_jwt({"type": "access_token", "user_id": "u"}, ttl_seconds=60)
+    client = TestClient(app)
+    r = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    tools = r.json()["result"]["tools"]
+    assert len(tools) == 11
+    names = {t["name"] for t in tools}
+    assert names == {
+        "build_dcf_config", "calculate_valuation", "calculate_multi_lens_valuation",
+        "refresh_all_valuations", "save_to_watchlist", "get_config",
+        "get_watchlist", "update_valuation_inputs",
+        "get_prescan_prompts", "get_prescan_sections", "save_prescan_section",
+    }
+
+
+def test_tools_call_get_watchlist_passes_user_id(monkeypatch):
+    """tools/call -> get_watchlist routes user_id from JWT to _get_watchlist_impl."""
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt
+    from main import app
+    import mcp_server
+
+    captured = {}
+    def fake_impl(user_id=None):
+        captured["user_id"] = user_id
+        return '[]'
+    monkeypatch.setattr(mcp_server, "_get_watchlist_impl", fake_impl)
+
+    token = sign_jwt({"type": "access_token", "user_id": "jwt-uid"}, ttl_seconds=60)
+    client = TestClient(app)
+    r = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {"name": "get_watchlist", "arguments": {}},
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert "result" in body
+    assert captured["user_id"] == "jwt-uid"
+
+
+def test_tools_call_unknown_tool_returns_error():
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt
+    from main import app
+
+    token = sign_jwt({"type": "access_token", "user_id": "u"}, ttl_seconds=60)
+    client = TestClient(app)
+    r = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {"name": "nonexistent_tool", "arguments": {}},
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    body = r.json()
+    assert body["error"]["code"] == -32602
+    assert "Unknown tool" in body["error"]["message"]
+
+
+def test_tools_call_update_valuation_inputs_passes_args(monkeypatch):
+    """update_valuation_inputs receives ticker, fields, user_id correctly."""
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt
+    from main import app
+    import mcp_server
+
+    captured = {}
+    def fake_impl(ticker, fields, user_id=None):
+        captured.update({"ticker": ticker, "fields": fields, "user_id": user_id})
+        return '{"saved": true}'
+    monkeypatch.setattr(mcp_server, "_update_valuation_inputs_impl", fake_impl)
+
+    token = sign_jwt({"type": "access_token", "user_id": "jwt-uid"}, ttl_seconds=60)
+    client = TestClient(app)
+    r = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {
+                "name": "update_valuation_inputs",
+                "arguments": {"ticker": "PEP", "fields": {"dividend_5y_cagr": 0.08}},
+            },
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    assert captured == {
+        "ticker": "PEP",
+        "fields": {"dividend_5y_cagr": 0.08},
+        "user_id": "jwt-uid",
+    }
+
+
+def test_tools_call_save_prescan_section_passes_three_args(monkeypatch):
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt
+    from main import app
+    import mcp_server
+
+    captured = {}
+    def fake_impl(ticker, title, content, user_id=None):
+        captured.update({
+            "ticker": ticker, "title": title, "content": content, "user_id": user_id,
+        })
+        return '{"saved": "Test"}'
+    monkeypatch.setattr(mcp_server, "_save_prescan_section_impl", fake_impl)
+
+    token = sign_jwt({"type": "access_token", "user_id": "u"}, ttl_seconds=60)
+    client = TestClient(app)
+    r = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {
+                "name": "save_prescan_section",
+                "arguments": {"ticker": "MSFT", "title": "Notes", "content": "content"},
+            },
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    assert captured == {
+        "ticker": "MSFT", "title": "Notes", "content": "content", "user_id": "u",
+    }
