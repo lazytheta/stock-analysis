@@ -1,0 +1,26 @@
+# Don't upload these to Cloud Build
+.git/
+.gitignore
+.gcloudignore
+.github/
+.streamlit/
+.claude/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+node_modules/
+*.log
+
+# App-specific files NOT needed by the MCP service
+streamlit_app.py
+oauth-server/
+tastytrade-mcp-cloudrun/
+configs/
+docs/
+tests/
+test_*.py
+demo_*.py
+scripts/
+*.md
+NOTES*
