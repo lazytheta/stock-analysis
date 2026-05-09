@@ -20,7 +20,17 @@ from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Re
 
 
 ACCESS_TOKEN_TTL = 30 * 24 * 3600  # 30 days
-AUTH_CODE_TTL = 5 * 60               # 5 minutes
+# OAuth 2.1 §4.1.3 calls for single-use enforcement on auth codes; we don't
+# track consumed codes here. We rely on PKCE (code_verifier ↔ code_challenge),
+# the 5-minute TTL, and redirect_uri binding for protection. Acceptable for
+# personal-MCP scope; revisit (add jti tracking) if multi-tenant or if the
+# threat model changes.
+AUTH_CODE_TTL = 5 * 60
+# state_jwt is reusable within its TTL by design — the same state can flow
+# through both the magic-link path and the password path, and the magic-link
+# path embeds it in the email_redirect_to URL. PKCE binding + the requirement
+# of a valid Supabase token (or password) bound this to the legitimate user.
+# Replay alone gives nothing without those secondary credentials.
 STATE_TTL = 15 * 60                  # 15 min — enough for magic-link email roundtrip
 
 

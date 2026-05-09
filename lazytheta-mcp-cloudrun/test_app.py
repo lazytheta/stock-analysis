@@ -390,3 +390,144 @@ def test_oauth_token_rejects_redirect_uri_mismatch():
     })
     assert r.status_code == 400
     assert "redirect_uri" in r.json()["error_description"]
+
+
+def test_oauth_authorize_magic_triggers_supabase_otp(monkeypatch):
+    """POST /oauth/authorize/magic → server calls Supabase OTP API → renders
+    'check your mail' confirmation page."""
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt
+    from main import app
+
+    state_jwt = sign_jwt(
+        {
+            "type": "auth_state",
+            "claude_redirect": "https://claude.ai/cb",
+            "claude_state": "claude-state",
+            "claude_code_challenge": "claude-challenge",
+        },
+        ttl_seconds=600,
+    )
+
+    import mcp_auth
+
+    captured = {}
+
+    class FakeResp:
+        status_code = 200
+        text = "{}"
+        def json(self):
+            return {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            return False
+        async def post(self, url, **kwargs):
+            captured["url"] = url
+            captured["json"] = kwargs.get("json")
+            return FakeResp()
+
+    monkeypatch.setattr(mcp_auth.httpx, "AsyncClient", FakeClient)
+
+    client = TestClient(app)
+    r = client.post(
+        "/oauth/authorize/magic",
+        data={"email": "user@example.com", "state_jwt": state_jwt},
+    )
+    assert r.status_code == 200
+    assert "Check je mail" in r.text
+    # Verify Supabase OTP endpoint was called with the email + redirect
+    assert "/auth/v1/otp" in captured["url"]
+    assert captured["json"]["email"] == "user@example.com"
+    assert "/oauth/magic-callback" in captured["json"]["options"]["email_redirect_to"]
+
+
+def test_oauth_magic_finalize_redirects_to_claude_with_code(monkeypatch):
+    """POST /oauth/magic-finalize with a Supabase access_token → server
+    verifies via Supabase /auth/v1/user → redirects to claude.ai with
+    auth_code JWT containing user_id."""
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt, verify_jwt
+    from main import app
+
+    state_jwt = sign_jwt(
+        {
+            "type": "auth_state",
+            "claude_redirect": "https://claude.ai/cb",
+            "claude_state": "claude-state-yz",
+            "claude_code_challenge": "claude-challenge-abc",
+        },
+        ttl_seconds=600,
+    )
+
+    import mcp_auth
+
+    # Mock _verify_supabase_token to return a fake user_id (avoids needing
+    # to also mock Supabase's /auth/v1/user endpoint).
+    async def fake_verify(token):
+        assert token == "sb-access-token-from-magic-link"
+        return "user-uuid-from-magic"
+
+    monkeypatch.setattr(mcp_auth, "_verify_supabase_token", fake_verify)
+
+    client = TestClient(app)
+    r = client.post(
+        "/oauth/magic-finalize",
+        data={
+            "access_token": "sb-access-token-from-magic-link",
+            "state_jwt": state_jwt,
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 302
+    location = r.headers["location"]
+    assert location.startswith("https://claude.ai/cb")
+    from urllib.parse import urlparse, parse_qs
+    qs = parse_qs(urlparse(location).query)
+    assert "code" in qs
+    code_payload = verify_jwt(qs["code"][0])
+    assert code_payload["type"] == "auth_code"
+    assert code_payload["user_id"] == "user-uuid-from-magic"
+    assert code_payload["redirect_uri"] == "https://claude.ai/cb"
+    assert code_payload["code_challenge"] == "claude-challenge-abc"
+
+
+def test_oauth_magic_finalize_rejects_invalid_supabase_token(monkeypatch):
+    """If Supabase rejects the access_token, the server returns an HTML error,
+    not a redirect to claude.ai."""
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt
+    from main import app
+
+    state_jwt = sign_jwt(
+        {
+            "type": "auth_state",
+            "claude_redirect": "https://claude.ai/cb",
+            "claude_state": "x",
+            "claude_code_challenge": "y",
+        },
+        ttl_seconds=600,
+    )
+
+    import mcp_auth
+
+    async def fake_verify(token):
+        return None  # Supabase rejected
+
+    monkeypatch.setattr(mcp_auth, "_verify_supabase_token", fake_verify)
+
+    client = TestClient(app)
+    r = client.post(
+        "/oauth/magic-finalize",
+        data={
+            "access_token": "tampered-or-expired",
+            "state_jwt": state_jwt,
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 400
+    assert "Supabase token-validatie" in r.text
