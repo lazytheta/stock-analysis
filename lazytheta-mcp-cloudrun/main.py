@@ -22,7 +22,18 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from mcp_auth import verify_jwt
+from mcp_auth import (
+    oauth_authorize,
+    oauth_authorize_magic,
+    oauth_authorize_password,
+    oauth_magic_callback,
+    oauth_magic_finalize,
+    oauth_register,
+    oauth_token,
+    verify_jwt,
+    well_known_authorization_server,
+    well_known_protected_resource,
+)
 from mcp_handler import mcp_endpoint
 
 
@@ -99,6 +110,23 @@ async def health(request: Request) -> JSONResponse:
 def create_app():
     routes = [
         Route("/health", health, methods=["GET"]),
+        Route(
+            "/.well-known/oauth-authorization-server",
+            well_known_authorization_server,
+            methods=["GET"],
+        ),
+        Route(
+            "/.well-known/oauth-protected-resource",
+            well_known_protected_resource,
+            methods=["GET"],
+        ),
+        Route("/oauth/register", oauth_register, methods=["POST"]),
+        Route("/oauth/authorize", oauth_authorize, methods=["GET"]),
+        Route("/oauth/authorize/magic", oauth_authorize_magic, methods=["POST"]),
+        Route("/oauth/authorize/password", oauth_authorize_password, methods=["POST"]),
+        Route("/oauth/magic-callback", oauth_magic_callback, methods=["GET"]),
+        Route("/oauth/magic-finalize", oauth_magic_finalize, methods=["POST"]),
+        Route("/oauth/token", oauth_token, methods=["POST"]),
         Route("/mcp", mcp_endpoint, methods=["POST", "GET", "DELETE"]),
     ]
     starlette_app = Starlette(routes=routes)
