@@ -207,3 +207,27 @@ def test_save_prescan_section_impl_uses_explicit_user_id(monkeypatch):
     )
     assert captured["load_user_id"] == "writer-uid"
     assert captured["save_user_id"] == "writer-uid"
+
+
+def test_get_supabase_client_no_longer_requires_LAZYTHETA_USER_ID(monkeypatch):
+    """For Cloud Run multi-user mode, get_supabase_client must instantiate
+    with only SUPABASE_URL + SUPABASE_SERVICE_KEY. user_id flows in via
+    JWT per request, not from a module-level env var."""
+    import mcp_server
+
+    # Clear the cached client and the USER_ID
+    monkeypatch.setattr(mcp_server, "_client", None)
+    monkeypatch.setattr(mcp_server, "USER_ID", "")
+    monkeypatch.setattr(mcp_server, "SUPABASE_URL", "https://test.supabase.co")
+    monkeypatch.setattr(mcp_server, "SUPABASE_SERVICE_KEY", "fake-service-key")
+
+    # Mock the supabase import inside the function
+    fake_client = object()
+    fake_supabase = type("FakeSupabase", (), {
+        "create_client": staticmethod(lambda url, key: fake_client),
+    })()
+    monkeypatch.setitem(__import__("sys").modules, "supabase", fake_supabase)
+
+    # Should NOT raise ValueError about LAZYTHETA_USER_ID anymore
+    client = mcp_server.get_supabase_client()
+    assert client is fake_client

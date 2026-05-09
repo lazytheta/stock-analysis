@@ -30,7 +30,13 @@ _client = None
 
 
 def get_supabase_client():
-    """Create or return cached Supabase client."""
+    """Create or return cached Supabase client.
+
+    Only requires SUPABASE_URL + SUPABASE_SERVICE_KEY to instantiate.
+    For stdio MCP, USER_ID env var supplies the per-call default user;
+    for Cloud Run, user_id is passed explicitly per JWT-authenticated
+    request, so no module-level USER_ID is needed at client-creation time.
+    """
     global _client
     if _client is not None:
         return _client
@@ -39,8 +45,6 @@ def get_supabase_client():
         raise ValueError("SUPABASE_URL environment variable is required")
     if not SUPABASE_SERVICE_KEY:
         raise ValueError("SUPABASE_SERVICE_KEY environment variable is required")
-    if not USER_ID:
-        raise ValueError("LAZYTHETA_USER_ID environment variable is required")
 
     from supabase import create_client
     _client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
