@@ -126,8 +126,12 @@ def _build_dcf_config_impl(ticker, financial_data, company_name,
                             sic_code=None, sic_description="",
                             margin_of_safety=None, terminal_growth=None,
                             sector_margin=None, consensus=None,
-                            valuation_basis="nominal"):
+                            valuation_basis="nominal",
+                            user_id: str | None = None):
     """Core logic for build_dcf_config."""
+    # build_dcf_config doesn't touch Supabase directly, but for consistency
+    # we accept user_id (unused here; future-proofs the signature).
+    user_id = user_id or USER_ID
     ticker = ticker.upper()
 
     stock_price, _, _ = gather_data.fetch_stock_price(ticker)
@@ -189,8 +193,9 @@ def _build_dcf_config_impl(ticker, financial_data, company_name,
     return cfg
 
 
-def _calculate_valuation_impl(cfg):
+def _calculate_valuation_impl(cfg, user_id: str | None = None):
     """Core logic for calculate_valuation."""
+    user_id = user_id or USER_ID  # unused but signature-consistent
     wacc = dcf_calculator.compute_wacc(cfg)
     valuation = dcf_calculator.compute_intrinsic_value(cfg, wacc)
     reverse = dcf_calculator.compute_reverse_dcf(cfg, wacc)
@@ -219,12 +224,14 @@ def _calculate_valuation_impl(cfg):
     return json.dumps(result)
 
 
-def _calculate_multi_lens_valuation_impl(ticker, scenario_grid=False):
+def _calculate_multi_lens_valuation_impl(ticker, scenario_grid=False,
+                                          user_id: str | None = None):
     """Core logic for calculate_multi_lens_valuation: load cfg, auto-fetch
     yfinance market data + historical multiples, run all lenses, persist
     summary, return JSON."""
+    user_id = user_id or USER_ID
     client = get_supabase_client()
-    cfg = config_store.load_config(client, ticker, user_id=USER_ID)
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
     if cfg is None:
         return json.dumps({"error": f"{ticker.upper()} not on watchlist"})
 
@@ -240,11 +247,12 @@ def _calculate_multi_lens_valuation_impl(ticker, scenario_grid=False):
         cfg, scenario_grid=scenario_grid
     )
     cfg["valuation_summary"] = summary
-    config_store.save_config(client, ticker, cfg, user_id=USER_ID)
+    config_store.save_config(client, ticker, cfg, user_id=user_id)
     return json.dumps(summary, default=str)
 
 
-def _refresh_all_valuations_impl(force: bool = False) -> str:
+def _refresh_all_valuations_impl(force: bool = False,
+                                  user_id: str | None = None) -> str:
     """Run multi-lens fair value across all watchlist tickers in parallel.
 
     Stale = no valuation_summary OR calculated_at older than 7 days OR
@@ -256,8 +264,9 @@ def _refresh_all_valuations_impl(force: bool = False) -> str:
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from datetime import UTC, datetime, timedelta
 
+    user_id = user_id or USER_ID
     client = get_supabase_client()
-    entries = config_store.list_watchlist(client, user_id=USER_ID)
+    entries = config_store.list_watchlist(client, user_id=user_id)
     tickers = [e["ticker"] for e in entries]
 
     threshold = datetime.now(UTC) - timedelta(days=7)
@@ -279,7 +288,7 @@ def _refresh_all_valuations_impl(force: bool = False) -> str:
 
     # Load configs in parallel and decide stale set
     def _load(t):
-        c = config_store.load_config(client, t, user_id=USER_ID)
+        c = config_store.load_config(client, t, user_id=user_id)
         return (t, c) if c is not None else None
 
     with ThreadPoolExecutor(max_workers=6) as pool:
@@ -299,7 +308,7 @@ def _refresh_all_valuations_impl(force: bool = False) -> str:
         auto_fetch.auto_fill_dividend_inputs(cfg)
         summary = valuation_lenses.calculate_multi_lens_valuation(cfg, scenario_grid=False)
         cfg["valuation_summary"] = summary
-        config_store.save_config(client, ticker, cfg, user_id=USER_ID)
+        config_store.save_config(client, ticker, cfg, user_id=user_id)
         return ticker
 
     if targets:
@@ -317,35 +326,40 @@ def _refresh_all_valuations_impl(force: bool = False) -> str:
     return json.dumps({"computed": computed, "errors": errors, "skipped": skipped})
 
 
-def _save_to_watchlist_impl(ticker, cfg):
+def _save_to_watchlist_impl(ticker, cfg, user_id: str | None = None):
     """Core logic for save_to_watchlist."""
+    user_id = user_id or USER_ID
     client = get_supabase_client()
-    config_store.save_config(client, ticker, cfg, user_id=USER_ID)
+    config_store.save_config(client, ticker, cfg, user_id=user_id)
     return f"Saved {ticker.upper()} to watchlist."
 
 
-def _get_config_impl(ticker):
+def _get_config_impl(ticker, user_id: str | None = None):
     """Core logic for get_config."""
+    user_id = user_id or USER_ID
     client = get_supabase_client()
-    cfg = config_store.load_config(client, ticker, user_id=USER_ID)
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
     if cfg is None:
         return json.dumps({"error": f"{ticker.upper()} not found on watchlist"})
     return json.dumps(cfg, default=str)
 
 
-def _get_watchlist_impl():
+def _get_watchlist_impl(user_id: str | None = None):
     """Core logic for get_watchlist."""
+    user_id = user_id or USER_ID
     client = get_supabase_client()
-    entries = config_store.list_watchlist(client, user_id=USER_ID)
+    entries = config_store.list_watchlist(client, user_id=user_id)
     return json.dumps(entries, default=str)
 
 
-def _update_valuation_inputs_impl(ticker: str, fields: dict) -> str:
+def _update_valuation_inputs_impl(ticker: str, fields: dict,
+                                   user_id: str | None = None) -> str:
     """Core logic for update_valuation_inputs. Merges fields into
     cfg["valuation_inputs"] and removes them from _auto_filled so the
     user override survives the next refresh."""
+    user_id = user_id or USER_ID
     client = get_supabase_client()
-    cfg = config_store.load_config(client, ticker, user_id=USER_ID)
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
     if cfg is None:
         return json.dumps({"error": f"{ticker.upper()} not found on watchlist"})
 
@@ -357,7 +371,7 @@ def _update_valuation_inputs_impl(ticker: str, fields: dict) -> str:
             auto_filled.remove(k)
     inputs["_auto_filled"] = auto_filled
 
-    config_store.save_config(client, ticker, cfg, user_id=USER_ID)
+    config_store.save_config(client, ticker, cfg, user_id=user_id)
     return json.dumps(inputs, default=str)
 
 
@@ -600,14 +614,15 @@ def _fill_prompt_template(prompt: str, ticker: str, company: str, prior_results:
     return filled
 
 
-def _get_prescan_prompts_impl(ticker):
+def _get_prescan_prompts_impl(ticker, user_id: str | None = None):
+    user_id = user_id or USER_ID
     client = get_supabase_client()
-    cfg = config_store.load_config(client, ticker, user_id=USER_ID)
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
     if cfg is None:
         return {"error": f"{ticker.upper()} not on watchlist"}
     company = cfg.get("company", ticker.upper())
 
-    prefs = config_store.load_user_prefs(client, user_id=USER_ID)
+    prefs = config_store.load_user_prefs(client, user_id=user_id)
     library = prefs.get("ai_prompts") or []
     if not library:
         return {"error": "Prompt library is empty. Open a watchlist editor in the app once to seed defaults."}
@@ -629,9 +644,10 @@ def _get_prescan_prompts_impl(ticker):
     return out
 
 
-def _get_prescan_sections_impl(ticker):
+def _get_prescan_sections_impl(ticker, user_id: str | None = None):
+    user_id = user_id or USER_ID
     client = get_supabase_client()
-    cfg = config_store.load_config(client, ticker, user_id=USER_ID)
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
     if cfg is None:
         return {"error": f"{ticker.upper()} not on watchlist"}
     ai_notes = cfg.get("ai_notes") or {}
@@ -640,11 +656,13 @@ def _get_prescan_sections_impl(ticker):
     return ai_notes
 
 
-def _save_prescan_section_impl(ticker, title, content):
+def _save_prescan_section_impl(ticker, title, content,
+                                user_id: str | None = None):
     if not title.strip():
         return {"error": "title is required"}
+    user_id = user_id or USER_ID
     client = get_supabase_client()
-    cfg = config_store.load_config(client, ticker, user_id=USER_ID)
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
     if cfg is None:
         return {"error": f"{ticker.upper()} not on watchlist"}
 
@@ -654,7 +672,7 @@ def _save_prescan_section_impl(ticker, title, content):
     ai_notes[title] = content
     cfg["ai_notes"] = ai_notes
 
-    config_store.save_config(client, ticker, cfg, user_id=USER_ID)
+    config_store.save_config(client, ticker, cfg, user_id=user_id)
     return f"Saved {ticker.upper()} → '{title}' ({len(content)} chars)."
 
 
