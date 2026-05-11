@@ -479,7 +479,7 @@ def _render_dividend_sensitivity_matrix(
         f'<table style="border-collapse:collapse;width:100%;font-size:0.75rem">'
     )
 
-    html += f'<thead><tr><th style="{hdr_style};text-align:left">g \\\\ ke</th>'
+    html += f'<thead><tr><th style="{hdr_style};text-align:left">Growth \\ ke</th>'
     for ke in ke_values:
         html += f'<th style="{hdr_style}">{ke:.2%}</th>'
     html += "</tr></thead><tbody>"
