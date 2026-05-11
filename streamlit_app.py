@@ -5347,7 +5347,8 @@ def _dcf_editor(ticker):
                     f'(jouw input — rijen).<br><br>'
                     f'<b>ke</b> = cost of equity, rendementseis van '
                     f'aandeelhouders. Automatisch berekend via CAPM: '
-                    f'Rf + β × ERP (kolommen).'
+                    f'risicovrije rente + beta × equity risk premium '
+                    f'(kolommen).'
                     f'</span></span></div>'
                     f'<style>.dvd-tip:hover > span:last-child'
                     f'{{visibility:visible!important;opacity:1!important}}</style>',
