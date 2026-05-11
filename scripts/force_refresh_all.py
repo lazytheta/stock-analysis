@@ -83,9 +83,10 @@ def main():
                 errors.append(f"{ticker}: {err}")
                 print(f"  [{i:2}/{len(tickers)}] {ticker:6} ERROR — {err}")
             else:
-                # Count only forward-looking lenses to match the watchlist UI
-                # (reverse_dcf is computed but excluded — it anchors at price).
-                _counted = ("dcf", "multiples", "historical", "dividend")
+                # Forward-looking lens keys; single source of truth in
+                # valuation_lenses.FORWARD_LENS_KEYS. Matches the watchlist UI;
+                # reverse_dcf is computed but excluded (anchors at price).
+                from valuation_lenses import FORWARD_LENS_KEYS as _counted
                 _ls = summary["lenses"] or {}
                 lens_count = sum(1 for k in _counted if _ls.get(k) is not None)
                 fv_mid = summary["weighted_fv_mid"]

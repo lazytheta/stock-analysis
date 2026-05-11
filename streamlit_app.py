@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 from error_logger import log_error, log_error_with_trace
 from dcf_calculator import compute_wacc, compute_intrinsic_value, compute_reverse_dcf
+from valuation_lenses import FORWARD_LENSES, FORWARD_LENS_KEYS
 from config_store import save_config, load_config, list_watchlist, remove_from_watchlist, load_user_prefs, save_user_prefs, load_credential, save_credential, delete_credential, load_ibkr_credentials, save_ibkr_credentials, delete_ibkr_credentials, IBKR_CREDENTIAL_KEYS, log_page_view
 from gather_data import (
     get_cik,
@@ -120,7 +121,7 @@ def _render_lens_dots(lenses: dict, theme: dict) -> str:
     Each lens key maps to a non-None lens dict (active, green dot) or None
     (skipped, grey dot). Label: "{N} lens" or "{N} lenses" or "no lenses".
     """
-    order = ["dcf", "multiples", "historical", "dividend"]
+    order = list(FORWARD_LENS_KEYS)
     actives = [name for name in order if lenses.get(name) is not None]
 
     parts = []
@@ -240,15 +241,12 @@ def _render_football_field(summary: dict | None, theme: dict) -> str:
             f'</div>'
         )
 
-    lens_order = [
-        ("dcf", "DCF"),
-        ("multiples", "Peers"),
-        ("historical", "Historical"),
-        ("dividend", "Dividend"),
-        # "reverse_dcf" intentionally omitted — its bar would overlap the
-        # Price marker (lens always returns fv = stock_price). See
-        # docs/superpowers/specs/2026-05-07-reverse-dcf-demote-from-watchlist-design.md.
-    ]
+    # lens_order comes from valuation_lenses.FORWARD_LENSES (single source of
+    # truth across lens-dots / football-field / _COUNTED_LENSES / CLI).
+    # reverse_dcf intentionally omitted there — its bar would overlap the
+    # Price marker (lens always returns fv = stock_price). See
+    # docs/superpowers/specs/2026-05-07-reverse-dcf-demote-from-watchlist-design.md.
+    lens_order = list(FORWARD_LENSES)
     lenses = summary.get("lenses") or {}
 
     price = summary.get("stock_price") or 0.0

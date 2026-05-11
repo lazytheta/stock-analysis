@@ -180,12 +180,12 @@ def list_watchlist(client, user_id=None):
     if not (resp and resp.data):
         return []
 
-    # Forward-looking lenses surfaced in the watchlist row.
-    # dividend is now included alongside dcf/multiples/historical (Phase 2-C
-    # Dividend Lens). reverse_dcf is computed and stored, but excluded from
-    # the count because it anchors at current price (see
-    # docs/superpowers/specs/2026-05-07-reverse-dcf-demote-from-watchlist-design.md).
-    _COUNTED_LENSES = ("dcf", "multiples", "historical", "dividend")
+    # Forward-looking lenses counted in the watchlist row's "{N} lenses"
+    # display. Single source of truth in valuation_lenses.FORWARD_LENS_KEYS.
+    # reverse_dcf is computed and stored but excluded — it anchors at current
+    # price (see 2026-05-07 reverse-dcf-demote spec).
+    from valuation_lenses import FORWARD_LENS_KEYS
+    _COUNTED_LENSES = FORWARD_LENS_KEYS
 
     out = []
     for row in resp.data:

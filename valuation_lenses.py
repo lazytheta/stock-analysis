@@ -21,6 +21,31 @@ DEFAULT_LENS_WEIGHTS = {
     "dividend":    0.00,
 }
 
+# Canonical ordered list of forward-looking lenses surfaced in the watchlist
+# UI (lens-dots row, football field tooltip) and counted in the "{N} lenses"
+# label. Reverse DCF intentionally excluded — anchors at current price by
+# construction (see 2026-05-07 reverse-dcf-demote spec); Dividend stub is
+# excluded only when the user hasn't opted in via lens_weights, but the lens
+# ITSELF is forward-looking and belongs in this list.
+#
+# Single source of truth for 4 consumers:
+# - streamlit_app._render_lens_dots (order)
+# - streamlit_app._render_football_field (lens_order, uses display labels)
+# - config_store.list_watchlist (_COUNTED_LENSES — derives keys only)
+# - scripts/force_refresh_all.py (_counted — derives keys only)
+#
+# Adding a new forward lens is now a one-line change here instead of 4-site
+# lockstep updates.
+FORWARD_LENSES: tuple[tuple[str, str], ...] = (
+    ("dcf",        "DCF"),
+    ("multiples",  "Peers"),
+    ("historical", "Historical"),
+    ("dividend",   "Dividend"),
+)
+
+# Convenience: keys-only tuple for consumers that don't need display labels.
+FORWARD_LENS_KEYS: tuple[str, ...] = tuple(k for k, _ in FORWARD_LENSES)
+
 
 def compute_dividend_lens(cfg):
     """Hybrid Two-stage DDM + Yield Mean-Reversion lens.
