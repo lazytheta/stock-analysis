@@ -6,9 +6,11 @@ the local stdio MCP are exposed remotely.
 
 ## Deployed URL
 
-`https://lazytheta-mcp-<HASH>-ew.a.run.app/mcp`
+`https://lazytheta-mcp-93552884631.europe-west4.run.app/mcp`
 
-(Replace `<HASH>` with the actual hash from `gcloud run services list`. Update this README after first deploy.)
+Deployed 2026-05-11 to project `stock-analysis-489016`, region `europe-west4`.
+
+(Legacy hash-based alias: `https://lazytheta-mcp-hmhla5v6ta-ez.a.run.app/mcp` — both work, GCP issues both.)
 
 ## Local development
 
