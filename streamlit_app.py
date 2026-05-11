@@ -420,18 +420,20 @@ def _render_dividend_sensitivity_matrix(
     ke_range: tuple,
     g_term: float,
     stage1_years: int,
-    baseline_g: float,
-    baseline_ke: float,
+    price: float,
     theme: dict,
 ) -> str:
     """Render a DDM sensitivity matrix as an HTML <table>.
 
     Rows = growth (g₁), columns = cost of equity (ke), cells = DDM FV.
-    Cells where ke ≤ g_term render "—". The cell closest to
-    (baseline_g, baseline_ke) gets a highlighted border + bold weight.
+    Cell coloring mirrors the Reverse DCF matrix:
+    - Market-implied cell (FV closest to `price`): accent background, bold white
+    - Undervalued cells (FV ≥ price): accent_fill (light green) background
+    - Overvalued cells (FV < price): red_light (light peach) background
+    - Degenerate cells (ke ≤ g_term): "—" with neutral background
 
-    Pure function: returns HTML string. Caller wraps in st.markdown with
-    unsafe_allow_html=True. Theme dict provides border/card/text/accent colors.
+    Pure function: returns HTML string. Theme dict must provide
+    border_medium/card/text/text_muted/accent/accent_fill/red_light keys.
     """
     g_min, g_max, g_step = g_range
     ke_min, ke_max, ke_step = ke_range
@@ -447,8 +449,18 @@ def _render_dividend_sensitivity_matrix(
     g_values = _arange(g_min, g_max, g_step)
     ke_values = _arange(ke_min, ke_max, ke_step)
 
-    closest_g = min(g_values, key=lambda v: abs(v - baseline_g))
-    closest_ke = min(ke_values, key=lambda v: abs(v - baseline_ke))
+    fv_grid = {}
+    for g in g_values:
+        for ke in ke_values:
+            fv_grid[(g, ke)] = _ddm_at(
+                ttm=ttm, g=g, ke=ke, g_term=g_term, stage1_years=stage1_years
+            )
+
+    finite_cells = [k for k, v in fv_grid.items() if v != float("inf")]
+    market_implied = (
+        min(finite_cells, key=lambda k: abs(fv_grid[k] - price))
+        if finite_cells else None
+    )
 
     hdr_style = (
         f"background:{theme['card']};color:{theme['text_muted']};"
@@ -475,27 +487,31 @@ def _render_dividend_sensitivity_matrix(
     for g in g_values:
         html += f'<tr><td style="{row_hdr_style}">{g:.1%}</td>'
         for ke in ke_values:
-            fv = _ddm_at(ttm=ttm, g=g, ke=ke, g_term=g_term,
-                         stage1_years=stage1_years)
+            fv = fv_grid[(g, ke)]
             if fv == float("inf"):
                 cell_text = "—"
                 cell_style = (
-                    f"padding:6px 8px;text-align:right;"
+                    f"padding:6px 8px;text-align:center;"
                     f"color:{theme['text_muted']};"
                 )
             else:
                 cell_text = _fmt_fv_dollar(fv)
-                is_baseline = (g == closest_g and ke == closest_ke)
-                if is_baseline:
+                if (g, ke) == market_implied:
                     cell_style = (
-                        f"padding:6px 8px;text-align:right;"
-                        f"color:{theme['accent']};font-weight:700;"
-                        f"border:2px solid {theme['accent']};"
+                        f"background:{theme['accent']};color:#fff;"
+                        f"font-weight:700;padding:6px 8px;text-align:center;"
+                    )
+                elif fv >= price:
+                    cell_style = (
+                        f"background:{theme['accent_fill']};"
+                        f"color:{theme['text']};"
+                        f"padding:6px 8px;text-align:center;"
                     )
                 else:
                     cell_style = (
-                        f"padding:6px 8px;text-align:right;"
+                        f"background:{theme['red_light']};"
                         f"color:{theme['text']};"
+                        f"padding:6px 8px;text-align:center;"
                     )
             html += f'<td style="{cell_style}">{cell_text}</td>'
         html += "</tr>"
@@ -5306,8 +5322,8 @@ def _dcf_editor(ticker):
                 )
 
                 st.markdown(
-                    f"**Sensitivity Matrix** — TTM ${_ttm:.2f} · "
-                    f"baseline g {_baseline_g:.1%} × ke {_baseline_ke:.2%}"
+                    f"**Sensitivity Matrix** — ke: {_baseline_ke:.2%} | "
+                    f"Market: ${_price:.2f}"
                 )
                 _matrix_html = _render_dividend_sensitivity_matrix(
                     ttm=_ttm,
@@ -5315,11 +5331,31 @@ def _dcf_editor(ticker):
                     ke_range=_div_ke_range,
                     g_term=_g_term_used,
                     stage1_years=_stage1_years,
-                    baseline_g=_baseline_g,
-                    baseline_ke=_baseline_ke,
+                    price=_price,
                     theme=T,
                 )
                 st.markdown(_matrix_html, unsafe_allow_html=True)
+
+                st.markdown(
+                    f'<div style="display:flex;gap:20px;font-size:0.8rem;'
+                    f'color:{T["text_muted"]};margin-top:4px">'
+                    f'<span><span style="display:inline-block;width:12px;'
+                    f'height:12px;background:{T["accent"]};border-radius:2px;'
+                    f'vertical-align:middle;margin-right:4px"></span>'
+                    f'Market-implied</span>'
+                    f'<span><span style="display:inline-block;width:12px;'
+                    f'height:12px;background:{T["accent_fill"]};'
+                    f'border:1px solid {T["accent"]};border-radius:2px;'
+                    f'vertical-align:middle;margin-right:4px"></span>'
+                    f'Undervalued</span>'
+                    f'<span><span style="display:inline-block;width:12px;'
+                    f'height:12px;background:{T["red_light"]};'
+                    f'border:1px solid {T["red"]};border-radius:2px;'
+                    f'vertical-align:middle;margin-right:4px"></span>'
+                    f'Overvalued</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
 
     with _tab_fundamentals:
         st.markdown("#### Fundamentals")

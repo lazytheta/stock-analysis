@@ -137,13 +137,16 @@ def test_dividend_conclusion_threshold_constant_is_10pct():
 
 
 def _matrix_theme():
-    """Minimal theme dict for matrix tests."""
+    """Minimal theme dict for matrix tests — mirrors RDcF color keys."""
     return {
         "border_medium": "#ccc",
         "card": "#fafafa",
         "text": "#111",
         "text_muted": "#666",
         "accent": "#6e8a76",
+        "accent_fill": "rgba(129,178,154,0.15)",
+        "red": "#e07a5f",
+        "red_light": "rgba(224,122,95,0.15)",
     }
 
 
@@ -156,17 +159,57 @@ def test_render_dividend_sensitivity_matrix_dimensions():
         ke_range=(0.07, 0.09, 0.01),
         g_term=0.025,
         stage1_years=5,
-        baseline_g=0.06,
-        baseline_ke=0.08,
+        price=100.0,
         theme=_matrix_theme(),
     )
     assert html.count("<tr>") == 6
     assert html.count("<td") >= 20
 
 
-def test_render_dividend_sensitivity_matrix_baseline_highlighted():
-    """The cell at (baseline_g, baseline_ke) gets a highlight class/style."""
+def test_render_dividend_sensitivity_matrix_market_implied_highlighted():
+    """The cell with FV closest to `price` gets accent BG + bold + white text."""
     import re
+    import streamlit_app
+
+    g_values = [0.04, 0.05, 0.06, 0.07, 0.08]
+    ke_values = [0.07, 0.08, 0.09]
+    price = 100.0
+    fvs = {
+        (g, ke): streamlit_app._ddm_at(
+            ttm=4.0, g=g, ke=ke, g_term=0.025, stage1_years=5
+        )
+        for g in g_values for ke in ke_values
+    }
+    expected_cell = min(fvs, key=lambda k: abs(fvs[k] - price))
+    expected_fv = fvs[expected_cell]
+    expected_str = (
+        f"${expected_fv:.0f}" if abs(expected_fv) >= 100
+        else f"${expected_fv:.2f}"
+    )
+
+    html = streamlit_app._render_dividend_sensitivity_matrix(
+        ttm=4.0,
+        g_range=(0.04, 0.08, 0.01),
+        ke_range=(0.07, 0.09, 0.01),
+        g_term=0.025,
+        stage1_years=5,
+        price=price,
+        theme=_matrix_theme(),
+    )
+
+    cells = re.findall(r"<td[^>]*>.*?</td>", html, flags=re.DOTALL)
+    market_implied = [
+        c for c in cells
+        if "background:#6e8a76" in c
+        and "color:#fff" in c
+        and "font-weight:700" in c
+    ]
+    assert len(market_implied) == 1
+    assert expected_str in market_implied[0]
+
+
+def test_render_dividend_sensitivity_matrix_undervalued_cells_use_accent_fill():
+    """Cells with FV >= price (and not market-implied) use accent_fill BG."""
     import streamlit_app
     html = streamlit_app._render_dividend_sensitivity_matrix(
         ttm=4.0,
@@ -174,16 +217,25 @@ def test_render_dividend_sensitivity_matrix_baseline_highlighted():
         ke_range=(0.07, 0.09, 0.01),
         g_term=0.025,
         stage1_years=5,
-        baseline_g=0.06,
-        baseline_ke=0.08,
+        price=10.0,
         theme=_matrix_theme(),
     )
-    cells = re.findall(r"<td[^>]*>.*?</td>", html, flags=re.DOTALL)
-    highlighted = [
-        c for c in cells
-        if "#6e8a76" in c and ("bold" in c or "font-weight:700" in c)
-    ]
-    assert len(highlighted) == 1
+    assert "rgba(129,178,154,0.15)" in html
+
+
+def test_render_dividend_sensitivity_matrix_overvalued_cells_use_red_light():
+    """Cells with FV < price use red_light BG (peach tint)."""
+    import streamlit_app
+    html = streamlit_app._render_dividend_sensitivity_matrix(
+        ttm=4.0,
+        g_range=(0.04, 0.08, 0.01),
+        ke_range=(0.07, 0.09, 0.01),
+        g_term=0.025,
+        stage1_years=5,
+        price=10000.0,
+        theme=_matrix_theme(),
+    )
+    assert "rgba(224,122,95,0.15)" in html
 
 
 def test_render_dividend_sensitivity_matrix_degenerate_cell_renders_dash():
@@ -195,8 +247,7 @@ def test_render_dividend_sensitivity_matrix_degenerate_cell_renders_dash():
         ke_range=(0.01, 0.04, 0.01),
         g_term=0.025,
         stage1_years=5,
-        baseline_g=0.05,
-        baseline_ke=0.03,
+        price=100.0,
         theme=_matrix_theme(),
     )
     assert "—" in html
@@ -211,6 +262,9 @@ def test_render_dividend_sensitivity_matrix_uses_theme_colors():
         "text": "#ffffff",
         "text_muted": "#888888",
         "accent": "#ff00aa",
+        "accent_fill": "rgba(11,22,33,0.5)",
+        "red": "#fa0000",
+        "red_light": "rgba(44,55,66,0.5)",
     }
     html = streamlit_app._render_dividend_sensitivity_matrix(
         ttm=4.0,
@@ -218,14 +272,15 @@ def test_render_dividend_sensitivity_matrix_uses_theme_colors():
         ke_range=(0.07, 0.09, 0.01),
         g_term=0.025,
         stage1_years=5,
-        baseline_g=0.05,
-        baseline_ke=0.08,
+        price=100.0,
         theme=theme,
     )
     assert "#aabbcc" in html
     assert "#112233" in html
     assert "#888888" in html
     assert "#ff00aa" in html
+    assert "rgba(11,22,33,0.5)" in html
+    assert "rgba(44,55,66,0.5)" in html
 
 
 def test_render_dividend_sensitivity_matrix_cell_values_match_ddm_at():
@@ -237,8 +292,7 @@ def test_render_dividend_sensitivity_matrix_cell_values_match_ddm_at():
         ke_range=(0.08, 0.09, 0.01),
         g_term=0.025,
         stage1_years=5,
-        baseline_g=0.05,
-        baseline_ke=0.08,
+        price=100.0,
         theme=_matrix_theme(),
     )
     expected = streamlit_app._ddm_at(
