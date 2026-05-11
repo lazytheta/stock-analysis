@@ -134,3 +134,117 @@ def test_dividend_conclusion_threshold_constant_is_10pct():
     """The threshold lives as a module-level constant for tunability."""
     import streamlit_app
     assert streamlit_app._DIVIDEND_FAIR_THRESHOLD == 0.10
+
+
+def _matrix_theme():
+    """Minimal theme dict for matrix tests."""
+    return {
+        "border_medium": "#ccc",
+        "card": "#fafafa",
+        "text": "#111",
+        "text_muted": "#666",
+        "accent": "#6e8a76",
+    }
+
+
+def test_render_dividend_sensitivity_matrix_dimensions():
+    """g_range has 5 steps, ke_range has 3 steps → matrix has 5 rows + 3 data cols."""
+    import streamlit_app
+    html = streamlit_app._render_dividend_sensitivity_matrix(
+        ttm=4.0,
+        g_range=(0.04, 0.08, 0.01),
+        ke_range=(0.07, 0.09, 0.01),
+        g_term=0.025,
+        stage1_years=5,
+        baseline_g=0.06,
+        baseline_ke=0.08,
+        theme=_matrix_theme(),
+    )
+    assert html.count("<tr>") == 6
+    assert html.count("<td") >= 20
+
+
+def test_render_dividend_sensitivity_matrix_baseline_highlighted():
+    """The cell at (baseline_g, baseline_ke) gets a highlight class/style."""
+    import re
+    import streamlit_app
+    html = streamlit_app._render_dividend_sensitivity_matrix(
+        ttm=4.0,
+        g_range=(0.04, 0.08, 0.01),
+        ke_range=(0.07, 0.09, 0.01),
+        g_term=0.025,
+        stage1_years=5,
+        baseline_g=0.06,
+        baseline_ke=0.08,
+        theme=_matrix_theme(),
+    )
+    cells = re.findall(r"<td[^>]*>.*?</td>", html, flags=re.DOTALL)
+    highlighted = [
+        c for c in cells
+        if "#6e8a76" in c and ("bold" in c or "font-weight:700" in c)
+    ]
+    assert len(highlighted) == 1
+
+
+def test_render_dividend_sensitivity_matrix_degenerate_cell_renders_dash():
+    """Cells where ke ≤ g_term render '—' (Gordon doesn't converge)."""
+    import streamlit_app
+    html = streamlit_app._render_dividend_sensitivity_matrix(
+        ttm=4.0,
+        g_range=(0.04, 0.06, 0.01),
+        ke_range=(0.01, 0.04, 0.01),
+        g_term=0.025,
+        stage1_years=5,
+        baseline_g=0.05,
+        baseline_ke=0.03,
+        theme=_matrix_theme(),
+    )
+    assert "—" in html
+
+
+def test_render_dividend_sensitivity_matrix_uses_theme_colors():
+    """Theme dict's colors flow into the rendered HTML (not hardcoded)."""
+    import streamlit_app
+    theme = {
+        "border_medium": "#aabbcc",
+        "card": "#112233",
+        "text": "#ffffff",
+        "text_muted": "#888888",
+        "accent": "#ff00aa",
+    }
+    html = streamlit_app._render_dividend_sensitivity_matrix(
+        ttm=4.0,
+        g_range=(0.04, 0.06, 0.01),
+        ke_range=(0.07, 0.09, 0.01),
+        g_term=0.025,
+        stage1_years=5,
+        baseline_g=0.05,
+        baseline_ke=0.08,
+        theme=theme,
+    )
+    assert "#aabbcc" in html
+    assert "#112233" in html
+    assert "#888888" in html
+    assert "#ff00aa" in html
+
+
+def test_render_dividend_sensitivity_matrix_cell_values_match_ddm_at():
+    """Each cell's $ value is _ddm_at at that (g, ke). Sanity-check one cell."""
+    import streamlit_app
+    html = streamlit_app._render_dividend_sensitivity_matrix(
+        ttm=4.0,
+        g_range=(0.05, 0.06, 0.01),
+        ke_range=(0.08, 0.09, 0.01),
+        g_term=0.025,
+        stage1_years=5,
+        baseline_g=0.05,
+        baseline_ke=0.08,
+        theme=_matrix_theme(),
+    )
+    expected = streamlit_app._ddm_at(
+        ttm=4.0, g=0.06, ke=0.08, g_term=0.025, stage1_years=5
+    )
+    expected_str = (
+        f"${expected:.0f}" if abs(expected) >= 100 else f"${expected:.2f}"
+    )
+    assert expected_str in html

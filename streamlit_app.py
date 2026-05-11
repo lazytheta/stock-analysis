@@ -414,6 +414,96 @@ def _dividend_conclusion(lens_mid: float, price: float) -> str:
     )
 
 
+def _render_dividend_sensitivity_matrix(
+    ttm: float,
+    g_range: tuple,
+    ke_range: tuple,
+    g_term: float,
+    stage1_years: int,
+    baseline_g: float,
+    baseline_ke: float,
+    theme: dict,
+) -> str:
+    """Render a DDM sensitivity matrix as an HTML <table>.
+
+    Rows = growth (g₁), columns = cost of equity (ke), cells = DDM FV.
+    Cells where ke ≤ g_term render "—". The cell closest to
+    (baseline_g, baseline_ke) gets a highlighted border + bold weight.
+
+    Pure function: returns HTML string. Caller wraps in st.markdown with
+    unsafe_allow_html=True. Theme dict provides border/card/text/accent colors.
+    """
+    g_min, g_max, g_step = g_range
+    ke_min, ke_max, ke_step = ke_range
+
+    def _arange(lo, hi, step):
+        out = []
+        v = lo
+        while v <= hi + step * 0.5:
+            out.append(round(v, 6))
+            v += step
+        return out
+
+    g_values = _arange(g_min, g_max, g_step)
+    ke_values = _arange(ke_min, ke_max, ke_step)
+
+    closest_g = min(g_values, key=lambda v: abs(v - baseline_g))
+    closest_ke = min(ke_values, key=lambda v: abs(v - baseline_ke))
+
+    hdr_style = (
+        f"background:{theme['card']};color:{theme['text_muted']};"
+        f"font-size:0.7rem;font-weight:600;padding:6px 8px;"
+        f"text-align:center;position:sticky;top:0;z-index:1"
+    )
+    row_hdr_style = (
+        f"background:{theme['card']};color:{theme['text']};"
+        f"font-size:0.75rem;font-weight:600;padding:6px 8px;"
+        f"text-align:left;position:sticky;left:0;z-index:1"
+    )
+
+    html = (
+        f'<div style="overflow-x:auto;border:1px solid {theme["border_medium"]};'
+        f'border-radius:12px;background:{theme["card"]}">'
+        f'<table style="border-collapse:collapse;width:100%;font-size:0.75rem">'
+    )
+
+    html += f'<thead><tr><th style="{hdr_style};text-align:left">g \\\\ ke</th>'
+    for ke in ke_values:
+        html += f'<th style="{hdr_style}">{ke:.2%}</th>'
+    html += "</tr></thead><tbody>"
+
+    for g in g_values:
+        html += f'<tr><td style="{row_hdr_style}">{g:.1%}</td>'
+        for ke in ke_values:
+            fv = _ddm_at(ttm=ttm, g=g, ke=ke, g_term=g_term,
+                         stage1_years=stage1_years)
+            if fv == float("inf"):
+                cell_text = "—"
+                cell_style = (
+                    f"padding:6px 8px;text-align:right;"
+                    f"color:{theme['text_muted']};"
+                )
+            else:
+                cell_text = _fmt_fv_dollar(fv)
+                is_baseline = (g == closest_g and ke == closest_ke)
+                if is_baseline:
+                    cell_style = (
+                        f"padding:6px 8px;text-align:right;"
+                        f"color:{theme['accent']};font-weight:700;"
+                        f"border:2px solid {theme['accent']};"
+                    )
+                else:
+                    cell_style = (
+                        f"padding:6px 8px;text-align:right;"
+                        f"color:{theme['text']};"
+                    )
+            html += f'<td style="{cell_style}">{cell_text}</td>'
+        html += "</tr>"
+
+    html += "</tbody></table></div>"
+    return html
+
+
 def calculate_multi_lens_valuation_remote(cfg: dict) -> dict:
     """Thin wrapper so tests can monkey-patch this name without touching
     the pure orchestrator."""
