@@ -5325,6 +5325,11 @@ def _dcf_editor(ticker):
                     f"**Sensitivity Matrix** — ke: {_baseline_ke:.2%} | "
                     f"Market: ${_price:.2f}"
                 )
+                st.caption(
+                    "**g** = aanname voor toekomstige dividendgroei (jouw input). "
+                    "**ke** = cost of equity, de rendementseis van aandeelhouders. "
+                    "Automatisch berekend via CAPM: Rf + β × ERP."
+                )
                 _matrix_html = _render_dividend_sensitivity_matrix(
                     ttm=_ttm,
                     g_range=_div_g_range,
