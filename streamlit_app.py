@@ -5322,13 +5322,36 @@ def _dcf_editor(ticker):
                 )
 
                 st.markdown(
-                    f"**Sensitivity Matrix** — ke: {_baseline_ke:.2%} | "
-                    f"Market: ${_price:.2f}"
-                )
-                st.caption(
-                    "**g** = aanname voor toekomstige dividendgroei (jouw input). "
-                    "**ke** = cost of equity, de rendementseis van aandeelhouders. "
-                    "Automatisch berekend via CAPM: Rf + β × ERP."
+                    f'<div style="display:flex;align-items:center;gap:6px;'
+                    f'flex-wrap:wrap;margin-bottom:8px">'
+                    f'<span style="font-weight:700">Sensitivity Matrix</span>'
+                    f'<span style="color:{T["text_muted"]}">— ke: '
+                    f'{_baseline_ke:.2%} | Market: ${_price:.2f}</span>'
+                    f'<span class="dvd-tip" style="position:relative;'
+                    f'cursor:help;display:inline-flex;align-items:center">'
+                    f'<svg width="15" height="15" viewBox="0 0 16 16" '
+                    f'fill="none" style="opacity:0.4;vertical-align:middle">'
+                    f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" '
+                    f'stroke-width="1.5"/>'
+                    f'<text x="8" y="11.5" text-anchor="middle" font-size="10" '
+                    f'font-weight="600" fill="{T["text_muted"]}">?</text>'
+                    f'</svg>'
+                    f'<span style="visibility:hidden;opacity:0;position:absolute;'
+                    f'left:22px;top:-8px;background:{T["card"]};color:{T["text"]};'
+                    f'border:1px solid {T["border_medium"]};border-radius:8px;'
+                    f'padding:10px 14px;font-size:0.78rem;line-height:1.5;'
+                    f'font-weight:400;width:280px;z-index:999;'
+                    f'box-shadow:{T["shadow_hover"]};pointer-events:none;'
+                    f'transition:opacity 0.15s ease">'
+                    f'<b>g</b> = aanname voor toekomstige dividendgroei '
+                    f'(jouw input — rijen).<br><br>'
+                    f'<b>ke</b> = cost of equity, rendementseis van '
+                    f'aandeelhouders. Automatisch berekend via CAPM: '
+                    f'Rf + β × ERP (kolommen).'
+                    f'</span></span></div>'
+                    f'<style>.dvd-tip:hover > span:last-child'
+                    f'{{visibility:visible!important;opacity:1!important}}</style>',
+                    unsafe_allow_html=True,
                 )
                 _matrix_html = _render_dividend_sensitivity_matrix(
                     ttm=_ttm,
