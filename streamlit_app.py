@@ -355,6 +355,31 @@ def _render_football_field(summary: dict | None, theme: dict) -> str:
     )
 
 
+def _ddm_at(ttm: float, g: float, ke: float, g_term: float,
+            stage1_years: int = 5) -> float:
+    """Two-stage DDM valuation at explicit assumptions.
+
+    Computes PV of stage-1 dividends (D₀ × (1+g)ⁿ discounted at ke for
+    n=1..stage1_years) plus PV of Gordon terminal value at end of stage 1.
+
+    Returns float("inf") when ke ≤ g_term (Gordon doesn't converge) so
+    callers can render the cell as "—" without raising. No growth cap —
+    the lens's 15% cap is upstream; the matrix is exploratory.
+    """
+    if ke <= g_term:
+        return float("inf")
+
+    pv_stage1 = 0.0
+    d = ttm
+    for n in range(1, stage1_years + 1):
+        d = d * (1 + g)
+        pv_stage1 += d / ((1 + ke) ** n)
+
+    terminal_value = d * (1 + g_term) / (ke - g_term)
+    pv_terminal = terminal_value / ((1 + ke) ** stage1_years)
+    return pv_stage1 + pv_terminal
+
+
 def calculate_multi_lens_valuation_remote(cfg: dict) -> dict:
     """Thin wrapper so tests can monkey-patch this name without touching
     the pure orchestrator."""
