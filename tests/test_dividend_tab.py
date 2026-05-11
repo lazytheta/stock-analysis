@@ -86,3 +86,51 @@ def test_ddm_at_matches_compute_dividend_lens_baseline():
         ttm=4.00, g=0.06, ke=ke, g_term=0.025, stage1_years=5
     )
     assert fv == pytest.approx(expected_ddm_fv, abs=0.01)
+
+
+def test_dividend_conclusion_undervalued():
+    """lens_mid >= price × 1.10 → undervaluation wording."""
+    import streamlit_app
+    s = streamlit_app._dividend_conclusion(lens_mid=181.0, price=155.0)
+    assert "$181" in s
+    assert "$155" in s
+    assert "undervaluation" in s.lower()
+    assert "%" in s
+
+
+def test_dividend_conclusion_overvalued():
+    """lens_mid <= price × 0.90 → overvaluation wording."""
+    import streamlit_app
+    s = streamlit_app._dividend_conclusion(lens_mid=181.0, price=220.0)
+    assert "$181" in s
+    assert "$220" in s
+    assert "overvaluation" in s.lower()
+
+
+def test_dividend_conclusion_fairly_priced():
+    """0.90 × price ≤ lens_mid ≤ 1.10 × price → fairly priced wording."""
+    import streamlit_app
+    s = streamlit_app._dividend_conclusion(lens_mid=181.0, price=182.0)
+    assert "$181" in s
+    assert "$182" in s
+    assert "fairly priced" in s.lower()
+
+
+def test_dividend_conclusion_boundary_at_10pct_above():
+    """Exactly +10% → still within fairly-priced band (inclusive)."""
+    import streamlit_app
+    s = streamlit_app._dividend_conclusion(lens_mid=110.0, price=100.0)
+    assert "fairly priced" in s.lower()
+
+
+def test_dividend_conclusion_just_above_10pct():
+    """Just past +10% → undervaluation."""
+    import streamlit_app
+    s = streamlit_app._dividend_conclusion(lens_mid=110.01, price=100.0)
+    assert "undervaluation" in s.lower()
+
+
+def test_dividend_conclusion_threshold_constant_is_10pct():
+    """The threshold lives as a module-level constant for tunability."""
+    import streamlit_app
+    assert streamlit_app._DIVIDEND_FAIR_THRESHOLD == 0.10

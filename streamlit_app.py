@@ -380,6 +380,40 @@ def _ddm_at(ttm: float, g: float, ke: float, g_term: float,
     return pv_stage1 + pv_terminal
 
 
+_DIVIDEND_FAIR_THRESHOLD = 0.10
+
+
+def _dividend_conclusion(lens_mid: float, price: float) -> str:
+    """Return one of three conclusion-sentence variants comparing the
+    Dividend lens midpoint to the current stock price.
+
+    Threshold: ±10% around price → "fairly priced". Above → undervaluation
+    signal. Below → overvaluation signal.
+
+    Returned string is plain text (no HTML); the caller wraps it for
+    styling via st.markdown with unsafe_allow_html.
+    """
+    upper = price * (1 + _DIVIDEND_FAIR_THRESHOLD)
+    lower = price * (1 - _DIVIDEND_FAIR_THRESHOLD)
+
+    if lens_mid > upper:
+        pct = (lens_mid / price - 1) * 100
+        return (
+            f"Lens midpoint ${lens_mid:.0f} is {pct:.1f}% above current "
+            f"${price:.0f} — potential undervaluation signal."
+        )
+    if lens_mid < lower:
+        pct = (1 - lens_mid / price) * 100
+        return (
+            f"Lens midpoint ${lens_mid:.0f} is {pct:.1f}% below current "
+            f"${price:.0f} — overvaluation signal."
+        )
+    return (
+        f"Lens midpoint ${lens_mid:.0f} ≈ current ${price:.0f} — "
+        f"fairly priced."
+    )
+
+
 def calculate_multi_lens_valuation_remote(cfg: dict) -> dict:
     """Thin wrapper so tests can monkey-patch this name without touching
     the pure orchestrator."""
