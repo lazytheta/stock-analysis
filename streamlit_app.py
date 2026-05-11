@@ -4322,7 +4322,7 @@ def _dcf_editor(ticker):
     margins = list(cfg.get('op_margins', []))
 
     # ── Tabs: DCF / Reverse DCF / Peer Comparison ──
-    _tab_notes, _tab_dcf, _tab_rdcf, _tab_peers, _tab_fundamentals = st.tabs(["Pre-Scan", "DCF", "Reverse DCF", "Peer Comparison", "Fundamentals"])
+    _tab_notes, _tab_dcf, _tab_rdcf, _tab_peers, _tab_dividend, _tab_fundamentals = st.tabs(["Pre-Scan", "DCF", "Reverse DCF", "Peer Comparison", "Dividend", "Fundamentals"])
 
     with _tab_dcf:
         st.markdown("#### Discounting Cash Flows")
@@ -5134,6 +5134,192 @@ def _dcf_editor(ticker):
                     st.rerun()
                 else:
                     st.warning("Could not fetch peer data. Check the ticker(s).")
+
+    with _tab_dividend:
+        st.markdown("#### Dividend Lens")
+
+        # Locate the lens output in the stored summary.
+        _summary = cfg.get("valuation_summary") or {}
+        _lenses = _summary.get("lenses") or {}
+        _div_lens = _lenses.get("dividend")
+        _inputs = cfg.get("valuation_inputs") or {}
+        _ttm = _inputs.get("ttm_dividend") or 0.0
+        _price = cfg.get("stock_price") or 0.0
+
+        # ── Edge case: no stored summary at all ────────────────────
+        if not _summary:
+            st.info(
+                "Run **Refresh All** on the watchlist (or call "
+                "`calculate_multi_lens_valuation` via the MCP) to compute "
+                "the Dividend lens for this ticker first."
+            )
+
+        # ── Edge case: non-payer (lens skipped due to ttm=0) ───────
+        elif _ttm <= 0:
+            st.info(
+                f"**{ticker}** doesn't pay dividends — Dividend lens not "
+                f"applicable. Use the `update_valuation_inputs` MCP tool "
+                f"to inject a target dividend if you want scenario analysis."
+            )
+
+        # ── Edge case: lens computed but skipped (e.g. <3y history) ─
+        elif _div_lens is None:
+            st.warning(
+                f"Dividend lens skipped for {ticker}. Likely reason: "
+                f"insufficient dividend history (need ≥3y) or "
+                f"`cost_of_equity ≤ terminal_growth`. Re-run Refresh All "
+                f"after adjusting inputs."
+            )
+
+        else:
+            _details = _div_lens.get("details") or {}
+            _baseline_g = _details.get("growth_rate_stage1") or 0.0
+            _baseline_ke = _details.get("cost_of_equity") or 0.0
+            _g_term_used = _details.get("terminal_growth") or 0.025
+            _stage1_years = _details.get("stage1_years") or 5
+            _ddm_fv = _details.get("ddm_fv") or 0.0
+            _yield_mr_fv = _details.get("yield_mr_fv")
+            _median_yield = _details.get("median_5y_yield")
+
+            if _baseline_ke <= _g_term_used:
+                st.warning(
+                    f"Cost of equity ({_baseline_ke:.2%}) ≤ terminal "
+                    f"growth ({_g_term_used:.2%}) — DDM formula doesn't "
+                    f"converge for these assumptions. Adjust the DCF "
+                    f"editor's risk-free rate, ERP, or terminal growth."
+                )
+            else:
+                _div_g_range = (0.0, 0.12, 0.01)
+                _div_ke_range = (
+                    max(0.0, _baseline_ke - 0.02),
+                    _baseline_ke + 0.02,
+                    0.005,
+                )
+
+                with st.expander("Adjust ranges"):
+                    _dc_e1, _dc_e2 = st.columns(2)
+                    with _dc_e1:
+                        st.markdown("**Growth rate (g₁)**")
+                        _dg_min = st.number_input(
+                            "Min %", value=0.0,
+                            step=1.0, format="%.0f",
+                            key="div_gmin",
+                        ) / 100
+                        _dg_max = st.number_input(
+                            "Max %", value=12.0,
+                            step=1.0, format="%.0f",
+                            key="div_gmax",
+                        ) / 100
+                        _dg_step = st.number_input(
+                            "Step %", value=1.0,
+                            step=0.5, format="%.1f",
+                            key="div_gstep",
+                        ) / 100
+                        if _dg_step > 0 and _dg_max > _dg_min:
+                            _div_g_range = (_dg_min, _dg_max, _dg_step)
+                    with _dc_e2:
+                        st.markdown("**Cost of equity (ke)**")
+                        _dke_min = st.number_input(
+                            "Min %", value=max(0.0, _baseline_ke * 100 - 2),
+                            step=0.5, format="%.1f",
+                            key="div_kemin",
+                        ) / 100
+                        _dke_max = st.number_input(
+                            "Max %", value=_baseline_ke * 100 + 2,
+                            step=0.5, format="%.1f",
+                            key="div_kemax",
+                        ) / 100
+                        _dke_step = st.number_input(
+                            "Step %", value=0.5,
+                            step=0.1, format="%.1f",
+                            key="div_kestep",
+                        ) / 100
+                        if _dke_step > 0 and _dke_max > _dke_min:
+                            _div_ke_range = (_dke_min, _dke_max, _dke_step)
+
+                _card_border = (
+                    f'border-top:1px solid {T["border_medium"]};'
+                    f'border-right:1px solid {T["border_medium"]};'
+                    f'border-bottom:1px solid {T["border_medium"]};'
+                    f'border-left:3px solid {T["accent"]}'
+                )
+
+                _dc1, _dc2 = st.columns(2)
+                with _dc1:
+                    st.markdown(
+                        f'<div style="{_card_border};border-radius:12px;'
+                        f'padding:20px;text-align:center;'
+                        f'background:{T["card"]};box-shadow:{T["shadow"]}">'
+                        f'<div style="color:{T["text_muted"]};font-size:0.75rem;'
+                        f'text-transform:uppercase;letter-spacing:0.05em;'
+                        f'font-weight:600">DDM Fair Value</div>'
+                        f'<div style="font-size:1.8rem;font-weight:700;'
+                        f'margin:8px 0;color:{T["text"]}">{_fmt_fv_dollar(_ddm_fv)}</div>'
+                        f'<div style="color:{T["text_muted"]};font-size:0.85rem">'
+                        f'{_baseline_g:.1%} growth · ke {_baseline_ke:.1%} · '
+                        f'terminal {_g_term_used:.1%}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+                with _dc2:
+                    if _yield_mr_fv is not None and _median_yield is not None:
+                        _y_card_body = (
+                            f'<div style="font-size:1.8rem;font-weight:700;'
+                            f'margin:8px 0;color:{T["text"]}">'
+                            f'{_fmt_fv_dollar(_yield_mr_fv)}</div>'
+                            f'<div style="color:{T["text_muted"]};'
+                            f'font-size:0.85rem">'
+                            f'${_ttm:.2f} TTM / '
+                            f'{_median_yield:.2%} historic median yield</div>'
+                        )
+                    else:
+                        _y_card_body = (
+                            f'<div style="font-size:1.4rem;font-weight:700;'
+                            f'margin:8px 0;color:{T["text_muted"]}">'
+                            f'Insufficient history</div>'
+                            f'<div style="color:{T["text_muted"]};'
+                            f'font-size:0.85rem">Needs ≥3y of dividend data</div>'
+                        )
+                    st.markdown(
+                        f'<div style="{_card_border};border-radius:12px;'
+                        f'padding:20px;text-align:center;'
+                        f'background:{T["card"]};box-shadow:{T["shadow"]}">'
+                        f'<div style="color:{T["text_muted"]};font-size:0.75rem;'
+                        f'text-transform:uppercase;letter-spacing:0.05em;'
+                        f'font-weight:600">Yield Mean-Reversion</div>'
+                        f'{_y_card_body}'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                if _yield_mr_fv is not None:
+                    _lens_mid = (_ddm_fv + _yield_mr_fv) / 2.0
+                else:
+                    _lens_mid = _ddm_fv
+                _conclusion = _dividend_conclusion(
+                    lens_mid=_lens_mid, price=_price
+                )
+                st.markdown(
+                    f'<div style="color:{T["text_muted"]};font-size:0.85rem;'
+                    f'text-align:center;margin:12px 0 16px">{_conclusion}</div>',
+                    unsafe_allow_html=True,
+                )
+
+                st.markdown(
+                    f"**Sensitivity Matrix** — TTM ${_ttm:.2f} · "
+                    f"baseline g {_baseline_g:.1%} × ke {_baseline_ke:.2%}"
+                )
+                _matrix_html = _render_dividend_sensitivity_matrix(
+                    ttm=_ttm,
+                    g_range=_div_g_range,
+                    ke_range=_div_ke_range,
+                    g_term=_g_term_used,
+                    stage1_years=_stage1_years,
+                    baseline_g=_baseline_g,
+                    baseline_ke=_baseline_ke,
+                    theme=T,
+                )
+                st.markdown(_matrix_html, unsafe_allow_html=True)
 
     with _tab_fundamentals:
         st.markdown("#### Fundamentals")
