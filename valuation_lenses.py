@@ -61,14 +61,20 @@ def compute_dividend_lens(cfg):
       - cost_of_equity ≤ terminal_growth (Gordon would blow up)
       - any input is non-finite (NaN guard)
     """
+    ticker = cfg.get("ticker", "?")
     inputs = cfg.get("valuation_inputs") or {}
     ttm = inputs.get("ttm_dividend") or 0.0
     raw_g = inputs.get("dividend_5y_cagr")
     median_yield = inputs.get("median_5y_yield")
 
     if ttm <= 0:
+        logger.info("Dividend lens: skipping %s (ttm_dividend=0, non-payer)", ticker)
         return None
     if raw_g is None:
+        logger.info(
+            "Dividend lens: skipping %s (no dividend_5y_cagr, insufficient history)",
+            ticker,
+        )
         return None
 
     # Cap growth at 15% (defense in depth — gather_data already caps,
@@ -78,15 +84,29 @@ def compute_dividend_lens(cfg):
 
     try:
         ke = dcf_calculator.compute_cost_of_equity(cfg)
-    except (KeyError, ZeroDivisionError, TypeError):
+    except (KeyError, ZeroDivisionError, TypeError) as e:
+        logger.info(
+            "Dividend lens: skipping %s (compute_cost_of_equity failed: %s)",
+            ticker, e,
+        )
         return None
 
     # NaN / non-finite guards
     for v in (ttm, g, g_term, ke):
         if v != v or v in (float("inf"), float("-inf")):
+            logger.info(
+                "Dividend lens: skipping %s (non-finite input: "
+                "ttm=%s g=%s g_term=%s ke=%s)",
+                ticker, ttm, g, g_term, ke,
+            )
             return None
 
     if ke <= g_term:
+        logger.info(
+            "Dividend lens: skipping %s (ke=%.4f <= g_term=%.4f, "
+            "Gordon perpetuity would blow up)",
+            ticker, ke, g_term,
+        )
         return None
 
     # ── Sub-anchor A: Two-stage DDM ─────────────────────────────
