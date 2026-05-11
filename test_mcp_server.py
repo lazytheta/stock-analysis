@@ -559,3 +559,157 @@ def test_update_valuation_inputs_unknown_ticker_returns_error(monkeypatch):
         "UNKNOWN", {"dividend_5y_cagr": 0.10}
     )
     assert "error" in _json.loads(result_json)
+
+
+# ---------------------------------------------------------------------------
+# update_lens_weights
+# ---------------------------------------------------------------------------
+
+
+def _make_lens_weights_fake_storage(initial_weights):
+    """Helper: build a fake Supabase storage with one TEST ticker."""
+    storage = {
+        "TEST": {
+            "company": "Test",
+            "ticker": "TEST",
+            "lens_weights": dict(initial_weights),
+        },
+    }
+    return storage
+
+
+def test_update_lens_weights_merges_partial(monkeypatch):
+    """Partial override merges into existing lens_weights; unspecified keys
+    retain their current value."""
+    import json as _json
+    import mcp_server
+
+    storage = _make_lens_weights_fake_storage(
+        {"dcf": 0.50, "multiples": 0.25, "historical": 0.25}
+    )
+
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(
+        mcp_server.config_store, "load_config",
+        lambda c, t, user_id=None: dict(storage[t.upper()]),
+    )
+    monkeypatch.setattr(
+        mcp_server.config_store, "save_config",
+        lambda c, t, cfg, user_id=None: storage.update({t.upper(): dict(cfg)}),
+    )
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+
+    result_json = mcp_server._update_lens_weights_impl(
+        "TEST", {"dividend": 0.20}
+    )
+    result = _json.loads(result_json)
+
+    # dividend added, others preserved
+    assert result["dividend"] == 0.20
+    assert result["dcf"] == 0.50
+    assert result["multiples"] == 0.25
+    assert result["historical"] == 0.25
+    # saved to storage
+    assert storage["TEST"]["lens_weights"]["dividend"] == 0.20
+
+
+def test_update_lens_weights_empty_dict_resets_to_defaults(monkeypatch):
+    """Empty weights dict → cfg["lens_weights"] = {} so the orchestrator
+    falls back to DEFAULT_LENS_WEIGHTS."""
+    import json as _json
+    import mcp_server
+
+    storage = _make_lens_weights_fake_storage(
+        {"dcf": 0.90, "multiples": 0.10}  # user had custom weights
+    )
+
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(
+        mcp_server.config_store, "load_config",
+        lambda c, t, user_id=None: dict(storage[t.upper()]),
+    )
+    monkeypatch.setattr(
+        mcp_server.config_store, "save_config",
+        lambda c, t, cfg, user_id=None: storage.update({t.upper(): dict(cfg)}),
+    )
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+
+    result_json = mcp_server._update_lens_weights_impl("TEST", {})
+    result = _json.loads(result_json)
+
+    assert result == {}
+    assert storage["TEST"]["lens_weights"] == {}
+
+
+def test_update_lens_weights_rejects_unknown_key(monkeypatch):
+    """Unknown lens key → error JSON with the invalid keys listed."""
+    import json as _json
+    import mcp_server
+
+    storage = _make_lens_weights_fake_storage({"dcf": 0.50})
+
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(
+        mcp_server.config_store, "load_config",
+        lambda c, t, user_id=None: dict(storage[t.upper()]),
+    )
+    monkeypatch.setattr(
+        mcp_server.config_store, "save_config",
+        lambda c, t, cfg, user_id=None: storage.update({t.upper(): dict(cfg)}),
+    )
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+
+    result_json = mcp_server._update_lens_weights_impl(
+        "TEST", {"sentiment": 0.5, "dcf": 0.4}  # sentiment is not a real lens
+    )
+    body = _json.loads(result_json)
+    assert "error" in body
+    assert "sentiment" in body["error"]
+    # No write happened
+    assert storage["TEST"]["lens_weights"] == {"dcf": 0.50}
+
+
+def test_update_lens_weights_rejects_negative_value(monkeypatch):
+    """Negative weight → error JSON, no write."""
+    import json as _json
+    import mcp_server
+
+    storage = _make_lens_weights_fake_storage({"dcf": 0.50})
+
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(
+        mcp_server.config_store, "load_config",
+        lambda c, t, user_id=None: dict(storage[t.upper()]),
+    )
+    monkeypatch.setattr(
+        mcp_server.config_store, "save_config",
+        lambda c, t, cfg, user_id=None: storage.update({t.upper(): dict(cfg)}),
+    )
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+
+    result_json = mcp_server._update_lens_weights_impl(
+        "TEST", {"dividend": -0.1}
+    )
+    body = _json.loads(result_json)
+    assert "error" in body
+    assert "dividend" in body["error"]
+    # Unchanged storage
+    assert storage["TEST"]["lens_weights"] == {"dcf": 0.50}
+
+
+def test_update_lens_weights_unknown_ticker_returns_error(monkeypatch):
+    """Unknown ticker → error JSON."""
+    import json as _json
+    import mcp_server
+
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(
+        mcp_server.config_store, "load_config",
+        lambda c, t, user_id=None: None,
+    )
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+
+    result_json = mcp_server._update_lens_weights_impl(
+        "UNKNOWN", {"dcf": 0.5}
+    )
+    assert "error" in _json.loads(result_json)

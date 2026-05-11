@@ -543,8 +543,9 @@ def test_oauth_magic_finalize_rejects_invalid_supabase_token(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_tools_list_returns_11_tools():
-    """tools/list now returns the full set of 11 tools."""
+def test_tools_list_returns_12_tools():
+    """tools/list returns the full set of 12 tools (added update_lens_weights
+    on 2026-05-11)."""
     from starlette.testclient import TestClient
     from mcp_auth import sign_jwt
     from main import app
@@ -558,12 +559,12 @@ def test_tools_list_returns_11_tools():
     )
     assert r.status_code == 200
     tools = r.json()["result"]["tools"]
-    assert len(tools) == 11
+    assert len(tools) == 12
     names = {t["name"] for t in tools}
     assert names == {
         "build_dcf_config", "calculate_valuation", "calculate_multi_lens_valuation",
         "refresh_all_valuations", "save_to_watchlist", "get_config",
-        "get_watchlist", "update_valuation_inputs",
+        "get_watchlist", "update_valuation_inputs", "update_lens_weights",
         "get_prescan_prompts", "get_prescan_sections", "save_prescan_section",
     }
 
@@ -653,6 +654,42 @@ def test_tools_call_update_valuation_inputs_passes_args(monkeypatch):
     assert captured == {
         "ticker": "PEP",
         "fields": {"dividend_5y_cagr": 0.08},
+        "user_id": "jwt-uid",
+    }
+
+
+def test_tools_call_update_lens_weights_passes_args(monkeypatch):
+    """update_lens_weights receives ticker, weights, user_id correctly."""
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt
+    from main import app
+    import mcp_server
+
+    captured = {}
+    def fake_impl(ticker, weights, user_id=None):
+        captured.update({"ticker": ticker, "weights": weights, "user_id": user_id})
+        return '{"dividend": 0.20}'
+    monkeypatch.setattr(mcp_server, "_update_lens_weights_impl", fake_impl)
+
+    token = sign_jwt({"type": "access_token", "user_id": "jwt-uid"}, ttl_seconds=60)
+    client = TestClient(app)
+    r = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {
+                "name": "update_lens_weights",
+                "arguments": {"ticker": "PEP", "weights": {"dividend": 0.20}},
+            },
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    assert captured == {
+        "ticker": "PEP",
+        "weights": {"dividend": 0.20},
         "user_id": "jwt-uid",
     }
 

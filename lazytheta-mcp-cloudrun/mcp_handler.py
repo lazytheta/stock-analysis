@@ -91,6 +91,14 @@ async def _tool_update_valuation_inputs(user_id: str, args: dict) -> Any:
     )
 
 
+async def _tool_update_lens_weights(user_id: str, args: dict) -> Any:
+    return mcp_server._update_lens_weights_impl(
+        ticker=args["ticker"],
+        weights=args["weights"],
+        user_id=user_id,
+    )
+
+
 async def _tool_get_prescan_prompts(user_id: str, args: dict) -> Any:
     return mcp_server._get_prescan_prompts_impl(args["ticker"], user_id=user_id)
 
@@ -226,6 +234,32 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "update_lens_weights",
+        "description": (
+            "Override one or more lens weights for a watchlist ticker. "
+            "Valid keys: dcf, multiples, historical, reverse_dcf, dividend. "
+            "Specified keys merge into cfg.lens_weights; unspecified keys "
+            "retain their value (or fall back to DEFAULT_LENS_WEIGHTS). "
+            "Orchestrator renormalizes active weights to 1.0 at compute "
+            "time, so partial overrides like {dcf: 0.6} work. Empty dict "
+            "resets to defaults."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "weights": {
+                    "type": "object",
+                    "description": (
+                        "Dict mapping lens keys (dcf, multiples, historical, "
+                        "reverse_dcf, dividend) to non-negative floats"
+                    ),
+                },
+            },
+            "required": ["ticker", "weights"],
+        },
+    },
+    {
         "name": "get_prescan_prompts",
         "description": (
             "Return the user's prescan prompt library with placeholders "
@@ -274,6 +308,7 @@ TOOL_HANDLERS: dict[str, Callable[[str, dict], Awaitable[Any]]] = {
     "get_config": _tool_get_config,
     "get_watchlist": _tool_get_watchlist,
     "update_valuation_inputs": _tool_update_valuation_inputs,
+    "update_lens_weights": _tool_update_lens_weights,
     "get_prescan_prompts": _tool_get_prescan_prompts,
     "get_prescan_sections": _tool_get_prescan_sections,
     "save_prescan_section": _tool_save_prescan_section,

@@ -379,6 +379,54 @@ def _update_valuation_inputs_impl(ticker: str, fields: dict,
     return json.dumps(inputs, default=str)
 
 
+def _update_lens_weights_impl(ticker: str, weights: dict,
+                              user_id: str | None = None) -> str:
+    """Core logic for update_lens_weights. Merges weights into
+    cfg["lens_weights"]; unspecified keys retain their current value
+    (or fall back to DEFAULT_LENS_WEIGHTS via the orchestrator).
+
+    Empty dict resets to defaults (cfg["lens_weights"] = {} → the
+    orchestrator's `weights_cfg = cfg.get("lens_weights") or DEFAULT_LENS_WEIGHTS`
+    falls back to defaults). The config_store guard treats empty dict as
+    intentional user action (RESTORE_MISSING_ONLY for lens_weights, per
+    2026-05-07 fix).
+
+    The orchestrator renormalizes active lens weights to sum to 1.0 at
+    compute time, so partial overrides like {"dcf": 0.6} are fine —
+    unspecified keys retain DEFAULT_LENS_WEIGHTS, then everything gets
+    renormalized.
+    """
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
+    if cfg is None:
+        return json.dumps({"error": f"{ticker.upper()} not found on watchlist"})
+
+    valid_keys = set(valuation_lenses.DEFAULT_LENS_WEIGHTS.keys())
+    unknown = sorted(k for k in weights if k not in valid_keys)
+    if unknown:
+        return json.dumps({
+            "error": f"unknown lens key(s): {unknown}. "
+                     f"Valid: {sorted(valid_keys)}",
+        })
+
+    for k, v in weights.items():
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or v < 0:
+            return json.dumps({
+                "error": f"weight for {k} must be a non-negative number, "
+                         f"got {type(v).__name__}={v!r}",
+            })
+
+    if not weights:
+        cfg["lens_weights"] = {}
+    else:
+        existing = cfg.get("lens_weights") or {}
+        cfg["lens_weights"] = {**existing, **weights}
+
+    config_store.save_config(client, ticker, cfg, user_id=user_id)
+    return json.dumps(cfg["lens_weights"], default=str)
+
+
 # ---------------------------------------------------------------------------
 # MCP Tools
 # ---------------------------------------------------------------------------
@@ -581,6 +629,37 @@ def update_valuation_inputs(ticker: str, fields: dict) -> str:
     """
     try:
         return _update_valuation_inputs_impl(ticker, fields)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def update_lens_weights(ticker: str, weights: dict) -> str:
+    """Override one or more lens weights for a watchlist ticker.
+
+    Controls how much each lens contributes to weighted_fv_mid. By default
+    DCF=0.50, Peers=0.25, Historical=0.25, Dividend=0.0, Reverse DCF=0.0.
+    Specified keys merge into cfg["lens_weights"]; unspecified keys retain
+    their current value (or fall back to defaults). The orchestrator
+    renormalizes active lens weights to sum to 1.0 at compute time, so
+    partial overrides are fine.
+
+    Args:
+        ticker: Stock ticker (e.g. "PEP")
+        weights: Dict mapping lens keys to non-negative floats. Valid
+            keys: dcf, multiples, historical, reverse_dcf, dividend.
+            Examples:
+                {"dividend": 0.20}              # opt in dividend lens for PEP
+                {"dcf": 0.60, "multiples": 0.20, "historical": 0.20}
+                {}                              # reset to DEFAULT_LENS_WEIGHTS
+
+    Returns:
+        JSON string with the updated lens_weights dict, or
+        {"error": "..."} if ticker is not on the watchlist, an unknown
+        lens key is given, or a weight is negative.
+    """
+    try:
+        return _update_lens_weights_impl(ticker, weights)
     except Exception as e:
         return json.dumps({"error": str(e)})
 
