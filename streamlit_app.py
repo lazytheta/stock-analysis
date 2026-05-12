@@ -6948,6 +6948,58 @@ def _dcf_editor(ticker):
     _h_up_sign = "+" if _h_upside >= 0 else ""
     _h_wacc = val['wacc']
     _h_tv_pct = val['tv_pct']
+
+    # Multi-lens summary pills (only render if valuation_summary present)
+    _ml = cfg.get('valuation_summary') or {}
+    _ml_mid = _ml.get('weighted_fv_mid')
+    _ml_low = _ml.get('weighted_fv_low')
+    _ml_high = _ml.get('weighted_fv_high')
+    _ml_buy = _ml.get('buy_price')
+    _ml_pills = ''
+    if _ml_mid and _ml_buy and live_price > 0:
+        _ml_upside = (_ml_mid / live_price - 1)
+        _ml_up_color = T['accent'] if _ml_upside >= 0 else T['red']
+        _ml_up_sign = "+" if _ml_upside >= 0 else ""
+        _range_txt = ''
+        if _ml_low and _ml_high:
+            _range_txt = (
+                f' <span style="color:{T["text_muted"]};font-size:0.78em">'
+                f'(${_ml_low:.0f}–${_ml_high:.0f})</span>'
+            )
+        _ml_pills = (
+            f'<span class="stat-pill">Multi-lens FV <b>${_ml_mid:.2f}</b>{_range_txt}</span>'
+            f'<span class="stat-pill">ML Buy <b>${_ml_buy:.2f}</b></span>'
+            f'<span class="stat-pill">ML Upside <b style="color:{_ml_up_color}">'
+            f'{_ml_up_sign}{_ml_upside:.1%}</b></span>'
+        )
+
+    # Verdict + Phase pills (from scorecard JSON in ai_notes)
+    _sc_pills = ''
+    _ai_notes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else None
+    _sc_raw = (_ai_notes or {}).get('Scorecard', '') if _ai_notes else ''
+    _sc_data = _parse_scorecard_json(_sc_raw) if _sc_raw else None
+    if _sc_data:
+        _verdict_str = (_sc_data.get('verdict') or '').lower()
+        _verdict_map = {
+            'deep_dive': ('🟢 Deep Dive', T.get('accent', '#6e8a76')),
+            'revisit': ('🟡 Revisit', '#d8a448'),
+            'pass': ('🔴 Pass', T.get('red', '#d96a5a')),
+        }
+        if _verdict_str in _verdict_map:
+            _v_label, _v_color = _verdict_map[_verdict_str]
+            _sc_pills += (
+                f'<span class="stat-pill"><b style="color:{_v_color}">{_v_label}</b></span>'
+            )
+        _phase_data = _sc_data.get('phase', {}) or {}
+        _phase_num = _phase_data.get('number')
+        _phase_name = _phase_data.get('name', '')
+        if _phase_num:
+            _sc_pills += (
+                f'<span class="stat-pill">Phase <b>{_phase_num}</b>'
+                f'<span style="color:{T["text_muted"]};font-size:0.78em"> {_phase_name}</span>'
+                f'</span>'
+            )
+
     _hero_placeholder.markdown(
         f'<div class="hero-card">'
         f'<p class="hero-label">{cfg.get("company", ticker)}</p>'
@@ -6959,9 +7011,11 @@ def _dcf_editor(ticker):
         f'</div>'
         f'<div class="stat-row">'
         f'<span class="stat-pill">Price <b>${live_price:.2f}</b></span>'
-        f'<span class="stat-pill">Intrinsic Value <b>${_h_intrinsic:.2f}</b></span>'
-        f'<span class="stat-pill">Buy Price <b>${_h_buy:.2f}</b></span>'
-        f'<span class="stat-pill">Upside <b style="color:{_h_up_color}">{_h_up_sign}{_h_upside:.1%}</b></span>'
+        f'<span class="stat-pill">DCF FV <b>${_h_intrinsic:.2f}</b></span>'
+        f'<span class="stat-pill">DCF Buy <b>${_h_buy:.2f}</b></span>'
+        f'<span class="stat-pill">DCF Upside <b style="color:{_h_up_color}">{_h_up_sign}{_h_upside:.1%}</b></span>'
+        f'{_ml_pills}'
+        f'{_sc_pills}'
         f'<span class="stat-pill">WACC <b>{_h_wacc:.1%}</b></span>'
         f'<span class="stat-pill">EV <b>${_h_ev:,.0f}M</b></span>'
         f'<span class="stat-pill">Equity Value <b>${_h_equity:,.0f}M</b></span>'
