@@ -6941,13 +6941,9 @@ def _dcf_editor(ticker):
     # ── Fill hero card placeholder with Valuation Bridge values ──
     _h_intrinsic = cfg.get('_computed_intrinsic', val['intrinsic_value'])
     _h_buy = cfg.get('_computed_buy', val['buy_price'])
-    _h_ev = cfg.get('_computed_ev', val['enterprise_value'])
-    _h_equity = cfg.get('_computed_equity', val['equity_value'])
     _h_upside = (_h_intrinsic / live_price - 1) if live_price > 0 else 0
     _h_up_color = T['accent'] if _h_upside >= 0 else T['red']
     _h_up_sign = "+" if _h_upside >= 0 else ""
-    _h_wacc = val['wacc']
-    _h_tv_pct = val['tv_pct']
 
     # Multi-lens summary pills (only render if valuation_summary present)
     _ml = cfg.get('valuation_summary') or {}
@@ -6973,32 +6969,21 @@ def _dcf_editor(ticker):
             f'{_ml_up_sign}{_ml_upside:.1%}</b></span>'
         )
 
-    # Verdict + Phase pills (from scorecard JSON in ai_notes)
+    # Verdict pill (from scorecard JSON in ai_notes) — plain text, inherits pill style
     _sc_pills = ''
     _ai_notes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else None
     _sc_raw = (_ai_notes or {}).get('Scorecard', '') if _ai_notes else ''
     _sc_data = _parse_scorecard_json(_sc_raw) if _sc_raw else None
     if _sc_data:
         _verdict_str = (_sc_data.get('verdict') or '').lower()
-        _verdict_map = {
-            'deep_dive': ('🟢 Deep Dive', T.get('accent', '#6e8a76')),
-            'revisit': ('🟡 Revisit', '#d8a448'),
-            'pass': ('🔴 Pass', T.get('red', '#d96a5a')),
+        _verdict_label_map = {
+            'deep_dive': 'Deep Dive',
+            'revisit': 'Revisit',
+            'pass': 'Pass',
         }
-        if _verdict_str in _verdict_map:
-            _v_label, _v_color = _verdict_map[_verdict_str]
-            _sc_pills += (
-                f'<span class="stat-pill"><b style="color:{_v_color}">{_v_label}</b></span>'
-            )
-        _phase_data = _sc_data.get('phase', {}) or {}
-        _phase_num = _phase_data.get('number')
-        _phase_name = _phase_data.get('name', '')
-        if _phase_num:
-            _sc_pills += (
-                f'<span class="stat-pill">Phase <b>{_phase_num}</b>'
-                f'<span style="color:{T["text_muted"]};font-size:0.78em"> {_phase_name}</span>'
-                f'</span>'
-            )
+        _v_label = _verdict_label_map.get(_verdict_str)
+        if _v_label:
+            _sc_pills = f'<span class="stat-pill">Verdict <b>{_v_label}</b></span>'
 
     _hero_placeholder.markdown(
         f'<div class="hero-card">'
@@ -7016,10 +7001,6 @@ def _dcf_editor(ticker):
         f'<span class="stat-pill">DCF Upside <b style="color:{_h_up_color}">{_h_up_sign}{_h_upside:.1%}</b></span>'
         f'{_ml_pills}'
         f'{_sc_pills}'
-        f'<span class="stat-pill">WACC <b>{_h_wacc:.1%}</b></span>'
-        f'<span class="stat-pill">EV <b>${_h_ev:,.0f}M</b></span>'
-        f'<span class="stat-pill">Equity Value <b>${_h_equity:,.0f}M</b></span>'
-        f'<span class="stat-pill">TV % of EV <b>{_h_tv_pct:.0%}</b></span>'
         f'</div>'
         f'</div>',
         unsafe_allow_html=True,
