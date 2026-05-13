@@ -6,13 +6,11 @@ without network access, broker credentials, or a Streamlit runtime.
 """
 
 import ssl
-import time
 import unittest
-from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 

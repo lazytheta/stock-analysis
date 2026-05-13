@@ -8,6 +8,7 @@ the RLS WITH CHECK clause is satisfied.
 """
 
 import logging
+from datetime import UTC
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ def save_config(client, ticker, cfg, user_id=None):
     Both paths log a WARNING with a short call-stack so the offending caller
     can be identified.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     ticker = ticker.upper()
     if user_id is None:
@@ -136,7 +137,7 @@ def save_config(client, ticker, cfg, user_id=None):
         "ticker": ticker,
         "company": cfg.get('company', ticker),
         "stock_price": cfg.get('stock_price', 0),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
         "config": data,
     }
     client.table("watchlist_configs").upsert(row).execute()
@@ -253,7 +254,7 @@ def load_user_prefs(client, user_id=None):
 
 def save_user_prefs(client, prefs, user_id=None):
     """Save user wheel preferences to Supabase (upsert)."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     if user_id is None:
         user_id = _get_user_id(client)
@@ -261,7 +262,7 @@ def save_user_prefs(client, prefs, user_id=None):
         client.table("user_prefs").upsert({
             "user_id": user_id,
             "prefs": prefs,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }).execute()
     except Exception as e:
         logger.warning("Failed to save user prefs: %s", e)
@@ -273,14 +274,14 @@ def save_user_prefs(client, prefs, user_id=None):
 
 def save_credential(client, service_name, value):
     """Upsert a credential (e.g. Tastytrade refresh token) for the current user."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     user_id = _get_user_id(client)
     client.table("user_credentials").upsert({
         "user_id": user_id,
         "service_name": service_name,
         "credential": value,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
     }).execute()
 
 
@@ -319,7 +320,7 @@ IBKR_CREDENTIAL_KEYS = [
 def save_ibkr_credentials(client, creds):
     """Save all IBKR credentials. creds is a dict with keys matching IBKR_CREDENTIAL_KEYS."""
     for key in IBKR_CREDENTIAL_KEYS:
-        if key in creds and creds[key]:
+        if creds.get(key):
             save_credential(client, key, creds[key])
 
 

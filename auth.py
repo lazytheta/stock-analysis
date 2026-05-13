@@ -5,7 +5,6 @@ Keeps auth logic out of the main app. All functions return typed tuples
 so callers can handle errors consistently.
 """
 
-import base64
 import logging
 import os
 from datetime import date

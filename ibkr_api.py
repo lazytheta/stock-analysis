@@ -12,7 +12,6 @@ import ssl
 import urllib.request
 from collections import defaultdict
 from datetime import date, datetime
-from decimal import Decimal
 
 import streamlit as st
 

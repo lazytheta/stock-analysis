@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 from error_logger import log_error, log_error_with_trace
 from dcf_calculator import compute_wacc, compute_intrinsic_value, compute_reverse_dcf
 from valuation_lenses import FORWARD_LENSES
-from config_store import save_config, load_config, list_watchlist, remove_from_watchlist, load_user_prefs, save_user_prefs, load_credential, save_credential, delete_credential, load_ibkr_credentials, save_ibkr_credentials, delete_ibkr_credentials, IBKR_CREDENTIAL_KEYS, log_page_view
+from config_store import save_config, load_config, list_watchlist, remove_from_watchlist, load_user_prefs, save_user_prefs, load_credential, delete_credential, load_ibkr_credentials, save_ibkr_credentials, delete_ibkr_credentials, log_page_view
 from gather_data import (
     get_cik,
     fetch_company_submissions,
@@ -40,17 +40,15 @@ from gather_data import (
     fetch_peer_data,
     build_config,
     SIC_TO_SECTOR,
-    ERP_DEFAULT,
     TERMINAL_GROWTH_DEFAULT,
     MARGIN_OF_SAFETY_DEFAULT,
     fetch_fundamentals,
 )
 from broker_adapter import (
     fetch_portfolio_data, fetch_current_prices, fetch_account_balances,
-    fetch_net_liq_history, fetch_sp500_yearly_returns, fetch_benchmark_returns,
-    fetch_ticker_profiles, fetch_yearly_transfers, fetch_portfolio_greeks,
-    fetch_margin_interest, fetch_margin_for_position, fetch_margin_requirements,
-    fetch_beta_weighted_delta, fetch_greeks_and_bwd, fetch_option_chain,
+    fetch_net_liq_history, fetch_benchmark_returns,
+    fetch_ticker_profiles, fetch_yearly_transfers, fetch_margin_interest, fetch_margin_for_position, fetch_margin_requirements,
+    fetch_greeks_and_bwd, fetch_option_chain,
     fetch_earnings_dates, has_active_broker, get_active_broker,
     fetch_benchmark_monthly_returns,
 )
@@ -4900,7 +4898,6 @@ def _dcf_editor(ticker):
             save_config(_sb_client, ticker, cfg)
 
     with _tab_rdcf:
-        import pandas as pd
 
         st.markdown("#### Reverse DCF")
 
@@ -7895,7 +7892,6 @@ def _aggregate_month_trades(cost_basis, year, month):
                             pass
 
     # ── Unrealized equity P/L for tickers with shares held and NO equity trades this month ──
-    import calendar
     import ssl as _ssl
     import json as _json
     import urllib.request as _urllib
@@ -9830,7 +9826,7 @@ elif page == "Option Finder":
                 _alt_cards = []
                 if 'conservative' in _picks and _picks['conservative'] != _picks.get('recommended'):
                     _c = _picks['conservative']
-                    _alt_cards.append((
+                    _alt_cards.append(
                         f'<div style="background:{T["card_alt"]};border:1px solid {T["border_medium"]};'
                         f'border-radius:10px;padding:14px 18px">'
                         f'<div style="display:flex;align-items:center;font-weight:700;font-size:0.97rem;color:{T["text"]}">'
@@ -9839,10 +9835,10 @@ elif page == "Option Finder":
                         f'<div style="font-size:0.8rem;color:{T["text_muted"]};margin-top:8px">'
                         f'Lower delta, more downside buffer, less premium.</div>'
                         f'</div>'
-                    ))
+                    )
                 if 'aggressive' in _picks and _picks['aggressive'] != _picks.get('recommended'):
                     _a = _picks['aggressive']
-                    _alt_cards.append((
+                    _alt_cards.append(
                         f'<div style="background:{T["card_alt"]};border:1px solid {T["border_medium"]};'
                         f'border-radius:10px;padding:14px 18px">'
                         f'<div style="display:flex;align-items:center;font-weight:700;font-size:0.97rem;color:{T["text"]}">'
@@ -9851,7 +9847,7 @@ elif page == "Option Finder":
                         f'<div style="font-size:0.8rem;color:{T["text_muted"]};margin-top:8px">'
                         f'Higher delta, more premium, tighter buffer.</div>'
                         f'</div>'
-                    ))
+                    )
 
                 if _alt_cards:
                     _cols = st.columns(len(_alt_cards))

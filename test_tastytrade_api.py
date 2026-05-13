@@ -6,10 +6,8 @@ without network access, broker credentials, or a Streamlit runtime.
 """
 
 import json
-import ssl
 import sys
 import unittest
-from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
