@@ -713,3 +713,104 @@ def test_update_lens_weights_unknown_ticker_returns_error(monkeypatch):
         "UNKNOWN", {"dcf": 0.5}
     )
     assert "error" in _json.loads(result_json)
+
+
+# ---------------------------------------------------------------------------
+# update_sotp_segments
+# ---------------------------------------------------------------------------
+
+
+def _make_sotp_fake_storage(initial_sotp=None):
+    """Helper: build a fake Supabase storage with one TEST ticker."""
+    cfg = {"company": "Test", "ticker": "TEST"}
+    if initial_sotp is not None:
+        cfg["sotp"] = dict(initial_sotp)
+    return {"TEST": cfg}
+
+
+def _patch_sotp_storage(monkeypatch, storage):
+    """Helper: wire load_config/save_config to the in-memory storage."""
+    import mcp_server
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(
+        mcp_server.config_store, "load_config",
+        lambda c, t, user_id=None: dict(storage[t.upper()])
+            if t.upper() in storage else None,
+    )
+    monkeypatch.setattr(
+        mcp_server.config_store, "save_config",
+        lambda c, t, cfg, user_id=None: storage.update({t.upper(): dict(cfg)}),
+    )
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+
+
+def test_update_sotp_segments_adds_new_segment(monkeypatch):
+    """Calling with a new segment name appends it to cfg.sotp.segments."""
+    import json as _json
+    import mcp_server
+
+    storage = _make_sotp_fake_storage()  # no sotp key yet
+    _patch_sotp_storage(monkeypatch, storage)
+
+    result_json = mcp_server._update_sotp_segments_impl(
+        "TEST",
+        [{"name": "AWS", "ev_mid": 800000, "rationale": "8x EV/EBITDA"}],
+    )
+    result = _json.loads(result_json)
+
+    assert result["segment_count"] == 1
+    saved = storage["TEST"]["sotp"]["segments"]
+    assert len(saved) == 1
+    assert saved[0]["name"] == "AWS"
+    assert saved[0]["ev_mid"] == 800000
+    assert saved[0]["rationale"] == "8x EV/EBITDA"
+
+
+def test_update_sotp_segments_merges_existing_by_name(monkeypatch):
+    """Existing segment matched by name (case-insensitive) gets partial-merged;
+    other fields and other segments stay intact."""
+    import mcp_server
+
+    storage = _make_sotp_fake_storage({
+        "segments": [
+            {"name": "AWS", "ev_mid": 800000, "ev_low": 700000,
+             "rationale": "old rationale"},
+            {"name": "Retail", "ev_mid": 200000},
+        ],
+    })
+    _patch_sotp_storage(monkeypatch, storage)
+
+    mcp_server._update_sotp_segments_impl(
+        "TEST",
+        [{"name": "aws", "rationale": "updated rationale"}],  # lowercase match
+    )
+
+    segs = {s["name"]: s for s in storage["TEST"]["sotp"]["segments"]}
+    assert segs["AWS"]["ev_mid"] == 800000  # untouched
+    assert segs["AWS"]["ev_low"] == 700000  # untouched
+    assert segs["AWS"]["rationale"] == "updated rationale"  # merged
+    assert segs["Retail"]["ev_mid"] == 200000  # other segment untouched
+
+
+def test_update_sotp_segments_mixed_new_and_update(monkeypatch):
+    """A single call can both update an existing segment and add a new one."""
+    import mcp_server
+
+    storage = _make_sotp_fake_storage({
+        "segments": [{"name": "AWS", "ev_mid": 800000}],
+    })
+    _patch_sotp_storage(monkeypatch, storage)
+
+    mcp_server._update_sotp_segments_impl(
+        "TEST",
+        [
+            {"name": "AWS", "ev_mid": 900000},  # update
+            {"name": "Advertising", "ev_mid": 150000},  # new
+        ],
+    )
+
+    segs = storage["TEST"]["sotp"]["segments"]
+    assert len(segs) == 2
+    by_name = {s["name"]: s for s in segs}
+    assert by_name["AWS"]["ev_mid"] == 900000
+    assert by_name["Advertising"]["ev_mid"] == 150000

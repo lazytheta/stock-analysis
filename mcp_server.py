@@ -475,6 +475,109 @@ def _update_lens_weights_impl(ticker: str, weights: dict,
     return json.dumps(cfg["lens_weights"], default=str)
 
 
+def _update_sotp_segments_impl(ticker: str, segments: list,
+                                user_id: str | None = None) -> str:
+    """Core logic for update_sotp_segments. Upsert-by-name with partial merge.
+
+    For each input segment, match `name` against existing cfg.sotp.segments
+    using case-insensitive trim. Match found → merge supplied (non-None)
+    fields into the existing segment. No match → append as new segment
+    (requires ev_mid > 0).
+
+    Initialises cfg["sotp"] = {"segments": [], "corporate_overhead_ev_adjustment": 0}
+    if not yet present. Other segments are untouched.
+    """
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
+    if cfg is None:
+        return json.dumps({"error": f"{ticker.upper()} not found on watchlist"})
+
+    if not isinstance(segments, list) or not segments:
+        return json.dumps({
+            "error": "segments must be a non-empty list",
+        })
+
+    allowed_fields = {
+        "name", "ev_mid", "ev_low", "ev_high",
+        "revenue", "operating_margin", "implied_multiple_mid", "rationale",
+    }
+    numeric_fields = {
+        "ev_mid", "ev_low", "ev_high", "revenue",
+        "operating_margin", "implied_multiple_mid",
+    }
+    nonneg_fields = {"ev_mid", "ev_low", "ev_high"}
+
+    sotp = cfg.setdefault("sotp", {})
+    existing = list(sotp.get("segments") or [])
+
+    def _norm(n):
+        return (n or "").strip().lower()
+
+    for idx, inp in enumerate(segments):
+        if not isinstance(inp, dict):
+            return json.dumps({
+                "error": f"segment[{idx}] must be an object",
+            })
+        name = (inp.get("name") or "").strip()
+        if not name:
+            return json.dumps({
+                "error": f"segment[{idx}] missing required 'name'",
+            })
+        for k, v in inp.items():
+            if k not in allowed_fields:
+                return json.dumps({
+                    "error": f"segment '{name}': unknown field '{k}'. "
+                             f"Allowed: {sorted(allowed_fields)}",
+                })
+            if k in numeric_fields and v is not None:
+                if not isinstance(v, (int, float)) or isinstance(v, bool):
+                    return json.dumps({
+                        "error": f"segment '{name}': field '{k}' must be "
+                                 f"a number, got {type(v).__name__}={v!r}",
+                    })
+                if k in nonneg_fields and v < 0:
+                    return json.dumps({
+                        "error": f"segment '{name}': field '{k}' must be "
+                                 f">= 0, got {v}",
+                    })
+
+        match_idx = next(
+            (i for i, s in enumerate(existing)
+             if _norm(s.get("name")) == _norm(name)),
+            None,
+        )
+        if match_idx is None:
+            ev_mid = inp.get("ev_mid")
+            if not isinstance(ev_mid, (int, float)) or isinstance(ev_mid, bool) \
+                    or ev_mid <= 0:
+                return json.dumps({
+                    "error": f"new segment '{name}' requires ev_mid > 0",
+                })
+            new_seg = {k: v for k, v in inp.items()
+                       if k in allowed_fields and v is not None}
+            new_seg["name"] = name  # use trimmed name
+            existing.append(new_seg)
+        else:
+            merged = dict(existing[match_idx])
+            for k, v in inp.items():
+                if k == "name":
+                    continue  # preserve original stored name; don't overwrite with input casing
+                if k in allowed_fields and v is not None:
+                    merged[k] = v
+            existing[match_idx] = merged
+
+    sotp["segments"] = existing
+    cfg["sotp"] = sotp
+
+    config_store.save_config(client, ticker, cfg, user_id=user_id)
+    return json.dumps({
+        "ticker": ticker.upper(),
+        "sotp": sotp,
+        "segment_count": len(existing),
+    }, default=str)
+
+
 # ---------------------------------------------------------------------------
 # MCP Tools
 # ---------------------------------------------------------------------------
