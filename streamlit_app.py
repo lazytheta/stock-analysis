@@ -4337,8 +4337,8 @@ def _dcf_editor(ticker):
     growth = list(cfg.get('revenue_growth', []))
     margins = list(cfg.get('op_margins', []))
 
-    # ── Tabs: DCF / Reverse DCF / Peer Comparison ──
-    _tab_notes, _tab_dcf, _tab_rdcf, _tab_peers, _tab_dividend, _tab_fundamentals = st.tabs(["Pre-Scan", "DCF", "Reverse DCF", "Peer Comparison", "Dividend", "Fundamentals"])
+    # ── Tabs: DCF / Reverse DCF / Peer Comparison / Dividend / SOTP / Fundamentals ──
+    _tab_notes, _tab_dcf, _tab_rdcf, _tab_peers, _tab_dividend, _tab_sotp, _tab_fundamentals = st.tabs(["Pre-Scan", "DCF", "Reverse DCF", "Peer Comparison", "Dividend", "SOTP", "Fundamentals"])
 
     with _tab_dcf:
         st.markdown("#### Discounting Cash Flows")
@@ -5385,6 +5385,177 @@ def _dcf_editor(ticker):
                     f'</div>',
                     unsafe_allow_html=True,
                 )
+
+    with _tab_sotp:
+        st.markdown("#### Sum-of-the-Parts (SOTP)")
+        st.caption(
+            "Opt-in lens voor multi-segment bedrijven (AMZN, GOOGL, DIS) waar "
+            "segment-margins / groei zo divergent zijn dat een blended DCF te grof "
+            "is. Voer per segment de Enterprise Value (Low/Mid/High) in. Zet lens "
+            "weight onderaan op >0 om SOTP mee te wegen in multi-lens FV."
+        )
+
+        import pandas as _sotp_pd
+        _sotp_cfg = cfg.get("sotp") or {}
+        _sotp_segments = _sotp_cfg.get("segments") or []
+
+        _sotp_columns_order = [
+            "name", "ev_low", "ev_mid", "ev_high",
+            "revenue", "operating_margin", "implied_multiple_mid", "rationale",
+        ]
+        if _sotp_segments:
+            _sotp_df = _sotp_pd.DataFrame(_sotp_segments)
+            for _col in _sotp_columns_order:
+                if _col not in _sotp_df.columns:
+                    _sotp_df[_col] = None
+            _sotp_df = _sotp_df[_sotp_columns_order]
+        else:
+            _sotp_df = _sotp_pd.DataFrame(columns=_sotp_columns_order)
+
+        _sotp_df_edited = st.data_editor(
+            _sotp_df,
+            key=f"sotp_segments_{ticker}",
+            num_rows="dynamic",
+            use_container_width=True,
+            column_config={
+                "name": st.column_config.TextColumn(
+                    "Segment", required=True, help="e.g. AWS, Retail, Advertising",
+                ),
+                "ev_low": st.column_config.NumberColumn(
+                    "EV Low ($M)", min_value=0.0, step=1000.0, format="%.0f",
+                    help="Bear-case Enterprise Value contribution",
+                ),
+                "ev_mid": st.column_config.NumberColumn(
+                    "EV Mid ($M)", min_value=0.0, step=1000.0, format="%.0f",
+                    help="Base-case EV (required for non-empty rows)",
+                ),
+                "ev_high": st.column_config.NumberColumn(
+                    "EV High ($M)", min_value=0.0, step=1000.0, format="%.0f",
+                    help="Bull-case Enterprise Value contribution",
+                ),
+                "revenue": st.column_config.NumberColumn(
+                    "Rev ($M)", format="%.0f", help="Optional segment metadata",
+                ),
+                "operating_margin": st.column_config.NumberColumn(
+                    "Op Margin", format="%.3f", min_value=0.0, max_value=1.0,
+                    help="Optional, decimal form (0.37 = 37%)",
+                ),
+                "implied_multiple_mid": st.column_config.NumberColumn(
+                    "Mult", format="%.1f",
+                    help="Optional: implied EV/EBITDA or EV/Revenue at mid",
+                ),
+                "rationale": st.column_config.TextColumn(
+                    "Rationale", help="How we arrived at these EVs",
+                ),
+            },
+        )
+
+        # Filter empty/incomplete rows and persist
+        _sotp_new_segments = []
+        for _row in _sotp_df_edited.to_dict("records"):
+            _name = (_row.get("name") or "").strip()
+            _mid = _row.get("ev_mid")
+            try:
+                _mid_f = float(_mid) if _mid is not None and _mid == _mid else 0  # NaN check
+            except (TypeError, ValueError):
+                _mid_f = 0
+            if not _name or _mid_f <= 0:
+                continue
+            _clean = {"name": _name, "ev_mid": _mid_f}
+            for _k in ("ev_low", "ev_high", "revenue", "operating_margin", "implied_multiple_mid"):
+                _v = _row.get(_k)
+                if _v is not None and _v == _v:  # NaN-safe
+                    try:
+                        _clean[_k] = float(_v)
+                    except (TypeError, ValueError):
+                        pass
+            _rationale = (_row.get("rationale") or "").strip()
+            if _rationale:
+                _clean["rationale"] = _rationale
+            _sotp_new_segments.append(_clean)
+
+        cfg["sotp"] = dict(_sotp_cfg)
+        cfg["sotp"]["segments"] = _sotp_new_segments
+
+        # Corporate overhead adjustment
+        _sotp_corp_adj = st.number_input(
+            "Corporate overhead EV adjustment ($M, negative to subtract)",
+            value=float(_sotp_cfg.get("corporate_overhead_ev_adjustment", 0) or 0),
+            step=1000.0,
+            key=f"sotp_corp_adj_{ticker}",
+            help="Manual adjustment for unallocated corporate overhead. "
+                 "Negative to subtract (capitalized overhead × (1-tax) / WACC).",
+        )
+        cfg["sotp"]["corporate_overhead_ev_adjustment"] = _sotp_corp_adj
+
+        # Bridge + FV computation display
+        if _sotp_new_segments:
+            _ttl_low = sum(float(s.get("ev_low", s.get("ev_mid", 0)) or 0) for s in _sotp_new_segments)
+            _ttl_mid = sum(float(s.get("ev_mid", 0) or 0) for s in _sotp_new_segments)
+            _ttl_high = sum(float(s.get("ev_high", s.get("ev_mid", 0)) or 0) for s in _sotp_new_segments)
+            _eq_inv = float(cfg.get("equity_investments", 0) or 0)
+            _cash_l = float((cfg.get("cash") or [0])[-1] or 0)
+            _sec_l = float((cfg.get("st_investments") or [0])[-1] or 0)
+            _debt_v = float(cfg.get("debt_market_value", 0) or 0)
+            _min_v = float(cfg.get("minority_interest", 0) or 0)
+            _pen_v = float(cfg.get("unfunded_pension", 0) or 0)
+            _shares_v = float(cfg.get("shares_outstanding", 1) or 1) or 1
+            _bridge_delta = _eq_inv + _sotp_corp_adj + _cash_l + _sec_l - _debt_v - _min_v - _pen_v
+            _eq_low = _ttl_low + _bridge_delta
+            _eq_mid = _ttl_mid + _bridge_delta
+            _eq_high = _ttl_high + _bridge_delta
+            _fv_low_v = _eq_low / _shares_v
+            _fv_mid_v = _eq_mid / _shares_v
+            _fv_high_v = _eq_high / _shares_v
+
+            _row_html = (
+                'display:flex;justify-content:space-between;padding:4px 0;'
+                f'color:{T["text"]};font-size:0.9rem'
+            )
+            _sep_html = f'border-top:1px solid {T["separator"]};margin:6px 0'
+            _final_html = f'border-top:2px solid {T["accent"]};margin:6px 0'
+
+            st.markdown(
+                f'<div style="background:{T["card"]};padding:14px 18px;border-radius:10px;'
+                f'margin-top:14px;border:1px solid {T["border_light"]}">'
+                f'<div style="{_row_html}"><span>Total segment EV (Low / Mid / High)</span>'
+                f'<span><b>${_ttl_low:,.0f}M · ${_ttl_mid:,.0f}M · ${_ttl_high:,.0f}M</b></span></div>'
+                f'<div style="{_sep_html}"></div>'
+                f'<div style="{_row_html}"><span>+ Equity investments</span><span>${_eq_inv:,.0f}M</span></div>'
+                f'<div style="{_row_html}"><span>+ Corp overhead adj</span><span>${_sotp_corp_adj:,.0f}M</span></div>'
+                f'<div style="{_row_html}"><span>+ Cash + Securities</span><span>${_cash_l + _sec_l:,.0f}M</span></div>'
+                f'<div style="{_row_html}"><span>− Debt − Minority − Pension</span>'
+                f'<span>−${_debt_v + _min_v + _pen_v:,.0f}M</span></div>'
+                f'<div style="{_sep_html}"></div>'
+                f'<div style="{_row_html}"><span>= Equity Value (Low / Mid / High)</span>'
+                f'<span><b>${_eq_low:,.0f}M · ${_eq_mid:,.0f}M · ${_eq_high:,.0f}M</b></span></div>'
+                f'<div style="{_row_html}"><span>÷ Shares outstanding</span>'
+                f'<span>{_shares_v:,.0f}M</span></div>'
+                f'<div style="{_final_html}"></div>'
+                f'<div style="{_row_html};font-size:1rem">'
+                f'<span><b>SOTP Fair Value per share</b></span>'
+                f'<span><b style="color:{T["accent"]}">'
+                f'${_fv_low_v:.2f} · ${_fv_mid_v:.2f} · ${_fv_high_v:.2f}</b></span></div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info("Geen segmenten ingevoerd. SOTP-lens blijft uit voor deze ticker.")
+
+        # Lens weight
+        st.markdown("---")
+        _sotp_lw = cfg.get("lens_weights") or {}
+        _sotp_weight = st.number_input(
+            "SOTP lens weight (0.0 = off, 1.0 = SOTP only)",
+            value=float(_sotp_lw.get("sotp", 0.0) or 0.0),
+            min_value=0.0, max_value=1.0, step=0.05, format="%.2f",
+            key=f"sotp_weight_{ticker}",
+            help="Default 0.0 (opt-in). Voor multi-segment namen (AMZN/GOOGL) is "
+                 "0.30-0.40 typisch. Overige lenses worden automatisch "
+                 "her-genormaliseerd in calculate_multi_lens_valuation.",
+        )
+        cfg["lens_weights"] = dict(_sotp_lw)
+        cfg["lens_weights"]["sotp"] = _sotp_weight
 
     with _tab_fundamentals:
         st.markdown("#### Fundamentals")
@@ -6969,6 +7140,23 @@ def _dcf_editor(ticker):
             f'{_ml_up_sign}{_ml_upside:.1%}</b></span>'
         )
 
+    # SOTP pill — shown when lens has FV in valuation_summary
+    _sotp_pill = ''
+    _sotp_lens_out = (_ml.get('lenses') or {}).get('sotp') if _ml else None
+    if _sotp_lens_out and _sotp_lens_out.get('fv_mid'):
+        _sotp_mid_v = float(_sotp_lens_out['fv_mid'])
+        _sotp_low_v = _sotp_lens_out.get('fv_low')
+        _sotp_high_v = _sotp_lens_out.get('fv_high')
+        _sotp_range_txt = ''
+        if _sotp_low_v and _sotp_high_v and _sotp_low_v != _sotp_high_v:
+            _sotp_range_txt = (
+                f' <span style="color:{T["text_muted"]};font-size:0.78em">'
+                f'(${_sotp_low_v:.0f}–${_sotp_high_v:.0f})</span>'
+            )
+        _sotp_pill = (
+            f'<span class="stat-pill">SOTP FV <b>${_sotp_mid_v:.2f}</b>{_sotp_range_txt}</span>'
+        )
+
     # Verdict pill (from scorecard JSON in ai_notes) — plain text, inherits pill style
     _sc_pills = ''
     _ai_notes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else None
@@ -7000,6 +7188,7 @@ def _dcf_editor(ticker):
         f'<span class="stat-pill">DCF Buy <b>${_h_buy:.2f}</b></span>'
         f'<span class="stat-pill">DCF Upside <b style="color:{_h_up_color}">{_h_up_sign}{_h_upside:.1%}</b></span>'
         f'{_ml_pills}'
+        f'{_sotp_pill}'
         f'{_sc_pills}'
         f'</div>'
         f'</div>',
