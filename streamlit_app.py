@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 from error_logger import log_error, log_error_with_trace
 from dcf_calculator import compute_wacc, compute_intrinsic_value, compute_reverse_dcf
-from valuation_lenses import FORWARD_LENSES, FORWARD_LENS_KEYS
+from valuation_lenses import FORWARD_LENSES
 from config_store import save_config, load_config, list_watchlist, remove_from_watchlist, load_user_prefs, save_user_prefs, load_credential, save_credential, delete_credential, load_ibkr_credentials, save_ibkr_credentials, delete_ibkr_credentials, IBKR_CREDENTIAL_KEYS, log_page_view
 from gather_data import (
     get_cik,
@@ -114,20 +114,23 @@ def _range_bar_marker_position(price: float, low: float, high: float) -> tuple[f
 def _render_lens_dots(lenses: dict, theme: dict) -> str:
     """Render N dots showing which forward-looking lenses are active + a count label.
 
-    Order: dcf · multiples · historical · dividend. Reverse DCF is intentionally not
-    rendered — it anchors at current price by definition (see
-    docs/superpowers/specs/2026-05-07-reverse-dcf-demote-from-watchlist-design.md).
+    Order from FORWARD_LENSES: dcf · multiples · historical · dividend · sotp.
+    Reverse DCF intentionally not rendered — it anchors at current price by
+    definition (see 2026-05-07-reverse-dcf-demote-from-watchlist-design.md).
 
     Each lens key maps to a non-None lens dict (active, green dot) or None
-    (skipped, grey dot). Label: "{N} lens" or "{N} lenses" or "no lenses".
+    (skipped, grey dot). Hover-tooltip via native `title` attribute shows the
+    lens name + active/skipped status. Label: "{N} lens" or "{N} lenses".
     """
-    order = list(FORWARD_LENS_KEYS)
-    actives = [name for name in order if lenses.get(name) is not None]
+    order = list(FORWARD_LENSES)  # (key, display_label) tuples
+    actives = [key for key, _ in order if lenses.get(key) is not None]
 
     parts = []
-    for name in order:
-        cls = "ld-on" if lenses.get(name) is not None else "ld-off"
-        parts.append(f'<span class="{cls}"></span>')
+    for key, label in order:
+        is_active = lenses.get(key) is not None
+        cls = "ld-on" if is_active else "ld-off"
+        status = "active" if is_active else "skipped"
+        parts.append(f'<span class="{cls}" title="{label}: {status}"></span>')
 
     n = len(actives)
     if n == 0:
@@ -4172,11 +4175,16 @@ def _watchlist_overview():
         f'''<style>
         .ld-on {{
             display:inline-block;width:6px;height:6px;border-radius:50%;
-            background:{T["accent"]};margin-right:2px;
+            background:{T["accent"]};margin-right:2px;cursor:help;
+            transition:transform 0.1s ease;
         }}
         .ld-off {{
             display:inline-block;width:6px;height:6px;border-radius:50%;
-            background:{T["border_medium"]};margin-right:2px;
+            background:{T["border_medium"]};margin-right:2px;cursor:help;
+            transition:transform 0.1s ease;
+        }}
+        .ld-on:hover, .ld-off:hover {{
+            transform:scale(1.5);
         }}
         .range-bar {{
             min-width:110px;
