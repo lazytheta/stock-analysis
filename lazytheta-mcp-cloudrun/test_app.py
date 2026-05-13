@@ -543,9 +543,10 @@ def test_oauth_magic_finalize_rejects_invalid_supabase_token(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_tools_list_returns_13_tools():
-    """tools/list returns the full set of 13 tools (added
-    update_dcf_scenario_adjustments on 2026-05-13)."""
+def test_tools_list_returns_16_tools():
+    """tools/list returns the full set of 16 tools (added 3 SOTP tools on
+    2026-05-13: update_sotp_segments, remove_sotp_segment,
+    set_sotp_corporate_overhead)."""
     from starlette.testclient import TestClient
     from mcp_auth import sign_jwt
     from main import app
@@ -559,13 +560,14 @@ def test_tools_list_returns_13_tools():
     )
     assert r.status_code == 200
     tools = r.json()["result"]["tools"]
-    assert len(tools) == 13
+    assert len(tools) == 16
     names = {t["name"] for t in tools}
     assert names == {
         "build_dcf_config", "calculate_valuation", "calculate_multi_lens_valuation",
         "refresh_all_valuations", "save_to_watchlist", "get_config",
         "get_watchlist", "update_valuation_inputs", "update_lens_weights",
         "update_dcf_scenario_adjustments",
+        "update_sotp_segments", "remove_sotp_segment", "set_sotp_corporate_overhead",
         "get_prescan_prompts", "get_prescan_sections", "save_prescan_section",
     }
 
@@ -728,3 +730,106 @@ def test_tools_call_save_prescan_section_passes_three_args(monkeypatch):
     assert captured == {
         "ticker": "MSFT", "title": "Notes", "content": "content", "user_id": "u",
     }
+
+
+def test_tools_call_update_sotp_segments_passes_args(monkeypatch):
+    """update_sotp_segments routes ticker, segments, user_id to the impl."""
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt
+    from main import app
+    import mcp_server
+
+    captured = {}
+    def fake_impl(ticker, segments, user_id=None):
+        captured.update({"ticker": ticker, "segments": segments, "user_id": user_id})
+        return '{"segment_count": 1}'
+    monkeypatch.setattr(mcp_server, "_update_sotp_segments_impl", fake_impl)
+
+    token = sign_jwt({"type": "access_token", "user_id": "jwt-uid"}, ttl_seconds=60)
+    client = TestClient(app)
+    r = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {
+                "name": "update_sotp_segments",
+                "arguments": {
+                    "ticker": "AMZN",
+                    "segments": [{"name": "AWS", "ev_mid": 800000}],
+                },
+            },
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    assert captured == {
+        "ticker": "AMZN",
+        "segments": [{"name": "AWS", "ev_mid": 800000}],
+        "user_id": "jwt-uid",
+    }
+
+
+def test_tools_call_remove_sotp_segment_passes_args(monkeypatch):
+    """remove_sotp_segment routes ticker, name, user_id to the impl."""
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt
+    from main import app
+    import mcp_server
+
+    captured = {}
+    def fake_impl(ticker, name, user_id=None):
+        captured.update({"ticker": ticker, "name": name, "user_id": user_id})
+        return '{"removed": 1}'
+    monkeypatch.setattr(mcp_server, "_remove_sotp_segment_impl", fake_impl)
+
+    token = sign_jwt({"type": "access_token", "user_id": "jwt-uid"}, ttl_seconds=60)
+    client = TestClient(app)
+    r = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {
+                "name": "remove_sotp_segment",
+                "arguments": {"ticker": "AMZN", "name": "AWS"},
+            },
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    assert captured == {"ticker": "AMZN", "name": "AWS", "user_id": "jwt-uid"}
+
+
+def test_tools_call_set_sotp_corporate_overhead_passes_args(monkeypatch):
+    """set_sotp_corporate_overhead routes ticker, value, user_id to the impl."""
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt
+    from main import app
+    import mcp_server
+
+    captured = {}
+    def fake_impl(ticker, value, user_id=None):
+        captured.update({"ticker": ticker, "value": value, "user_id": user_id})
+        return '{"set": true}'
+    monkeypatch.setattr(mcp_server, "_set_sotp_corporate_overhead_impl", fake_impl)
+
+    token = sign_jwt({"type": "access_token", "user_id": "jwt-uid"}, ttl_seconds=60)
+    client = TestClient(app)
+    r = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {
+                "name": "set_sotp_corporate_overhead",
+                "arguments": {"ticker": "AMZN", "value": -5000},
+            },
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    assert captured == {"ticker": "AMZN", "value": -5000, "user_id": "jwt-uid"}
