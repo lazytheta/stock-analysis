@@ -884,3 +884,86 @@ def test_update_sotp_segments_negative_ev_returns_error(monkeypatch):
     body = _json.loads(result_json)
     assert "error" in body
     assert "ev_mid" in body["error"]
+
+
+# ---------------------------------------------------------------------------
+# remove_sotp_segment
+# ---------------------------------------------------------------------------
+
+
+def test_remove_sotp_segment_removes_existing(monkeypatch):
+    """Removing an existing segment leaves the rest intact."""
+    import mcp_server
+
+    storage = _make_sotp_fake_storage({
+        "segments": [
+            {"name": "AWS", "ev_mid": 800000},
+            {"name": "Retail", "ev_mid": 200000},
+        ],
+    })
+    _patch_sotp_storage(monkeypatch, storage)
+
+    mcp_server._remove_sotp_segment_impl("TEST", "AWS")
+
+    segs = storage["TEST"]["sotp"]["segments"]
+    assert len(segs) == 1
+    assert segs[0]["name"] == "Retail"
+
+
+def test_remove_sotp_segment_case_insensitive(monkeypatch):
+    """Name match is case-insensitive."""
+    import mcp_server
+
+    storage = _make_sotp_fake_storage({
+        "segments": [{"name": "AWS", "ev_mid": 800000}],
+    })
+    _patch_sotp_storage(monkeypatch, storage)
+
+    mcp_server._remove_sotp_segment_impl("TEST", "aws")
+
+    assert storage["TEST"]["sotp"]["segments"] == []
+
+
+def test_remove_sotp_segment_missing_name_is_noop(monkeypatch):
+    """Removing a non-existing name is a no-op, not an error."""
+    import json as _json
+    import mcp_server
+
+    storage = _make_sotp_fake_storage({
+        "segments": [{"name": "AWS", "ev_mid": 800000}],
+    })
+    _patch_sotp_storage(monkeypatch, storage)
+
+    result_json = mcp_server._remove_sotp_segment_impl("TEST", "NonExistent")
+    result = _json.loads(result_json)
+    assert "error" not in result
+    assert storage["TEST"]["sotp"]["segments"] == [{"name": "AWS", "ev_mid": 800000}]
+
+
+def test_remove_sotp_segment_no_sotp_dict_is_noop(monkeypatch):
+    """Removing from a cfg that has no sotp key is a no-op."""
+    import json as _json
+    import mcp_server
+
+    storage = _make_sotp_fake_storage()  # no sotp
+    _patch_sotp_storage(monkeypatch, storage)
+
+    result_json = mcp_server._remove_sotp_segment_impl("TEST", "AWS")
+    result = _json.loads(result_json)
+    assert "error" not in result
+
+
+def test_remove_sotp_segment_unknown_ticker_returns_error(monkeypatch):
+    """Unknown ticker → error JSON."""
+    import json as _json
+    import mcp_server
+
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(
+        mcp_server.config_store, "load_config",
+        lambda c, t, user_id=None: None,
+    )
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+
+    result_json = mcp_server._remove_sotp_segment_impl("UNKNOWN", "AWS")
+    assert "error" in _json.loads(result_json)

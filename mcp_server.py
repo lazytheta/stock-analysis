@@ -577,6 +577,39 @@ def _update_sotp_segments_impl(ticker: str, segments: list,
     }, default=str)
 
 
+def _remove_sotp_segment_impl(ticker: str, name: str,
+                               user_id: str | None = None) -> str:
+    """Core logic for remove_sotp_segment. Case-insensitive name match.
+    Idempotent — removing a non-existent name is a no-op, not an error.
+    """
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
+    if cfg is None:
+        return json.dumps({"error": f"{ticker.upper()} not found on watchlist"})
+
+    target = (name or "").strip().lower()
+    if not target:
+        return json.dumps({"error": "name must be a non-empty string"})
+
+    sotp = cfg.get("sotp") or {}
+    segments = list(sotp.get("segments") or [])
+    new_segments = [s for s in segments
+                    if (s.get("name") or "").strip().lower() != target]
+
+    if len(new_segments) != len(segments):
+        sotp["segments"] = new_segments
+        cfg["sotp"] = sotp
+        config_store.save_config(client, ticker, cfg, user_id=user_id)
+
+    return json.dumps({
+        "ticker": ticker.upper(),
+        "sotp": cfg.get("sotp") or {"segments": []},
+        "segment_count": len(new_segments),
+        "removed": len(segments) - len(new_segments),
+    }, default=str)
+
+
 # ---------------------------------------------------------------------------
 # MCP Tools
 # ---------------------------------------------------------------------------
