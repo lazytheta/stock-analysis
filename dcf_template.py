@@ -501,7 +501,6 @@ def build_dcf_model(cfg, output_path):
     def build_scenario_block(start_row, name, g_adj_cell, m_adj_cell, hdr_fi, bg_fi, sec_font):
         """Build complete formula-linked DCF block. Returns dict with key row refs."""
         r = start_row
-        yr_cols = [cl(YR1 + i) for i in range(n_proj)]  # D,E,F,...,M
 
         # Title
         lb(r, 2, f"{name} Case — Discounted Cash Flows", sec_font)
@@ -664,7 +663,6 @@ def build_dcf_model(cfg, output_path):
     r += 1
     for c, v in [(2,"Scenario"),(3,"Share Price"),(4,"Buy Price"),(5,"vs Markt"),(6,"Revenue CAGR"),(7,"Gem. Marge")]:
         sc(r, c, v, WHT_B, HDR)
-    R_SUM_HDR = r
 
     # Bull summary row
     r += 1
@@ -728,12 +726,10 @@ def build_dcf_model(cfg, output_path):
         min(0.50, margin_center + 0.04),
         min(0.50, margin_center + 0.06),
     ]))
-    
-    n_grow = len(growth_tests)
+
     n_marg = len(margin_tests)
-    
+
     # Header
-    matrix_width = 2 + n_marg  # label col + margin cols
     ws.merge_cells(f'B{R_RD}:{cl(2 + n_marg + 1)}{R_RD}')
     hdr_bar(R_RD, 2, 2 + n_marg + 1, "Reverse DCF — Revenue Growth × Operating Margin Sensitivity")
     
@@ -827,7 +823,6 @@ def build_dcf_model(cfg, output_path):
     
     r += 1
     base_cagr = cagr_from_list(base_growth)
-    base_price_check = matrix.get(closest_cell, 0)
     if closest_cell and closest_cell[0] > base_cagr * 1.2:
         note(r, 2, f"⚠ Market is more optimistic: implies {closest_cell[0]:.0%} growth at {closest_cell[1]:.0%} margin vs your {base_cagr:.1%}/{avg_base_margin:.1%}")
     elif closest_cell and closest_cell[0] < base_cagr * 0.8:
@@ -948,8 +943,7 @@ def build_summary_sheet(wb, cfg):
     hist_ni = cfg.get('hist_net_income', [])
     hist_sbc = cfg.get('hist_sbc_values', [])
     hist_shares = cfg.get('hist_shares', [])
-    tax = cfg['tax_rate']
-    
+
     ics = [_calc_ic(cfg, i) for i in range(n)]
     nopats = _calc_nopats(cfg)
     
@@ -1305,7 +1299,6 @@ def build_calculations_sheet(wb, cfg):
     
     # ── Styles ──
     BLUE = Font(name='Calibri', color='0000FF', size=11)
-    BLUE_B = Font(name='Calibri', color='0000FF', size=11, bold=True)
     BLK = Font(name='Calibri', color='000000', size=11)
     BLK_B = Font(name='Calibri', color='000000', size=11, bold=True)
     WHT_B = Font(name='Calibri', color='FFFFFF', size=11, bold=True)
@@ -1350,8 +1343,6 @@ def build_calculations_sheet(wb, cfg):
     # ── Data ──
     years = cfg['ic_years']
     n = len(years)
-    tax = cfg['tax_rate']
-    hist_oi = cfg.get('hist_operating_income', [])
     hist_shares = cfg.get('hist_shares', [])
     hist_sbc = cfg.get('hist_sbc_values', [])
     _shares_for_price = cfg.get('shares_outstanding', 0) or 0
@@ -1643,12 +1634,6 @@ def build_calculations_sheet(wb, cfg):
         last_shares = hist_shares[-1]
         if not first_shares or first_shares <= 0:
             first_shares = last_shares  # no valid baseline → treat as flat
-        # Find peak shares (often right after IPO lockup)
-        peak_shares = max(hist_shares)
-        peak_idx = hist_shares.index(peak_shares)
-        total_chg = (last_shares - first_shares) / first_shares if first_shares > 0 else 0
-        peak_chg = (last_shares - peak_shares) / peak_shares if peak_shares > 0 else 0
-
         # Recent trend (last 3 years)
         recent_start = max(0, n - 4)
         recent_chg = (hist_shares[-1] - hist_shares[recent_start]) / hist_shares[recent_start] if hist_shares[recent_start] and hist_shares[recent_start] > 0 else 0
@@ -1739,8 +1724,6 @@ def build_peer_comparison_sheet(wb, cfg):
     GREY = Font(name='Calibri', color='808080', size=11, italic=True)
     HDR = PatternFill('solid', fgColor='4472C4')
     INP = PatternFill('solid', fgColor='BDD7EE')
-    GRN_BG = PatternFill('solid', fgColor='E2EFDA')
-    RED_BG = PatternFill('solid', fgColor='FBE5D6')
     THIN = Border(
         left=Side('thin', color='B4C6E7'), right=Side('thin', color='B4C6E7'),
         top=Side('thin', color='B4C6E7'), bottom=Side('thin', color='B4C6E7'))
@@ -1802,7 +1785,6 @@ def build_peer_comparison_sheet(wb, cfg):
     hist_rev = cfg.get('hist_revenue', [])
     rev_g = (hist_rev[-1] / hist_rev[-2] - 1) if len(hist_rev) >= 2 and hist_rev[-2] else 0
     op_margin = last_oi / last_rev if last_rev else 0
-    stock_price = cfg.get('stock_price', 0)
 
     # Compute subject company EBITDA proxy (OI + D&A estimate)
     # Use OI as proxy if no EBITDA available
@@ -1928,7 +1910,6 @@ def build_sensitivity_sheet(wb, cfg, run_dcf_fn):
     RED = Font(name='Calibri', color='CC0000', size=11)
     GRN_I = Font(name='Calibri', color='008000', size=11, italic=True)
     HDR = PatternFill('solid', fgColor='4472C4')
-    INP = PatternFill('solid', fgColor='BDD7EE')
     GRN_BG = PatternFill('solid', fgColor='E2EFDA')
     ORANGE = PatternFill('solid', fgColor='FF6600')
     THIN = Border(

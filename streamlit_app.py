@@ -868,7 +868,7 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
         "revisit": ("Kind Of — Revisit", "yellow"),
         "deep_dive": ("Yes — Deep Dive", "green"),
     }
-    v_label, v_color = _verdict_map.get(verdict, ("Unknown", ""))
+    _v_label, _v_color = _verdict_map.get(verdict, ("Unknown", ""))
     html += (
         f'<tr><td colspan="4" style="padding:16px 12px;background:{theme["row_alt"]};'
         f'border-top:2px solid {theme["border_medium"]}"><div style="display:flex;'
@@ -4458,7 +4458,7 @@ def _dcf_editor(ticker):
                 with bc1:
                     if sector_list:
                         if name and name not in sector_list:
-                            sector_list = [name] + sector_list
+                            sector_list = [name, *sector_list]
                         idx = sector_list.index(name) if name in sector_list else 0
                         new_name = st.selectbox(
                             "Sector", sector_list, index=idx, key=f"ed_bn_{i}",
@@ -6141,7 +6141,7 @@ def _dcf_editor(ticker):
             _ni_l = fund.get('net_income') or [None] * _n
             for i in range(_n):
                 s = fund['shares'][i]
-                if not s or s <= 0:
+                if not s or s <= 0:  # noqa: SIM102 — nested form keeps "shares missing? derive from EPS×NI" intent clearer
                     if _eps_l[i] and _ni_l[i] is not None and _eps_l[i] != 0:
                         s = (_ni_l[i] * 1e6) / _eps_l[i]
                 _shares_eff.append(s if s and s > 0 else None)
@@ -7876,7 +7876,7 @@ def _aggregate_month_trades(cost_basis, year, month):
                 if label in ("CSP", "CC"):
                     td_obj["contracts"] += abs(int(t.get("quantity", 0)))
                 if label in ("CSP", "CC"):
-                    strike, exp_str, cp = _parse_option_symbol(t.get("symbol"))
+                    strike, exp_str, _cp = _parse_option_symbol(t.get("symbol"))
                     if exp_str and hasattr(td, "year"):
                         try:
                             exp_dt = datetime.strptime(exp_str, "%d-%m-%Y")
@@ -8064,7 +8064,7 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
                     td_obj["contracts"] += abs(int(t.get("quantity", 0)))
                 if label in ("CSP", "CC"):
                     td = t["date"]
-                    strike, exp_str, cp = _parse_option_symbol(t.get("symbol"))
+                    strike, exp_str, _cp = _parse_option_symbol(t.get("symbol"))
                     if exp_str and hasattr(td, "year"):
                         try:
                             exp_dt = datetime.strptime(exp_str, "%d-%m-%Y")

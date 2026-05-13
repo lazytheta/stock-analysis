@@ -336,7 +336,7 @@ class TestFetchPortfolioData(unittest.TestCase):
 
         with patch("tastytrade_api.Account") as MockAccount:
             MockAccount.get = AsyncMock(return_value=[acct])
-            cost_basis, acct_num = tastytrade_api.fetch_portfolio_data()
+            cost_basis, _acct_num = tastytrade_api.fetch_portfolio_data()
 
         self.assertEqual(cost_basis, {})
 

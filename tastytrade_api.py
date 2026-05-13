@@ -33,8 +33,8 @@ def _get_secret(key):
     try:
         import streamlit as st
         return str(st.secrets[key]).strip()
-    except Exception:
-        raise KeyError(key)
+    except Exception as e:
+        raise KeyError(key) from e
 
 
 def _get_session(refresh_token=None):
@@ -117,7 +117,6 @@ def calculate_cost_basis(transactions):
         # Determine trade label (CSP, CC, etc.)
         desc = txn.description or ""
         is_put = "Put" in desc
-        is_call = "Call" in desc
         if "dividend" in sub_type.lower():
             label = "Dividend"
         elif "Option" in inst:
@@ -1274,7 +1273,7 @@ def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60, num_str
             async with DXLinkStreamer(session, ssl_context=_ctx) as streamer:
                 async def _collect_option_quotes():
                     # Also subscribe to underlying ticker for live price update
-                    _sub_symbols = all_symbols + [ticker]
+                    _sub_symbols = [*all_symbols, ticker]
                     await streamer.subscribe(QuoteEvent, _sub_symbols)
                     received = set()
                     async for quote in streamer.listen(QuoteEvent):

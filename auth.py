@@ -379,7 +379,7 @@ def render_login_page():
     )
 
     # ── Login form ──
-    col1, col2, col3 = st.columns([1, 2, 1])
+    _col1, col2, _col3 = st.columns([1, 2, 1])
     with col2:
         tab_login, tab_signup = st.tabs(["Sign in", "Create account"])
 

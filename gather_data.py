@@ -99,7 +99,6 @@ SIC_TO_SECTOR = {
     2834: ("Pharma & Drugs", 0.95),
     2835: ("Pharma & Drugs", 0.95),
     2833: ("Pharma & Drugs", 0.95),
-    2860: ("Pharma & Drugs", 0.95),
     2830: ("Pharma & Drugs", 0.95),
     8731: ("Biotechnology", 1.40),
     # Retail
@@ -1934,7 +1933,6 @@ def fetch_peer_data(peer_tickers):
             rev = fin["revenue"][-1] or 0
             oi = (fin["operating_income"][-1] or 0) if fin["operating_income"] else 0
             ni = (fin["net_income"][-1] or 0) if fin["net_income"] else 0
-            cogs = (fin["cost_of_revenue"][-1] or 0) if fin["cost_of_revenue"] else 0
             debt = fin["lt_debt_latest"] or 0
             cash_val = (fin["cash"][-1] or 0) if fin["cash"] else 0
 
