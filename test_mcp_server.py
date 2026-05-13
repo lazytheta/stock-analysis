@@ -818,3 +818,69 @@ def test_update_sotp_segments_mixed_new_and_update(monkeypatch):
     by_name = {s["name"]: s for s in segs}
     assert by_name["AWS"]["ev_mid"] == 900000
     assert by_name["Advertising"]["ev_mid"] == 150000
+
+
+def test_update_sotp_segments_unknown_ticker_returns_error(monkeypatch):
+    """Unknown ticker → error JSON."""
+    import json as _json
+    import mcp_server
+
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(
+        mcp_server.config_store, "load_config",
+        lambda c, t, user_id=None: None,
+    )
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+
+    result_json = mcp_server._update_sotp_segments_impl(
+        "UNKNOWN", [{"name": "AWS", "ev_mid": 100}]
+    )
+    assert "error" in _json.loads(result_json)
+
+
+def test_update_sotp_segments_empty_list_returns_error(monkeypatch):
+    """Empty segments list → error JSON, no write."""
+    import json as _json
+    import mcp_server
+
+    storage = _make_sotp_fake_storage({"segments": [{"name": "AWS", "ev_mid": 100}]})
+    _patch_sotp_storage(monkeypatch, storage)
+
+    result_json = mcp_server._update_sotp_segments_impl("TEST", [])
+    assert "error" in _json.loads(result_json)
+    # unchanged
+    assert storage["TEST"]["sotp"]["segments"] == [{"name": "AWS", "ev_mid": 100}]
+
+
+def test_update_sotp_segments_new_segment_without_ev_mid_returns_error(monkeypatch):
+    """New segment without ev_mid > 0 → error JSON, no write."""
+    import json as _json
+    import mcp_server
+
+    storage = _make_sotp_fake_storage()
+    _patch_sotp_storage(monkeypatch, storage)
+
+    result_json = mcp_server._update_sotp_segments_impl(
+        "TEST", [{"name": "AWS", "rationale": "no ev"}]
+    )
+    body = _json.loads(result_json)
+    assert "error" in body
+    assert "AWS" in body["error"]
+    # no sotp written
+    assert "sotp" not in storage["TEST"] or not storage["TEST"]["sotp"].get("segments")
+
+
+def test_update_sotp_segments_negative_ev_returns_error(monkeypatch):
+    """Negative EV value → error JSON, no write."""
+    import json as _json
+    import mcp_server
+
+    storage = _make_sotp_fake_storage()
+    _patch_sotp_storage(monkeypatch, storage)
+
+    result_json = mcp_server._update_sotp_segments_impl(
+        "TEST", [{"name": "AWS", "ev_mid": -100}]
+    )
+    body = _json.loads(result_json)
+    assert "error" in body
+    assert "ev_mid" in body["error"]
