@@ -99,6 +99,14 @@ async def _tool_update_lens_weights(user_id: str, args: dict) -> Any:
     )
 
 
+async def _tool_update_dcf_scenario_adjustments(user_id: str, args: dict) -> Any:
+    return mcp_server._update_dcf_scenario_adjustments_impl(
+        ticker=args["ticker"],
+        fields=args["fields"],
+        user_id=user_id,
+    )
+
+
 async def _tool_get_prescan_prompts(user_id: str, args: dict) -> Any:
     return mcp_server._get_prescan_prompts_impl(args["ticker"], user_id=user_id)
 
@@ -260,6 +268,32 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "update_dcf_scenario_adjustments",
+        "description": (
+            "Adjust the DCF bear/bull scenario adjustments that drive the "
+            "DCF lens's fv_low/fv_high range when scenario_grid=True. "
+            "Valid keys: bear_growth_adj, bear_margin_adj, bull_growth_adj, "
+            "bull_margin_adj. All values must be numbers (typical magnitudes "
+            "±0.01 to ±0.05). Bear keys are usually negative, bull keys "
+            "positive. Call calculate_multi_lens_valuation(scenario_grid=True) "
+            "afterwards to see the new range."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "fields": {
+                    "type": "object",
+                    "description": (
+                        "Dict with any of: bear_growth_adj, bear_margin_adj, "
+                        "bull_growth_adj, bull_margin_adj — all floats"
+                    ),
+                },
+            },
+            "required": ["ticker", "fields"],
+        },
+    },
+    {
         "name": "get_prescan_prompts",
         "description": (
             "Return the user's prescan prompt library with placeholders "
@@ -309,6 +343,7 @@ TOOL_HANDLERS: dict[str, Callable[[str, dict], Awaitable[Any]]] = {
     "get_watchlist": _tool_get_watchlist,
     "update_valuation_inputs": _tool_update_valuation_inputs,
     "update_lens_weights": _tool_update_lens_weights,
+    "update_dcf_scenario_adjustments": _tool_update_dcf_scenario_adjustments,
     "get_prescan_prompts": _tool_get_prescan_prompts,
     "get_prescan_sections": _tool_get_prescan_sections,
     "save_prescan_section": _tool_save_prescan_section,

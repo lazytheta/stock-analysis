@@ -379,6 +379,54 @@ def _update_valuation_inputs_impl(ticker: str, fields: dict,
     return json.dumps(inputs, default=str)
 
 
+def _update_dcf_scenario_adjustments_impl(ticker: str, fields: dict,
+                                            user_id: str | None = None) -> str:
+    """Core logic for update_dcf_scenario_adjustments. Updates the bear/bull
+    growth and margin adjustments which drive the DCF lens's fv_low/fv_high
+    range when scenario_grid=True.
+
+    Valid keys: bear_growth_adj, bear_margin_adj, bull_growth_adj, bull_margin_adj.
+    All values must be floats. Typical magnitudes are small (±0.01 to ±0.05).
+    Bear keys are usually negative, bull keys positive.
+
+    These adjustments are added to revenue_growth and op_margins to build a
+    4x4 scenario grid. The DCF lens takes min/max of all scenarios as
+    fv_low/fv_high. Only effective when calling calculate_multi_lens_valuation
+    with scenario_grid=True.
+    """
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
+    if cfg is None:
+        return json.dumps({"error": f"{ticker.upper()} not found on watchlist"})
+
+    valid_keys = {"bear_growth_adj", "bear_margin_adj", "bull_growth_adj", "bull_margin_adj"}
+    unknown = sorted(k for k in fields if k not in valid_keys)
+    if unknown:
+        return json.dumps({
+            "error": f"unknown adjustment key(s): {unknown}. "
+                     f"Valid: {sorted(valid_keys)}",
+        })
+
+    for k, v in fields.items():
+        if not isinstance(v, (int, float)) or isinstance(v, bool):
+            return json.dumps({
+                "error": f"adjustment {k} must be a number, "
+                         f"got {type(v).__name__}={v!r}",
+            })
+
+    for k, v in fields.items():
+        cfg[k] = float(v)
+
+    config_store.save_config(client, ticker, cfg, user_id=user_id)
+    return json.dumps({
+        "bear_growth_adj": cfg.get("bear_growth_adj"),
+        "bear_margin_adj": cfg.get("bear_margin_adj"),
+        "bull_growth_adj": cfg.get("bull_growth_adj"),
+        "bull_margin_adj": cfg.get("bull_margin_adj"),
+    }, default=str)
+
+
 def _update_lens_weights_impl(ticker: str, weights: dict,
                               user_id: str | None = None) -> str:
     """Core logic for update_lens_weights. Merges weights into
@@ -629,6 +677,43 @@ def update_valuation_inputs(ticker: str, fields: dict) -> str:
     """
     try:
         return _update_valuation_inputs_impl(ticker, fields)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def update_dcf_scenario_adjustments(ticker: str, fields: dict) -> str:
+    """Adjust the DCF bear/bull scenario adjustments that drive the DCF lens's
+    fv_low/fv_high range (and the football-field bar width).
+
+    The DCF lens has two range modes:
+      - scenario_grid=False (default): hardcoded ±15% around base intrinsic
+      - scenario_grid=True: runs 4×4 grid of bear/bull scenarios using these
+        adjustments and takes min/max as fv_low/fv_high
+
+    This tool updates the per-ticker bear/bull adjustments. Call
+    `calculate_multi_lens_valuation(ticker, scenario_grid=True)` afterwards
+    to see the new range.
+
+    Args:
+        ticker: Stock ticker (e.g. "AMZN")
+        fields: Dict with any of these keys (all optional, but must be numbers):
+            bear_growth_adj   (typical: -0.04 — subtract 4pp from revenue growth)
+            bear_margin_adj   (typical: -0.02 — subtract 2pp from op margin)
+            bull_growth_adj   (typical:  0.02 — add 2pp to revenue growth)
+            bull_margin_adj   (typical:  0.02 — add 2pp to op margin)
+            Examples:
+                {"bear_growth_adj": -0.06}                      # more pessimistic bear
+                {"bull_growth_adj": 0.04, "bull_margin_adj": 0.03}  # more aggressive bull
+                {"bear_growth_adj": -0.04, "bear_margin_adj": -0.02,
+                 "bull_growth_adj":  0.02, "bull_margin_adj":  0.02}  # full reset
+
+    Returns:
+        JSON dict with the current values for all four adjustments after the
+        update, or {"error": "..."} on validation failure.
+    """
+    try:
+        return _update_dcf_scenario_adjustments_impl(ticker, fields)
     except Exception as e:
         return json.dumps({"error": str(e)})
 
