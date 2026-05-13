@@ -192,8 +192,10 @@ TOOLS: list[dict] = [
         "name": "calculate_multi_lens_valuation",
         "description": (
             "Run the multi-lens fair value (DCF + Peers + Historical + Dividend "
-            "+ Reverse DCF) for a watchlist ticker. Auto-fetches market inputs, "
-            "peer multiples, and dividend history first. Stores summary back."
+            "+ Reverse DCF + SOTP) for a watchlist ticker. SOTP lens activates "
+            "automatically when cfg.sotp.segments is non-empty (set via "
+            "update_sotp_segments). Auto-fetches market inputs, peer multiples, "
+            "and dividend history first. Stores summary back."
         ),
         "inputSchema": {
             "type": "object",
