@@ -780,10 +780,14 @@ def test_update_sotp_segments_merges_existing_by_name(monkeypatch):
     })
     _patch_sotp_storage(monkeypatch, storage)
 
-    mcp_server._update_sotp_segments_impl(
+    import json as _json
+    result_json = mcp_server._update_sotp_segments_impl(
         "TEST",
         [{"name": "aws", "rationale": "updated rationale"}],  # lowercase match
     )
+    result = _json.loads(result_json)
+    assert "error" not in result
+    assert result["segment_count"] == 2
 
     segs = {s["name"]: s for s in storage["TEST"]["sotp"]["segments"]}
     assert segs["AWS"]["ev_mid"] == 800000  # untouched

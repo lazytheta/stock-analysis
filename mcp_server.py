@@ -484,8 +484,8 @@ def _update_sotp_segments_impl(ticker: str, segments: list,
     fields into the existing segment. No match → append as new segment
     (requires ev_mid > 0).
 
-    Initialises cfg["sotp"] = {"segments": [], "corporate_overhead_ev_adjustment": 0}
-    if not yet present. Other segments are untouched.
+    Initialises cfg["sotp"] = {} if not yet present, then sets/updates "segments".
+    Other top-level sotp keys (e.g. corporate_overhead_ev_adjustment) are untouched.
     """
     user_id = user_id or USER_ID
     client = get_supabase_client()
@@ -568,7 +568,6 @@ def _update_sotp_segments_impl(ticker: str, segments: list,
             existing[match_idx] = merged
 
     sotp["segments"] = existing
-    cfg["sotp"] = sotp
 
     config_store.save_config(client, ticker, cfg, user_id=user_id)
     return json.dumps({
