@@ -130,7 +130,11 @@ def _render_lens_dots(lenses: dict, theme: dict) -> str:
         is_active = lenses.get(key) is not None
         cls = "ld-on" if is_active else "ld-off"
         status = "active" if is_active else "skipped"
-        parts.append(f'<span class="{cls}" title="{label}: {status}"></span>')
+        # Use data-label for custom CSS tooltip + title as fallback for accessibility
+        parts.append(
+            f'<span class="{cls}" data-label="{label}: {status}" '
+            f'title="{label}: {status}"></span>'
+        )
 
     n = len(actives)
     if n == 0:
@@ -4173,18 +4177,40 @@ def _watchlist_overview():
     _cat_keys = {_cat: f"wl_cat_{i}" for i, _cat in enumerate(_categories)}
     st.markdown(
         f'''<style>
-        .ld-on {{
+        .ld-on, .ld-off {{
             display:inline-block;width:6px;height:6px;border-radius:50%;
-            background:{T["accent"]};margin-right:2px;cursor:help;
+            margin-right:2px;cursor:help;
             transition:transform 0.1s ease;
+            position:relative;
         }}
-        .ld-off {{
-            display:inline-block;width:6px;height:6px;border-radius:50%;
-            background:{T["border_medium"]};margin-right:2px;cursor:help;
-            transition:transform 0.1s ease;
-        }}
+        .ld-on {{ background:{T["accent"]}; }}
+        .ld-off {{ background:{T["border_medium"]}; }}
         .ld-on:hover, .ld-off:hover {{
             transform:scale(1.5);
+        }}
+        /* Custom CSS tooltip on hover — appears immediately, no browser delay */
+        .ld-on::after, .ld-off::after {{
+            content: attr(data-label);
+            position:absolute;
+            bottom: calc(100% + 6px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.88);
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.72rem;
+            font-weight: 500;
+            white-space: nowrap;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.15s ease, visibility 0.15s ease;
+            pointer-events: none;
+            z-index: 1000;
+        }}
+        .ld-on:hover::after, .ld-off:hover::after {{
+            opacity: 1;
+            visibility: visible;
         }}
         .range-bar {{
             min-width:110px;
