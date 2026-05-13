@@ -1033,3 +1033,51 @@ def test_set_sotp_corporate_overhead_unknown_ticker_returns_error(monkeypatch):
 
     result_json = mcp_server._set_sotp_corporate_overhead_impl("UNKNOWN", -100)
     assert "error" in _json.loads(result_json)
+
+
+# ---------------------------------------------------------------------------
+# Integration: SOTP round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_sotp_round_trip_segments_then_calculate_multi_lens(monkeypatch):
+    """After update_sotp_segments, calculate_multi_lens_valuation returns a
+    populated 'sotp' lens with fv_low/mid/high."""
+    import mcp_server
+    import valuation_lenses
+
+    # Minimal cfg with the bridge inputs the SOTP lens needs
+    storage = {
+        "AMZN": {
+            "ticker": "AMZN",
+            "company": "Amazon",
+            "shares_outstanding": 10000,    # 10,000 M shares
+            "cash": [50000],                # $50B
+            "st_investments": [0],
+            "debt_market_value": 60000,     # $60B
+            "minority_interest": 0,
+            "unfunded_pension": 0,
+            "equity_investments": 0,
+            "lens_weights": {"sotp": 1.0, "dcf": 0, "multiples": 0,
+                              "historical": 0, "reverse_dcf": 0, "dividend": 0},
+        },
+    }
+    _patch_sotp_storage(monkeypatch, storage)
+
+    # Step 1: add two segments via the tool
+    mcp_server._update_sotp_segments_impl(
+        "AMZN",
+        [
+            {"name": "AWS", "ev_mid": 800000, "ev_low": 700000, "ev_high": 900000},
+            {"name": "Retail", "ev_mid": 200000, "ev_low": 150000, "ev_high": 250000},
+        ],
+    )
+
+    # Step 2: compute lenses on the resulting cfg
+    cfg = storage["AMZN"]
+    lens_out = valuation_lenses.compute_sotp_lens(cfg)
+
+    assert lens_out is not None
+    assert lens_out["fv_mid"] > 0
+    assert lens_out["fv_low"] <= lens_out["fv_mid"] <= lens_out["fv_high"]
+    assert lens_out["details"]["segment_count"] == 2
