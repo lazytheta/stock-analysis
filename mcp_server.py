@@ -610,6 +610,39 @@ def _remove_sotp_segment_impl(ticker: str, name: str,
     }, default=str)
 
 
+def _set_sotp_corporate_overhead_impl(ticker: str, value: float,
+                                       user_id: str | None = None) -> str:
+    """Core logic for set_sotp_corporate_overhead. Scalar setter for
+    cfg["sotp"]["corporate_overhead_ev_adjustment"]. Initialises cfg["sotp"]
+    with segments: [] if not yet present.
+
+    Typical magnitudes are negative ($M, e.g. -5000 for $5B of unallocated
+    corporate overhead capitalized into the bridge).
+    """
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
+    if cfg is None:
+        return json.dumps({"error": f"{ticker.upper()} not found on watchlist"})
+
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return json.dumps({
+            "error": f"value must be a number, got {type(value).__name__}={value!r}",
+        })
+
+    sotp = cfg.get("sotp")
+    if not isinstance(sotp, dict):
+        sotp = {"segments": []}
+    sotp["corporate_overhead_ev_adjustment"] = float(value)
+    cfg["sotp"] = sotp
+
+    config_store.save_config(client, ticker, cfg, user_id=user_id)
+    return json.dumps({
+        "ticker": ticker.upper(),
+        "sotp": sotp,
+    }, default=str)
+
+
 # ---------------------------------------------------------------------------
 # MCP Tools
 # ---------------------------------------------------------------------------

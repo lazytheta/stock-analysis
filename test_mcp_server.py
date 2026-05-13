@@ -967,3 +967,69 @@ def test_remove_sotp_segment_unknown_ticker_returns_error(monkeypatch):
 
     result_json = mcp_server._remove_sotp_segment_impl("UNKNOWN", "AWS")
     assert "error" in _json.loads(result_json)
+
+
+# ---------------------------------------------------------------------------
+# set_sotp_corporate_overhead
+# ---------------------------------------------------------------------------
+
+
+def test_set_sotp_corporate_overhead_writes_value(monkeypatch):
+    """Set the overhead value on a cfg that already has sotp segments."""
+    import mcp_server
+
+    storage = _make_sotp_fake_storage({
+        "segments": [{"name": "AWS", "ev_mid": 800000}],
+        "corporate_overhead_ev_adjustment": 0,
+    })
+    _patch_sotp_storage(monkeypatch, storage)
+
+    mcp_server._set_sotp_corporate_overhead_impl("TEST", -5000)
+
+    assert storage["TEST"]["sotp"]["corporate_overhead_ev_adjustment"] == -5000
+    # segments untouched
+    assert storage["TEST"]["sotp"]["segments"] == [{"name": "AWS", "ev_mid": 800000}]
+
+
+def test_set_sotp_corporate_overhead_initialises_sotp_dict(monkeypatch):
+    """If cfg has no sotp dict, the call creates one with segments: []."""
+    import mcp_server
+
+    storage = _make_sotp_fake_storage()  # no sotp
+    _patch_sotp_storage(monkeypatch, storage)
+
+    mcp_server._set_sotp_corporate_overhead_impl("TEST", -2500)
+
+    saved = storage["TEST"]["sotp"]
+    assert saved["corporate_overhead_ev_adjustment"] == -2500
+    assert saved.get("segments") == []
+
+
+def test_set_sotp_corporate_overhead_non_number_returns_error(monkeypatch):
+    """Non-numeric value → error JSON, no write."""
+    import json as _json
+    import mcp_server
+
+    storage = _make_sotp_fake_storage({"corporate_overhead_ev_adjustment": 0})
+    _patch_sotp_storage(monkeypatch, storage)
+
+    result_json = mcp_server._set_sotp_corporate_overhead_impl("TEST", "abc")
+    body = _json.loads(result_json)
+    assert "error" in body
+    assert storage["TEST"]["sotp"]["corporate_overhead_ev_adjustment"] == 0
+
+
+def test_set_sotp_corporate_overhead_unknown_ticker_returns_error(monkeypatch):
+    """Unknown ticker → error JSON."""
+    import json as _json
+    import mcp_server
+
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(
+        mcp_server.config_store, "load_config",
+        lambda c, t, user_id=None: None,
+    )
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+
+    result_json = mcp_server._set_sotp_corporate_overhead_impl("UNKNOWN", -100)
+    assert "error" in _json.loads(result_json)
