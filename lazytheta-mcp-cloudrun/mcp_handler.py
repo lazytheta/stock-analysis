@@ -107,6 +107,30 @@ async def _tool_update_dcf_scenario_adjustments(user_id: str, args: dict) -> Any
     )
 
 
+async def _tool_update_sotp_segments(user_id: str, args: dict) -> Any:
+    return mcp_server._update_sotp_segments_impl(
+        ticker=args["ticker"],
+        segments=args["segments"],
+        user_id=user_id,
+    )
+
+
+async def _tool_remove_sotp_segment(user_id: str, args: dict) -> Any:
+    return mcp_server._remove_sotp_segment_impl(
+        ticker=args["ticker"],
+        name=args["name"],
+        user_id=user_id,
+    )
+
+
+async def _tool_set_sotp_corporate_overhead(user_id: str, args: dict) -> Any:
+    return mcp_server._set_sotp_corporate_overhead_impl(
+        ticker=args["ticker"],
+        value=args["value"],
+        user_id=user_id,
+    )
+
+
 async def _tool_get_prescan_prompts(user_id: str, args: dict) -> Any:
     return mcp_server._get_prescan_prompts_impl(args["ticker"], user_id=user_id)
 
@@ -245,12 +269,13 @@ TOOLS: list[dict] = [
         "name": "update_lens_weights",
         "description": (
             "Override one or more lens weights for a watchlist ticker. "
-            "Valid keys: dcf, multiples, historical, reverse_dcf, dividend. "
-            "Specified keys merge into cfg.lens_weights; unspecified keys "
-            "retain their value (or fall back to DEFAULT_LENS_WEIGHTS). "
+            "Valid keys: dcf, multiples, historical, reverse_dcf, dividend, "
+            "sotp. Specified keys merge into cfg.lens_weights; unspecified "
+            "keys retain their value (or fall back to DEFAULT_LENS_WEIGHTS). "
             "Orchestrator renormalizes active weights to 1.0 at compute "
             "time, so partial overrides like {dcf: 0.6} work. Empty dict "
-            "resets to defaults."
+            "resets to defaults. SOTP defaults to 0.00 — opt-in per ticker "
+            "by setting sotp: 0.10+ once segments are defined."
         ),
         "inputSchema": {
             "type": "object",
@@ -260,7 +285,7 @@ TOOLS: list[dict] = [
                     "type": "object",
                     "description": (
                         "Dict mapping lens keys (dcf, multiples, historical, "
-                        "reverse_dcf, dividend) to non-negative floats"
+                        "reverse_dcf, dividend, sotp) to non-negative floats"
                     ),
                 },
             },
@@ -291,6 +316,82 @@ TOOLS: list[dict] = [
                 },
             },
             "required": ["ticker", "fields"],
+        },
+    },
+    {
+        "name": "update_sotp_segments",
+        "description": (
+            "Upsert SOTP segments for a watchlist ticker. For each input "
+            "segment, match by 'name' (case-insensitive) against existing "
+            "cfg.sotp.segments: match → partial merge of supplied fields; "
+            "no match → append as new segment (requires ev_mid > 0). Other "
+            "segments are untouched. Allowed segment fields: name (required), "
+            "ev_mid (required for new), ev_low, ev_high, revenue, "
+            "operating_margin (0-1 decimal), implied_multiple_mid, rationale. "
+            "All EV values in $M, non-negative. To remove a segment, use "
+            "remove_sotp_segment instead. Call calculate_multi_lens_valuation "
+            "afterwards to see the new SOTP lens output."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "segments": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "ev_mid": {"type": "number"},
+                            "ev_low": {"type": "number"},
+                            "ev_high": {"type": "number"},
+                            "revenue": {"type": "number"},
+                            "operating_margin": {"type": "number"},
+                            "implied_multiple_mid": {"type": "number"},
+                            "rationale": {"type": "string"},
+                        },
+                        "required": ["name"],
+                    },
+                },
+            },
+            "required": ["ticker", "segments"],
+        },
+    },
+    {
+        "name": "remove_sotp_segment",
+        "description": (
+            "Remove one SOTP segment by name (case-insensitive) from a "
+            "watchlist ticker. Idempotent — no error if the name doesn't "
+            "exist. Removing the last segment is allowed and persisted as "
+            "an empty list (treated as legitimate user intent by the "
+            "config-store guard)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "name": {"type": "string"},
+            },
+            "required": ["ticker", "name"],
+        },
+    },
+    {
+        "name": "set_sotp_corporate_overhead",
+        "description": (
+            "Set cfg.sotp.corporate_overhead_ev_adjustment for a watchlist "
+            "ticker ($M, typically negative — e.g. -5000 for $5B of "
+            "unallocated corporate overhead capitalized into the SOTP "
+            "bridge). Initialises cfg.sotp with segments: [] if not yet "
+            "present."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "value": {"type": "number"},
+            },
+            "required": ["ticker", "value"],
         },
     },
     {
@@ -344,6 +445,9 @@ TOOL_HANDLERS: dict[str, Callable[[str, dict], Awaitable[Any]]] = {
     "update_valuation_inputs": _tool_update_valuation_inputs,
     "update_lens_weights": _tool_update_lens_weights,
     "update_dcf_scenario_adjustments": _tool_update_dcf_scenario_adjustments,
+    "update_sotp_segments": _tool_update_sotp_segments,
+    "remove_sotp_segment": _tool_remove_sotp_segment,
+    "set_sotp_corporate_overhead": _tool_set_sotp_corporate_overhead,
     "get_prescan_prompts": _tool_get_prescan_prompts,
     "get_prescan_sections": _tool_get_prescan_sections,
     "save_prescan_section": _tool_save_prescan_section,
