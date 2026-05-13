@@ -235,6 +235,148 @@ def test_orchestrator_includes_dividend_when_payer():
     assert lenses["dividend"]["weight_normalized"] == 0.0
 
 
+# ---------------------------------------------------------------- SOTP lens
+
+def test_sotp_lens_returns_none_when_no_segments():
+    """No sotp config or empty segments → lens skipped (None)."""
+    import valuation_lenses
+    cfg = make_cfg()
+    assert valuation_lenses.compute_sotp_lens(cfg) is None
+
+    cfg["sotp"] = {}
+    assert valuation_lenses.compute_sotp_lens(cfg) is None
+
+    cfg["sotp"] = {"segments": []}
+    assert valuation_lenses.compute_sotp_lens(cfg) is None
+
+
+def test_sotp_lens_basic_three_segments():
+    """Three segments, equity bridge, FV per share = (sum_EV + bridge) / shares."""
+    import valuation_lenses
+    cfg = make_cfg(
+        shares_outstanding=10_000,
+        cash=[100_000],
+        st_investments=[40_000],
+        debt_market_value=120_000,
+        minority_interest=0,
+        unfunded_pension=0,
+        equity_investments=25_000,
+        sotp={
+            "segments": [
+                {"name": "AWS",   "ev_low": 850_000, "ev_mid": 950_000, "ev_high": 1_100_000},
+                {"name": "Retail", "ev_low": 170_000, "ev_mid": 200_000, "ev_high": 230_000},
+                {"name": "Ads",   "ev_low": 110_000, "ev_mid": 150_000, "ev_high": 200_000},
+            ],
+            "corporate_overhead_ev_adjustment": -25_000,
+        },
+    )
+    lens = valuation_lenses.compute_sotp_lens(cfg)
+    assert lens is not None
+
+    # bridge = equity_inv + corp_adj + cash + sec - debt - minority - pension
+    # = 25_000 + (-25_000) + 100_000 + 40_000 - 120_000 - 0 - 0 = 20_000
+    # EV_mid_sum = 950_000 + 200_000 + 150_000 = 1_300_000
+    # equity_mid = 1_300_000 + 20_000 = 1_320_000
+    # fv_mid = 1_320_000 / 10_000 = 132.0
+    assert lens["fv_mid"] == pytest.approx(132.0, rel=1e-6)
+
+    # EV_low_sum = 850_000 + 170_000 + 110_000 = 1_130_000
+    # equity_low = 1_150_000; fv_low = 115.0
+    assert lens["fv_low"] == pytest.approx(115.0, rel=1e-6)
+
+    # EV_high_sum = 1_100_000 + 230_000 + 200_000 = 1_530_000
+    # equity_high = 1_550_000; fv_high = 155.0
+    assert lens["fv_high"] == pytest.approx(155.0, rel=1e-6)
+
+    # Details sanity
+    assert lens["details"]["segment_count"] == 3
+    assert lens["details"]["total_ev_mid"] == 1_300_000
+    assert lens["details"]["bridge_delta"] == 20_000
+    # AWS is 950/1300 = 73.08% of mid
+    aws_seg = next(s for s in lens["details"]["segments"] if s["name"] == "AWS")
+    assert aws_seg["pct_of_total_mid"] == pytest.approx(950_000 / 1_300_000, rel=1e-6)
+
+
+def test_sotp_lens_fallback_when_low_high_missing():
+    """If a segment only has ev_mid (no ev_low/ev_high), range collapses to mid."""
+    import valuation_lenses
+    cfg = make_cfg(
+        shares_outstanding=1_000,
+        cash=[0],
+        st_investments=[0],
+        debt_market_value=0,
+        sotp={
+            "segments": [
+                {"name": "Only", "ev_mid": 100_000},  # no low/high
+            ],
+        },
+    )
+    lens = valuation_lenses.compute_sotp_lens(cfg)
+    assert lens is not None
+    # bridge = 0; sum_mid = 100_000; fv_mid = 100.0
+    assert lens["fv_mid"] == pytest.approx(100.0)
+    assert lens["fv_low"] == pytest.approx(100.0)
+    assert lens["fv_high"] == pytest.approx(100.0)
+
+
+def test_sotp_lens_swaps_inverted_low_high():
+    """If user supplies ev_low > ev_high (typo), output low/high are sorted."""
+    import valuation_lenses
+    cfg = make_cfg(
+        shares_outstanding=1_000,
+        cash=[0],
+        st_investments=[0],
+        debt_market_value=0,
+        sotp={
+            "segments": [
+                {"name": "Typo", "ev_low": 200_000, "ev_mid": 150_000, "ev_high": 100_000},
+            ],
+        },
+    )
+    lens = valuation_lenses.compute_sotp_lens(cfg)
+    # Inputs flipped — output should still satisfy fv_low <= fv_high
+    assert lens["fv_low"] <= lens["fv_high"]
+    assert lens["fv_mid"] == pytest.approx(150.0)
+
+
+def test_default_lens_weights_sotp_zero():
+    """SOTP default weight stays 0.0 — opt-in per ticker."""
+    import valuation_lenses
+    assert valuation_lenses.DEFAULT_LENS_WEIGHTS["sotp"] == 0.0
+
+
+def test_orchestrator_includes_sotp_when_segments_present():
+    """SOTP active when sotp.segments populated; honors lens_weights override."""
+    import valuation_lenses
+    cfg = make_cfg(
+        shares_outstanding=10_000,
+        cash=[100_000],
+        st_investments=[40_000],
+        debt_market_value=120_000,
+        equity_investments=25_000,
+        sotp={
+            "segments": [
+                {"name": "AWS",   "ev_low": 850_000, "ev_mid": 950_000, "ev_high": 1_100_000},
+                {"name": "Retail", "ev_low": 170_000, "ev_mid": 200_000, "ev_high": 230_000},
+            ],
+            "corporate_overhead_ev_adjustment": 0,
+        },
+        lens_weights={"dcf": 0.5, "multiples": 0.0, "historical": 0.0, "sotp": 0.5},
+    )
+    summary = valuation_lenses.calculate_multi_lens_valuation(cfg)
+    lenses = summary["lenses"]
+    assert lenses["sotp"] is not None
+    assert lenses["sotp"]["weight_normalized"] == pytest.approx(0.5, rel=1e-6)
+
+
+def test_orchestrator_skips_sotp_when_no_segments():
+    """No sotp config → sotp lens absent from active set; weights renormalize."""
+    import valuation_lenses
+    cfg = make_cfg(shares_outstanding=1_000, cash=[0], st_investments=[0], debt_market_value=0)
+    summary = valuation_lenses.calculate_multi_lens_valuation(cfg)
+    assert summary["lenses"]["sotp"] is None
+
+
 # ---------------------------------------------------------------- scorecard
 
 def test_parse_scorecard_json_fenced():
@@ -1013,4 +1155,5 @@ def test_default_lens_weights_post_split():
         "historical":  0.25,
         "reverse_dcf": 0.0,
         "dividend":    0.00,
+        "sotp":        0.00,
     }

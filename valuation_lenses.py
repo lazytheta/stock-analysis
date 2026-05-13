@@ -19,6 +19,7 @@ DEFAULT_LENS_WEIGHTS = {
     "historical":  0.25,    # own-history cross-check
     "reverse_dcf": 0.0,     # anchors at current price by definition; not a true valuation
     "dividend":    0.00,
+    "sotp":        0.00,    # opt-in per ticker — only relevant for multi-segment businesses
 }
 
 # Canonical ordered list of forward-looking lenses surfaced in the watchlist
@@ -41,6 +42,7 @@ FORWARD_LENSES: tuple[tuple[str, str], ...] = (
     ("multiples",  "Peers"),
     ("historical", "Historical"),
     ("dividend",   "Dividend"),
+    ("sotp",       "SOTP"),
 )
 
 # Convenience: keys-only tuple for consumers that don't need display labels.
@@ -443,6 +445,100 @@ def compute_multiples_lens(cfg):
     }
 
 
+def compute_sotp_lens(cfg):
+    """Sum-of-the-Parts lens. Aggregates per-segment Enterprise Values
+    (with low/mid/high) into total equity value via the standard bridge.
+
+    Returns None when no segments defined (lens is opt-in per ticker).
+
+    Bridge:
+      EV_total = SUM(segment_EVs) + equity_investments + corp_overhead_adj
+      Equity   = EV_total + cash + securities - debt - minority - pension
+      FV/share = Equity / shares_outstanding
+
+    Range: aggregates from per-segment low/mid/high. Bridge items are point
+    estimates (known accounting values), so the range is driven entirely by
+    segment-EV uncertainty — which is where it belongs.
+
+    Edge cases:
+      - no segments → None
+      - missing ev_low / ev_high → fall back to ev_mid (range collapses)
+      - shares_outstanding = 0 → fallback to 1 (defensive)
+    """
+    ticker = cfg.get("ticker", "?")
+    sotp = cfg.get("sotp") or {}
+    segments = sotp.get("segments") or []
+
+    if not segments:
+        logger.info("SOTP lens: skipping %s (no sotp.segments defined)", ticker)
+        return None
+
+    def _seg(s, key):
+        # Fall back to ev_mid when low/high not supplied
+        v = s.get(key)
+        if v is None:
+            v = s.get("ev_mid", 0)
+        return float(v or 0)
+
+    total_ev_low = sum(_seg(s, "ev_low") for s in segments)
+    total_ev_mid = sum(_seg(s, "ev_mid") for s in segments)
+    total_ev_high = sum(_seg(s, "ev_high") for s in segments)
+
+    corp_adj = float(sotp.get("corporate_overhead_ev_adjustment", 0) or 0)
+    equity_inv = float(cfg.get("equity_investments", 0) or 0)
+
+    # Bridge items — point estimates (latest year for cash/securities)
+    cash_list = cfg.get("cash") or [0]
+    cash_latest = float(cash_list[-1] if cash_list else 0)
+    sec_list = cfg.get("st_investments") or [0]
+    sec_latest = float(sec_list[-1] if sec_list else 0)
+    debt = float(cfg.get("debt_market_value", 0) or 0)
+    minority = float(cfg.get("minority_interest", 0) or 0)
+    pension = float(cfg.get("unfunded_pension", 0) or 0)
+
+    bridge_delta = equity_inv + corp_adj + cash_latest + sec_latest - debt - minority - pension
+
+    shares = float(cfg.get("shares_outstanding", 1) or 1) or 1
+
+    fv_low = (total_ev_low + bridge_delta) / shares
+    fv_mid = (total_ev_mid + bridge_delta) / shares
+    fv_high = (total_ev_high + bridge_delta) / shares
+
+    # Defensive ordering: if user supplied low > high (typo), still sort sensibly
+    if fv_low > fv_high:
+        fv_low, fv_high = fv_high, fv_low
+
+    return {
+        "fv_low": fv_low,
+        "fv_mid": fv_mid,
+        "fv_high": fv_high,
+        "details": {
+            "total_ev_low": total_ev_low,
+            "total_ev_mid": total_ev_mid,
+            "total_ev_high": total_ev_high,
+            "segment_count": len(segments),
+            "segments": [
+                {
+                    "name": s.get("name", "?"),
+                    "ev_low": _seg(s, "ev_low"),
+                    "ev_mid": _seg(s, "ev_mid"),
+                    "ev_high": _seg(s, "ev_high"),
+                    "pct_of_total_mid": (
+                        _seg(s, "ev_mid") / total_ev_mid if total_ev_mid else 0
+                    ),
+                    "rationale": s.get("rationale", ""),
+                }
+                for s in segments
+            ],
+            "bridge_delta": bridge_delta,
+            "equity_value_mid": total_ev_mid + bridge_delta,
+            "shares": shares,
+            "corporate_overhead_ev_adjustment": corp_adj,
+            "equity_investments": equity_inv,
+        },
+    }
+
+
 def calculate_multi_lens_valuation(cfg, scenario_grid=False):
     """Run all lenses and return the valuation_summary dict.
 
@@ -455,6 +551,7 @@ def calculate_multi_lens_valuation(cfg, scenario_grid=False):
         "historical":  compute_historical_lens(cfg),
         "reverse_dcf": compute_reverse_dcf_lens(cfg),
         "dividend":    compute_dividend_lens(cfg),
+        "sotp":        compute_sotp_lens(cfg),
     }
 
     weights_cfg = cfg.get("lens_weights") or DEFAULT_LENS_WEIGHTS

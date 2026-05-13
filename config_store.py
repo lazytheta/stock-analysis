@@ -57,12 +57,13 @@ _GUARDED_KEYS_RESTORE_EMPTY = (
 )
 
 # User-intent guarded keys: empty value is a legitimate user action
-# (removing the last peer, reverting to default lens weights). Only
-# trigger DB recovery when the key is entirely missing — never when
-# the caller explicitly passes []/{}.
+# (removing the last peer, reverting to default lens weights, clearing
+# all SOTP segments). Only trigger DB recovery when the key is entirely
+# missing — never when the caller explicitly passes []/{}.
 _GUARDED_KEYS_RESTORE_MISSING_ONLY = (
     "peers",
     "lens_weights",
+    "sotp",
 )
 
 # Backward-compat alias — the union of both sets, used by callers that
