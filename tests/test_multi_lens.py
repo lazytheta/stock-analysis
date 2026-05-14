@@ -726,6 +726,45 @@ def test_multiples_lens_peer_pe_and_ev_ebitda():
     assert lens["fv_low"] <= lens["fv_mid"] <= lens["fv_high"]
 
 
+def test_multiples_lens_surfaces_sub_anchor_mids_top_level():
+    """fv_mid_pe and fv_mid_ev are exposed at top-level (alongside fv_mid)
+    so consumers can read the P/E vs EV/EBITDA spread directly without
+    digging into details."""
+    peers = [
+        make_peer(ticker="P1", fwd_pe=18.0, ev_ebitda=10.0,
+                  op_margin=0.18, rev_growth=0.04),
+        make_peer(ticker="P2", fwd_pe=20.0, ev_ebitda=12.0,
+                  op_margin=0.20, rev_growth=0.05),
+        make_peer(ticker="P3", fwd_pe=22.0, ev_ebitda=14.0,
+                  op_margin=0.22, rev_growth=0.06),
+    ]
+    cfg = make_cfg(
+        peers=peers,
+        valuation_inputs=dict(SAMPLE_VALUATION_INPUTS),
+    )
+    lens = valuation_lenses.compute_multiples_lens(cfg)
+    assert lens is not None
+    assert lens["fv_mid_pe"] == lens["details"]["fwd_pe_peer_median"]
+    assert lens["fv_mid_ev"] == lens["details"]["ev_ebitda_peer_median"]
+    # fv_mid is still the simple average of all anchors, so it sits
+    # somewhere between the two sub-anchor mids
+    lo, hi = sorted([lens["fv_mid_pe"], lens["fv_mid_ev"]])
+    assert lo <= lens["fv_mid"] <= hi
+
+
+def test_multiples_lens_sub_anchor_mids_none_when_subanchor_skipped():
+    """fv_mid_pe is None when the P/E sub-anchor is skipped; ev_ebitda
+    side still populates."""
+    cfg = make_cfg(
+        peers=[make_peer(fwd_pe=None, ev_ebitda=12.0)],
+        valuation_inputs={"ttm_ebitda": 12_000.0},  # only ev/ebitda usable
+    )
+    lens = valuation_lenses.compute_multiples_lens(cfg)
+    assert lens is not None
+    assert lens["fv_mid_pe"] is None
+    assert lens["fv_mid_ev"] is not None
+
+
 def test_multiples_lens_partial_inputs_skips_components():
     cfg = make_cfg(
         peers=[make_peer(fwd_pe=None, ev_ebitda=12.0)],

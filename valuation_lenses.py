@@ -437,10 +437,17 @@ def compute_multiples_lens(cfg):
         logger.info("Multiples lens fully skipped (no peer anchors)")
         return None
 
+    # Sub-anchor mids promoted to top-level so consumers can see the spread
+    # between the P/E-implied FV and the EV/EBITDA-implied FV without having
+    # to read into details. A wide gap signals capital-structure or
+    # margin/growth divergence vs peers; a narrow gap means the two anchors
+    # triangulate each other and fv_mid can be trusted more.
     return {
         "fv_low": min(fv_anchors),
         "fv_mid": sum(fv_anchors) / len(fv_anchors),
         "fv_high": max(fv_anchors),
+        "fv_mid_pe": details.get("fwd_pe_peer_median"),
+        "fv_mid_ev": details.get("ev_ebitda_peer_median"),
         "details": details,
     }
 
