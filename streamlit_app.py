@@ -4282,16 +4282,24 @@ def _watchlist_overview():
 
     for _cat in _active_cats:
         _cat_rows = _grouped[_cat]
-        with st.container(key=_cat_keys[_cat]):
-            st.markdown(
-                f'<div style="font-size:0.95rem;font-weight:700;color:{T["text"]};margin-bottom:4px">'
-                f'{_cat} <span style="font-weight:400;color:{T["text_muted"]};font-size:0.85rem">'
-                f'{len(_cat_rows)}</span></div>',
-                unsafe_allow_html=True,
-            )
-            _render_wl_header()
-            for row in _cat_rows:
-                _render_wl_row(row)
+        if _cat == "No":
+            # Rejected-pile: keep on watchlist for reference but collapsed
+            # by default so the active categories dominate the view.
+            with st.expander(f"No  ·  {len(_cat_rows)}", expanded=False):
+                _render_wl_header()
+                for row in _cat_rows:
+                    _render_wl_row(row)
+        else:
+            with st.container(key=_cat_keys[_cat]):
+                st.markdown(
+                    f'<div style="font-size:0.95rem;font-weight:700;color:{T["text"]};margin-bottom:4px">'
+                    f'{_cat} <span style="font-weight:400;color:{T["text_muted"]};font-size:0.85rem">'
+                    f'{len(_cat_rows)}</span></div>',
+                    unsafe_allow_html=True,
+                )
+                _render_wl_header()
+                for row in _cat_rows:
+                    _render_wl_row(row)
 
     st.markdown("")
 
