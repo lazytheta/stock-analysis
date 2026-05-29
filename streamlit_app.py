@@ -6873,12 +6873,73 @@ def _dcf_editor(ticker):
         import json as _json_for_copy
         import streamlit.components.v1 as _components
 
+        # Hero-card styling for each prescan section + reset for the nested
+        # Edit/paste expander inside it. Same pattern as the watchlist
+        # categories (see 10 UI Patterns → Collapsible hero-card).
+        if _library:
+            st.markdown(
+                '<style>'
+                + ''.join(
+                    f'.st-key-prescan_card_{i} [data-testid="stExpander"] {{'
+                    f'  background: {T["card"]};'
+                    f'  border: none !important;'
+                    f'  border-top: 3px solid {T["accent"]} !important;'
+                    f'  border-radius: 24px !important;'
+                    f'  box-shadow: {T["shadow"]};'
+                    f'  margin-bottom: 20px;'
+                    f'  overflow: hidden;'
+                    f'}}'
+                    f'.st-key-prescan_card_{i} [data-testid="stExpander"] summary,'
+                    f'.st-key-prescan_card_{i} [data-testid="stExpander"] summary *,'
+                    f'.st-key-prescan_card_{i} [data-testid="stExpander"] details,'
+                    f'.st-key-prescan_card_{i} [data-testid="stExpander"] details > div {{'
+                    f'  border: none !important;'
+                    f'  background: transparent !important;'
+                    f'  box-shadow: none !important;'
+                    f'}}'
+                    f'.st-key-prescan_card_{i} [data-testid="stExpander"] details > summary {{'
+                    f'  padding: 20px 32px !important;'
+                    f'  font-weight: 700;'
+                    f'  font-size: 0.95rem;'
+                    f'  color: {T["text"]};'
+                    f'}}'
+                    f'.st-key-prescan_card_{i} [data-testid="stExpander"] details > div {{'
+                    f'  padding: 0 32px 28px 32px !important;'
+                    f'}}'
+                    # Reset for the inner Edit/paste expander so it
+                    # doesn't inherit the hero-card look as a nested card.
+                    f'.st-key-prescan_card_{i}_edit [data-testid="stExpander"] {{'
+                    f'  background: transparent !important;'
+                    f'  border: 1px solid {T["border_light"]} !important;'
+                    f'  border-top: 1px solid {T["border_light"]} !important;'
+                    f'  border-radius: 8px !important;'
+                    f'  box-shadow: none !important;'
+                    f'  margin-top: 12px;'
+                    f'  margin-bottom: 0;'
+                    f'  overflow: visible;'
+                    f'}}'
+                    f'.st-key-prescan_card_{i}_edit [data-testid="stExpander"] details > summary {{'
+                    f'  padding: 10px 16px !important;'
+                    f'  font-weight: 400;'
+                    f'  font-size: 0.85rem;'
+                    f'  color: {T["text_muted"]};'
+                    f'}}'
+                    f'.st-key-prescan_card_{i}_edit [data-testid="stExpander"] details > div {{'
+                    f'  padding: 0 16px 12px 16px !important;'
+                    f'}}'
+                    for i in range(len(_library))
+                )
+                + '</style>',
+                unsafe_allow_html=True,
+            )
+
         for _li, _lp in enumerate(_library):
             _title = _lp.get('title', f'Prompt {_li + 1}')
             _prompt = _lp.get('prompt', '')
             _content = _results.get(_title, '')
             _widget_key = f"ed_ai_res_{_li}"
-            with st.expander(_title, expanded=True):
+            with st.container(key=f"prescan_card_{_li}"), \
+                    st.expander(_title, expanded=True):
                 _rb1, _rb2, _rb3, _rb4 = st.columns([1, 1, 1, 2])
                 with _rb1:
                     _run_clicked = st.button(
@@ -6977,7 +7038,8 @@ def _dcf_editor(ticker):
                         st.markdown(_content)
                 else:
                     st.caption("_No output yet. Click ▶ Run or paste manually via Edit._")
-                with st.expander("Edit / paste", expanded=False):
+                with st.container(key=f"prescan_card_{_li}_edit"), \
+                        st.expander("Edit / paste", expanded=False):
                     # Sync widget state to saved content when they diverge
                     # (e.g. after Run or a switch between tickers)
                     if _widget_key not in st.session_state:
