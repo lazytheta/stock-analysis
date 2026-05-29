@@ -5804,6 +5804,126 @@ def _dcf_editor(ticker):
         else:
             st.info("Insufficient data for ROCE (need 3+ years)")
 
+        # ── FCF Yield ──
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:6px">'
+            f'<span style="font-weight:700">FCF Yield</span>'
+            f'<span class="fy-tip" style="position:relative;cursor:help">'
+            f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
+            f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
+            f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
+            f'</svg>'
+            f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
+            f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
+            f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
+            f'font-weight:400;width:240px;z-index:999;box-shadow:{T["shadow_hover"]};'
+            f'pointer-events:none;transition:opacity 0.15s ease">'
+            f'(FCF per Share / Price) × 100.<br>'
+            f'Cash return percentage on your investment.<br><br>'
+            f'<b>&gt;5%</b> attractively priced<br>'
+            f'<b>3–5%</b> redelijk<br>'
+            f'<b>&lt;1%</b> expensive or low cash generation'
+            f'</span></span></div>'
+            f'<style>.fy-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
+            unsafe_allow_html=True,
+        )
+        if _n >= 2 and live_price > 0:
+            # Prefer per-share path when shares are available; otherwise fall
+            # back to FCF / Market Cap using the current market cap from cfg
+            # (e.g. V doesn't report shares in XBRL).
+            _mcap_total = cfg.get('equity_market_value', 0) or 0  # $M
+            fcf_yield = []
+            _fcf_ps = []
+            for i in range(_n):
+                sh = fund['shares'][i]
+                if sh and sh > 0 and fund['fcf'][i] is not None:
+                    fps = fund['fcf'][i] * 1e6 / sh
+                    _fcf_ps.append(fps)
+                    fcf_yield.append(fps / live_price * 100)
+                elif fund['fcf'][i] is not None and _mcap_total > 0:
+                    _fcf_ps.append(None)
+                    fcf_yield.append(fund['fcf'][i] / _mcap_total * 100)
+                else:
+                    _fcf_ps.append(None)
+                    fcf_yield.append(None)
+
+            current_fy = fcf_yield[-1] if fcf_yield[-1] is not None else 0
+            fy_color = T['accent'] if current_fy > 3 else (T['red'] if current_fy < 1 else T['text'])
+            st.markdown(
+                f'<div style="text-align:center;padding:8px 0">'
+                f'<span style="font-size:2rem;font-weight:700;color:{fy_color}">{current_fy:.1f}%</span>'
+                f'<span style="color:{T["text_muted"]};font-size:0.9rem;margin-left:8px">current FCF Yield</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=_yrs, y=fcf_yield, name='FCF Yield',
+                line=dict(color=_COLORS['primary'], width=2.5),
+                fill='tozeroy', fillcolor=T['accent_fill'],
+                hovertemplate='%{y:.1f}%<extra>FCF Yield</extra>',
+            ))
+            fig.update_yaxes(ticksuffix='%')
+            _base_layout(fig, height=250)
+            st.plotly_chart(fig, use_container_width=True)
+
+            with st.expander("Details", expanded=False):
+                _fy_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
+                _fy_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
+                _fy_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
+                _fy_avg_s = f'{_fy_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
+                _fy_div = f'border-top:3px solid {T["text"]}'
+                _fy_html = (
+                    '<div style="overflow-x:auto">'
+                    '<table style="width:100%;border-collapse:collapse">'
+                    '<thead><tr>'
+                    f'<th style="{_fy_hdr};text-align:left"></th>'
+                )
+                for yr in _yrs:
+                    _fy_html += f'<th style="{_fy_hdr}">{yr}</th>'
+                _fy_html += f'<th style="{_fy_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
+                _fy_html += '</tr></thead><tbody>'
+
+                # FCF/Share row
+                _fps_valid = [v for v in _fcf_ps if v is not None]
+                _fps_avg = sum(_fps_valid) / len(_fps_valid) if _fps_valid else None
+                _fy_html += f'<tr><td style="{_fy_label}">FCF / Share</td>'
+                for v in _fcf_ps:
+                    _fy_html += f'<td style="{_fy_cell}">${v:,.2f}</td>' if v is not None else f'<td style="{_fy_cell}">—</td>'
+                _fy_html += f'<td style="{_fy_avg_s}">${_fps_avg:,.2f}</td>' if _fps_avg is not None else f'<td style="{_fy_avg_s}">—</td>'
+                _fy_html += '</tr>'
+
+                # Price row
+                _fy_html += f'<tr><td style="{_fy_label}">Price</td>'
+                for _ in _yrs:
+                    _fy_html += f'<td style="{_fy_cell}">${live_price:,.2f}</td>'
+                _fy_html += f'<td style="{_fy_avg_s}">${live_price:,.2f}</td>'
+                _fy_html += '</tr>'
+
+                # Yield row — thick border
+                _fyl_valid = [v for v in fcf_yield if v is not None]
+                _fyl_avg = sum(_fyl_valid) / len(_fyl_valid) if _fyl_valid else None
+                _fy_html += f'<tr><td style="{_fy_label};{_fy_div}">FCF Yield</td>'
+                for v in fcf_yield:
+                    if v is not None:
+                        _y_color = T['accent'] if v > 3 else (T['red'] if v < 1 else T['text'])
+                        _fy_html += f'<td style="{_fy_cell};{_fy_div};color:{_y_color};font-weight:600">{v:.1f}%</td>'
+                    else:
+                        _fy_html += f'<td style="{_fy_cell};{_fy_div}">—</td>'
+                if _fyl_avg is not None:
+                    _ya_color = T['accent'] if _fyl_avg > 3 else (T['red'] if _fyl_avg < 1 else T['text'])
+                    _fy_html += f'<td style="{_fy_avg_s};{_fy_div};color:{_ya_color}">{_fyl_avg:.1f}%</td>'
+                else:
+                    _fy_html += f'<td style="{_fy_avg_s};{_fy_div}">—</td>'
+                _fy_html += '</tr>'
+
+                _fy_html += '</tbody></table></div>'
+                st.markdown(_fy_html, unsafe_allow_html=True)
+                st.caption("FCF Yield = (FCF per Share / Price) × 100. Price = current price for all years.")
+        else:
+            st.info("Insufficient data for FCF Yield")
+
         # ── Operating Leverage ──
         st.markdown(
             f'<div style="display:flex;align-items:center;gap:6px">'
@@ -6353,126 +6473,6 @@ def _dcf_editor(ticker):
         else:
             st.info("Insufficient data for Net Debt / FCF (need 3+ years)")
 
-        # ── FCF Yield ──
-        st.markdown(
-            f'<div style="display:flex;align-items:center;gap:6px">'
-            f'<span style="font-weight:700">FCF Yield</span>'
-            f'<span class="fy-tip" style="position:relative;cursor:help">'
-            f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
-            f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
-            f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
-            f'</svg>'
-            f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
-            f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
-            f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
-            f'font-weight:400;width:240px;z-index:999;box-shadow:{T["shadow_hover"]};'
-            f'pointer-events:none;transition:opacity 0.15s ease">'
-            f'(FCF per Share / Price) × 100.<br>'
-            f'Cash return percentage on your investment.<br><br>'
-            f'<b>&gt;5%</b> attractively priced<br>'
-            f'<b>3–5%</b> redelijk<br>'
-            f'<b>&lt;1%</b> expensive or low cash generation'
-            f'</span></span></div>'
-            f'<style>.fy-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
-            unsafe_allow_html=True,
-        )
-        if _n >= 2 and live_price > 0:
-            # Prefer per-share path when shares are available; otherwise fall
-            # back to FCF / Market Cap using the current market cap from cfg
-            # (e.g. V doesn't report shares in XBRL).
-            _mcap_total = cfg.get('equity_market_value', 0) or 0  # $M
-            fcf_yield = []
-            _fcf_ps = []
-            for i in range(_n):
-                sh = fund['shares'][i]
-                if sh and sh > 0 and fund['fcf'][i] is not None:
-                    fps = fund['fcf'][i] * 1e6 / sh
-                    _fcf_ps.append(fps)
-                    fcf_yield.append(fps / live_price * 100)
-                elif fund['fcf'][i] is not None and _mcap_total > 0:
-                    _fcf_ps.append(None)
-                    fcf_yield.append(fund['fcf'][i] / _mcap_total * 100)
-                else:
-                    _fcf_ps.append(None)
-                    fcf_yield.append(None)
-
-            current_fy = fcf_yield[-1] if fcf_yield[-1] is not None else 0
-            fy_color = T['accent'] if current_fy > 3 else (T['red'] if current_fy < 1 else T['text'])
-            st.markdown(
-                f'<div style="text-align:center;padding:8px 0">'
-                f'<span style="font-size:2rem;font-weight:700;color:{fy_color}">{current_fy:.1f}%</span>'
-                f'<span style="color:{T["text_muted"]};font-size:0.9rem;margin-left:8px">current FCF Yield</span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=_yrs, y=fcf_yield, name='FCF Yield',
-                line=dict(color=_COLORS['primary'], width=2.5),
-                fill='tozeroy', fillcolor=T['accent_fill'],
-                hovertemplate='%{y:.1f}%<extra>FCF Yield</extra>',
-            ))
-            fig.update_yaxes(ticksuffix='%')
-            _base_layout(fig, height=250)
-            st.plotly_chart(fig, use_container_width=True)
-
-            with st.expander("Details", expanded=False):
-                _fy_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
-                _fy_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
-                _fy_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
-                _fy_avg_s = f'{_fy_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
-                _fy_div = f'border-top:3px solid {T["text"]}'
-                _fy_html = (
-                    '<div style="overflow-x:auto">'
-                    '<table style="width:100%;border-collapse:collapse">'
-                    '<thead><tr>'
-                    f'<th style="{_fy_hdr};text-align:left"></th>'
-                )
-                for yr in _yrs:
-                    _fy_html += f'<th style="{_fy_hdr}">{yr}</th>'
-                _fy_html += f'<th style="{_fy_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
-                _fy_html += '</tr></thead><tbody>'
-
-                # FCF/Share row
-                _fps_valid = [v for v in _fcf_ps if v is not None]
-                _fps_avg = sum(_fps_valid) / len(_fps_valid) if _fps_valid else None
-                _fy_html += f'<tr><td style="{_fy_label}">FCF / Share</td>'
-                for v in _fcf_ps:
-                    _fy_html += f'<td style="{_fy_cell}">${v:,.2f}</td>' if v is not None else f'<td style="{_fy_cell}">—</td>'
-                _fy_html += f'<td style="{_fy_avg_s}">${_fps_avg:,.2f}</td>' if _fps_avg is not None else f'<td style="{_fy_avg_s}">—</td>'
-                _fy_html += '</tr>'
-
-                # Price row
-                _fy_html += f'<tr><td style="{_fy_label}">Price</td>'
-                for _ in _yrs:
-                    _fy_html += f'<td style="{_fy_cell}">${live_price:,.2f}</td>'
-                _fy_html += f'<td style="{_fy_avg_s}">${live_price:,.2f}</td>'
-                _fy_html += '</tr>'
-
-                # Yield row — thick border
-                _fyl_valid = [v for v in fcf_yield if v is not None]
-                _fyl_avg = sum(_fyl_valid) / len(_fyl_valid) if _fyl_valid else None
-                _fy_html += f'<tr><td style="{_fy_label};{_fy_div}">FCF Yield</td>'
-                for v in fcf_yield:
-                    if v is not None:
-                        _y_color = T['accent'] if v > 3 else (T['red'] if v < 1 else T['text'])
-                        _fy_html += f'<td style="{_fy_cell};{_fy_div};color:{_y_color};font-weight:600">{v:.1f}%</td>'
-                    else:
-                        _fy_html += f'<td style="{_fy_cell};{_fy_div}">—</td>'
-                if _fyl_avg is not None:
-                    _ya_color = T['accent'] if _fyl_avg > 3 else (T['red'] if _fyl_avg < 1 else T['text'])
-                    _fy_html += f'<td style="{_fy_avg_s};{_fy_div};color:{_ya_color}">{_fyl_avg:.1f}%</td>'
-                else:
-                    _fy_html += f'<td style="{_fy_avg_s};{_fy_div}">—</td>'
-                _fy_html += '</tr>'
-
-                _fy_html += '</tbody></table></div>'
-                st.markdown(_fy_html, unsafe_allow_html=True)
-                st.caption("FCF Yield = (FCF per Share / Price) × 100. Price = current price for all years.")
-        else:
-            st.info("Insufficient data for FCF Yield")
-
         # ── ROIC ──
         st.markdown(
             f'<div style="display:flex;align-items:center;gap:6px">'
@@ -6526,6 +6526,16 @@ def _dcf_editor(ticker):
                     line_color=_COLORS['secondary'],
                     annotation_text=f"WACC {wacc_pct:.1f}%",
                     annotation_position="top right",
+                )
+            # Historic average — same convention as ROCE chart
+            _roic_valid_chart = [v for v in roic_vals if v is not None]
+            if _roic_valid_chart:
+                _roic_chart_avg = sum(_roic_valid_chart) / len(_roic_valid_chart)
+                fig.add_hline(
+                    y=_roic_chart_avg, line_dash="dot",
+                    line_color=_COLORS['text_muted'],
+                    annotation_text=f"Avg {_roic_chart_avg:.1f}%",
+                    annotation_position="top left",
                 )
             fig.update_yaxes(ticksuffix='%')
             _base_layout(fig)
