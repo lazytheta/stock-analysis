@@ -6067,7 +6067,7 @@ def _dcf_editor(ticker):
             for i in range(_n):
                 oi = fund['operating_income'][i]
                 ta = fund['total_assets'][i]
-                cl = fund['total_current_liabilities'][i]
+                cl = fund['current_liabilities'][i]
                 ce = (ta - cl) if ta is not None and cl is not None else None
                 _ebit_tbl.append(oi)
                 _ce_tbl.append(ce if ce and ce != 0 else None)
