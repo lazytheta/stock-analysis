@@ -4263,26 +4263,12 @@ def _watchlist_overview():
         unsafe_allow_html=True,
     )
     _active_cats = [c for c in _categories if _grouped[c]]
-    # Standard hero-card CSS for all categories EXCEPT "No" — that one wraps
-    # st.expander and needs its own selector chain (see block below).
-    _hero_cats = [c for c in _active_cats if c != "No"]
+    # Every category now wraps st.expander → hero-card styling lives on the
+    # expander so its native slide animation moves the visible card body.
     st.markdown(
         '<style>'
         + ''.join(
-            f'.st-key-{_cat_keys[c]} {{'
-            f'  background: {T["card"]};'
-            f'  border-radius: 24px;'
-            f'  border-top: 3px solid {T["accent"]};'
-            f'  padding: 32px;'
-            f'  box-shadow: {T["shadow"]};'
-            f'  margin-bottom: 20px;'
-            f'}}'
-            for c in _hero_cats
-        )
-        # No category: hero-card styling moves to the wrapping st.expander
-        # so the native slide animation lives on the visible card body.
-        + (
-            f'.st-key-wl_cat_no_card [data-testid="stExpander"] {{'
+            f'.st-key-{_cat_keys[c]} [data-testid="stExpander"] {{'
             f'  background: {T["card"]};'
             f'  border: none !important;'
             f'  border-top: 3px solid {T["accent"]} !important;'
@@ -4291,43 +4277,35 @@ def _watchlist_overview():
             f'  margin-bottom: 20px;'
             f'  overflow: hidden;'
             f'}}'
-            f'.st-key-wl_cat_no_card [data-testid="stExpander"] details > summary {{'
+            f'.st-key-{_cat_keys[c]} [data-testid="stExpander"] details > summary {{'
             f'  padding: 20px 32px !important;'
             f'  font-weight: 700;'
             f'  font-size: 0.95rem;'
             f'  color: {T["text"]};'
             f'}}'
-            f'.st-key-wl_cat_no_card [data-testid="stExpander"] details[open] > summary {{'
+            f'.st-key-{_cat_keys[c]} [data-testid="stExpander"] details[open] > summary {{'
             f'  padding-bottom: 12px !important;'
             f'}}'
-            f'.st-key-wl_cat_no_card [data-testid="stExpander"] details > div {{'
+            f'.st-key-{_cat_keys[c]} [data-testid="stExpander"] details > div {{'
             f'  padding: 0 32px 28px 32px !important;'
             f'}}'
-            if "No" in _active_cats else ''
+            for c in _active_cats
         )
         + '</style>',
         unsafe_allow_html=True,
     )
 
+    # Yes is the active-decision pile → open by default. Other categories
+    # collapse so they don't push the must-look-at items below the fold.
+    _default_open = {"Yes": True}
+
     for _cat in _active_cats:
         _cat_rows = _grouped[_cat]
-        if _cat == "No":
-            # Rejected-pile: native st.expander for the smooth slide
-            # animation; hero-card aesthetic is applied to the expander
-            # itself via the wrap-key CSS above so visually it matches.
-            with st.container(key="wl_cat_no_card"):
-                with st.expander(f"No  ·  {len(_cat_rows)}", expanded=False):
-                    _render_wl_header()
-                    for row in _cat_rows:
-                        _render_wl_row(row)
-        else:
-            with st.container(key=_cat_keys[_cat]):
-                st.markdown(
-                    f'<div style="font-size:0.95rem;font-weight:700;color:{T["text"]};margin-bottom:4px">'
-                    f'{_cat} <span style="font-weight:400;color:{T["text_muted"]};font-size:0.85rem">'
-                    f'{len(_cat_rows)}</span></div>',
-                    unsafe_allow_html=True,
-                )
+        with st.container(key=_cat_keys[_cat]):
+            with st.expander(
+                f"{_cat}  ·  {len(_cat_rows)}",
+                expanded=_default_open.get(_cat, False),
+            ):
                 _render_wl_header()
                 for row in _cat_rows:
                     _render_wl_row(row)
