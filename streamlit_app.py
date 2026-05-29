@@ -6042,122 +6042,6 @@ def _dcf_editor(ticker):
         else:
             st.info("Insufficient data for Margins (need 3+ years)")
 
-        # ── ROIC ──
-        st.markdown(
-            f'<div style="display:flex;align-items:center;gap:6px">'
-            f'<span style="font-weight:700">ROIC</span>'
-            f'<span class="roic-tip" style="position:relative;cursor:help">'
-            f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
-            f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
-            f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
-            f'</svg>'
-            f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
-            f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
-            f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
-            f'font-weight:400;width:240px;z-index:999;box-shadow:{T["shadow_hover"]};'
-            f'pointer-events:none;transition:opacity 0.15s ease">'
-            f'NOPAT / Invested Capital — measures how well a company generates returns on its capital.<br><br>'
-            f'<b>&gt;WACC</b> creates value<br>'
-            f'<b>&gt;20%</b> excellent<br>'
-            f'<b>&lt;WACC</b> destroys value'
-            f'</span></span></div>'
-            f'<style>.roic-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
-            unsafe_allow_html=True,
-        )
-        if _n >= 3:
-            roic_vals = []
-            _nopat_tbl = []
-            _ic_tbl = []
-            for i in range(_n):
-                oi = fund['operating_income'][i]
-                eq = fund['total_equity'][i]
-                debt = fund['total_debt'][i]
-                cash_v = fund['cash'][i]
-                tp = fund['tax_provision'][i]
-                pti = fund['pretax_income'][i]
-                tax_rate = tp / pti if tp is not None and pti and pti != 0 else 0.21
-                nopat = oi * (1 - tax_rate) if oi is not None else None
-                ic = (eq or 0) + (debt or 0) - (cash_v or 0)
-                _nopat_tbl.append(nopat)
-                _ic_tbl.append(ic if ic != 0 else None)
-                roic_vals.append(nopat / ic * 100 if nopat is not None and ic and ic > 0 else None)
-
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=_yrs, y=roic_vals, name='ROIC',
-                line=dict(color=_COLORS['primary'], width=2.5),
-                hovertemplate='%{y:.1f}%<extra>ROIC</extra>',
-            ))
-            wacc_pct = val.get('wacc', 0) * 100
-            if wacc_pct > 0:
-                fig.add_hline(
-                    y=wacc_pct, line_dash="dash",
-                    line_color=_COLORS['secondary'],
-                    annotation_text=f"WACC {wacc_pct:.1f}%",
-                    annotation_position="top right",
-                )
-            fig.update_yaxes(ticksuffix='%')
-            _base_layout(fig)
-            st.plotly_chart(fig, use_container_width=True)
-
-            with st.expander("Details", expanded=False):
-                _rc_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
-                _rc_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
-                _rc_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
-                _rc_avg = f'{_rc_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
-                _rc_div = f'border-top:3px solid {T["text"]}'
-                _rc_html = (
-                    '<div style="overflow-x:auto">'
-                    '<table style="width:100%;border-collapse:collapse">'
-                    '<thead><tr>'
-                    f'<th style="{_rc_hdr};text-align:left"></th>'
-                )
-                for yr in _yrs:
-                    _rc_html += f'<th style="{_rc_hdr}">{yr}</th>'
-                _rc_html += f'<th style="{_rc_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
-                _rc_html += '</tr></thead><tbody>'
-
-                # NOPAT row
-                _np_valid = [v for v in _nopat_tbl if v is not None]
-                _np_avg = sum(_np_valid) / len(_np_valid) if _np_valid else None
-                _rc_html += f'<tr><td style="{_rc_label}">NOPAT</td>'
-                for v in _nopat_tbl:
-                    _rc_html += f'<td style="{_rc_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rc_cell}">—</td>'
-                _rc_html += f'<td style="{_rc_avg}">{_np_avg:,.0f}</td>' if _np_avg is not None else f'<td style="{_rc_avg}">—</td>'
-                _rc_html += '</tr>'
-
-                # Invested Capital row
-                _ic_valid = [v for v in _ic_tbl if v is not None]
-                _ic_avg = sum(_ic_valid) / len(_ic_valid) if _ic_valid else None
-                _rc_html += f'<tr><td style="{_rc_label}">Invested Capital</td>'
-                for v in _ic_tbl:
-                    _rc_html += f'<td style="{_rc_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rc_cell}">—</td>'
-                _rc_html += f'<td style="{_rc_avg}">{_ic_avg:,.0f}</td>' if _ic_avg is not None else f'<td style="{_rc_avg}">—</td>'
-                _rc_html += '</tr>'
-
-                # ROIC % row — thick top border
-                _roic_valid = [v for v in roic_vals if v is not None]
-                _roic_avg = sum(_roic_valid) / len(_roic_valid) if _roic_valid else None
-                _rc_html += f'<tr><td style="{_rc_label};{_rc_div}">ROIC</td>'
-                for v in roic_vals:
-                    if v is not None:
-                        _r_color = T['accent'] if v >= 15 else (T['red'] if v < wacc_pct else T['text'])
-                        _rc_html += f'<td style="{_rc_cell};{_rc_div};color:{_r_color};font-weight:600">{v:.1f}%</td>'
-                    else:
-                        _rc_html += f'<td style="{_rc_cell};{_rc_div}">—</td>'
-                if _roic_avg is not None:
-                    _ra_color = T['accent'] if _roic_avg >= 15 else (T['red'] if _roic_avg < wacc_pct else T['text'])
-                    _rc_html += f'<td style="{_rc_avg};{_rc_div};color:{_ra_color}">{_roic_avg:.1f}%</td>'
-                else:
-                    _rc_html += f'<td style="{_rc_avg};{_rc_div}">—</td>'
-                _rc_html += '</tr>'
-
-                _rc_html += '</tbody></table></div>'
-                st.markdown(_rc_html, unsafe_allow_html=True)
-                st.caption("In $M. NOPAT = Operating Income × (1 − Tax Rate). IC = Equity + Debt − Cash.")
-        else:
-            st.info("Insufficient data for ROIC (need 3+ years)")
-
         # ── FCF Conversion ──
         st.markdown(
             f'<div style="display:flex;align-items:center;gap:6px">'
@@ -6259,118 +6143,6 @@ def _dcf_editor(ticker):
                 st.caption("In $M. Conversion = FCF / Net Income.")
         else:
             st.info("Insufficient data for FCF Conversion (need 3+ years)")
-
-        # ── Revenue per Share Growth ──
-        st.markdown(
-            f'<div style="display:flex;align-items:center;gap:6px">'
-            f'<span style="font-weight:700">Revenue per Share Growth</span>'
-            f'<span class="rps-tip" style="position:relative;cursor:help">'
-            f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
-            f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
-            f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
-            f'</svg>'
-            f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
-            f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
-            f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
-            f'font-weight:400;width:260px;z-index:999;box-shadow:{T["shadow_hover"]};'
-            f'pointer-events:none;transition:opacity 0.15s ease">'
-            f'Compares total revenue growth with revenue per share.<br><br>'
-            f'<b>Rev/Share &gt; Revenue</b> buybacks boost per-share growth<br>'
-            f'<b>Rev/Share &lt; Revenue</b> dilution from share issuance'
-            f'</span></span></div>'
-            f'<style>.rps-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
-            unsafe_allow_html=True,
-        )
-        if _n >= 3:
-            # Derive shares from EPS / Net Income when the direct share tags
-            # are missing (e.g. Visa only reports shares in non-standard tags)
-            _shares_eff = []
-            _eps_l = fund.get('eps') or [None] * _n
-            _ni_l = fund.get('net_income') or [None] * _n
-            for i in range(_n):
-                s = fund['shares'][i]
-                if not s or s <= 0:  # noqa: SIM102 — nested form keeps "shares missing? derive from EPS×NI" intent clearer
-                    if _eps_l[i] and _ni_l[i] is not None and _eps_l[i] != 0:
-                        s = (_ni_l[i] * 1e6) / _eps_l[i]
-                _shares_eff.append(s if s and s > 0 else None)
-            rps = [fund['revenue'][i] * 1e6 / _shares_eff[i]
-                   if _shares_eff[i] and fund['revenue'][i] is not None
-                   else None
-                   for i in range(_n)]
-            rps_g = _pct_growth(rps)
-            rev_g_clean = _pct_growth(fund['revenue'])
-            _has_shares = any(s is not None for s in _shares_eff)
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=_yrs[1:], y=[r * 100 if r is not None else None for r in rev_g_clean[1:]],
-                name='Revenue Growth',
-                line=dict(color=_COLORS['primary'], width=2.5),
-                hovertemplate='%{y:.1f}%<extra>Rev Growth</extra>',
-            ))
-            if _has_shares:
-                fig.add_trace(go.Scatter(
-                    x=_yrs[1:], y=[r * 100 if r is not None else None for r in rps_g[1:]],
-                    name='Rev/Share Growth',
-                    line=dict(color=_COLORS['accent'], width=2.5, dash='dash'),
-                    hovertemplate='%{y:.1f}%<extra>Rev/Share Growth</extra>',
-                ))
-            fig.update_yaxes(ticksuffix='%')
-            _base_layout(fig)
-            st.plotly_chart(fig, use_container_width=True)
-            if not _has_shares:
-                st.caption("Rev/Share niet beschikbaar: dit bedrijf rapporteert geen share-counts in EDGAR (bv. V).")
-
-            with st.expander("Details", expanded=False):
-                _rps_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
-                _rps_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
-                _rps_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
-                _rps_avg_s = f'{_rps_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
-                _rps_div = f'border-top:3px solid {T["text"]}'
-                _rps_html = (
-                    '<div style="overflow-x:auto">'
-                    '<table style="width:100%;border-collapse:collapse">'
-                    '<thead><tr>'
-                    f'<th style="{_rps_hdr};text-align:left"></th>'
-                )
-                for yr in _yrs:
-                    _rps_html += f'<th style="{_rps_hdr}">{yr}</th>'
-                _rps_html += f'<th style="{_rps_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
-                _rps_html += '</tr></thead><tbody>'
-
-                # Revenue row ($M)
-                _rev_valid = [v for v in fund['revenue'] if v is not None]
-                _rev_avg2 = sum(_rev_valid) / len(_rev_valid) if _rev_valid else None
-                _rps_html += f'<tr><td style="{_rps_label}">Revenue ($M)</td>'
-                for v in fund['revenue']:
-                    _rps_html += f'<td style="{_rps_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rps_cell}">—</td>'
-                _rps_html += f'<td style="{_rps_avg_s}">{_rev_avg2:,.0f}</td>' if _rev_avg2 is not None else f'<td style="{_rps_avg_s}">—</td>'
-                _rps_html += '</tr>'
-
-                # Shares row
-                _sh_vals = [_shares_eff[i] / 1e6 if _shares_eff[i] else None for i in range(_n)]
-                _sh_valid = [v for v in _sh_vals if v is not None]
-                _sh_avg = sum(_sh_valid) / len(_sh_valid) if _sh_valid else None
-                _rps_html += f'<tr><td style="{_rps_label}">Shares (M)</td>'
-                for v in _sh_vals:
-                    _rps_html += f'<td style="{_rps_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rps_cell}">—</td>'
-                _rps_html += f'<td style="{_rps_avg_s}">{_sh_avg:,.0f}</td>' if _sh_avg is not None else f'<td style="{_rps_avg_s}">—</td>'
-                _rps_html += '</tr>'
-
-                # Rev/Share row — thick border
-                _rps_vals = [fund['revenue'][i] / _sh_vals[i] if _sh_vals[i] and _sh_vals[i] > 0 and fund['revenue'][i] is not None else None for i in range(_n)]
-                _rps_valid2 = [v for v in _rps_vals if v is not None]
-                _rps_avg2 = sum(_rps_valid2) / len(_rps_valid2) if _rps_valid2 else None
-                _rps_html += f'<tr><td style="{_rps_label};{_rps_div}">Rev/Share ($)</td>'
-                for v in _rps_vals:
-                    _rps_html += f'<td style="{_rps_cell};{_rps_div}">${v:,.2f}</td>' if v is not None else f'<td style="{_rps_cell};{_rps_div}">—</td>'
-                _rps_html += f'<td style="{_rps_avg_s};{_rps_div}">${_rps_avg2:,.2f}</td>' if _rps_avg2 is not None else f'<td style="{_rps_avg_s};{_rps_div}">—</td>'
-                _rps_html += '</tr>'
-
-                _rps_html += '</tbody></table></div>'
-                st.markdown(_rps_html, unsafe_allow_html=True)
-                st.caption("Revenue in $M. Rev/Share = Revenue ($M) / Shares (M).")
-        else:
-            st.info("Insufficient data for Revenue per Share (need 3+ years)")
 
         # ── Debt / FCF ──
         st.markdown(
@@ -6596,6 +6368,234 @@ def _dcf_editor(ticker):
                 st.caption("FCF Yield = (FCF per Share / Price) × 100. Price = current price for all years.")
         else:
             st.info("Insufficient data for FCF Yield")
+
+        # ── ROIC ──
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:6px">'
+            f'<span style="font-weight:700">ROIC</span>'
+            f'<span class="roic-tip" style="position:relative;cursor:help">'
+            f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
+            f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
+            f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
+            f'</svg>'
+            f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
+            f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
+            f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
+            f'font-weight:400;width:240px;z-index:999;box-shadow:{T["shadow_hover"]};'
+            f'pointer-events:none;transition:opacity 0.15s ease">'
+            f'NOPAT / Invested Capital — measures how well a company generates returns on its capital.<br><br>'
+            f'<b>&gt;WACC</b> creates value<br>'
+            f'<b>&gt;20%</b> excellent<br>'
+            f'<b>&lt;WACC</b> destroys value'
+            f'</span></span></div>'
+            f'<style>.roic-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
+            unsafe_allow_html=True,
+        )
+        if _n >= 3:
+            roic_vals = []
+            _nopat_tbl = []
+            _ic_tbl = []
+            for i in range(_n):
+                oi = fund['operating_income'][i]
+                eq = fund['total_equity'][i]
+                debt = fund['total_debt'][i]
+                cash_v = fund['cash'][i]
+                tp = fund['tax_provision'][i]
+                pti = fund['pretax_income'][i]
+                tax_rate = tp / pti if tp is not None and pti and pti != 0 else 0.21
+                nopat = oi * (1 - tax_rate) if oi is not None else None
+                ic = (eq or 0) + (debt or 0) - (cash_v or 0)
+                _nopat_tbl.append(nopat)
+                _ic_tbl.append(ic if ic != 0 else None)
+                roic_vals.append(nopat / ic * 100 if nopat is not None and ic and ic > 0 else None)
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=_yrs, y=roic_vals, name='ROIC',
+                line=dict(color=_COLORS['primary'], width=2.5),
+                hovertemplate='%{y:.1f}%<extra>ROIC</extra>',
+            ))
+            wacc_pct = val.get('wacc', 0) * 100
+            if wacc_pct > 0:
+                fig.add_hline(
+                    y=wacc_pct, line_dash="dash",
+                    line_color=_COLORS['secondary'],
+                    annotation_text=f"WACC {wacc_pct:.1f}%",
+                    annotation_position="top right",
+                )
+            fig.update_yaxes(ticksuffix='%')
+            _base_layout(fig)
+            st.plotly_chart(fig, use_container_width=True)
+
+            with st.expander("Details", expanded=False):
+                _rc_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
+                _rc_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
+                _rc_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
+                _rc_avg = f'{_rc_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
+                _rc_div = f'border-top:3px solid {T["text"]}'
+                _rc_html = (
+                    '<div style="overflow-x:auto">'
+                    '<table style="width:100%;border-collapse:collapse">'
+                    '<thead><tr>'
+                    f'<th style="{_rc_hdr};text-align:left"></th>'
+                )
+                for yr in _yrs:
+                    _rc_html += f'<th style="{_rc_hdr}">{yr}</th>'
+                _rc_html += f'<th style="{_rc_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
+                _rc_html += '</tr></thead><tbody>'
+
+                # NOPAT row
+                _np_valid = [v for v in _nopat_tbl if v is not None]
+                _np_avg = sum(_np_valid) / len(_np_valid) if _np_valid else None
+                _rc_html += f'<tr><td style="{_rc_label}">NOPAT</td>'
+                for v in _nopat_tbl:
+                    _rc_html += f'<td style="{_rc_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rc_cell}">—</td>'
+                _rc_html += f'<td style="{_rc_avg}">{_np_avg:,.0f}</td>' if _np_avg is not None else f'<td style="{_rc_avg}">—</td>'
+                _rc_html += '</tr>'
+
+                # Invested Capital row
+                _ic_valid = [v for v in _ic_tbl if v is not None]
+                _ic_avg = sum(_ic_valid) / len(_ic_valid) if _ic_valid else None
+                _rc_html += f'<tr><td style="{_rc_label}">Invested Capital</td>'
+                for v in _ic_tbl:
+                    _rc_html += f'<td style="{_rc_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rc_cell}">—</td>'
+                _rc_html += f'<td style="{_rc_avg}">{_ic_avg:,.0f}</td>' if _ic_avg is not None else f'<td style="{_rc_avg}">—</td>'
+                _rc_html += '</tr>'
+
+                # ROIC % row — thick top border
+                _roic_valid = [v for v in roic_vals if v is not None]
+                _roic_avg = sum(_roic_valid) / len(_roic_valid) if _roic_valid else None
+                _rc_html += f'<tr><td style="{_rc_label};{_rc_div}">ROIC</td>'
+                for v in roic_vals:
+                    if v is not None:
+                        _r_color = T['accent'] if v >= 15 else (T['red'] if v < wacc_pct else T['text'])
+                        _rc_html += f'<td style="{_rc_cell};{_rc_div};color:{_r_color};font-weight:600">{v:.1f}%</td>'
+                    else:
+                        _rc_html += f'<td style="{_rc_cell};{_rc_div}">—</td>'
+                if _roic_avg is not None:
+                    _ra_color = T['accent'] if _roic_avg >= 15 else (T['red'] if _roic_avg < wacc_pct else T['text'])
+                    _rc_html += f'<td style="{_rc_avg};{_rc_div};color:{_ra_color}">{_roic_avg:.1f}%</td>'
+                else:
+                    _rc_html += f'<td style="{_rc_avg};{_rc_div}">—</td>'
+                _rc_html += '</tr>'
+
+                _rc_html += '</tbody></table></div>'
+                st.markdown(_rc_html, unsafe_allow_html=True)
+                st.caption("In $M. NOPAT = Operating Income × (1 − Tax Rate). IC = Equity + Debt − Cash.")
+        else:
+            st.info("Insufficient data for ROIC (need 3+ years)")
+
+        # ── Revenue per Share Growth ──
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:6px">'
+            f'<span style="font-weight:700">Revenue per Share Growth</span>'
+            f'<span class="rps-tip" style="position:relative;cursor:help">'
+            f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
+            f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
+            f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
+            f'</svg>'
+            f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
+            f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
+            f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
+            f'font-weight:400;width:260px;z-index:999;box-shadow:{T["shadow_hover"]};'
+            f'pointer-events:none;transition:opacity 0.15s ease">'
+            f'Compares total revenue growth with revenue per share.<br><br>'
+            f'<b>Rev/Share &gt; Revenue</b> buybacks boost per-share growth<br>'
+            f'<b>Rev/Share &lt; Revenue</b> dilution from share issuance'
+            f'</span></span></div>'
+            f'<style>.rps-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
+            unsafe_allow_html=True,
+        )
+        if _n >= 3:
+            # Derive shares from EPS / Net Income when the direct share tags
+            # are missing (e.g. Visa only reports shares in non-standard tags)
+            _shares_eff = []
+            _eps_l = fund.get('eps') or [None] * _n
+            _ni_l = fund.get('net_income') or [None] * _n
+            for i in range(_n):
+                s = fund['shares'][i]
+                if not s or s <= 0:  # noqa: SIM102 — nested form keeps "shares missing? derive from EPS×NI" intent clearer
+                    if _eps_l[i] and _ni_l[i] is not None and _eps_l[i] != 0:
+                        s = (_ni_l[i] * 1e6) / _eps_l[i]
+                _shares_eff.append(s if s and s > 0 else None)
+            rps = [fund['revenue'][i] * 1e6 / _shares_eff[i]
+                   if _shares_eff[i] and fund['revenue'][i] is not None
+                   else None
+                   for i in range(_n)]
+            rps_g = _pct_growth(rps)
+            rev_g_clean = _pct_growth(fund['revenue'])
+            _has_shares = any(s is not None for s in _shares_eff)
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=_yrs[1:], y=[r * 100 if r is not None else None for r in rev_g_clean[1:]],
+                name='Revenue Growth',
+                line=dict(color=_COLORS['primary'], width=2.5),
+                hovertemplate='%{y:.1f}%<extra>Rev Growth</extra>',
+            ))
+            if _has_shares:
+                fig.add_trace(go.Scatter(
+                    x=_yrs[1:], y=[r * 100 if r is not None else None for r in rps_g[1:]],
+                    name='Rev/Share Growth',
+                    line=dict(color=_COLORS['accent'], width=2.5, dash='dash'),
+                    hovertemplate='%{y:.1f}%<extra>Rev/Share Growth</extra>',
+                ))
+            fig.update_yaxes(ticksuffix='%')
+            _base_layout(fig)
+            st.plotly_chart(fig, use_container_width=True)
+            if not _has_shares:
+                st.caption("Rev/Share niet beschikbaar: dit bedrijf rapporteert geen share-counts in EDGAR (bv. V).")
+
+            with st.expander("Details", expanded=False):
+                _rps_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
+                _rps_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
+                _rps_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
+                _rps_avg_s = f'{_rps_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
+                _rps_div = f'border-top:3px solid {T["text"]}'
+                _rps_html = (
+                    '<div style="overflow-x:auto">'
+                    '<table style="width:100%;border-collapse:collapse">'
+                    '<thead><tr>'
+                    f'<th style="{_rps_hdr};text-align:left"></th>'
+                )
+                for yr in _yrs:
+                    _rps_html += f'<th style="{_rps_hdr}">{yr}</th>'
+                _rps_html += f'<th style="{_rps_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
+                _rps_html += '</tr></thead><tbody>'
+
+                # Revenue row ($M)
+                _rev_valid = [v for v in fund['revenue'] if v is not None]
+                _rev_avg2 = sum(_rev_valid) / len(_rev_valid) if _rev_valid else None
+                _rps_html += f'<tr><td style="{_rps_label}">Revenue ($M)</td>'
+                for v in fund['revenue']:
+                    _rps_html += f'<td style="{_rps_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rps_cell}">—</td>'
+                _rps_html += f'<td style="{_rps_avg_s}">{_rev_avg2:,.0f}</td>' if _rev_avg2 is not None else f'<td style="{_rps_avg_s}">—</td>'
+                _rps_html += '</tr>'
+
+                # Shares row
+                _sh_vals = [_shares_eff[i] / 1e6 if _shares_eff[i] else None for i in range(_n)]
+                _sh_valid = [v for v in _sh_vals if v is not None]
+                _sh_avg = sum(_sh_valid) / len(_sh_valid) if _sh_valid else None
+                _rps_html += f'<tr><td style="{_rps_label}">Shares (M)</td>'
+                for v in _sh_vals:
+                    _rps_html += f'<td style="{_rps_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rps_cell}">—</td>'
+                _rps_html += f'<td style="{_rps_avg_s}">{_sh_avg:,.0f}</td>' if _sh_avg is not None else f'<td style="{_rps_avg_s}">—</td>'
+                _rps_html += '</tr>'
+
+                # Rev/Share row — thick border
+                _rps_vals = [fund['revenue'][i] / _sh_vals[i] if _sh_vals[i] and _sh_vals[i] > 0 and fund['revenue'][i] is not None else None for i in range(_n)]
+                _rps_valid2 = [v for v in _rps_vals if v is not None]
+                _rps_avg2 = sum(_rps_valid2) / len(_rps_valid2) if _rps_valid2 else None
+                _rps_html += f'<tr><td style="{_rps_label};{_rps_div}">Rev/Share ($)</td>'
+                for v in _rps_vals:
+                    _rps_html += f'<td style="{_rps_cell};{_rps_div}">${v:,.2f}</td>' if v is not None else f'<td style="{_rps_cell};{_rps_div}">—</td>'
+                _rps_html += f'<td style="{_rps_avg_s};{_rps_div}">${_rps_avg2:,.2f}</td>' if _rps_avg2 is not None else f'<td style="{_rps_avg_s};{_rps_div}">—</td>'
+                _rps_html += '</tr>'
+
+                _rps_html += '</tbody></table></div>'
+                st.markdown(_rps_html, unsafe_allow_html=True)
+                st.caption("Revenue in $M. Rev/Share = Revenue ($M) / Shares (M).")
+        else:
+            st.info("Insufficient data for Revenue per Share (need 3+ years)")
 
     with _tab_notes:
         st.markdown(
