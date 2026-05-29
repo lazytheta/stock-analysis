@@ -6050,12 +6050,14 @@ def _dcf_editor(ticker):
             f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
             f'font-weight:400;width:260px;z-index:999;box-shadow:{T["shadow_hover"]};'
             f'pointer-events:none;transition:opacity 0.15s ease">'
-            f'EBIT / Capital Employed — measures pre-tax return on all long-term capital tied up in the business.<br><br>'
+            f'EBIT / Tangible Operating Capital — pre-tax return on capital actually tied up in the operating business.<br><br>'
             f'<b>&gt;WACC</b> creates value<br>'
-            f'<b>&gt;15%</b> strong<br>'
+            f'<b>&gt;20%</b> Prasad/PE-screen quality bar — sustained 5+ jaar duidt op moat<br>'
             f'<b>&lt;WACC</b> destroys value<br><br>'
-            f'Capital Employed = Total Assets − Current Liabilities.<br>'
-            f'Complementary to ROIC: ROCE is pre-tax and includes non-debt long-term obligations (pensions, deferred tax, etc.).'
+            f'Capital Employed = Total Assets − Current Liabilities − Cash − Goodwill.<br>'
+            f'Cash excluded → focus op operationeel kapitaal, niet cash hoards.<br>'
+            f'Goodwill excluded → vergelijkbaar tussen organische en acquisitieve groei.<br>'
+            f'PE-conventie zoals Nalanda Capital, gebruikt EBIT (pre-tax) ipv NOPAT.'
             f'</span></span></div>'
             f'<style>.roce-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
             unsafe_allow_html=True,
@@ -6068,7 +6070,13 @@ def _dcf_editor(ticker):
                 oi = fund['operating_income'][i]
                 ta = fund['total_assets'][i]
                 cl = fund['current_liabilities'][i]
-                ce = (ta - cl) if ta is not None and cl is not None else None
+                cash_v = fund['cash'][i] or 0
+                gw = fund['goodwill'][i] or 0
+                # Prasad / PE-conventie: cash en goodwill eraf voor tangible
+                # operating capital. Zo isoleer je het rendement op het
+                # kapitaal dat écht in de business werkt, los van cash hoards
+                # en M&A-premies op de balans.
+                ce = (ta - cl - cash_v - gw) if ta is not None and cl is not None else None
                 _ebit_tbl.append(oi)
                 _ce_tbl.append(ce if ce and ce != 0 else None)
                 roce_vals.append(oi / ce * 100 if oi is not None and ce and ce > 0 else None)
@@ -6132,12 +6140,13 @@ def _dcf_editor(ticker):
                 _rce_html += f'<tr><td style="{_rce_label};{_rce_div}">ROCE</td>'
                 for v in roce_vals:
                     if v is not None:
-                        _r_color = T['accent'] if v >= 15 else (T['red'] if v < wacc_pct else T['text'])
+                        # 20%+ is Prasad-screen kwaliteitsbar
+                        _r_color = T['accent'] if v >= 20 else (T['red'] if v < wacc_pct else T['text'])
                         _rce_html += f'<td style="{_rce_cell};{_rce_div};color:{_r_color};font-weight:600">{v:.1f}%</td>'
                     else:
                         _rce_html += f'<td style="{_rce_cell};{_rce_div}">—</td>'
                 if _roce_avg is not None:
-                    _ra_color = T['accent'] if _roce_avg >= 15 else (T['red'] if _roce_avg < wacc_pct else T['text'])
+                    _ra_color = T['accent'] if _roce_avg >= 20 else (T['red'] if _roce_avg < wacc_pct else T['text'])
                     _rce_html += f'<td style="{_rce_avg};{_rce_div};color:{_ra_color}">{_roce_avg:.1f}%</td>'
                 else:
                     _rce_html += f'<td style="{_rce_avg};{_rce_div}">—</td>'
@@ -6145,7 +6154,7 @@ def _dcf_editor(ticker):
 
                 _rce_html += '</tbody></table></div>'
                 st.markdown(_rce_html, unsafe_allow_html=True)
-                st.caption("In $M. EBIT = Operating Income (proxy). Capital Employed = Total Assets − Current Liabilities.")
+                st.caption("In $M. EBIT = Operating Income (proxy). Capital Employed = Total Assets − Current Liabilities − Cash − Goodwill (Prasad/PE-conventie).")
         else:
             st.info("Insufficient data for ROCE (need 3+ years)")
 
