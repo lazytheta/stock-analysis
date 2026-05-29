@@ -2692,6 +2692,9 @@ def fetch_fundamentals(ticker, n_years=10):
         "capex", "cfo",
         "total_assets", "current_liabilities", "goodwill", "intangibles",
         "ppe", "da", "gross_profit", "eps", "dividends_per_share",
+        # Extended debt-like obligations for adjusted Net Debt (Moody's/S&P style)
+        "short_term_debt", "operating_lease_liabilities",
+        "finance_lease_liabilities", "pension_liabilities",
     ]
 
     def _safe(val):
@@ -2808,6 +2811,97 @@ def fetch_fundamentals(ticker, n_years=10):
                 cu = _lt_cu.get(yr_val)
                 if nc is not None or cu is not None:
                     d["total_debt"] = round(((nc or 0) + (cu or 0)) / M, 0)
+
+        # ── Extended debt-like obligations for adjusted Net Debt ──
+        # Moody's / S&P style: treat operating leases, finance leases, and
+        # underfunded pension as debt-equivalent for credit analysis.
+
+        # Short-term debt: commercial paper, ST borrowings, current LTD
+        # portion. Sum because companies report different combinations.
+        _st_debt_tags = [
+            "ShortTermBorrowings",
+            "CommercialPaper",
+            "LongTermDebtCurrent",  # current portion of LTD
+            "ShortTermBankLoansAndNotesPayable",
+            "NotesPayableCurrent",
+        ]
+        _st_data_by_year = {}  # year -> dict of {tag: value}
+        for tag in _st_debt_tags:
+            for yr_val, val in _extract_annual_values(facts, tag, n_years, "USD"):
+                _st_data_by_year.setdefault(yr_val, {})[tag] = val
+        for yr_val, tag_vals in _st_data_by_year.items():
+            d = data_by_year.setdefault(yr_val, {})
+            if d.get("short_term_debt") is None:
+                total = sum(v for v in tag_vals.values() if v is not None)
+                if total > 0:
+                    d["short_term_debt"] = round(total / M, 0)
+
+        # Operating lease liabilities (post-ASC 842, FY2019+).
+        # Companies switch presentation: Current+Noncurrent split, combined
+        # OperatingLeaseLiability tag, or stop tagging entirely (MCD does
+        # all three across 2018-2025). Try each in priority order.
+        _op_nc = dict(_extract_annual_values(facts, "OperatingLeaseLiabilityNoncurrent", n_years, "USD"))
+        _op_cu = dict(_extract_annual_values(facts, "OperatingLeaseLiabilityCurrent", n_years, "USD"))
+        for yr_val in set(_op_nc) | set(_op_cu):
+            d = data_by_year.setdefault(yr_val, {})
+            if d.get("operating_lease_liabilities") is None:
+                nc = _op_nc.get(yr_val) or 0
+                cu = _op_cu.get(yr_val) or 0
+                if (nc + cu) > 0:
+                    d["operating_lease_liabilities"] = round((nc + cu) / M, 0)
+        # Fallback: combined OperatingLeaseLiability tag (without suffix)
+        _op_combined = dict(_extract_annual_values(facts, "OperatingLeaseLiability", n_years, "USD"))
+        for yr_val, val in _op_combined.items():
+            d = data_by_year.setdefault(yr_val, {})
+            if d.get("operating_lease_liabilities") is None and val:
+                d["operating_lease_liabilities"] = round(val / M, 0)
+
+        # Finance/capital lease liabilities (when reported separately —
+        # NOT in the combined LongTermDebtAndCapitalLeaseObligations tag).
+        # New tags (ASC 842) first, fallback to pre-2019 capital lease tags,
+        # then to the combined no-suffix FinanceLeaseLiability tag.
+        _fl_nc = dict(_extract_annual_values(facts, "FinanceLeaseLiabilityNoncurrent", n_years, "USD"))
+        _fl_cu = dict(_extract_annual_values(facts, "FinanceLeaseLiabilityCurrent", n_years, "USD"))
+        _cl_nc = dict(_extract_annual_values(facts, "CapitalLeaseObligationsNoncurrent", n_years, "USD"))
+        _cl_cu = dict(_extract_annual_values(facts, "CapitalLeaseObligations", n_years, "USD"))
+        for yr_val in set(_fl_nc) | set(_fl_cu) | set(_cl_nc) | set(_cl_cu):
+            d = data_by_year.setdefault(yr_val, {})
+            if d.get("finance_lease_liabilities") is None:
+                nc = _fl_nc.get(yr_val) or _cl_nc.get(yr_val) or 0
+                cu = _fl_cu.get(yr_val) or _cl_cu.get(yr_val) or 0
+                if (nc + cu) > 0:
+                    d["finance_lease_liabilities"] = round((nc + cu) / M, 0)
+        # Fallback: combined FinanceLeaseLiability tag (without suffix)
+        _fl_combined = dict(_extract_annual_values(facts, "FinanceLeaseLiability", n_years, "USD"))
+        for yr_val, val in _fl_combined.items():
+            d = data_by_year.setdefault(yr_val, {})
+            if d.get("finance_lease_liabilities") is None and val:
+                d["finance_lease_liabilities"] = round(val / M, 0)
+
+        # Pension underfunding (noncurrent portion only — current is rare
+        # and small enough to ignore). Try the most specific tag first.
+        _pen_tags = [
+            "DefinedBenefitPensionPlanLiabilitiesNoncurrent",
+            "PensionAndOtherPostretirementDefinedBenefitPlansLiabilitiesNoncurrent",
+            "LiabilityDefinedBenefitPensionPlanNoncurrent",
+            "DefinedBenefitPlanFundedStatusOfPlan",  # often negative when underfunded
+        ]
+        for tag in _pen_tags:
+            _pen_data = _extract_annual_values(facts, tag, n_years, "USD")
+            for yr_val, val in _pen_data:
+                d = data_by_year.setdefault(yr_val, {})
+                if d.get("pension_liabilities") is None and val is not None:
+                    # FundedStatus is reported as the plan's funded position
+                    # (positive = overfunded, negative = underfunded). Treat
+                    # only negative values as debt-like, sign-flipped.
+                    if tag == "DefinedBenefitPlanFundedStatusOfPlan":
+                        if val < 0:
+                            d["pension_liabilities"] = round(-val / M, 0)
+                    else:
+                        d["pension_liabilities"] = round(val / M, 0)
+            if any(d.get("pension_liabilities") is not None
+                   for d in data_by_year.values()):
+                break
 
         # Shares: separate fallback with unit_key="shares" (raw count, not USD)
         _shares_tags = ["WeightedAverageNumberOfDilutedSharesOutstanding",

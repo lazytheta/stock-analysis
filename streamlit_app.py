@@ -6158,13 +6158,14 @@ def _dcf_editor(ticker):
             f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
             f'font-weight:400;width:260px;z-index:999;box-shadow:{T["shadow_hover"]};'
             f'pointer-events:none;transition:opacity 0.15s ease">'
-            f'Total Debt − Cash. Wat het bedrijf netto schuldig is.<br><br>'
-            f'<b>Negatief</b> cash-rich, geen credit-risk<br>'
+            f'Adjusted Debt − Cash. Moody&apos;s/S&amp;P-stijl voor credit-analyse.<br><br>'
+            f'<b>Adjusted Debt</b> = LT Debt + ST Debt + Operating Leases + Finance Leases + Pension Underfunding. Pakt alle debt-like obligations mee.<br><br>'
+            f'<b>Negatief</b> cash-rich<br>'
             f'<b>0 − 1.5×</b> EBITDA: gezond<br>'
-            f'<b>1.5 − 3×</b> EBITDA: acceptabel voor stabiele cash-generators<br>'
-            f'<b>3 − 4×</b> EBITDA: opgerekt, kwetsbaar voor recessie<br>'
+            f'<b>1.5 − 3×</b> EBITDA: acceptabel<br>'
+            f'<b>3 − 4×</b> EBITDA: opgerekt<br>'
             f'<b>&gt; 4×</b> EBITDA: distress-risk<br><br>'
-            f'EBITDA hier afgeleid als Operating Income + D&amp;A.'
+            f'EBITDA = OI + D&amp;A (proxy).'
             f'</span></span></div>'
             f'<style>.nd-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
             unsafe_allow_html=True,
@@ -6172,25 +6173,50 @@ def _dcf_editor(ticker):
         if _n >= 3:
             nd_vals = []
             nd_ebitda_vals = []
-            _debt_tbl = []
+            _lt_debt_tbl = []
+            _st_debt_tbl = []
+            _op_lease_tbl = []
+            _fin_lease_tbl = []
+            _pension_tbl = []
+            _adj_debt_tbl = []
             _cash_tbl = []
             _ebitda_tbl = []
             for i in range(_n):
-                debt_v = fund['total_debt'][i]
+                lt_debt = fund['total_debt'][i]
+                st_debt = fund.get('short_term_debt', [None]*_n)[i]
+                op_lease = fund.get('operating_lease_liabilities', [None]*_n)[i]
+                fin_lease = fund.get('finance_lease_liabilities', [None]*_n)[i]
+                pension = fund.get('pension_liabilities', [None]*_n)[i]
                 cash_i = fund['cash'][i]
                 oi = fund['operating_income'][i]
                 da = fund['da'][i] if 'da' in fund else None
                 ebitda = (oi + (da or 0)) if oi is not None else None
-                _debt_tbl.append(debt_v)
+
+                _lt_debt_tbl.append(lt_debt)
+                _st_debt_tbl.append(st_debt)
+                _op_lease_tbl.append(op_lease)
+                _fin_lease_tbl.append(fin_lease)
+                _pension_tbl.append(pension)
                 _cash_tbl.append(cash_i)
                 _ebitda_tbl.append(ebitda)
-                if debt_v is not None and cash_i is not None:
-                    nd = debt_v - cash_i
-                    nd_vals.append(nd)
-                    nd_ebitda_vals.append(nd / ebitda if ebitda and ebitda > 0 else None)
-                else:
+
+                # Sum all debt-like obligations (None treated as 0).
+                # Adjusted debt is None only if LT debt itself is missing.
+                if lt_debt is None:
+                    _adj_debt_tbl.append(None)
                     nd_vals.append(None)
                     nd_ebitda_vals.append(None)
+                else:
+                    adj_debt = (lt_debt + (st_debt or 0) + (op_lease or 0)
+                                + (fin_lease or 0) + (pension or 0))
+                    _adj_debt_tbl.append(adj_debt)
+                    if cash_i is not None:
+                        nd = adj_debt - cash_i
+                        nd_vals.append(nd)
+                        nd_ebitda_vals.append(nd / ebitda if ebitda and ebitda > 0 else None)
+                    else:
+                        nd_vals.append(None)
+                        nd_ebitda_vals.append(None)
 
             # Chart: Net Debt ($M) over time + zero reference line
             fig = go.Figure()
@@ -6254,7 +6280,12 @@ def _dcf_editor(ticker):
                             _nd_html += f'<td style="{avg_style}">—</td>'
                     _nd_html += '</tr>'
 
-                _row("Total Debt", _debt_tbl)
+                _row("LT Debt", _lt_debt_tbl)
+                _row("ST Debt", _st_debt_tbl)
+                _row("Operating Leases", _op_lease_tbl)
+                _row("Finance Leases", _fin_lease_tbl)
+                _row("Pension Underfunding", _pension_tbl)
+                _row("Adjusted Debt", _adj_debt_tbl, divider=True)
                 _row("Cash", _cash_tbl)
                 _row("Net Debt", nd_vals, divider=True,
                      color_fn=lambda v: T['accent'] if v < 0 else (T['red'] if v > 0 else None))
@@ -6264,7 +6295,7 @@ def _dcf_editor(ticker):
 
                 _nd_html += '</tbody></table></div>'
                 st.markdown(_nd_html, unsafe_allow_html=True)
-                st.caption("In $M. Net Debt = Total Debt − Cash. Negatief = cash-rich. EBITDA = OI + D&A (proxy).")
+                st.caption("In $M. Adjusted Debt = LT + ST + Op Leases + Fin Leases + Pension. Net Debt = Adjusted Debt − Cash. EBITDA = OI + D&A. Velden zonder data tonen — (geen tag in EDGAR voor dat jaar).")
         else:
             st.info("Insufficient data for Net Debt (need 3+ years)")
 
