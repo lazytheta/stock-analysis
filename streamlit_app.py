@@ -6036,6 +6036,119 @@ def _dcf_editor(ticker):
         else:
             st.info("Insufficient data for ROIC (need 3+ years)")
 
+        # ── ROCE ──
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:6px">'
+            f'<span style="font-weight:700">ROCE</span>'
+            f'<span class="roce-tip" style="position:relative;cursor:help">'
+            f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
+            f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
+            f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
+            f'</svg>'
+            f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
+            f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
+            f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
+            f'font-weight:400;width:260px;z-index:999;box-shadow:{T["shadow_hover"]};'
+            f'pointer-events:none;transition:opacity 0.15s ease">'
+            f'EBIT / Capital Employed — measures pre-tax return on all long-term capital tied up in the business.<br><br>'
+            f'<b>&gt;WACC</b> creates value<br>'
+            f'<b>&gt;15%</b> strong<br>'
+            f'<b>&lt;WACC</b> destroys value<br><br>'
+            f'Capital Employed = Total Assets − Current Liabilities.<br>'
+            f'Complementary to ROIC: ROCE is pre-tax and includes non-debt long-term obligations (pensions, deferred tax, etc.).'
+            f'</span></span></div>'
+            f'<style>.roce-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
+            unsafe_allow_html=True,
+        )
+        if _n >= 3:
+            roce_vals = []
+            _ebit_tbl = []
+            _ce_tbl = []
+            for i in range(_n):
+                oi = fund['operating_income'][i]
+                ta = fund['total_assets'][i]
+                cl = fund['total_current_liabilities'][i]
+                ce = (ta - cl) if ta is not None and cl is not None else None
+                _ebit_tbl.append(oi)
+                _ce_tbl.append(ce if ce and ce != 0 else None)
+                roce_vals.append(oi / ce * 100 if oi is not None and ce and ce > 0 else None)
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=_yrs, y=roce_vals, name='ROCE',
+                line=dict(color=_COLORS['primary'], width=2.5),
+                hovertemplate='%{y:.1f}%<extra>ROCE</extra>',
+            ))
+            wacc_pct = val.get('wacc', 0) * 100
+            if wacc_pct > 0:
+                fig.add_hline(
+                    y=wacc_pct, line_dash="dash",
+                    line_color=_COLORS['secondary'],
+                    annotation_text=f"WACC {wacc_pct:.1f}%",
+                    annotation_position="top right",
+                )
+            fig.update_yaxes(ticksuffix='%')
+            _base_layout(fig)
+            st.plotly_chart(fig, use_container_width=True)
+
+            with st.expander("Details", expanded=False):
+                _rce_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
+                _rce_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
+                _rce_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
+                _rce_avg = f'{_rce_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
+                _rce_div = f'border-top:3px solid {T["text"]}'
+                _rce_html = (
+                    '<div style="overflow-x:auto">'
+                    '<table style="width:100%;border-collapse:collapse">'
+                    '<thead><tr>'
+                    f'<th style="{_rce_hdr};text-align:left"></th>'
+                )
+                for yr in _yrs:
+                    _rce_html += f'<th style="{_rce_hdr}">{yr}</th>'
+                _rce_html += f'<th style="{_rce_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
+                _rce_html += '</tr></thead><tbody>'
+
+                # EBIT row
+                _eb_valid = [v for v in _ebit_tbl if v is not None]
+                _eb_avg = sum(_eb_valid) / len(_eb_valid) if _eb_valid else None
+                _rce_html += f'<tr><td style="{_rce_label}">EBIT</td>'
+                for v in _ebit_tbl:
+                    _rce_html += f'<td style="{_rce_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rce_cell}">—</td>'
+                _rce_html += f'<td style="{_rce_avg}">{_eb_avg:,.0f}</td>' if _eb_avg is not None else f'<td style="{_rce_avg}">—</td>'
+                _rce_html += '</tr>'
+
+                # Capital Employed row
+                _ce_valid = [v for v in _ce_tbl if v is not None]
+                _ce_avg = sum(_ce_valid) / len(_ce_valid) if _ce_valid else None
+                _rce_html += f'<tr><td style="{_rce_label}">Capital Employed</td>'
+                for v in _ce_tbl:
+                    _rce_html += f'<td style="{_rce_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rce_cell}">—</td>'
+                _rce_html += f'<td style="{_rce_avg}">{_ce_avg:,.0f}</td>' if _ce_avg is not None else f'<td style="{_rce_avg}">—</td>'
+                _rce_html += '</tr>'
+
+                # ROCE % row — thick top border
+                _roce_valid = [v for v in roce_vals if v is not None]
+                _roce_avg = sum(_roce_valid) / len(_roce_valid) if _roce_valid else None
+                _rce_html += f'<tr><td style="{_rce_label};{_rce_div}">ROCE</td>'
+                for v in roce_vals:
+                    if v is not None:
+                        _r_color = T['accent'] if v >= 15 else (T['red'] if v < wacc_pct else T['text'])
+                        _rce_html += f'<td style="{_rce_cell};{_rce_div};color:{_r_color};font-weight:600">{v:.1f}%</td>'
+                    else:
+                        _rce_html += f'<td style="{_rce_cell};{_rce_div}">—</td>'
+                if _roce_avg is not None:
+                    _ra_color = T['accent'] if _roce_avg >= 15 else (T['red'] if _roce_avg < wacc_pct else T['text'])
+                    _rce_html += f'<td style="{_rce_avg};{_rce_div};color:{_ra_color}">{_roce_avg:.1f}%</td>'
+                else:
+                    _rce_html += f'<td style="{_rce_avg};{_rce_div}">—</td>'
+                _rce_html += '</tr>'
+
+                _rce_html += '</tbody></table></div>'
+                st.markdown(_rce_html, unsafe_allow_html=True)
+                st.caption("In $M. EBIT = Operating Income (proxy). Capital Employed = Total Assets − Current Liabilities.")
+        else:
+            st.info("Insufficient data for ROCE (need 3+ years)")
+
         # ── FCF Conversion ──
         st.markdown(
             f'<div style="display:flex;align-items:center;gap:6px">'
