@@ -2702,11 +2702,9 @@ st.markdown(f"""
         border: none;
         border-radius: 0;
         padding: 0;
-        font-size: 0.78rem;
+        font-size: 0.82rem;
         color: var(--text-muted);
         font-weight: 400;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -2719,8 +2717,6 @@ st.markdown(f"""
         font-weight: 700;
         font-size: 1.15rem;
         margin-top: 4px;
-        text-transform: none;
-        letter-spacing: 0;
     }}
 
     /* Tabs card — wraps tab bar + content in a card */
