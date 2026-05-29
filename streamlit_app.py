@@ -30,6 +30,7 @@ from gather_data import (
     fetch_company_facts,
     parse_financials,
     fetch_stock_price,
+    fetch_historical_prices,
     fetch_treasury_yield,
     synthetic_credit_rating,
     fetch_sector_betas,
@@ -5991,6 +5992,166 @@ def _dcf_editor(ticker):
                 st.caption("FCF Yield = (FCF per Share / Price) × 100. Price = current price for all years.")
         else:
             st.info("Insufficient data for FCF Yield")
+
+        # ── EBIT / EV (Greenblatt Earnings Yield) ──
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:6px">'
+            f'<span style="font-weight:700">EBIT / EV</span>'
+            f'<span class="ey-tip" style="position:relative;cursor:help">'
+            f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
+            f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
+            f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
+            f'</svg>'
+            f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
+            f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
+            f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
+            f'font-weight:400;width:280px;z-index:999;box-shadow:{T["shadow_hover"]};'
+            f'pointer-events:none;transition:opacity 0.15s ease">'
+            f'<b>Greenblatt Earnings Yield</b> — EBIT als percentage van Enterprise Value. Pre-tax, capital-structure-agnostic — paart met ROCE de "high quality at reasonable price"-screen uit de Magic Formula.<br><br>'
+            f'EV = Market Cap + Total Debt − Cash.<br><br>'
+            f'<b>&gt; 12%</b> goedkoop (hoge earnings yield)<br>'
+            f'<b>8 − 12%</b> fairly valued<br>'
+            f'<b>&lt; 6%</b> duur — alleen rechtvaardig bij hoge groei + sterke ROCE<br><br>'
+            f'Onafhankelijk van rente en belasting → vergelijkbaar tussen sectoren en jurisdicties, dat is z\'n kracht boven P/E.'
+            f'</span></span></div>'
+            f'<style>.ey-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
+            unsafe_allow_html=True,
+        )
+        if _n >= 2:
+            # Fetch historical year-end prices to reconstruct EV per year
+            @st.cache_data(ttl=86400, show_spinner=False)
+            def _ey_historical_prices(t, years_tuple):
+                try:
+                    return fetch_historical_prices(t, list(years_tuple))
+                except Exception:
+                    return {}
+            _ey_prices = _ey_historical_prices(ticker, tuple(_yrs))
+
+            ey_vals = []
+            _ey_ebit_tbl = []
+            _ey_ev_tbl = []
+            _ey_mcap_tbl = []
+            for i in range(_n):
+                yr = _yrs[i]
+                oi = fund['operating_income'][i]
+                sh = fund['shares'][i] if i < len(fund['shares']) else None
+                debt_v = fund['total_debt'][i] if i < len(fund['total_debt']) else None
+                cash_v = fund['cash'][i] if i < len(fund['cash']) else 0
+                price_v = _ey_prices.get(yr)
+                # Year-end market cap = price × shares; fallback to current
+                # market cap × (shares[i] / shares[-1]) when historical price
+                # missing, then last resort: current market cap from cfg.
+                mcap_m = None
+                if price_v and sh and sh > 0:
+                    mcap_m = price_v * sh / 1e6  # → $M
+                elif i == _n - 1:
+                    # latest year — use current market cap if XBRL prices missing
+                    mcap_m = cfg.get('equity_market_value', 0) or 0
+                _ey_mcap_tbl.append(mcap_m)
+                if mcap_m and debt_v is not None and oi is not None:
+                    ev = mcap_m + debt_v - (cash_v or 0)
+                    _ey_ebit_tbl.append(oi)
+                    _ey_ev_tbl.append(ev)
+                    ey_vals.append(oi / ev * 100 if ev > 0 else None)
+                else:
+                    _ey_ebit_tbl.append(oi)
+                    _ey_ev_tbl.append(None)
+                    ey_vals.append(None)
+
+            # Big number — current EBIT/EV (most recent valid year)
+            current_ey = next((v for v in reversed(ey_vals) if v is not None), None)
+            if current_ey is not None:
+                _ey_color = T['accent'] if current_ey > 12 else (T['red'] if current_ey < 6 else T['text'])
+                st.markdown(
+                    f'<div style="text-align:center;padding:8px 0">'
+                    f'<span style="font-size:2rem;font-weight:700;color:{_ey_color}">{current_ey:.1f}%</span>'
+                    f'<span style="color:{T["text_muted"]};font-size:0.9rem;margin-left:8px">current EBIT / EV</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=_yrs, y=ey_vals, name='EBIT / EV',
+                line=dict(color=_COLORS['primary'], width=2.5),
+                fill='tozeroy', fillcolor=T['accent_fill'],
+                hovertemplate='%{y:.1f}%<extra>EBIT/EV</extra>',
+            ))
+            fig.add_hline(y=12, line_dash="dash", line_color=_COLORS['accent'],
+                          annotation_text="12% (cheap)", annotation_position="top right")
+            fig.add_hline(y=6, line_dash="dot", line_color=_COLORS['secondary'],
+                          annotation_text="6% (expensive)", annotation_position="bottom right")
+            # Historic avg
+            _ey_valid = [v for v in ey_vals if v is not None]
+            if _ey_valid:
+                _ey_avg = sum(_ey_valid) / len(_ey_valid)
+                fig.add_hline(
+                    y=_ey_avg, line_dash="dot",
+                    line_color=_COLORS['text_muted'],
+                    annotation_text=f"Avg {_ey_avg:.1f}%",
+                    annotation_position="top left",
+                )
+            fig.update_yaxes(ticksuffix='%')
+            _base_layout(fig)
+            st.plotly_chart(fig, use_container_width=True)
+
+            with st.expander("Details", expanded=False):
+                _ey_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
+                _ey_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
+                _ey_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
+                _ey_avg_s = f'{_ey_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
+                _ey_div = f'border-top:3px solid {T["text"]}'
+                _ey_html = (
+                    '<div style="overflow-x:auto">'
+                    '<table style="width:100%;border-collapse:collapse">'
+                    '<thead><tr>'
+                    f'<th style="{_ey_hdr};text-align:left"></th>'
+                )
+                for yr in _yrs:
+                    _ey_html += f'<th style="{_ey_hdr}">{yr}</th>'
+                _ey_html += f'<th style="{_ey_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
+                _ey_html += '</tr></thead><tbody>'
+
+                def _ey_row(label, values, fmt='{:,.0f}', divider=False, color_fn=None):
+                    nonlocal _ey_html
+                    label_style = _ey_label + (';' + _ey_div if divider else '')
+                    cell_base = _ey_cell + (';' + _ey_div if divider else '')
+                    avg_style = _ey_avg_s + (';' + _ey_div if divider else '')
+                    _ey_html += f'<tr><td style="{label_style}">{label}</td>'
+                    for v in values:
+                        if v is None:
+                            _ey_html += f'<td style="{cell_base}">—</td>'
+                        else:
+                            extra = ''
+                            if color_fn:
+                                c = color_fn(v)
+                                if c:
+                                    extra = f';color:{c};font-weight:600'
+                            _ey_html += f'<td style="{cell_base}{extra}">{fmt.format(v)}</td>'
+                    _valid = [v for v in values if v is not None]
+                    if _valid:
+                        a = sum(_valid) / len(_valid)
+                        extra = ''
+                        if color_fn:
+                            c = color_fn(a)
+                            if c:
+                                extra = f';color:{c}'
+                        _ey_html += f'<td style="{avg_style}{extra}">{fmt.format(a)}</td>'
+                    else:
+                        _ey_html += f'<td style="{avg_style}">—</td>'
+                    _ey_html += '</tr>'
+
+                _ey_row("EBIT", _ey_ebit_tbl)
+                _ey_row("Market Cap", _ey_mcap_tbl)
+                _ey_row("Enterprise Value", _ey_ev_tbl)
+                _ey_row("EBIT / EV", ey_vals, fmt='{:.1f}%', divider=True,
+                        color_fn=lambda v: T['accent'] if v > 12 else (T['red'] if v < 6 else T['text']))
+
+                _ey_html += '</tbody></table></div>'
+                st.markdown(_ey_html, unsafe_allow_html=True)
+                st.caption("In $M. EV = Market Cap (year-end price × shares) + Total Debt − Cash. EBIT = Operating Income. Greenblatt-style Earnings Yield.")
+        else:
+            st.info("Insufficient data for EBIT/EV")
 
         # ── Operating Leverage ──
         st.markdown(
