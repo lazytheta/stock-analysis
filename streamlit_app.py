@@ -4277,14 +4277,23 @@ def _watchlist_overview():
             f'  margin-bottom: 20px;'
             f'  overflow: hidden;'
             f'}}'
+            # Strip every internal border + background so we never see a
+            # seam between summary and content (Streamlit expanders ship
+            # with a default hairline border-bottom on summary which was
+            # the visible "rand" after opening).
+            f'.st-key-{_cat_keys[c]} [data-testid="stExpander"] summary,'
+            f'.st-key-{_cat_keys[c]} [data-testid="stExpander"] summary *,'
+            f'.st-key-{_cat_keys[c]} [data-testid="stExpander"] details,'
+            f'.st-key-{_cat_keys[c]} [data-testid="stExpander"] details > div {{'
+            f'  border: none !important;'
+            f'  background: transparent !important;'
+            f'  box-shadow: none !important;'
+            f'}}'
             f'.st-key-{_cat_keys[c]} [data-testid="stExpander"] details > summary {{'
             f'  padding: 20px 32px !important;'
             f'  font-weight: 700;'
             f'  font-size: 0.95rem;'
             f'  color: {T["text"]};'
-            f'}}'
-            f'.st-key-{_cat_keys[c]} [data-testid="stExpander"] details[open] > summary {{'
-            f'  padding-bottom: 12px !important;'
             f'}}'
             f'.st-key-{_cat_keys[c]} [data-testid="stExpander"] details > div {{'
             f'  padding: 0 32px 28px 32px !important;'
