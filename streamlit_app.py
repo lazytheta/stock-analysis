@@ -5730,6 +5730,17 @@ def _dcf_editor(ticker):
                 annotation_text="20% (Prasad)",
                 annotation_position="bottom right",
             )
+            # Historic average — single most useful summary stat for
+            # Prasad-style persistence check (level + stability).
+            _roce_valid_chart = [v for v in roce_vals if v is not None]
+            if _roce_valid_chart:
+                _roce_chart_avg = sum(_roce_valid_chart) / len(_roce_valid_chart)
+                fig.add_hline(
+                    y=_roce_chart_avg, line_dash="dot",
+                    line_color=_COLORS['text_muted'],
+                    annotation_text=f"Avg {_roce_chart_avg:.1f}%",
+                    annotation_position="top left",
+                )
             fig.update_yaxes(ticksuffix='%')
             _base_layout(fig)
             st.plotly_chart(fig, use_container_width=True)
