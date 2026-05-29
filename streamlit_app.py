@@ -6144,6 +6144,130 @@ def _dcf_editor(ticker):
         else:
             st.info("Insufficient data for FCF Conversion (need 3+ years)")
 
+        # ── Net Debt ──
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:6px">'
+            f'<span style="font-weight:700">Net Debt</span>'
+            f'<span class="nd-tip" style="position:relative;cursor:help">'
+            f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
+            f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
+            f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
+            f'</svg>'
+            f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
+            f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
+            f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
+            f'font-weight:400;width:260px;z-index:999;box-shadow:{T["shadow_hover"]};'
+            f'pointer-events:none;transition:opacity 0.15s ease">'
+            f'Total Debt − Cash. Wat het bedrijf netto schuldig is.<br><br>'
+            f'<b>Negatief</b> cash-rich, geen credit-risk<br>'
+            f'<b>0 − 1.5×</b> EBITDA: gezond<br>'
+            f'<b>1.5 − 3×</b> EBITDA: acceptabel voor stabiele cash-generators<br>'
+            f'<b>3 − 4×</b> EBITDA: opgerekt, kwetsbaar voor recessie<br>'
+            f'<b>&gt; 4×</b> EBITDA: distress-risk<br><br>'
+            f'EBITDA hier afgeleid als Operating Income + D&amp;A.'
+            f'</span></span></div>'
+            f'<style>.nd-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
+            unsafe_allow_html=True,
+        )
+        if _n >= 3:
+            nd_vals = []
+            nd_ebitda_vals = []
+            _debt_tbl = []
+            _cash_tbl = []
+            _ebitda_tbl = []
+            for i in range(_n):
+                debt_v = fund['total_debt'][i]
+                cash_i = fund['cash'][i]
+                oi = fund['operating_income'][i]
+                da = fund['da'][i] if 'da' in fund else None
+                ebitda = (oi + (da or 0)) if oi is not None else None
+                _debt_tbl.append(debt_v)
+                _cash_tbl.append(cash_i)
+                _ebitda_tbl.append(ebitda)
+                if debt_v is not None and cash_i is not None:
+                    nd = debt_v - cash_i
+                    nd_vals.append(nd)
+                    nd_ebitda_vals.append(nd / ebitda if ebitda and ebitda > 0 else None)
+                else:
+                    nd_vals.append(None)
+                    nd_ebitda_vals.append(None)
+
+            # Chart: Net Debt ($M) over time + zero reference line
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=_yrs, y=nd_vals, name='Net Debt',
+                line=dict(color=_COLORS['primary'], width=2.5),
+                hovertemplate='$%{y:,.0f}M<extra>Net Debt</extra>',
+            ))
+            fig.add_hline(
+                y=0, line_dash="dot", line_color=_COLORS['text_muted'],
+                annotation_text="0", annotation_position="right",
+            )
+            fig.update_yaxes(tickprefix='$', ticksuffix='M')
+            _base_layout(fig)
+            st.plotly_chart(fig, use_container_width=True)
+
+            with st.expander("Details", expanded=False):
+                _nd_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
+                _nd_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
+                _nd_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
+                _nd_avg = f'{_nd_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
+                _nd_div = f'border-top:3px solid {T["text"]}'
+                _nd_html = (
+                    '<div style="overflow-x:auto">'
+                    '<table style="width:100%;border-collapse:collapse">'
+                    '<thead><tr>'
+                    f'<th style="{_nd_hdr};text-align:left"></th>'
+                )
+                for yr in _yrs:
+                    _nd_html += f'<th style="{_nd_hdr}">{yr}</th>'
+                _nd_html += f'<th style="{_nd_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
+                _nd_html += '</tr></thead><tbody>'
+
+                def _row(label, values, fmt='{:,.0f}', avg=True, divider=False, color_fn=None):
+                    nonlocal _nd_html
+                    label_style = _nd_label + (';' + _nd_div if divider else '')
+                    cell_style_base = _nd_cell + (';' + _nd_div if divider else '')
+                    avg_style = _nd_avg + (';' + _nd_div if divider else '')
+                    _nd_html += f'<tr><td style="{label_style}">{label}</td>'
+                    for v in values:
+                        if v is None:
+                            _nd_html += f'<td style="{cell_style_base}">—</td>'
+                        else:
+                            extra = ''
+                            if color_fn:
+                                c = color_fn(v)
+                                if c:
+                                    extra = f';color:{c};font-weight:600'
+                            _nd_html += f'<td style="{cell_style_base}{extra}">{fmt.format(v)}</td>'
+                    if avg:
+                        _valid = [v for v in values if v is not None]
+                        if _valid:
+                            _a = sum(_valid) / len(_valid)
+                            extra = ''
+                            if color_fn:
+                                c = color_fn(_a)
+                                if c:
+                                    extra = f';color:{c}'
+                            _nd_html += f'<td style="{avg_style}{extra}">{fmt.format(_a)}</td>'
+                        else:
+                            _nd_html += f'<td style="{avg_style}">—</td>'
+                    _nd_html += '</tr>'
+
+                _row("Total Debt", _debt_tbl)
+                _row("Cash", _cash_tbl)
+                _row("Net Debt", nd_vals, divider=True,
+                     color_fn=lambda v: T['accent'] if v < 0 else (T['red'] if v > 0 else None))
+                _row("EBITDA", _ebitda_tbl)
+                _row("Net Debt / EBITDA", nd_ebitda_vals, fmt='{:.1f}x', divider=True,
+                     color_fn=lambda v: T['accent'] if v < 1.5 else (T['red'] if v > 4 else None))
+
+                _nd_html += '</tbody></table></div>'
+                st.markdown(_nd_html, unsafe_allow_html=True)
+                st.caption("In $M. Net Debt = Total Debt − Cash. Negatief = cash-rich. EBITDA = OI + D&A (proxy).")
+        else:
+            st.info("Insufficient data for Net Debt (need 3+ years)")
+
         # ── Debt / FCF ──
         st.markdown(
             f'<div style="display:flex;align-items:center;gap:6px">'
