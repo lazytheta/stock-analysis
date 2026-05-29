@@ -4060,19 +4060,29 @@ def _watchlist_overview():
             sh = cfg_wl.get('shares_outstanding', 0)
             eps = ni[-1] / sh if ni and sh else 0
             pe = live_price / eps if eps > 0 else None
-            # FCF Yield — from fundamentals (cached 24h)
-            fcf_yield_val = None
             _fund = _fund_map.get(t, {})
-            _fcf_vals = [v for v in _fund.get('fcf', []) if v is not None]
-            _sh_vals = [v for v in _fund.get('shares', []) if v and v > 0]
-            if _fcf_vals and _sh_vals and live_price > 0:
-                fcf_yield_val = (_fcf_vals[-1] * 1e6 / _sh_vals[-1]) / live_price
-            elif _fcf_vals:
-                # Fallback: FCF / Market Cap (for tickers like V without
-                # XBRL share counts)
-                _mc = cfg_wl.get('equity_market_value', 0) or 0  # in $M
-                if _mc > 0:
-                    fcf_yield_val = _fcf_vals[-1] / _mc
+            # EBIT/EV (Greenblatt Earnings Yield) — current snapshot.
+            # Capital-structure-agnostic and pre-tax, so it's comparable
+            # across sectors. Pairs with Avg ROCE as the price-side of
+            # the quality-at-reasonable-price screen.
+            ebit_ev_val = None
+            _oi_latest = next(
+                (v for v in reversed(_fund.get('operating_income', []) or [])
+                 if v is not None), None,
+            )
+            _debt_latest = next(
+                (v for v in reversed(_fund.get('total_debt', []) or [])
+                 if v is not None), None,
+            )
+            _cash_latest = next(
+                (v for v in reversed(_fund.get('cash', []) or [])
+                 if v is not None), 0,
+            ) or 0
+            _mc_wl = cfg_wl.get('equity_market_value', 0) or 0  # in $M
+            if _oi_latest is not None and _debt_latest is not None and _mc_wl > 0:
+                _ev_wl = _mc_wl + _debt_latest - _cash_latest
+                if _ev_wl > 0:
+                    ebit_ev_val = _oi_latest / _ev_wl * 100
             # Average ROCE — same formula as the Fundamentals tab
             # (EBIT / (TA − CL − Cash − Goodwill), Prasad/PE-conventie).
             # Float businesses (ABNB, V, MA, BKNG, brokers) have customer
@@ -4130,7 +4140,7 @@ def _watchlist_overview():
             'upside': upside,
             'roce_avg': roce_avg,
             'roce_metric': roce_metric,
-            'fcf_yield': fcf_yield_val,
+            'ebit_ev': ebit_ev_val,
             'valuation_summary': cfg_wl.get('valuation_summary'),
         })
 
@@ -4149,7 +4159,7 @@ def _watchlist_overview():
 
     def _render_wl_header():
         hdr = st.columns([0.3, 1.0, 1.6, 0.8, 1.5, 0.8, 0.7, 0.6, 0.7, 0.7, 0.3])
-        _wl_hdr = ["", "Ticker", "Company", "Price", "Fair Value", "Buy", "Upside", "Avg ROCE", "FCF Yield", "Earnings", ""]
+        _wl_hdr = ["", "Ticker", "Company", "Price", "Fair Value", "Buy", "Upside", "Avg ROCE", "EBIT/EV", "Earnings", ""]
         for col, label in zip(hdr, _wl_hdr):
             if label:
                 col.markdown(f"**{label}**")
@@ -4203,7 +4213,16 @@ def _watchlist_overview():
             cols[7].markdown(f":red[{_wl_roce:.1f}%{_wl_suffix}]")
         else:
             cols[7].markdown(f"{_wl_roce:.1f}%{_wl_suffix}")
-        cols[8].markdown(f"{row['fcf_yield']:.1%}" if row['fcf_yield'] else "—")
+        # EBIT/EV (Greenblatt) — color-coded vs Magic Formula bands
+        _wl_ey = row.get('ebit_ev')
+        if _wl_ey is None:
+            cols[8].markdown("—")
+        elif _wl_ey >= 12:
+            cols[8].markdown(f":green[{_wl_ey:.1f}%]")
+        elif _wl_ey < 6:
+            cols[8].markdown(f":red[{_wl_ey:.1f}%]")
+        else:
+            cols[8].markdown(f"{_wl_ey:.1f}%")
         _earn = _earnings_map.get(t)
         if _earn and _earn.get('date'):
             _days_to_earn = (_earn['date'] - date.today()).days
