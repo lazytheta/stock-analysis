@@ -2686,28 +2686,41 @@ st.markdown(f"""
     .hero-green {{ color: var(--accent); }}
     .hero-red {{ color: var(--red); }}
 
-    /* Stat pills — frosted glass */
+    /* Stat blocks — label on top, value below (dashboard-style) */
     .stat-row {{
         display: flex;
         justify-content: center;
-        gap: 16px;
-        margin: 20px 0 0 0;
+        gap: 32px;
+        margin: 24px 0 0 0;
         flex-wrap: wrap;
+        align-items: flex-start;
     }}
     .stat-pill {{
-        background: var(--pill-bg);
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-        border: 1px solid var(--pill-border);
-        border-radius: 980px;
-        padding: 8px 18px;
-        font-size: 0.95rem;
+        background: transparent;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        border: none;
+        border-radius: 0;
+        padding: 0;
+        font-size: 0.78rem;
         color: var(--text-muted);
         font-weight: 400;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        line-height: 1.35;
+        min-width: 60px;
     }}
     .stat-pill b {{
         color: var(--text);
-        font-weight: 600;
+        font-weight: 700;
+        font-size: 1.15rem;
+        margin-top: 4px;
+        text-transform: none;
+        letter-spacing: 0;
     }}
 
     /* Tabs card — wraps tab bar + content in a card */
