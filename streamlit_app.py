@@ -6160,12 +6160,13 @@ def _dcf_editor(ticker):
             f'pointer-events:none;transition:opacity 0.15s ease">'
             f'Adjusted Debt − Cash. Moody&apos;s/S&amp;P-stijl voor credit-analyse.<br><br>'
             f'<b>Adjusted Debt</b> = LT Debt + ST Debt + Operating Leases + Finance Leases + Pension Underfunding. Pakt alle debt-like obligations mee.<br><br>'
-            f'<b>Negatief</b> cash-rich<br>'
+            f'<b style="color:{T["red"]}">Rood</b> (positief) = netto debiteur<br>'
+            f'<b style="color:{T["accent"]}">Groen</b> (negatief) = netto cash, geen credit-risk<br><br>'
             f'<b>0 − 1.5×</b> EBITDA: gezond<br>'
             f'<b>1.5 − 3×</b> EBITDA: acceptabel<br>'
             f'<b>3 − 4×</b> EBITDA: opgerekt<br>'
             f'<b>&gt; 4×</b> EBITDA: distress-risk<br><br>'
-            f'EBITDA = OI + D&amp;A (proxy).'
+            f'EBITDA = OI + D&amp;A (proxy). Lijnkleur volgt het meest recente jaar; per-jaar markers tonen historische sign-flips.'
             f'</span></span></div>'
             f'<style>.nd-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
             unsafe_allow_html=True,
@@ -6218,11 +6219,23 @@ def _dcf_editor(ticker):
                         nd_vals.append(None)
                         nd_ebitda_vals.append(None)
 
-            # Chart: Net Debt ($M) over time + zero reference line
+            # Chart: Net Debt ($M) over time + zero reference line.
+            # Line color reflects the most-recent year's signal (red = net
+            # debtor, green = net cash). Per-marker colors show the
+            # year-by-year status so historical sign-flips stay visible.
+            _recent_nd = next((v for v in reversed(nd_vals) if v is not None), None)
+            _line_color = T['red'] if (_recent_nd is not None and _recent_nd > 0) else T['accent']
+            _marker_colors = [
+                (T['red'] if (v is not None and v > 0) else T['accent'])
+                for v in nd_vals
+            ]
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=_yrs, y=nd_vals, name='Net Debt',
-                line=dict(color=_COLORS['primary'], width=2.5),
+                mode='lines+markers',
+                line=dict(color=_line_color, width=2.5),
+                marker=dict(color=_marker_colors, size=8,
+                            line=dict(color=_line_color, width=1)),
                 hovertemplate='$%{y:,.0f}M<extra>Net Debt</extra>',
             ))
             fig.add_hline(
