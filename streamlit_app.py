@@ -4282,15 +4282,31 @@ def _watchlist_overview():
 
     for _cat in _active_cats:
         _cat_rows = _grouped[_cat]
-        if _cat == "No":
-            # Rejected-pile: keep on watchlist for reference but collapsed
-            # by default so the active categories dominate the view.
-            with st.expander(f"No  ·  {len(_cat_rows)}", expanded=False):
-                _render_wl_header()
-                for row in _cat_rows:
-                    _render_wl_row(row)
-        else:
-            with st.container(key=_cat_keys[_cat]):
+        with st.container(key=_cat_keys[_cat]):
+            if _cat == "No":
+                # Rejected-pile: visually same hero card as the active
+                # categories, but the body collapses behind a chevron so
+                # it doesn't dominate the page. State lives in session
+                # (resets on page refresh — matches st.expander UX).
+                _no_open = st.session_state.get("_wl_no_open", False)
+                _htc, _htg = st.columns([10, 1])
+                with _htc:
+                    st.markdown(
+                        f'<div style="font-size:0.95rem;font-weight:700;color:{T["text"]};margin-bottom:4px">'
+                        f'No <span style="font-weight:400;color:{T["text_muted"]};font-size:0.85rem">'
+                        f'{len(_cat_rows)}</span></div>',
+                        unsafe_allow_html=True,
+                    )
+                with _htg:
+                    _ico = ":material/expand_less:" if _no_open else ":material/expand_more:"
+                    if st.button("", key="wl_no_toggle", icon=_ico):
+                        st.session_state["_wl_no_open"] = not _no_open
+                        st.rerun()
+                if _no_open:
+                    _render_wl_header()
+                    for row in _cat_rows:
+                        _render_wl_row(row)
+            else:
                 st.markdown(
                     f'<div style="font-size:0.95rem;font-weight:700;color:{T["text"]};margin-bottom:4px">'
                     f'{_cat} <span style="font-weight:400;color:{T["text_muted"]};font-size:0.85rem">'
