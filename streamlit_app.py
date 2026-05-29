@@ -44,6 +44,7 @@ from gather_data import (
     TERMINAL_GROWTH_DEFAULT,
     MARGIN_OF_SAFETY_DEFAULT,
     fetch_fundamentals,
+    apply_fundamentals_overrides,
 )
 from broker_adapter import (
     fetch_portfolio_data, fetch_current_prices, fetch_account_balances,
@@ -4063,6 +4064,12 @@ def _watchlist_overview():
             # FCF Yield — from fundamentals (cached 24h)
             fcf_yield_val = None
             _fund = _fund_map.get(t, {})
+            # Apply per-year overrides silently so the watchlist row
+            # reflects corrected values for tickers with broken EDGAR
+            # tagging (e.g. MCD operating leases post-FY2023).
+            _fund_overrides = cfg_wl.get('fundamentals_overrides') or {}
+            if _fund_overrides and _fund:
+                _fund = apply_fundamentals_overrides(_fund, _fund_overrides)
             _fcf_vals = [v for v in _fund.get('fcf', []) if v is not None]
             _sh_vals = [v for v in _fund.get('shares', []) if v and v > 0]
             if _fcf_vals and _sh_vals and live_price > 0:
@@ -5691,6 +5698,11 @@ def _dcf_editor(ticker):
             return fetch_fundamentals(t, n_years=11)
 
         fund = _cached_fundamentals(ticker)
+        # Apply per-year overrides silently so every section below uses
+        # corrected values for tickers with broken EDGAR tagging.
+        _fund_overrides = cfg.get('fundamentals_overrides') or {}
+        if _fund_overrides:
+            fund = apply_fundamentals_overrides(fund, _fund_overrides)
         _yrs = fund['years']
         _n = len(_yrs)
 

@@ -1081,3 +1081,254 @@ def test_sotp_round_trip_segments_then_calculate_multi_lens(monkeypatch):
     assert lens_out["fv_mid"] > 0
     assert lens_out["fv_low"] <= lens_out["fv_mid"] <= lens_out["fv_high"]
     assert lens_out["details"]["segment_count"] == 2
+
+
+# ---------------------------------------------------------------------------
+# apply_fundamentals_overrides helper
+# ---------------------------------------------------------------------------
+
+
+def test_apply_fundamentals_overrides_replaces_component():
+    """Override on a component (operating_income) takes effect at the
+    matching year index; other years stay untouched."""
+    import gather_data
+    fund = {
+        "years": [2023, 2024, 2025],
+        "operating_income": [100.0, 120.0, 130.0],
+    }
+    out = gather_data.apply_fundamentals_overrides(
+        fund, {"operating_income": {2024: 999.0}}
+    )
+    assert out["operating_income"] == [100.0, 999.0, 130.0]
+    # Original untouched (no mutation)
+    assert fund["operating_income"] == [100.0, 120.0, 130.0]
+
+
+def test_apply_fundamentals_overrides_recomputes_fcf_and_ebitda():
+    """Derived metrics (fcf = cfo + capex, ebitda = oi + da) recompute
+    after a component override — caller doesn't have to set them."""
+    import gather_data
+    fund = {
+        "years": [2024],
+        "cfo": [200.0],
+        "capex": [-50.0],
+        "operating_income": [100.0],
+        "da": [30.0],
+        "fcf": [150.0],
+        "ebitda": [130.0],
+    }
+    out = gather_data.apply_fundamentals_overrides(
+        fund, {"cfo": {2024: 300.0}, "operating_income": {2024: 200.0}}
+    )
+    assert out["fcf"] == [250.0]      # 300 + (-50)
+    assert out["ebitda"] == [230.0]   # 200 + 30
+
+
+def test_apply_fundamentals_overrides_ignores_unknown_field():
+    """Override on a field not in the whitelist is silently ignored (defensive)."""
+    import gather_data
+    fund = {"years": [2024], "operating_income": [100.0]}
+    out = gather_data.apply_fundamentals_overrides(
+        fund, {"some_unknown_metric": {2024: 999.0}}
+    )
+    assert "some_unknown_metric" not in out
+    assert out["operating_income"] == [100.0]
+
+
+def test_apply_fundamentals_overrides_ignores_unmatched_year():
+    """Override on a year not in fund.years is silently ignored."""
+    import gather_data
+    fund = {"years": [2024, 2025], "operating_income": [100.0, 110.0]}
+    out = gather_data.apply_fundamentals_overrides(
+        fund, {"operating_income": {2099: 999.0}}
+    )
+    assert out["operating_income"] == [100.0, 110.0]
+
+
+# ---------------------------------------------------------------------------
+# _get_fundamentals_impl + _update_fundamentals_impl
+# ---------------------------------------------------------------------------
+
+
+def _patch_fund_storage(monkeypatch, storage, fake_fund):
+    """Helper: wire load/save_config to in-memory storage, fake EDGAR fetch."""
+    import mcp_server
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(
+        mcp_server.config_store, "load_config",
+        lambda c, t, user_id=None: dict(storage[t.upper()])
+            if t.upper() in storage else None,
+    )
+    monkeypatch.setattr(
+        mcp_server.config_store, "save_config",
+        lambda c, t, cfg, user_id=None: storage.update({t.upper(): dict(cfg)}),
+    )
+    monkeypatch.setattr(
+        mcp_server.gather_data, "fetch_fundamentals",
+        lambda ticker, n_years=10: dict(fake_fund),
+    )
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+
+
+def test_get_fundamentals_returns_overridden_data(monkeypatch):
+    """Stored overrides take effect in the returned 'raw' arrays."""
+    import json as _json
+    import mcp_server
+    storage = {
+        "MCD": {
+            "ticker": "MCD",
+            "equity_market_value": 200000,  # $M
+            "fundamentals_overrides": {
+                "operating_lease_liabilities": {"2024": 12500.0, "2025": 12800.0},
+            },
+        },
+    }
+    fake_fund = {
+        "years": [2023, 2024, 2025],
+        "operating_income": [11000.0, 11500.0, 12000.0],
+        "operating_lease_liabilities": [12000.0, None, None],
+        "total_assets": [55000.0, 55000.0, 55000.0],
+        "current_liabilities": [10000.0, 10000.0, 10000.0],
+        "cash": [4000.0, 1000.0, 800.0],
+        "goodwill": [3000.0, 3000.0, 3000.0],
+        "total_debt": [40000.0, 40000.0, 40000.0],
+        "fcf": [5000.0, 5500.0, 6000.0],
+        "da": [2000.0, 2100.0, 2200.0],
+        "net_income": [8000.0, 8500.0, 9000.0],
+        "total_equity": [-4500.0, -4500.0, -4500.0],
+        "shares": [None, None, None],
+        "cfo": [9000.0, 9500.0, 10000.0],
+        "capex": [-2000.0, -2000.0, -2000.0],
+        "short_term_debt": [400.0, 800.0, 1500.0],
+        "finance_lease_liabilities": [1600.0, 1800.0, 2400.0],
+        "pension_liabilities": [None, None, None],
+    }
+    _patch_fund_storage(monkeypatch, storage, fake_fund)
+
+    result = _json.loads(mcp_server._get_fundamentals_impl("MCD", n_years=3))
+    assert result["ticker"] == "MCD"
+    # Override took effect
+    assert result["raw"]["operating_lease_liabilities"] == [12000.0, 12500.0, 12800.0]
+    # Headline computed
+    assert result["headline"]["latest_year"] == 2025
+    assert result["headline"]["current_ebit_ev_pct"] is not None
+    # Float-business not triggered for MCD (CE/TA > 25%)
+    assert result["headline"]["roce_metric"] == "ROCE"
+
+
+def test_get_fundamentals_unknown_ticker_returns_error(monkeypatch):
+    import json as _json
+    import mcp_server
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(
+        mcp_server.config_store, "load_config",
+        lambda c, t, user_id=None: None,
+    )
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+    result_json = mcp_server._get_fundamentals_impl("UNKNOWN")
+    assert "error" in _json.loads(result_json)
+
+
+def test_update_fundamentals_merges_by_field_year(monkeypatch):
+    """New (field, year) overrides merge with existing ones."""
+    import json as _json
+    import mcp_server
+    storage = {
+        "MCD": {
+            "ticker": "MCD",
+            "fundamentals_overrides": {
+                "operating_lease_liabilities": {"2024": 12500.0},
+            },
+        },
+    }
+    _patch_fund_storage(monkeypatch, storage, {"years": []})
+
+    result = _json.loads(mcp_server._update_fundamentals_impl(
+        "MCD", {"operating_lease_liabilities": {2025: 12800}},
+    ))
+    saved = storage["MCD"]["fundamentals_overrides"]
+    assert saved["operating_lease_liabilities"]["2024"] == 12500.0
+    assert saved["operating_lease_liabilities"]["2025"] == 12800.0
+    assert result["field_count"] == 1
+    assert result["total_override_cells"] == 2
+
+
+def test_update_fundamentals_null_value_removes_override(monkeypatch):
+    """Passing null as value removes that specific (field, year)."""
+    import mcp_server
+    storage = {
+        "MCD": {
+            "ticker": "MCD",
+            "fundamentals_overrides": {
+                "operating_lease_liabilities": {"2024": 12500.0, "2025": 12800.0},
+            },
+        },
+    }
+    _patch_fund_storage(monkeypatch, storage, {"years": []})
+
+    mcp_server._update_fundamentals_impl(
+        "MCD", {"operating_lease_liabilities": {2024: None}},
+    )
+    saved = storage["MCD"]["fundamentals_overrides"]
+    assert "2024" not in saved["operating_lease_liabilities"]
+    assert saved["operating_lease_liabilities"]["2025"] == 12800.0
+
+
+def test_update_fundamentals_removes_empty_field(monkeypatch):
+    """Removing the last (year) override for a field drops the field entry."""
+    import mcp_server
+    storage = {
+        "MCD": {
+            "ticker": "MCD",
+            "fundamentals_overrides": {
+                "operating_lease_liabilities": {"2024": 12500.0},
+            },
+        },
+    }
+    _patch_fund_storage(monkeypatch, storage, {"years": []})
+
+    mcp_server._update_fundamentals_impl(
+        "MCD", {"operating_lease_liabilities": {2024: None}},
+    )
+    saved = storage["MCD"].get("fundamentals_overrides", {})
+    assert "operating_lease_liabilities" not in saved
+
+
+def test_update_fundamentals_rejects_unknown_field(monkeypatch):
+    import json as _json
+    import mcp_server
+    storage = {"MCD": {"ticker": "MCD"}}
+    _patch_fund_storage(monkeypatch, storage, {"years": []})
+
+    result = _json.loads(mcp_server._update_fundamentals_impl(
+        "MCD", {"some_unknown_metric": {2024: 100}},
+    ))
+    assert "error" in result
+    assert "some_unknown_metric" in result["error"]
+
+
+def test_update_fundamentals_rejects_non_number(monkeypatch):
+    import json as _json
+    import mcp_server
+    storage = {"MCD": {"ticker": "MCD"}}
+    _patch_fund_storage(monkeypatch, storage, {"years": []})
+
+    result = _json.loads(mcp_server._update_fundamentals_impl(
+        "MCD", {"operating_income": {2024: "not-a-number"}},
+    ))
+    assert "error" in result
+
+
+def test_update_fundamentals_unknown_ticker_returns_error(monkeypatch):
+    import json as _json
+    import mcp_server
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(
+        mcp_server.config_store, "load_config",
+        lambda c, t, user_id=None: None,
+    )
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+    result_json = mcp_server._update_fundamentals_impl(
+        "UNKNOWN", {"operating_income": {2024: 100}},
+    )
+    assert "error" in _json.loads(result_json)

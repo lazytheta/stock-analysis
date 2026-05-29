@@ -543,10 +543,9 @@ def test_oauth_magic_finalize_rejects_invalid_supabase_token(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_tools_list_returns_16_tools():
-    """tools/list returns the full set of 16 tools (added 3 SOTP tools on
-    2026-05-13: update_sotp_segments, remove_sotp_segment,
-    set_sotp_corporate_overhead)."""
+def test_tools_list_returns_18_tools():
+    """tools/list returns 18 tools (added get_fundamentals +
+    update_fundamentals on 2026-05-29)."""
     from starlette.testclient import TestClient
     from mcp_auth import sign_jwt
     from main import app
@@ -560,7 +559,7 @@ def test_tools_list_returns_16_tools():
     )
     assert r.status_code == 200
     tools = r.json()["result"]["tools"]
-    assert len(tools) == 16
+    assert len(tools) == 18
     names = {t["name"] for t in tools}
     assert names == {
         "build_dcf_config", "calculate_valuation", "calculate_multi_lens_valuation",
@@ -568,6 +567,7 @@ def test_tools_list_returns_16_tools():
         "get_watchlist", "update_valuation_inputs", "update_lens_weights",
         "update_dcf_scenario_adjustments",
         "update_sotp_segments", "remove_sotp_segment", "set_sotp_corporate_overhead",
+        "get_fundamentals", "update_fundamentals",
         "get_prescan_prompts", "get_prescan_sections", "save_prescan_section",
     }
 
@@ -833,3 +833,98 @@ def test_tools_call_set_sotp_corporate_overhead_passes_args(monkeypatch):
     )
     assert r.status_code == 200
     assert captured == {"ticker": "AMZN", "value": -5000, "user_id": "jwt-uid"}
+
+
+def test_tools_call_get_fundamentals_passes_args(monkeypatch):
+    """get_fundamentals routes ticker, n_years, user_id to the impl."""
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt
+    from main import app
+    import mcp_server
+
+    captured = {}
+    def fake_impl(ticker, n_years=10, user_id=None):
+        captured.update({"ticker": ticker, "n_years": n_years, "user_id": user_id})
+        return '{"raw": {}}'
+    monkeypatch.setattr(mcp_server, "_get_fundamentals_impl", fake_impl)
+
+    token = sign_jwt({"type": "access_token", "user_id": "jwt-uid"}, ttl_seconds=60)
+    client = TestClient(app)
+    r = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {
+                "name": "get_fundamentals",
+                "arguments": {"ticker": "MCD", "n_years": 5},
+            },
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    assert captured == {"ticker": "MCD", "n_years": 5, "user_id": "jwt-uid"}
+
+
+def test_tools_call_get_fundamentals_default_n_years(monkeypatch):
+    """get_fundamentals without n_years uses default 10."""
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt
+    from main import app
+    import mcp_server
+
+    captured = {}
+    def fake_impl(ticker, n_years=10, user_id=None):
+        captured.update({"n_years": n_years})
+        return '{}'
+    monkeypatch.setattr(mcp_server, "_get_fundamentals_impl", fake_impl)
+
+    token = sign_jwt({"type": "access_token", "user_id": "u"}, ttl_seconds=60)
+    client = TestClient(app)
+    client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0", "method": "tools/call", "id": 1,
+            "params": {"name": "get_fundamentals", "arguments": {"ticker": "AAPL"}},
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert captured["n_years"] == 10
+
+
+def test_tools_call_update_fundamentals_passes_args(monkeypatch):
+    """update_fundamentals routes ticker, overrides, user_id to the impl."""
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt
+    from main import app
+    import mcp_server
+
+    captured = {}
+    def fake_impl(ticker, overrides, user_id=None):
+        captured.update({"ticker": ticker, "overrides": overrides, "user_id": user_id})
+        return '{"field_count": 1}'
+    monkeypatch.setattr(mcp_server, "_update_fundamentals_impl", fake_impl)
+
+    token = sign_jwt({"type": "access_token", "user_id": "jwt-uid"}, ttl_seconds=60)
+    client = TestClient(app)
+    overrides_payload = {"operating_lease_liabilities": {"2024": 12500}}
+    r = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {
+                "name": "update_fundamentals",
+                "arguments": {"ticker": "MCD", "overrides": overrides_payload},
+            },
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    assert captured == {
+        "ticker": "MCD",
+        "overrides": overrides_payload,
+        "user_id": "jwt-uid",
+    }

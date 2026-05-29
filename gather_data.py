@@ -2670,6 +2670,95 @@ def write_config(cfg, output_path):
 
 # ── Fundamentals Fetcher (for Streamlit app) ─────────────────────────
 
+# Components that can be overridden via cfg['fundamentals_overrides'].
+# Derived metrics (fcf, ebitda) are NOT in this list — they get recomputed
+# from their components after override application so the data stays
+# internally consistent.
+OVERRIDABLE_FUNDAMENTALS_FIELDS = (
+    "revenue", "operating_income", "net_income", "cost_of_revenue",
+    "tax_provision", "pretax_income",
+    "total_equity", "total_debt", "cash", "shares",
+    "capex", "cfo",
+    "total_assets", "current_liabilities", "goodwill", "intangibles",
+    "ppe", "da", "gross_profit", "eps", "dividends_per_share",
+    "short_term_debt", "operating_lease_liabilities",
+    "finance_lease_liabilities", "pension_liabilities",
+)
+
+
+def apply_fundamentals_overrides(fund, overrides):
+    """Apply user-set per-year overrides to a fetch_fundamentals() result.
+
+    Components only — derived fields (fcf, ebitda) are recomputed afterwards
+    so a corrected operating_income or capex naturally flows into the
+    derived value without the user having to set both.
+
+    Args:
+        fund: dict returned by fetch_fundamentals(). Must contain 'years'.
+        overrides: dict shaped {field_name: {year: value}}. Values can be
+                   numbers (override) or None (explicit removal — caller
+                   would normally just drop the key, but None is tolerated
+                   here as a no-op).
+
+    Returns:
+        A new dict — `fund` itself is not mutated. Override values replace
+        the EDGAR-fetched value at the matching year index. Years not
+        present in the override stay untouched.
+    """
+    if not overrides:
+        return fund
+    years = list(fund.get("years") or [])
+    if not years:
+        return fund
+
+    result = dict(fund)
+    # Copy lists we might mutate so callers can't observe partial state
+    for k, v in fund.items():
+        if isinstance(v, list):
+            result[k] = list(v)
+
+    for field, year_map in overrides.items():
+        if field not in OVERRIDABLE_FUNDAMENTALS_FIELDS:
+            continue
+        if not isinstance(year_map, dict):
+            continue
+        current = result.get(field)
+        if not isinstance(current, list):
+            continue
+        for yr, val in year_map.items():
+            if val is None:
+                continue  # treated as no-op; caller can drop the key to revert
+            try:
+                yr_int = int(yr)
+            except (TypeError, ValueError):
+                continue
+            if yr_int in years:
+                idx = years.index(yr_int)
+                if idx < len(current):
+                    current[idx] = float(val)
+        result[field] = current
+
+    # Recompute derived fields from (possibly overridden) components.
+    cfo = result.get("cfo") or []
+    capex = result.get("capex") or []
+    if cfo and capex:
+        result["fcf"] = [
+            (cfo[i] + capex[i]) if (i < len(cfo) and i < len(capex)
+                                    and cfo[i] is not None and capex[i] is not None)
+            else None
+            for i in range(len(years))
+        ]
+    oi = result.get("operating_income") or []
+    da = result.get("da") or []
+    if oi and da:
+        result["ebitda"] = [
+            (oi[i] + (da[i] or 0)) if (i < len(oi) and oi[i] is not None) else None
+            for i in range(len(years))
+        ]
+
+    return result
+
+
 def fetch_fundamentals(ticker, n_years=10):
     """Fetch historical financial fundamentals from EDGAR XBRL.
 

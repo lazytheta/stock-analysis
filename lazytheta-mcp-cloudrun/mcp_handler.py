@@ -131,6 +131,22 @@ async def _tool_set_sotp_corporate_overhead(user_id: str, args: dict) -> Any:
     )
 
 
+async def _tool_get_fundamentals(user_id: str, args: dict) -> Any:
+    return mcp_server._get_fundamentals_impl(
+        ticker=args["ticker"],
+        n_years=args.get("n_years", 10),
+        user_id=user_id,
+    )
+
+
+async def _tool_update_fundamentals(user_id: str, args: dict) -> Any:
+    return mcp_server._update_fundamentals_impl(
+        ticker=args["ticker"],
+        overrides=args["overrides"],
+        user_id=user_id,
+    )
+
+
 async def _tool_get_prescan_prompts(user_id: str, args: dict) -> Any:
     return mcp_server._get_prescan_prompts_impl(args["ticker"], user_id=user_id)
 
@@ -397,6 +413,61 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "get_fundamentals",
+        "description": (
+            "Return per-year EDGAR fundamentals (revenue, OI, FCF, debt, "
+            "leases, pension, etc.) for a watchlist ticker, with any stored "
+            "per-year overrides applied. Includes a 'headline' object with "
+            "computed metrics: avg_roce_pct (ROE-fallback for float "
+            "businesses with avg CE/TA < 25%), current_fcf_yield_pct, "
+            "current_ebit_ev_pct, latest_adjusted_net_debt_m (incl. leases "
+            "+ pension, Moody's/S&P style), latest_net_debt_ebitda. "
+            "Read-only — call update_fundamentals to correct values."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "n_years": {"type": "integer", "minimum": 1, "default": 10},
+            },
+            "required": ["ticker"],
+        },
+    },
+    {
+        "name": "update_fundamentals",
+        "description": (
+            "Set per-year overrides for component fundamentals fields when "
+            "EDGAR XBRL tagging is broken (e.g. MCD operating leases "
+            "post-FY2023). Merge-by-field-year semantics: existing "
+            "overrides for other (field, year) pairs stay intact. Pass "
+            "null as value to remove that specific override (reverts to "
+            "EDGAR value). Allowed component fields only — derived metrics "
+            "(fcf, ebitda) are recomputed automatically. Allowed: "
+            "revenue, operating_income, net_income, cost_of_revenue, "
+            "tax_provision, pretax_income, total_equity, total_debt, "
+            "cash, shares, capex, cfo, total_assets, current_liabilities, "
+            "goodwill, intangibles, ppe, da, gross_profit, eps, "
+            "dividends_per_share, short_term_debt, "
+            "operating_lease_liabilities, finance_lease_liabilities, "
+            "pension_liabilities."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "overrides": {
+                    "type": "object",
+                    "description": (
+                        "Shape: {field_name: {year_int: number_or_null}}. "
+                        "Example: {'operating_lease_liabilities': "
+                        "{2024: 12500, 2025: 12800}}"
+                    ),
+                },
+            },
+            "required": ["ticker", "overrides"],
+        },
+    },
+    {
         "name": "get_prescan_prompts",
         "description": (
             "Return the user's prescan prompt library with placeholders "
@@ -450,6 +521,8 @@ TOOL_HANDLERS: dict[str, Callable[[str, dict], Awaitable[Any]]] = {
     "update_sotp_segments": _tool_update_sotp_segments,
     "remove_sotp_segment": _tool_remove_sotp_segment,
     "set_sotp_corporate_overhead": _tool_set_sotp_corporate_overhead,
+    "get_fundamentals": _tool_get_fundamentals,
+    "update_fundamentals": _tool_update_fundamentals,
     "get_prescan_prompts": _tool_get_prescan_prompts,
     "get_prescan_sections": _tool_get_prescan_sections,
     "save_prescan_section": _tool_save_prescan_section,

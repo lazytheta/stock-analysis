@@ -644,6 +644,191 @@ def _set_sotp_corporate_overhead_impl(ticker: str, value: float,
 
 
 # ---------------------------------------------------------------------------
+# Fundamentals (read + override) — surfaces EDGAR data and per-year manual
+# overrides so Claude can analyse raw historicals or correct bad XBRL tags.
+# ---------------------------------------------------------------------------
+
+
+def _compute_fundamentals_headline(fund, cfg):
+    """Compute the same headline metrics the watchlist + detail page show:
+    avg ROCE (with ROE fallback for float businesses), current FCF Yield,
+    current EBIT/EV, latest adjusted Net Debt + Net Debt/EBITDA.
+    """
+    yrs = list(fund.get("years") or [])
+    n = len(yrs)
+    headline = {
+        "latest_year": yrs[-1] if yrs else None,
+        "avg_roce_pct": None,
+        "roce_metric": "ROCE",
+        "current_fcf_yield_pct": None,
+        "current_ebit_ev_pct": None,
+        "latest_adjusted_net_debt_m": None,
+        "latest_net_debt_ebitda": None,
+    }
+    if not n:
+        return headline
+
+    # Avg ROCE with float-business fallback (same formula as Streamlit)
+    oi_w = fund.get("operating_income") or []
+    ta_w = fund.get("total_assets") or []
+    cl_w = fund.get("current_liabilities") or []
+    cash_w = fund.get("cash") or []
+    gw_w = fund.get("goodwill") or []
+    roce_pcts = []
+    ce_ta_ratios = []
+    for i in range(n):
+        oi = oi_w[i] if i < len(oi_w) else None
+        ta = ta_w[i] if i < len(ta_w) else None
+        cl = cl_w[i] if i < len(cl_w) else None
+        cash_v = (cash_w[i] if i < len(cash_w) else 0) or 0
+        gw = (gw_w[i] if i < len(gw_w) else 0) or 0
+        if oi is not None and ta and cl is not None:
+            ce = ta - cl - cash_v - gw
+            ce_ta_ratios.append(max(ce, 0) / ta)
+            if ce > 0:
+                roce_pcts.append(oi / ce * 100)
+    avg_ce_ta = sum(ce_ta_ratios) / len(ce_ta_ratios) if ce_ta_ratios else 1.0
+    if ce_ta_ratios and avg_ce_ta < 0.25:
+        headline["roce_metric"] = "ROE"
+        ni_w = fund.get("net_income") or []
+        eq_w = fund.get("total_equity") or []
+        roe_pcts = []
+        for i in range(n):
+            ni = ni_w[i] if i < len(ni_w) else None
+            eq = eq_w[i] if i < len(eq_w) else None
+            if ni is not None and eq and eq > 0:
+                roe_pcts.append(ni / eq * 100)
+        if roe_pcts:
+            headline["avg_roce_pct"] = round(sum(roe_pcts) / len(roe_pcts), 2)
+    elif roce_pcts:
+        headline["avg_roce_pct"] = round(sum(roce_pcts) / len(roce_pcts), 2)
+
+    # Current FCF Yield + EBIT/EV
+    mcap_m = (cfg.get("equity_market_value") or 0) if isinstance(cfg, dict) else 0
+    fcf_list = [v for v in (fund.get("fcf") or []) if v is not None]
+    if fcf_list and mcap_m > 0:
+        headline["current_fcf_yield_pct"] = round(fcf_list[-1] / mcap_m * 100, 2)
+    oi_latest = next((v for v in reversed(oi_w) if v is not None), None)
+    debt_latest = next((v for v in reversed(fund.get("total_debt") or []) if v is not None), None)
+    cash_latest = next((v for v in reversed(cash_w) if v is not None), 0) or 0
+    if oi_latest is not None and debt_latest is not None and mcap_m > 0:
+        ev = mcap_m + debt_latest - cash_latest
+        if ev > 0:
+            headline["current_ebit_ev_pct"] = round(oi_latest / ev * 100, 2)
+
+    # Latest adjusted Net Debt + Net Debt/EBITDA
+    st_d = next((v for v in reversed(fund.get("short_term_debt") or []) if v is not None), 0) or 0
+    op_l = next((v for v in reversed(fund.get("operating_lease_liabilities") or []) if v is not None), 0) or 0
+    fn_l = next((v for v in reversed(fund.get("finance_lease_liabilities") or []) if v is not None), 0) or 0
+    pen = next((v for v in reversed(fund.get("pension_liabilities") or []) if v is not None), 0) or 0
+    if debt_latest is not None:
+        adj_debt = debt_latest + st_d + op_l + fn_l + pen
+        nd = adj_debt - cash_latest
+        headline["latest_adjusted_net_debt_m"] = round(nd, 0)
+        da_latest = next((v for v in reversed(fund.get("da") or []) if v is not None), 0) or 0
+        if oi_latest is not None:
+            ebitda = oi_latest + da_latest
+            if ebitda > 0:
+                headline["latest_net_debt_ebitda"] = round(nd / ebitda, 2)
+    return headline
+
+
+def _get_fundamentals_impl(ticker: str, n_years: int = 10,
+                            user_id: str | None = None) -> str:
+    """Return the per-year fundamentals arrays (with any stored overrides
+    applied) plus computed headline metrics. Read-only — does not modify
+    the cfg."""
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
+    if cfg is None:
+        return json.dumps({"error": f"{ticker.upper()} not found on watchlist"})
+
+    try:
+        fund_raw = gather_data.fetch_fundamentals(ticker, n_years=n_years)
+    except Exception as e:
+        return json.dumps({"error": f"fetch_fundamentals failed: {e}"})
+
+    overrides = cfg.get("fundamentals_overrides") or {}
+    fund = gather_data.apply_fundamentals_overrides(fund_raw, overrides)
+    headline = _compute_fundamentals_headline(fund, cfg)
+
+    return json.dumps({
+        "ticker": ticker.upper(),
+        "years": fund.get("years") or [],
+        "raw": {k: v for k, v in fund.items() if k != "years"},
+        "headline": headline,
+        "overrides_applied": overrides,
+    }, default=str)
+
+
+def _update_fundamentals_impl(ticker: str, overrides: dict,
+                               user_id: str | None = None) -> str:
+    """Merge per-field per-year overrides into cfg.fundamentals_overrides.
+
+    Semantics:
+    - Input `overrides` is shaped {field_name: {year: value}}
+    - For each (field, year) pair: numeric value sets/replaces the
+      override; null value removes that specific (field, year) override
+      (reverting to the EDGAR-fetched value)
+    - Fields not in OVERRIDABLE_FUNDAMENTALS_FIELDS are rejected
+    - Other (field, year) overrides stay untouched (partial merge)
+    """
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
+    if cfg is None:
+        return json.dumps({"error": f"{ticker.upper()} not found on watchlist"})
+
+    if not isinstance(overrides, dict) or not overrides:
+        return json.dumps({"error": "overrides must be a non-empty dict"})
+
+    allowed = set(gather_data.OVERRIDABLE_FUNDAMENTALS_FIELDS)
+    unknown = sorted(k for k in overrides if k not in allowed)
+    if unknown:
+        return json.dumps({
+            "error": f"unknown field(s): {unknown}. "
+                     f"Allowed: {sorted(allowed)}",
+        })
+
+    existing = dict(cfg.get("fundamentals_overrides") or {})
+    for field, year_map in overrides.items():
+        if not isinstance(year_map, dict):
+            return json.dumps({
+                "error": f"field '{field}': value must be {{year: number_or_null}}",
+            })
+        field_existing = dict(existing.get(field) or {})
+        for yr, val in year_map.items():
+            try:
+                yr_str = str(int(yr))
+            except (TypeError, ValueError):
+                return json.dumps({
+                    "error": f"field '{field}': year '{yr}' must be an integer",
+                })
+            if val is None:
+                field_existing.pop(yr_str, None)
+            else:
+                if not isinstance(val, (int, float)) or isinstance(val, bool):
+                    return json.dumps({
+                        "error": f"field '{field}' year {yr_str}: value must be a number or null",
+                    })
+                field_existing[yr_str] = float(val)
+        if field_existing:
+            existing[field] = field_existing
+        else:
+            existing.pop(field, None)
+
+    cfg["fundamentals_overrides"] = existing
+    config_store.save_config(client, ticker, cfg, user_id=user_id)
+    return json.dumps({
+        "ticker": ticker.upper(),
+        "fundamentals_overrides": existing,
+        "field_count": len(existing),
+        "total_override_cells": sum(len(v) for v in existing.values()),
+    }, default=str)
+
+
+# ---------------------------------------------------------------------------
 # MCP Tools
 # ---------------------------------------------------------------------------
 
