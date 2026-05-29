@@ -7523,12 +7523,9 @@ def _dcf_editor(ticker):
     # Auto-save config at end of every editor render
     save_config(_sb_client, ticker, cfg)
 
-    # ── Fill hero card placeholder with Valuation Bridge values ──
-    _h_intrinsic = cfg.get('_computed_intrinsic', val['intrinsic_value'])
-    _h_buy = cfg.get('_computed_buy', val['buy_price'])
-    _h_upside = (_h_intrinsic / live_price - 1) if live_price > 0 else 0
-    _h_up_color = T['accent'] if _h_upside >= 0 else T['red']
-    _h_up_sign = "+" if _h_upside >= 0 else ""
+    # ── Fill hero card placeholder ──
+    # DCF FV / Buy / Upside pills removed in favour of multi-lens (richer
+    # signal) + Avg ROCE/ROE + FCF Yield (quality + cash-yield context).
 
     # Multi-lens summary pills (only render if valuation_summary present)
     _ml = cfg.get('valuation_summary') or {}
@@ -7571,6 +7568,77 @@ def _dcf_editor(ticker):
             f'<span class="stat-pill">SOTP FV <b>${_sotp_mid_v:.2f}</b>{_sotp_range_txt}</span>'
         )
 
+    # Quality + cash-yield pills (Avg ROCE/ROE + FCF Yield). Re-uses
+    # `fund` already loaded in the Fundamentals tab body above. Wrapped
+    # in try/except so the hero card still renders if fundamentals
+    # fetching failed for this ticker.
+    _quality_pills = ''
+    try:
+        _h_fund = fund if isinstance(fund, dict) and fund.get('years') else None
+    except NameError:
+        _h_fund = None
+    if _h_fund:
+        _h_oi = _h_fund.get('operating_income') or []
+        _h_ta = _h_fund.get('total_assets') or []
+        _h_cl = _h_fund.get('current_liabilities') or []
+        _h_cash = _h_fund.get('cash') or []
+        _h_gw = _h_fund.get('goodwill') or []
+        _h_roce_pcts = []
+        _h_ce_ratios = []
+        for _i in range(len(_h_oi)):
+            _oi_v = _h_oi[_i]
+            _ta_v = _h_ta[_i] if _i < len(_h_ta) else None
+            _cl_v = _h_cl[_i] if _i < len(_h_cl) else None
+            _cash_v = (_h_cash[_i] if _i < len(_h_cash) else 0) or 0
+            _gw_v = (_h_gw[_i] if _i < len(_h_gw) else 0) or 0
+            if _oi_v is not None and _ta_v and _cl_v is not None:
+                _ce = _ta_v - _cl_v - _cash_v - _gw_v
+                _h_ce_ratios.append(max(_ce, 0) / _ta_v)
+                if _ce > 0:
+                    _h_roce_pcts.append(_oi_v / _ce * 100)
+        _h_avg_ce_ta = sum(_h_ce_ratios) / len(_h_ce_ratios) if _h_ce_ratios else 1.0
+        _h_metric_label = 'ROCE'
+        _h_metric_val = None
+        if _h_ce_ratios and _h_avg_ce_ta < 0.25:
+            # Float-business fallback to ROE — same logic as watchlist
+            _h_metric_label = 'ROE'
+            _h_ni = _h_fund.get('net_income') or []
+            _h_eq = _h_fund.get('total_equity') or []
+            _h_roe_pcts = []
+            for _i in range(len(_h_ni)):
+                _ni_v = _h_ni[_i]
+                _eq_v = _h_eq[_i] if _i < len(_h_eq) else None
+                if _ni_v is not None and _eq_v and _eq_v > 0:
+                    _h_roe_pcts.append(_ni_v / _eq_v * 100)
+            if _h_roe_pcts:
+                _h_metric_val = sum(_h_roe_pcts) / len(_h_roe_pcts)
+        elif _h_roce_pcts:
+            _h_metric_val = sum(_h_roce_pcts) / len(_h_roce_pcts)
+        if _h_metric_val is not None:
+            _h_roce_color = (
+                T['accent'] if _h_metric_val >= 20
+                else (T['red'] if _h_metric_val < 10 else T['text'])
+            )
+            _quality_pills += (
+                f'<span class="stat-pill">Avg {_h_metric_label} '
+                f'<b style="color:{_h_roce_color}">{_h_metric_val:.1f}%</b></span>'
+            )
+        # FCF Yield (most recent year FCF / current market cap)
+        _h_fcf_list = [v for v in (_h_fund.get('fcf') or []) if v is not None]
+        if _h_fcf_list:
+            _h_fcf_latest = _h_fcf_list[-1]
+            _h_mc = cfg.get('equity_market_value', 0) or 0  # in $M
+            if _h_mc > 0:
+                _h_fcfy = _h_fcf_latest / _h_mc
+                _h_fcfy_color = (
+                    T['accent'] if _h_fcfy >= 0.05
+                    else (T['red'] if _h_fcfy < 0.02 else T['text'])
+                )
+                _quality_pills += (
+                    f'<span class="stat-pill">FCF Yield '
+                    f'<b style="color:{_h_fcfy_color}">{_h_fcfy:.1%}</b></span>'
+                )
+
     # Verdict pill (from scorecard JSON in ai_notes) — plain text, inherits pill style
     _sc_pills = ''
     _ai_notes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else None
@@ -7598,11 +7666,9 @@ def _dcf_editor(ticker):
         f'</div>'
         f'<div class="stat-row">'
         f'<span class="stat-pill">Price <b>${live_price:.2f}</b></span>'
-        f'<span class="stat-pill">DCF FV <b>${_h_intrinsic:.2f}</b></span>'
-        f'<span class="stat-pill">DCF Buy <b>${_h_buy:.2f}</b></span>'
-        f'<span class="stat-pill">DCF Upside <b style="color:{_h_up_color}">{_h_up_sign}{_h_upside:.1%}</b></span>'
         f'{_ml_pills}'
         f'{_sotp_pill}'
+        f'{_quality_pills}'
         f'{_sc_pills}'
         f'</div>'
         f'</div>',
