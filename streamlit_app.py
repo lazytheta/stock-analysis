@@ -4007,7 +4007,8 @@ def _watchlist_overview():
     @st.cache_data(ttl=86400, show_spinner=False)
     def _cached_fundamentals(t):
         try:
-            return fetch_fundamentals(t, n_years=2)
+            # 10 years so the watchlist can show a meaningful Avg ROCE
+            return fetch_fundamentals(t, n_years=10)
         except Exception as e:
             logger.debug("Fundamentals fetch failed for %s: %s", t, e)
             return {}
@@ -4062,6 +4063,27 @@ def _watchlist_overview():
                 _mc = cfg_wl.get('equity_market_value', 0) or 0  # in $M
                 if _mc > 0:
                     fcf_yield_val = _fcf_vals[-1] / _mc
+            # Average ROCE — same formula as the Fundamentals tab
+            # (EBIT / (TA − CL − Cash − Goodwill), Prasad/PE-conventie)
+            roce_avg = None
+            _oi_w = _fund.get('operating_income', []) or []
+            _ta_w = _fund.get('total_assets', []) or []
+            _cl_w = _fund.get('current_liabilities', []) or []
+            _cash_w = _fund.get('cash', []) or []
+            _gw_w = _fund.get('goodwill', []) or []
+            _roce_pcts = []
+            for _i in range(len(_oi_w)):
+                _oi_v = _oi_w[_i]
+                _ta_v = _ta_w[_i] if _i < len(_ta_w) else None
+                _cl_v = _cl_w[_i] if _i < len(_cl_w) else None
+                _cash_v = (_cash_w[_i] if _i < len(_cash_w) else 0) or 0
+                _gw_v = (_gw_w[_i] if _i < len(_gw_w) else 0) or 0
+                if _oi_v is not None and _ta_v is not None and _cl_v is not None:
+                    _ce = _ta_v - _cl_v - _cash_v - _gw_v
+                    if _ce > 0:
+                        _roce_pcts.append(_oi_v / _ce * 100)
+            if _roce_pcts:
+                roce_avg = sum(_roce_pcts) / len(_roce_pcts)
         except Exception as e:
             logger.warning("Watchlist row build failed for %s: %s", t, e)
             continue
@@ -4074,7 +4096,7 @@ def _watchlist_overview():
             'intrinsic': _wl_intrinsic,
             'buy_price': _wl_buy,
             'upside': upside,
-            'pe': pe,
+            'roce_avg': roce_avg,
             'fcf_yield': fcf_yield_val,
             'valuation_summary': cfg_wl.get('valuation_summary'),
         })
@@ -4094,7 +4116,7 @@ def _watchlist_overview():
 
     def _render_wl_header():
         hdr = st.columns([0.3, 1.0, 1.6, 0.8, 1.5, 0.8, 0.7, 0.6, 0.7, 0.7, 0.3])
-        _wl_hdr = ["", "Ticker", "Company", "Price", "Fair Value", "Buy", "Upside", "P/E", "FCF Yield", "Earnings", ""]
+        _wl_hdr = ["", "Ticker", "Company", "Price", "Fair Value", "Buy", "Upside", "Avg ROCE", "FCF Yield", "Earnings", ""]
         for col, label in zip(hdr, _wl_hdr):
             if label:
                 col.markdown(f"**{label}**")
@@ -4133,7 +4155,16 @@ def _watchlist_overview():
         )
         cols[5].markdown(f"${row['buy_price']:.2f}")
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
-        cols[7].markdown(f"{row['pe']:.1f}x" if row['pe'] else "—")
+        # Avg ROCE — color-coded vs Prasad's 20% screen-bar
+        _wl_roce = row.get('roce_avg')
+        if _wl_roce is None:
+            cols[7].markdown("—")
+        elif _wl_roce >= 20:
+            cols[7].markdown(f":green[{_wl_roce:.1f}%]")
+        elif _wl_roce < 10:
+            cols[7].markdown(f":red[{_wl_roce:.1f}%]")
+        else:
+            cols[7].markdown(f"{_wl_roce:.1f}%")
         cols[8].markdown(f"{row['fcf_yield']:.1%}" if row['fcf_yield'] else "—")
         _earn = _earnings_map.get(t)
         if _earn and _earn.get('date'):
