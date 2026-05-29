@@ -5723,6 +5723,13 @@ def _dcf_editor(ticker):
                     annotation_text=f"WACC {wacc_pct:.1f}%",
                     annotation_position="top right",
                 )
+            # Prasad/PE screen bar at 20% — sustained 20%+ ROCE over 5+
+            # years is the threshold for durable competitive advantage.
+            fig.add_hline(
+                y=20, line_dash="dash", line_color=_COLORS['primary'],
+                annotation_text="20% (Prasad)",
+                annotation_position="bottom right",
+            )
             fig.update_yaxes(ticksuffix='%')
             _base_layout(fig)
             st.plotly_chart(fig, use_container_width=True)
