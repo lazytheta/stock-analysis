@@ -6312,10 +6312,10 @@ def _dcf_editor(ticker):
         else:
             st.info("Insufficient data for Net Debt (need 3+ years)")
 
-        # ── Debt / FCF ──
+        # ── Net Debt / FCF ──
         st.markdown(
             f'<div style="display:flex;align-items:center;gap:6px">'
-            f'<span style="font-weight:700">Debt / FCF</span>'
+            f'<span style="font-weight:700">Net Debt / FCF</span>'
             f'<span class="df-tip" style="position:relative;cursor:help">'
             f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
             f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
@@ -6324,31 +6324,35 @@ def _dcf_editor(ticker):
             f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
             f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
             f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
-            f'font-weight:400;width:240px;z-index:999;box-shadow:{T["shadow_hover"]};'
+            f'font-weight:400;width:260px;z-index:999;box-shadow:{T["shadow_hover"]};'
             f'pointer-events:none;transition:opacity 0.15s ease">'
-            f'Years of FCF needed to repay all debt.<br><br>'
-            f'<b>&lt;3x</b> healthy balance sheet<br>'
-            f'<b>3–5x</b> acceptabel<br>'
-            f'<b>&gt;5x</b> high debt burden'
+            f'Years of FCF needed to repay net debt. Gebruikt Adjusted Net Debt (incl. leases + pension) uit de Net Debt-sectie hierboven.<br><br>'
+            f'<b>&lt; 0×</b> netto cash — geen schuld om af te lossen<br>'
+            f'<b>0 − 3×</b> healthy<br>'
+            f'<b>3 − 5×</b> acceptabel<br>'
+            f'<b>&gt; 5×</b> high debt burden'
             f'</span></span></div>'
             f'<style>.df-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
             unsafe_allow_html=True,
         )
         if _n >= 3:
-            debt_fcf = []
+            netdebt_fcf = []
             for i in range(_n):
                 fcf_v = fund['fcf'][i]
-                debt_v = fund['total_debt'][i]
-                if fcf_v and fcf_v > 0 and debt_v is not None:
-                    debt_fcf.append(debt_v / fcf_v)
+                nd_v = nd_vals[i]
+                if fcf_v and fcf_v > 0 and nd_v is not None:
+                    netdebt_fcf.append(nd_v / fcf_v)
                 else:
-                    debt_fcf.append(None)
+                    netdebt_fcf.append(None)
             fig = go.Figure()
             fig.add_trace(go.Scatter(
-                x=_yrs, y=debt_fcf, name='Debt/FCF',
+                x=_yrs, y=netdebt_fcf, name='Net Debt/FCF',
                 line=dict(color=_COLORS['accent'], width=2.5),
-                hovertemplate='%{y:.1f}x<extra>Debt/FCF</extra>',
+                hovertemplate='%{y:.1f}x<extra>Net Debt/FCF</extra>',
             ))
+            # Reference lines: 0 (net-cash boundary), 3x (healthy), 5x (high)
+            fig.add_hline(y=0, line_dash="dot", line_color=_COLORS['text_muted'],
+                          annotation_text="0", annotation_position="right")
             fig.add_hline(y=3, line_dash="dash", line_color=_COLORS['primary'],
                           annotation_text="3x", annotation_position="top right")
             fig.add_hline(y=5, line_dash="dash", line_color=_COLORS['secondary'],
@@ -6374,14 +6378,21 @@ def _dcf_editor(ticker):
                 _df_html += f'<th style="{_df_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
                 _df_html += '</tr></thead><tbody>'
 
-                # Total Debt row
-                _debt_vals = fund['total_debt']
-                _debt_valid = [v for v in _debt_vals if v is not None]
-                _debt_avg = sum(_debt_valid) / len(_debt_valid) if _debt_valid else None
-                _df_html += f'<tr><td style="{_df_label}">Total Debt</td>'
-                for v in _debt_vals:
-                    _df_html += f'<td style="{_df_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_df_cell}">—</td>'
-                _df_html += f'<td style="{_df_avg_s}">{_debt_avg:,.0f}</td>' if _debt_avg is not None else f'<td style="{_df_avg_s}">—</td>'
+                # Net Debt row (re-uses values from the Net Debt section above)
+                _nd_valid_d = [v for v in nd_vals if v is not None]
+                _nd_avg_d = sum(_nd_valid_d) / len(_nd_valid_d) if _nd_valid_d else None
+                _df_html += f'<tr><td style="{_df_label}">Net Debt</td>'
+                for v in nd_vals:
+                    if v is not None:
+                        _c = T['accent'] if v < 0 else (T['red'] if v > 0 else T['text'])
+                        _df_html += f'<td style="{_df_cell};color:{_c}">{v:,.0f}</td>'
+                    else:
+                        _df_html += f'<td style="{_df_cell}">—</td>'
+                if _nd_avg_d is not None:
+                    _c = T['accent'] if _nd_avg_d < 0 else (T['red'] if _nd_avg_d > 0 else T['text'])
+                    _df_html += f'<td style="{_df_avg_s};color:{_c}">{_nd_avg_d:,.0f}</td>'
+                else:
+                    _df_html += f'<td style="{_df_avg_s}">—</td>'
                 _df_html += '</tr>'
 
                 # FCF row
@@ -6394,28 +6405,37 @@ def _dcf_editor(ticker):
                 _df_html += f'<td style="{_df_avg_s}">{_fcf2_avg:,.0f}</td>' if _fcf2_avg is not None else f'<td style="{_df_avg_s}">—</td>'
                 _df_html += '</tr>'
 
-                # Debt/FCF row — thick border
-                _df_valid2 = [v for v in debt_fcf if v is not None]
+                # Net Debt / FCF row — thick border
+                _df_valid2 = [v for v in netdebt_fcf if v is not None]
                 _df_avg2 = sum(_df_valid2) / len(_df_valid2) if _df_valid2 else None
-                _df_html += f'<tr><td style="{_df_label};{_df_div}">Debt / FCF</td>'
-                for v in debt_fcf:
+
+                def _nd_fcf_color(v):
+                    # < 0 net cash → green, 0-3 healthy → green, 3-5 neutral, > 5 red
+                    if v < 3:
+                        return T['accent']
+                    if v > 5:
+                        return T['red']
+                    return T['text']
+
+                _df_html += f'<tr><td style="{_df_label};{_df_div}">Net Debt / FCF</td>'
+                for v in netdebt_fcf:
                     if v is not None:
-                        _d_color = T['accent'] if v < 3 else (T['red'] if v > 5 else T['text'])
-                        _df_html += f'<td style="{_df_cell};{_df_div};color:{_d_color};font-weight:600">{v:.1f}x</td>'
+                        _c = _nd_fcf_color(v)
+                        _df_html += f'<td style="{_df_cell};{_df_div};color:{_c};font-weight:600">{v:.1f}x</td>'
                     else:
                         _df_html += f'<td style="{_df_cell};{_df_div}">—</td>'
                 if _df_avg2 is not None:
-                    _da_color = T['accent'] if _df_avg2 < 3 else (T['red'] if _df_avg2 > 5 else T['text'])
-                    _df_html += f'<td style="{_df_avg_s};{_df_div};color:{_da_color}">{_df_avg2:.1f}x</td>'
+                    _c = _nd_fcf_color(_df_avg2)
+                    _df_html += f'<td style="{_df_avg_s};{_df_div};color:{_c}">{_df_avg2:.1f}x</td>'
                 else:
                     _df_html += f'<td style="{_df_avg_s};{_df_div}">—</td>'
                 _df_html += '</tr>'
 
                 _df_html += '</tbody></table></div>'
                 st.markdown(_df_html, unsafe_allow_html=True)
-                st.caption("In $M. Debt/FCF = Total Debt / Free Cash Flow.")
+                st.caption("In $M. Net Debt = Adjusted Debt − Cash (zie Net Debt-sectie). Net Debt/FCF = Net Debt / Free Cash Flow.")
         else:
-            st.info("Insufficient data for Debt/FCF (need 3+ years)")
+            st.info("Insufficient data for Net Debt / FCF (need 3+ years)")
 
         # ── FCF Yield ──
         st.markdown(
