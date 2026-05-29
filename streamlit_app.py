@@ -4064,25 +4064,47 @@ def _watchlist_overview():
                 if _mc > 0:
                     fcf_yield_val = _fcf_vals[-1] / _mc
             # Average ROCE — same formula as the Fundamentals tab
-            # (EBIT / (TA − CL − Cash − Goodwill), Prasad/PE-conventie)
+            # (EBIT / (TA − CL − Cash − Goodwill), Prasad/PE-conventie).
+            # Float businesses (ABNB, V, MA, BKNG, brokers) have customer
+            # cash that's offset by customer payables in current liabilities;
+            # subtracting both yields a nonsense-tiny CE. Fall back to ROE
+            # when avg CE/TA < 25% — the textbook signal that the business
+            # runs on working-capital float, not on tangible operating capital.
             roce_avg = None
+            roce_metric = 'ROCE'  # 'ROCE' or 'ROE' — surfaced in render
             _oi_w = _fund.get('operating_income', []) or []
             _ta_w = _fund.get('total_assets', []) or []
             _cl_w = _fund.get('current_liabilities', []) or []
             _cash_w = _fund.get('cash', []) or []
             _gw_w = _fund.get('goodwill', []) or []
             _roce_pcts = []
+            _ce_ta_ratios = []
             for _i in range(len(_oi_w)):
                 _oi_v = _oi_w[_i]
                 _ta_v = _ta_w[_i] if _i < len(_ta_w) else None
                 _cl_v = _cl_w[_i] if _i < len(_cl_w) else None
                 _cash_v = (_cash_w[_i] if _i < len(_cash_w) else 0) or 0
                 _gw_v = (_gw_w[_i] if _i < len(_gw_w) else 0) or 0
-                if _oi_v is not None and _ta_v is not None and _cl_v is not None:
+                if _oi_v is not None and _ta_v is not None and _ta_v > 0 and _cl_v is not None:
                     _ce = _ta_v - _cl_v - _cash_v - _gw_v
+                    _ce_ta_ratios.append(max(_ce, 0) / _ta_v)
                     if _ce > 0:
                         _roce_pcts.append(_oi_v / _ce * 100)
-            if _roce_pcts:
+            _avg_ce_ta = (sum(_ce_ta_ratios) / len(_ce_ta_ratios)) if _ce_ta_ratios else 1.0
+            if _ce_ta_ratios and _avg_ce_ta < 0.25:
+                # Float business → fall back to ROE
+                roce_metric = 'ROE'
+                _ni_w = _fund.get('net_income', []) or []
+                _eq_w = _fund.get('total_equity', []) or []
+                _roe_pcts = []
+                for _i in range(len(_ni_w)):
+                    _ni_v = _ni_w[_i]
+                    _eq_v = _eq_w[_i] if _i < len(_eq_w) else None
+                    if _ni_v is not None and _eq_v and _eq_v > 0:
+                        _roe_pcts.append(_ni_v / _eq_v * 100)
+                if _roe_pcts:
+                    roce_avg = sum(_roe_pcts) / len(_roe_pcts)
+            elif _roce_pcts:
                 roce_avg = sum(_roce_pcts) / len(_roce_pcts)
         except Exception as e:
             logger.warning("Watchlist row build failed for %s: %s", t, e)
@@ -4097,6 +4119,7 @@ def _watchlist_overview():
             'buy_price': _wl_buy,
             'upside': upside,
             'roce_avg': roce_avg,
+            'roce_metric': roce_metric,
             'fcf_yield': fcf_yield_val,
             'valuation_summary': cfg_wl.get('valuation_summary'),
         })
@@ -4155,16 +4178,21 @@ def _watchlist_overview():
         )
         cols[5].markdown(f"${row['buy_price']:.2f}")
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
-        # Avg ROCE — color-coded vs Prasad's 20% screen-bar
+        # Avg ROCE — color-coded vs Prasad's 20% screen-bar. For float
+        # businesses (ABNB, V, MA, brokers) the cell silently swaps to
+        # ROE with a "(ROE)" suffix so the user sees they're reading a
+        # different metric for those names.
         _wl_roce = row.get('roce_avg')
+        _wl_metric = row.get('roce_metric', 'ROCE')
+        _wl_suffix = " (ROE)" if _wl_metric == 'ROE' else ""
         if _wl_roce is None:
             cols[7].markdown("—")
         elif _wl_roce >= 20:
-            cols[7].markdown(f":green[{_wl_roce:.1f}%]")
+            cols[7].markdown(f":green[{_wl_roce:.1f}%{_wl_suffix}]")
         elif _wl_roce < 10:
-            cols[7].markdown(f":red[{_wl_roce:.1f}%]")
+            cols[7].markdown(f":red[{_wl_roce:.1f}%{_wl_suffix}]")
         else:
-            cols[7].markdown(f"{_wl_roce:.1f}%")
+            cols[7].markdown(f"{_wl_roce:.1f}%{_wl_suffix}")
         cols[8].markdown(f"{row['fcf_yield']:.1%}" if row['fcf_yield'] else "—")
         _earn = _earnings_map.get(t)
         if _earn and _earn.get('date'):
