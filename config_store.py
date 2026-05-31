@@ -111,7 +111,19 @@ def save_config(client, ticker, cfg, user_id=None):
         if k not in cfg
     ]
     if needs_recovery:
-        existing = load_config(client, ticker, user_id=user_id)
+        # Defensive: load_config may crash on PostgREST PGRST116 in older
+        # postgrest-py versions even though we ask for maybe_single + catch
+        # PGRST116 by string. Treat any failure here as "no existing row"
+        # so brand-new tickers can still be saved.
+        try:
+            existing = load_config(client, ticker, user_id=user_id)
+        except Exception as _e:
+            logger.warning(
+                "save_config(%s): load_config raised during guarded-keys "
+                "restore; treating as new ticker. Error: %s",
+                ticker, _e,
+            )
+            existing = None
         if existing:
             preserved = []
             for k in needs_recovery:
