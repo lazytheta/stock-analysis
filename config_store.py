@@ -144,7 +144,17 @@ def save_config(client, ticker, cfg, user_id=None):
 
 
 def load_config(client, ticker, user_id=None):
-    """Load a DCF config dict. Returns dict or None."""
+    """Load a DCF config dict. Returns dict or None.
+
+    PostgREST raises APIError code=PGRST116 ("Cannot coerce the result
+    to a single JSON object", "The result contains 0 rows") when the
+    underlying query returns zero rows — that happens for brand-new
+    tickers being saved for the first time (save_config calls us
+    defensively to restore guarded keys). Older postgrest-py versions
+    do this even with .maybe_single(), so we catch the specific code
+    explicitly and translate it back to None.
+    """
+    from postgrest.exceptions import APIError
     ticker = ticker.upper()
     query = (
         client.table("watchlist_configs")
@@ -153,7 +163,17 @@ def load_config(client, ticker, user_id=None):
     )
     if user_id is not None:
         query = query.eq("user_id", user_id)
-    resp = query.maybe_single().execute()
+    try:
+        resp = query.maybe_single().execute()
+    except APIError as e:
+        # PGRST116 = no rows; any other code is a genuine error
+        if getattr(e, "code", None) == "PGRST116" or (
+            isinstance(e.args, tuple) and e.args
+            and isinstance(e.args[0], dict)
+            and e.args[0].get("code") == "PGRST116"
+        ):
+            return None
+        raise
     if resp and resp.data:
         return _restore_tuples(resp.data["config"])
     return None
