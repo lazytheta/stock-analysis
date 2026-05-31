@@ -153,7 +153,7 @@ def load_config(client, ticker, user_id=None):
     )
     if user_id is not None:
         query = query.eq("user_id", user_id)
-    resp = query.single().execute()
+    resp = query.maybe_single().execute()
     if resp and resp.data:
         return _restore_tuples(resp.data["config"])
     return None
@@ -244,7 +244,7 @@ def load_user_prefs(client, user_id=None):
         query = client.table("user_prefs").select("prefs")
         if user_id is not None:
             query = query.eq("user_id", user_id)
-        resp = query.single().execute()
+        resp = query.maybe_single().execute()
         if resp and resp.data and resp.data.get("prefs"):
             prefs.update(resp.data["prefs"])
     except Exception as e:
@@ -292,7 +292,7 @@ def load_credential(client, service_name):
             client.table("user_credentials")
             .select("credential")
             .eq("service_name", service_name)
-            .single()
+            .maybe_single()
             .execute()
         )
         if resp and resp.data:

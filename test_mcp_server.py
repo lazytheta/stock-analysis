@@ -28,7 +28,7 @@ def test_load_config_with_explicit_user_id():
     mock_client = MagicMock()
     mock_resp = MagicMock()
     mock_resp.data = {"config": {"company": "Test", "sector_betas": [], "debt_breakdown": []}}
-    mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value = mock_resp
+    mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value = mock_resp
 
     result = load_config(mock_client, "TEST", user_id="uid-456")
 
@@ -204,7 +204,7 @@ def test_get_config_tool():
     mock_client = MagicMock()
     mock_resp = MagicMock()
     mock_resp.data = {"config": {"company": "Test", "ticker": "TEST", "sector_betas": [], "debt_breakdown": []}}
-    mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value = mock_resp
+    mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value = mock_resp
 
     with patch.object(mcp_server, "get_supabase_client", return_value=mock_client):
         result = json.loads(mcp_server._get_config_impl("TEST"))
