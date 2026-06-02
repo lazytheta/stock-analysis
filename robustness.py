@@ -20,14 +20,15 @@ DEAL_BREAKERS = tuple(k for k, _, db, _ in AXES if db)
 AI_AXES = tuple(k for k, _, _, src in AXES if src == "ai")
 BANDS = ("robust", "mid", "fragile")
 _VERDICT_MAP = {"robust": "deep_dive", "borderline": "revisit", "fragile": "pass"}
+ROCE_GATE = 20  # Prasad's quality gate: never "robust" below this ROCE %
 
 
-def band_for_roce(pct, metric="ROCE"):
+def band_for_roce(pct):
     """≥20% robust, 12–<20% mid, <12% fragile, None → fragile.
     Never green under 20% — the Prasad quality gate."""
     if pct is None:
         return "fragile"
-    if pct >= 20:
+    if pct >= ROCE_GATE:
         return "robust"
     if pct >= 12:
         return "mid"
@@ -76,7 +77,7 @@ def derive_verdict(axes):
     if red_db:
         verdict, reason = "fragile", f"deal-breaker red: {', '.join(red_db)}"
     elif band("roce") != "robust":
-        verdict, reason = "borderline", "ROCE below the 20% gate"
+        verdict, reason = "borderline", f"ROCE below the {ROCE_GATE}% gate"
     elif any(band(k) == "mid" for k in DEAL_BREAKERS) or noncrit_red >= 2:
         amber_db = [k for k in DEAL_BREAKERS if band(k) == "mid"]
         reason = (f"deal-breaker amber: {', '.join(amber_db)}" if amber_db
@@ -97,7 +98,7 @@ def compute_data_axes(headline):
     nd_ebitda = headline.get("latest_net_debt_ebitda")
     nd_m = headline.get("latest_adjusted_net_debt_m")
     return {
-        "roce": {"band": band_for_roce(roce_pct, metric), "value": roce_pct,
+        "roce": {"band": band_for_roce(roce_pct), "value": roce_pct,
                  "metric": metric, "source": "data"},
         "net_debt": {"band": band_for_net_debt(nd_ebitda, nd_m), "value": nd_ebitda,
                      "net_debt_m": nd_m, "unit": "x_ebitda", "source": "data"},

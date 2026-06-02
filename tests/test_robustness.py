@@ -125,3 +125,30 @@ def test_resolve_reapplies_overrides_without_headline():
     effective, verdict = robustness.resolve(base, {"net_debt": "fragile"})
     assert effective["net_debt"]["band"] == "fragile"
     assert verdict["verdict"] == "fragile"
+
+
+def test_verdict_disney_recount_leaves_one_noncritical_red():
+    # customers red + industry red + barriers green: Disney softens industry to
+    # mid, leaving a single non-critical red -> stays robust (locks the
+    # softening-before-recount interaction).
+    v = robustness.derive_verdict(_axes(customers="fragile", industry="fragile", barriers="robust"))
+    assert v["verdict"] == "robust"
+
+
+def test_parse_ai_axes_accepts_top_level_without_wrapper():
+    # tolerate AI output that omits the {"axes": {...}} wrapper
+    ai_notes = {"Robustness": json.dumps({
+        "customers": {"band": "robust"}, "barriers": {"band": "mid"},
+        "management": {"band": "fragile"}, "industry": {"band": "robust"}})}
+    ai = robustness.parse_ai_axes(ai_notes)
+    assert ai["management"]["band"] == "fragile"
+    assert ai["barriers"]["band"] == "mid"
+
+
+def test_compute_data_axes_value_and_net_debt_m():
+    headline = {"avg_roce_pct": 30.0, "roce_metric": "ROCE",
+                "latest_net_debt_ebitda": -0.4, "latest_adjusted_net_debt_m": -20000.0}
+    axes = robustness.compute_data_axes(headline)
+    assert axes["roce"]["metric"] == "ROCE"
+    assert axes["net_debt"]["value"] == -0.4
+    assert axes["net_debt"]["net_debt_m"] == -20000.0
