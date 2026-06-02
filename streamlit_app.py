@@ -315,8 +315,8 @@ def _render_robustness_table(cfg: dict, theme: dict) -> str:
             f'border-top:1px solid {border_light};padding-top:8px">{reason}</div>'
             if reason else '')
     return (f'<div style="background:{card};border:1px solid {border_light};border-radius:16px;'
-            f'padding:18px 20px;margin:6px 0 18px;box-shadow:{shadow};font-family:{font}">'
-            f'{header}{cap}{"".join(rows)}{foot}</div>')
+            f'padding:18px 22px;margin:6px auto 0;max-width:760px;box-shadow:{shadow};'
+            f'font-family:{font}">{header}{cap}{"".join(rows)}{foot}</div>')
 
 
 def _render_football_field(summary: dict | None, theme: dict) -> str:
@@ -7402,42 +7402,46 @@ def _dcf_editor(ticker):
                 icon="📋",
             )
 
+        _gem_ok = _gemini_ready()
+        _company_name = cfg.get('company', ticker)
+
+        # ── Verdict zone: robustness table, centered above the research cards ──
+        _rob_l, _rob_c, _rob_r = st.columns([1, 3, 1])
+        with _rob_c:
+            st.markdown(_render_robustness_table(cfg, T), unsafe_allow_html=True)
+
+            # Override editor: adjust any axis band; re-derive verdict + persist.
+            _rob_state = cfg.get("robustness") or {}
+            if _rob_state.get("axes_base"):
+                import robustness as _rob_mod
+                with st.expander("Adjust robustness bands"):
+                    _ov = dict(_rob_state.get("overrides") or {})
+                    _changed = False
+                    for _k, _lbl, _db, _src in _rob_mod.AXES:
+                        _cur = (_rob_state["axes"].get(_k) or {}).get("band", "mid")
+                        _new = st.selectbox(
+                            _lbl, _rob_mod.BANDS, index=_rob_mod.BANDS.index(_cur),
+                            key=f"rob_ov_{ticker}_{_k}")
+                        _base_band = (_rob_state["axes_base"].get(_k) or {}).get("band", "mid")
+                        if _new != _base_band:
+                            _ov[_k] = _new
+                        elif _k in _ov:
+                            del _ov[_k]
+                        if _new != _cur:
+                            _changed = True
+                    if _changed and st.button("Save bands", key=f"rob_save_{ticker}"):
+                        _eff, _verdict = _rob_mod.resolve(_rob_state["axes_base"], _ov)
+                        cfg["robustness"] = {**_rob_state, "axes": _eff,
+                                             "overrides": _ov, **_verdict}
+                        save_config(_sb_client, ticker, cfg)
+                        st.session_state["_wl_config_dirty"] = True
+                        st.rerun()
+
+        st.divider()
         st.markdown("#### AI Research Sections")
         st.caption(
             "Run prompts on Groq Llama 3.3 70B (with fallback to Gemini 2.5 Flash)."
         )
-        _gem_ok = _gemini_ready()
-
-        _company_name = cfg.get('company', ticker)
-
-        st.markdown(_render_robustness_table(cfg, T), unsafe_allow_html=True)
-
-        # Override editor: adjust any axis band; re-derive verdict + persist.
-        _rob_state = cfg.get("robustness") or {}
-        if _rob_state.get("axes_base"):
-            import robustness as _rob_mod
-            with st.expander("Adjust robustness bands"):
-                _ov = dict(_rob_state.get("overrides") or {})
-                _changed = False
-                for _k, _lbl, _db, _src in _rob_mod.AXES:
-                    _cur = (_rob_state["axes"].get(_k) or {}).get("band", "mid")
-                    _new = st.selectbox(
-                        _lbl, _rob_mod.BANDS, index=_rob_mod.BANDS.index(_cur),
-                        key=f"rob_ov_{ticker}_{_k}")
-                    _base_band = (_rob_state["axes_base"].get(_k) or {}).get("band", "mid")
-                    if _new != _base_band:
-                        _ov[_k] = _new
-                    elif _k in _ov:
-                        del _ov[_k]
-                    if _new != _cur:
-                        _changed = True
-                if _changed and st.button("Save bands", key=f"rob_save_{ticker}"):
-                    _eff, _verdict = _rob_mod.resolve(_rob_state["axes_base"], _ov)
-                    cfg["robustness"] = {**_rob_state, "axes": _eff,
-                                         "overrides": _ov, **_verdict}
-                    save_config(_sb_client, ticker, cfg)
-                    st.session_state["_wl_config_dirty"] = True
-                    st.rerun()
 
         # ── Load library (globaal, via user_prefs) ──
         _prefs = load_user_prefs(_sb_client)
