@@ -55,6 +55,7 @@ _GUARDED_KEYS_RESTORE_EMPTY = (
     "ai_notes",
     "valuation_inputs",
     "valuation_summary",
+    "robustness",
 )
 
 # User-intent guarded keys: empty value is a legitimate user action
@@ -196,7 +197,7 @@ def list_watchlist(client, user_id=None):
     Configs without ``valuation_summary`` show only base fields populated;
     run ``calculate_multi_lens_valuation`` to populate the rest.
     """
-    from scorecard_utils import parse_scorecard
+    from scorecard_utils import resolve_verdict
 
     query = (
         client.table("watchlist_configs")
@@ -222,7 +223,7 @@ def list_watchlist(client, user_id=None):
         lenses = summary.get("lenses") or {}
         lens_count = sum(1 for k in _COUNTED_LENSES if lenses.get(k) is not None)
 
-        scorecard = parse_scorecard(cfg.get("ai_notes"))
+        _vp = resolve_verdict(cfg)
 
         out.append({
             "ticker": row["ticker"],
@@ -235,8 +236,8 @@ def list_watchlist(client, user_id=None):
             "buy_price": summary.get("buy_price"),
             "current_vs_mid": summary.get("current_vs_mid"),
             "lens_count": lens_count,
-            "verdict": scorecard["verdict"],
-            "phase":   scorecard["phase"],
+            "verdict": _vp["verdict"],
+            "phase":   _vp["phase"],
         })
     return out
 

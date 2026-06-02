@@ -228,6 +228,65 @@ def _render_fv_cell(price: float, summary: dict | None,
     return f'<span style="color:{muted}">—</span>'
 
 
+def _render_robustness_table(cfg: dict, theme: dict) -> str:
+    """Render the Prasad robustness table: one continuum row per axis +
+    a verdict banner. Pure HTML-string builder (no Streamlit calls)."""
+    import robustness as _rob
+
+    rob = (cfg or {}).get("robustness") or {}
+    axes = rob.get("axes") or {}
+    if not axes:
+        return (f'<div style="color:{theme.get("text_muted", "#888")};font-size:0.85rem">'
+                'Robustness not yet assessed — run the Robustness section.</div>')
+
+    text = theme.get("text", "#111")
+    muted = theme.get("text_muted", "#888")
+    band_color = {"robust": "#3a9d5d", "mid": "#d6a72e", "fragile": "#d05a4a"}
+    band_pos = {"robust": 8.0, "mid": 50.0, "fragile": 92.0}   # dot % on the continuum
+    band_dot = {"robust": "\U0001f7e2", "mid": "\U0001f7e1", "fragile": "\U0001f534"}
+
+    def _val_label(key, ax):
+        if key == "roce" and ax.get("value") is not None:
+            return f'{ax["value"]:.0f}% {ax.get("metric", "ROCE")}'
+        if key == "net_debt":
+            v = ax.get("value")
+            if v is not None:
+                return "net cash" if v <= 0 else f'{v:.1f}× EBITDA'
+            return ax.get("note", "") or "—"
+        return ax.get("note", "") or "—"
+
+    rows = []
+    for key, label, _db, _src in _rob.AXES:
+        ax = axes.get(key, {"band": "mid"})
+        band = ax.get("band", "mid")
+        color = band_color.get(band, muted)
+        left = band_pos.get(band, 50.0)
+        rows.append(
+            f'<div class="rb-row" style="display:flex;align-items:center;gap:8px;'
+            f'margin:3px 0;font-size:0.8rem">'
+            f'<div style="width:150px;color:{text}">{band_dot.get(band, "")} {label}</div>'
+            f'<div style="flex:1;position:relative;height:6px;background:#8884;'
+            f'border-radius:3px">'
+            f'<div style="position:absolute;left:{left:.0f}%;top:-3px;width:12px;height:12px;'
+            f'border-radius:50%;background:{color};transform:translateX(-50%)"></div></div>'
+            f'<div style="width:150px;color:{muted};text-align:right">{_val_label(key, ax)}</div>'
+            f'</div>'
+        )
+
+    v = rob.get("verdict", "?").upper()
+    vmap = {"ROBUST": "#3a9d5d", "BORDERLINE": "#d6a72e", "FRAGILE": "#d05a4a"}
+    vcolor = vmap.get(v, muted)
+    banner = (
+        f'<div style="margin-top:8px;padding:8px 12px;border-radius:8px;'
+        f'background:{vcolor}22;border:1px solid {vcolor};color:{text};font-size:0.85rem">'
+        f'<b style="color:{vcolor}">{v}</b> — {rob.get("verdict_reason", "")}</div>'
+    )
+    head = (f'<div style="display:flex;justify-content:space-between;color:{muted};'
+            f'font-size:0.72rem;margin-bottom:2px"><span>ROBUSTNESS</span>'
+            f'<span>most ◀───▶ least</span></div>')
+    return f'<div style="margin:6px 0 14px">{head}{"".join(rows)}{banner}</div>'
+
+
 def _render_football_field(summary: dict | None, theme: dict) -> str:
     """Render a football-field HTML block: one horizontal range bar per lens
     + vertical markers for current price, weighted mid, and buy price.
@@ -928,6 +987,42 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
 
 # Default AI research prompts loaded via "Load default prompts" button
 DEFAULT_AI_PROMPTS: list[dict] = [
+    {
+        "title": "Robustness",
+        "prompt": (
+            "You are scoring **{company} ({ticker})** on Pulak Prasad's robustness "
+            "framework (risk first). Judge ONLY these four qualitative axes; the ROCE "
+            "and net-debt axes are computed from data elsewhere — do not output them.\n\n"
+            "For each axis pick a band: \"robust\" (most robust pole), \"mid\", or "
+            "\"fragile\" (least robust pole), and a one-line note grounded in the prior "
+            "analysis.\n\n"
+            "- **customers**: customer & supplier base — robust = highly fragmented (no "
+            "dependence on any single party); fragile = concentrated.\n"
+            "- **barriers**: competitive barriers / moat — robust = wide/widening; "
+            "fragile = none/eroding.\n"
+            "- **management**: stability & honesty of management/governance — robust = "
+            "stable, honest signals, clean capital allocation; fragile = dubious, "
+            "serial acquirer, turnaround.\n"
+            "- **industry**: pace of industry change — robust = slow-changing/predictable; "
+            "fragile = fast-changing.\n\n"
+            "Use the prior sections as evidence:\n"
+            "Moat: {prior:Moat Analysis}\n\n"
+            "Risk: {prior:Risk Analysis}\n\n"
+            "Disruption resilience: {prior:SaaSpocalypse Resistance}\n\n"
+            "Business: {prior:Business Analysis}\n\n"
+            "Respond with ONLY a fenced JSON block, no prose:\n"
+            "```json\n"
+            "{\n"
+            '  "axes": {\n'
+            '    "customers":  {"band": "robust|mid|fragile", "note": "..."},\n'
+            '    "barriers":   {"band": "robust|mid|fragile", "note": "..."},\n'
+            '    "management": {"band": "robust|mid|fragile", "note": "..."},\n'
+            '    "industry":   {"band": "robust|mid|fragile", "note": "..."}\n'
+            "  }\n"
+            "}\n"
+            "```"
+        ),
+    },
     {
         "title": "Business Phase Analysis",
         "prompt": """# BUSINESS PHASE ANALYSIS v18.7
@@ -7282,6 +7377,35 @@ def _dcf_editor(ticker):
         _gem_ok = _gemini_ready()
 
         _company_name = cfg.get('company', ticker)
+
+        st.markdown(_render_robustness_table(cfg, T), unsafe_allow_html=True)
+
+        # Override editor: adjust any axis band; re-derive verdict + persist.
+        _rob_state = cfg.get("robustness") or {}
+        if _rob_state.get("axes_base"):
+            import robustness as _rob_mod
+            with st.expander("Adjust robustness bands"):
+                _ov = dict(_rob_state.get("overrides") or {})
+                _changed = False
+                for _k, _lbl, _db, _src in _rob_mod.AXES:
+                    _cur = (_rob_state["axes"].get(_k) or {}).get("band", "mid")
+                    _new = st.selectbox(
+                        _lbl, _rob_mod.BANDS, index=_rob_mod.BANDS.index(_cur),
+                        key=f"rob_ov_{ticker}_{_k}")
+                    _base_band = (_rob_state["axes_base"].get(_k) or {}).get("band", "mid")
+                    if _new != _base_band:
+                        _ov[_k] = _new
+                    elif _k in _ov:
+                        del _ov[_k]
+                    if _new != _cur:
+                        _changed = True
+                if _changed and st.button("Save bands", key=f"rob_save_{ticker}"):
+                    _eff, _verdict = _rob_mod.resolve(_rob_state["axes_base"], _ov)
+                    cfg["robustness"] = {**_rob_state, "axes": _eff,
+                                         "overrides": _ov, **_verdict}
+                    save_config(_sb_client, ticker, cfg)
+                    st.session_state["_wl_config_dirty"] = True
+                    st.rerun()
 
         # ── Load library (globaal, via user_prefs) ──
         _prefs = load_user_prefs(_sb_client)

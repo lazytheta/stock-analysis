@@ -231,3 +231,30 @@ def test_get_supabase_client_no_longer_requires_LAZYTHETA_USER_ID(monkeypatch):
     # Should NOT raise ValueError about LAZYTHETA_USER_ID anymore
     client = mcp_server.get_supabase_client()
     assert client is fake_client
+
+
+def test_set_robustness_impl_builds_and_persists(monkeypatch):
+    import mcp_server
+    saved = {}
+
+    fake_cfg = {"company": "Meta", "ai_notes": {}, "robustness": {"overrides": {"management": "fragile"}}}
+    monkeypatch.setattr(mcp_server.config_store, "load_config", lambda *a, **k: fake_cfg)
+    monkeypatch.setattr(mcp_server.config_store, "save_config",
+                        lambda c, t, cfg, **k: saved.update(cfg))
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(mcp_server.gather_data, "fetch_fundamentals", lambda *a, **k: {"years": [2025]})
+    monkeypatch.setattr(mcp_server.gather_data, "apply_fundamentals_overrides", lambda f, o: f)
+    monkeypatch.setattr(mcp_server, "_compute_fundamentals_headline",
+                        lambda fund, cfg: {"avg_roce_pct": 30.0, "roce_metric": "ROCE",
+                                           "latest_net_debt_ebitda": -0.4,
+                                           "latest_adjusted_net_debt_m": -20000.0})
+
+    axes = {"customers": {"band": "robust"}, "barriers": {"band": "robust"},
+            "management": {"band": "robust"}, "industry": {"band": "robust"}}
+    out = mcp_server._set_robustness_impl("META", axes, user_id="u1")
+
+    assert "robustness" in saved
+    assert "Robustness" in saved["ai_notes"]
+    # override (management=fragile) wins over the passed 'robust' -> fragile verdict
+    assert saved["robustness"]["verdict_mapped"] == "pass"
+    assert "META" in out

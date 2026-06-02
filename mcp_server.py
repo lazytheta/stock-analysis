@@ -1013,16 +1013,43 @@ def update_valuation_inputs(ticker: str, fields: dict) -> str:
     """Override one or more valuation_inputs fields for a watchlist ticker.
 
     Use this to inject your own view (e.g. expected dividend growth, forward
-    EPS) that should NOT be overwritten by the next yfinance auto-refresh.
-    Each updated field is removed from `_auto_filled` so subsequent refreshes
-    preserve the override.
+    EPS, own historical multiples) that should NOT be overwritten by the next
+    yfinance auto-refresh. Each updated field is removed from `_auto_filled`
+    so subsequent refreshes preserve the override.
+
+    IMPORTANT: only the keys listed below are actually read by a lens. Any
+    other key is silently stored but has no effect on valuation. If you want
+    to activate a specific lens, set the keys for that lens.
 
     Args:
         ticker: Stock ticker (e.g. "PEP")
-        fields: Dict of valuation_inputs keys to set. Examples:
-            {"dividend_5y_cagr": 0.08}
-            {"forward_eps": 6.50, "ttm_ebitda": 15000}
-            {"median_5y_yield": 0.025}
+        fields: Dict of valuation_inputs keys to set. Valid keys, grouped by
+            which lens consumes them:
+
+            Dividend lens (compute_dividend_lens):
+                ttm_dividend         (float, $/share)
+                dividend_5y_cagr     (float, decimal, e.g. 0.08 = 8%)
+                median_5y_yield      (float, decimal, e.g. 0.025 = 2.5%)
+
+            Historical lens (compute_historical_lens) — own-history multiples:
+                historical_fwd_pe       (float, own 5y median forward P/E)
+                historical_trailing_pe  (float, own 5y median trailing P/E)
+                historical_ev_ebitda    (float, own 5y median EV/EBITDA)
+                forward_eps             (float, $/share, also used by Multiples)
+                ttm_eps                 (float, $/share)
+                ttm_ebitda              (float, $M, also used by Multiples)
+
+            Multiples lens (compute_multiples_lens) — peer-relative:
+                forward_eps          (float, $/share)
+                ttm_ebitda           (float, $M)
+                (peer multiples come from cfg["peers"], not from this tool)
+
+            Examples:
+                {"dividend_5y_cagr": 0.08}
+                {"forward_eps": 6.50, "ttm_ebitda": 15000}
+                {"historical_trailing_pe": 50.0,
+                 "historical_ev_ebitda": 35.0,
+                 "historical_fwd_pe": 35.0}
 
     Returns:
         JSON string with the updated valuation_inputs dict, or
@@ -1197,6 +1224,44 @@ def _save_prescan_section_impl(ticker, title, content,
     return f"Saved {ticker.upper()} → '{title}' ({len(content)} chars)."
 
 
+def _set_robustness_impl(ticker, axes, user_id: str | None = None):
+    """Store the 4 qualitative robustness axes (band + note each) as the
+    'Robustness' ai_notes section, recompute the data axes (ROCE/net debt) from
+    fundamentals, and persist the merged table + weakest-link verdict to
+    cfg['robustness']. Existing user overrides are preserved."""
+    import json as _json
+    from datetime import UTC, datetime
+
+    import robustness
+
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
+    if cfg is None:
+        return {"error": f"{ticker.upper()} not on watchlist"}
+
+    ai_notes = cfg.get("ai_notes") if isinstance(cfg.get("ai_notes"), dict) else {}
+    ai_notes["Robustness"] = "```json\n" + _json.dumps({"axes": axes}, ensure_ascii=False) + "\n```"
+
+    try:
+        fund_raw = gather_data.fetch_fundamentals(ticker, n_years=10)
+        fund = gather_data.apply_fundamentals_overrides(
+            fund_raw, cfg.get("fundamentals_overrides") or {})
+        headline = _compute_fundamentals_headline(fund, cfg)
+    except Exception as e:
+        return {"error": f"fundamentals fetch failed: {e}"}
+
+    overrides = (cfg.get("robustness") or {}).get("overrides") or {}
+    table = robustness.build_table(headline, ai_notes, overrides)
+    table["computed_at"] = datetime.now(UTC).isoformat()
+
+    cfg["ai_notes"] = ai_notes
+    cfg["robustness"] = table
+    config_store.save_config(client, ticker, cfg, user_id=user_id)
+    return (f"Saved {ticker.upper()} robustness → {table['verdict']} "
+            f"({table['verdict_mapped']}): {table['verdict_reason']}.")
+
+
 @mcp.tool()
 def get_prescan_prompts(ticker: str) -> str:
     """Return the user's pre-scan prompts with {ticker}/{company}/{prior:...}
@@ -1256,6 +1321,30 @@ def save_prescan_section(ticker: str, title: str, content: str) -> str:
     """
     try:
         result = _save_prescan_section_impl(ticker, title, content)
+        if isinstance(result, dict):
+            return json.dumps(result)
+        return result
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def set_robustness(ticker: str, axes: dict) -> str:
+    """Set the 4 qualitative robustness axes for a watchlist ticker and
+    recompute the Prasad robustness verdict.
+
+    Args:
+        ticker: Stock ticker (e.g. "META").
+        axes: dict of the four qualitative axes, each {"band": "robust|mid|
+            fragile", "note": "..."}. Keys: customers, barriers, management,
+            industry. ROCE and net-debt axes are computed from data — omit them.
+
+    Returns:
+        A status string with the derived verdict (robust/borderline/fragile)
+        and reason. ROCE/net-debt axes + verdict are computed server-side.
+    """
+    try:
+        result = _set_robustness_impl(ticker, axes)
         if isinstance(result, dict):
             return json.dumps(result)
         return result

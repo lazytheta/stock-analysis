@@ -1222,3 +1222,22 @@ def test_default_lens_weights_post_split():
         "dividend":    0.00,
         "sotp":        0.00,
     }
+
+
+def test_resolve_verdict_prefers_robustness():
+    import scorecard_utils
+    cfg = {
+        "ai_notes": {"Scorecard": '```json\n{"verdict":"deep_dive","phase":{"number":5}}\n```'},
+        "robustness": {"verdict_mapped": "pass", "verdict": "fragile"},
+    }
+    out = scorecard_utils.resolve_verdict(cfg)
+    assert out["verdict"] == "pass"      # robustness wins
+    assert out["phase"] == 5             # phase still from Scorecard
+
+
+def test_resolve_verdict_falls_back_to_scorecard():
+    import scorecard_utils
+    cfg = {"ai_notes": {"Scorecard": '```json\n{"verdict":"revisit","phase":{"number":3}}\n```'}}
+    out = scorecard_utils.resolve_verdict(cfg)
+    assert out["verdict"] == "revisit"
+    assert out["phase"] == 3
