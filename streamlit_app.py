@@ -7066,6 +7066,7 @@ def _dcf_editor(ticker):
 
 
         st.markdown("<br>", unsafe_allow_html=True)
+        st.divider()
         with st.container(key="prescan_seg_research"):
             st.markdown("#### AI Research Sections")
 
