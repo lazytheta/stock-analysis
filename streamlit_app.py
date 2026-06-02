@@ -251,6 +251,7 @@ def _render_robustness_table(cfg: dict, theme: dict) -> str:
     card = theme.get("card", "#fff")
     border_light = theme.get("border_light", "#e8e8ed")
     shadow = theme.get("shadow", "0 1px 3px rgba(0,0,0,0.04)")
+    accent = theme.get("accent", "#81b29a")
     # Lazy Theta semantic palette (same earthy tones as the Scorecard).
     band_color = {"robust": theme.get("green", "#81b29a"),
                   "mid": theme.get("yellow", "#f2cc8f"),
@@ -315,9 +316,10 @@ def _render_robustness_table(cfg: dict, theme: dict) -> str:
     foot_text = f'{reason} &nbsp;·&nbsp; {legend}' if reason else legend
     foot = (f'<div style="color:{muted};font-size:0.7rem;margin-top:10px;'
             f'border-top:1px solid {border_light};padding-top:8px">{foot_text}</div>')
-    return (f'<div style="background:{card};border:1px solid {border_light};border-radius:16px;'
-            f'padding:18px 22px;margin:6px 0 22px;box-shadow:{shadow};'
-            f'font-family:{font}">{header}{cap}{"".join(rows)}{foot}</div>')
+    return (f'<div style="background:{card};border-radius:24px;'
+            f'border-top:3px solid {accent};padding:22px 28px;margin:6px 0 20px;'
+            f'box-shadow:{shadow};font-family:{font}">'
+            f'{header}{cap}{"".join(rows)}{foot}</div>')
 
 
 def _render_football_field(summary: dict | None, theme: dict) -> str:
@@ -2779,9 +2781,9 @@ st.markdown(f"""
         padding: 28px 24px;
         box-shadow: var(--shadow);
     }}
-    /* ...except Pre-Scan (first panel): transparent, so its Robustness and
-       AI Research panels read as two standalone boxes. */
-    [data-testid="stTabs"] [data-baseweb="tab-panel"]:first-of-type {{
+    /* ...except the Pre-Scan panel (identified by its robustness container):
+       transparent, so its content reads as standalone cards. */
+    [data-testid="stTabs"] [data-baseweb="tab-panel"]:has(.st-key-prescan_seg_robustness) {{
         background: transparent;
         border-top: none;
         padding: 0;
@@ -7035,12 +7037,9 @@ def _dcf_editor(ticker):
         st.markdown(
             '<style>'
             f'.st-key-prescan_seg_robustness, .st-key-prescan_seg_research {{'
-            f'  background: {T["accent_light"]} !important;'
-            f'  border-radius: 24px !important;'
-            f'  border-top: 3px solid {T["accent"]} !important;'
-            f'  box-shadow: {T["shadow"]} !important;'
-            f'  padding: 10px 28px 24px 28px !important;'
-            f'  margin-bottom: 30px !important; }}'
+            f'  background: transparent !important; border: none !important;'
+            f'  box-shadow: none !important; padding: 0 !important;'
+            f'  margin-bottom: 10px !important; }}'
             '</style>',
             unsafe_allow_html=True,
         )
