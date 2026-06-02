@@ -820,202 +820,107 @@ def _gemini_ready() -> bool:
 
 
 def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str:
-    """Build the HTML for the scorecard overview."""
-    _colors = {
-        "red": "#e07a5f",
-        "yellow": "#f2cc8f",
-        "green": "#81b29a",
-    }
-    _light = {
-        "red": "#f7dfd7",
-        "yellow": "#fbedd2",
-        "green": "#d9e7dd",
-    }
+    """Scorecard rendered in the same row style as the robustness table: one
+    row per item (colored dot + gradient track + note), grouped, with a verdict
+    pill. Flat (transparent) — the hero-card expander provides the white card."""
+    import html as _html
 
-    def cell(rating: str, label: str) -> str:
+    text = theme.get("text", "#111")
+    muted = theme.get("text_muted", "#888")
+    card = theme.get("card", "#fff")
+    border_light = theme.get("border_light", "#e8e8ed")
+    band_color = {"red": "#e07a5f", "yellow": "#f2cc8f", "green": "#81b29a"}
+    band_fill = {"green": "#d9e7dd", "yellow": "#fbedd2", "red": "#f7dfd7"}
+    band_pos = {"green": 12.0, "yellow": 50.0, "red": 88.0}
+    font = ("'DM Sans', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', "
+            "Arial, sans-serif")
+    lw, dw, tw = 172, 10, 120
+
+    def _row(label, rating, note):
         rating = (rating or "").lower()
-        bg = _light.get(rating, "#f4f1de")
-        border = _colors.get(rating, "#cccccc")
+        color = band_color.get(rating, muted)
+        left = band_pos.get(rating, 50.0)
+        note = _html.escape(note or "")
+        label = _html.escape(label or "")
         return (
-            f'<td style="background:{bg};border:1px solid {border};'
-            f'padding:8px 10px;text-align:center;font-size:0.82rem;'
-            f'color:{theme["text"]};vertical-align:middle">{label}</td>'
+            f'<div style="display:flex;align-items:center;gap:12px;height:30px;'
+            f'font-size:0.82rem">'
+            f'<div style="width:{lw}px;flex:none;color:{text};white-space:nowrap;'
+            f'overflow:hidden;text-overflow:ellipsis">{label}</div>'
+            f'<span style="width:{dw}px;height:{dw}px;border-radius:50%;'
+            f'background:{color};flex:none"></span>'
+            f'<div style="width:{tw}px;flex:none;position:relative;height:6px;'
+            f'border-radius:980px;background:linear-gradient(90deg,'
+            f'{band_fill["green"]},{band_fill["yellow"]},{band_fill["red"]})">'
+            f'<div style="position:absolute;left:{left:.0f}%;top:50%;width:12px;'
+            f'height:12px;border-radius:50%;background:{color};border:2px solid '
+            f'{card};transform:translate(-50%,-50%)"></div></div>'
+            f'<div title="{note}" style="flex:1;min-width:0;color:{muted};'
+            f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{note}</div>'
+            f'</div>'
         )
 
-    def empty_cell() -> str:
-        return '<td style="padding:8px 10px"></td>'
+    def _group(title):
+        return (f'<div style="color:{muted};font-size:0.66rem;font-weight:600;'
+                f'letter-spacing:0.09em;text-transform:uppercase;'
+                f'margin:14px 0 4px">{title}</div>')
 
-    phase = data.get("phase", {})
-    phase_label = f"Phase {phase.get('number', '?')}: {phase.get('name', 'Unknown')}"
+    rows = [_group("Quality")]
+    ap = data.get("all_phases", {}) or {}
+    for key, label in (("business_description", "Business"), ("moat", "Moat"),
+                       ("long_term_potential", "Long-term potential")):
+        it = ap.get(key, {}) or {}
+        rows.append(_row(label, it.get("rating"), it.get("note", "")))
 
-    _section_label = (
-        f'padding:10px 12px;font-weight:700;font-size:0.85rem;'
-        f'color:{theme["text"]};background:{theme["row_alt"]};'
-        f'border-bottom:1px solid {theme["border_medium"]};text-transform:uppercase;'
-        f'letter-spacing:0.04em'
-    )
-    _row_label = (
-        f'padding:8px 12px;font-size:0.85rem;color:{theme["text"]};'
-        f'border-bottom:1px solid {theme["grid"]};background:{theme["card"]}'
-    )
-    _header_red = (
-        f'padding:8px 10px;text-align:center;font-weight:700;font-size:0.78rem;'
-        f'color:#7a3a2a;background:#f2c3b2;border:1px solid #e07a5f'
-    )
-    _header_yel = (
-        f'padding:8px 10px;text-align:center;font-weight:700;font-size:0.78rem;'
-        f'color:#7a5e1f;background:#f7dfa5;border:1px solid #f2cc8f'
-    )
-    _header_grn = (
-        f'padding:8px 10px;text-align:center;font-weight:700;font-size:0.78rem;'
-        f'color:#2c5138;background:#b2d1bb;border:1px solid #81b29a'
-    )
+    kms = data.get("key_metrics", []) or []
+    if kms:
+        rows.append(_group("Key metrics"))
+        for km in kms:
+            rows.append(_row(km.get("name", ""), km.get("rating"), km.get("value", "")))
 
-    html = (
-        f'<div style="background:{theme["card"]};border-radius:16px;'
-        f'padding:20px;margin-bottom:20px;box-shadow:{theme["shadow"]};'
-        f'border:1px solid {theme["border_light"]};'
-        f'font-family:\'DM Sans\', -apple-system, BlinkMacSystemFont, '
-        f'\'Helvetica Neue\', Arial, sans-serif">'
-        # Header row
-        f'<div style="display:flex;align-items:center;justify-content:space-between;'
-        f'margin-bottom:14px;flex-wrap:wrap;gap:10px">'
-        f'<div><span style="font-size:0.78rem;color:{theme["text_muted"]};text-transform:uppercase">Company</span>'
-        f'<div style="font-size:1.2rem;font-weight:700;color:{theme["text"]}">{company} ({ticker})</div></div>'
-        f'<div style="background:{theme["accent"]};color:white;padding:8px 16px;border-radius:20px;'
-        f'font-weight:700;font-size:0.9rem">{phase_label}</div>'
-        f'</div>'
-        '<table style="width:100%;border-collapse:separate;border-spacing:0">'
-        # Column headers
-        '<thead><tr>'
-        f'<th style="width:38%"></th>'
-        f'<th style="{_header_red};width:20.5%">Red</th>'
-        f'<th style="{_header_yel};width:20.5%">Yellow</th>'
-        f'<th style="{_header_grn};width:21%">Green</th>'
-        '</tr></thead><tbody>'
-    )
-
-    # Section: Assess for All Phases
-    html += (
-        f'<tr><td colspan="4" style="{_section_label}">Assess for All Phases</td></tr>'
-    )
-    all_phases = data.get("all_phases", {})
-    for key, label in (
-        ("business_description", "Business Description"),
-        ("moat", "Moat"),
-        ("long_term_potential", "Long Term Potential"),
-    ):
-        item = all_phases.get(key, {}) or {}
-        rating = (item.get("rating") or "").lower()
-        note = item.get("note", "") or ""
-        html += f'<tr><td style="{_row_label}">{label}</td>'
-        for color in ("red", "yellow", "green"):
-            html += cell(color, note) if rating == color else empty_cell()
-        html += '</tr>'
-
-    # Section: Key Metrics by Business Phase
-    html += (
-        f'<tr><td colspan="4" style="{_section_label}">Key Metrics by Business Phase</td></tr>'
-    )
-    for km in data.get("key_metrics", []) or []:
-        rating = (km.get("rating") or "").lower()
-        value = km.get("value", "") or ""
-        name = km.get("name", "")
-        html += f'<tr><td style="{_row_label}">{name}</td>'
-        for color in ("red", "yellow", "green"):
-            html += cell(color, value) if rating == color else empty_cell()
-        html += '</tr>'
-
-    # Section: Assess Risk
-    html += (
-        f'<tr><td colspan="4" style="{_section_label}">Assess Risk</td></tr>'
-    )
     er = data.get("execution_risk", {}) or {}
-    r_rating = (er.get("rating") or "").lower()
-    r_note = er.get("note", "") or ""
-    html += f'<tr><td style="{_row_label}">Execution Risk</td>'
-    for color in ("red", "yellow", "green"):
-        html += cell(color, r_note) if r_rating == color else empty_cell()
-    html += '</tr>'
+    rows.append(_group("Risk"))
+    rows.append(_row("Execution risk", er.get("rating"), er.get("note", "")))
 
-    # Section: Assess Valuation
-    html += (
-        f'<tr><td colspan="4" style="{_section_label}">Assess Valuation</td></tr>'
-    )
     val = data.get("valuation", {}) or {}
-    for key, label_prefix in (("primary", "Primary"), ("secondary", "Secondary")):
+    rows.append(_group("Valuation"))
+    for key, prefix in (("primary", "Primary"), ("secondary", "Secondary")):
         v = val.get(key, {}) or {}
-        name = v.get("name", "")
-        rating = (v.get("rating") or "").lower()
-        note = v.get("note", "") or ""
-        html += (
-            f'<tr><td style="{_row_label}">{label_prefix}: {name}</td>'
-        )
-        for color in ("red", "yellow", "green"):
-            html += cell(color, note) if rating == color else empty_cell()
-        html += '</tr>'
+        nm = v.get("name", "")
+        rows.append(_row(f"{prefix}: {nm}" if nm else prefix,
+                         v.get("rating"), v.get("note", "")))
 
-    # Final verdict
     verdict = (data.get("verdict") or "").lower()
-    _verdict_map = {
-        "pass": ("No — Pass", "red"),
-        "revisit": ("Kind Of — Revisit", "yellow"),
-        "deep_dive": ("Yes — Deep Dive", "green"),
-    }
-    _v_label, _v_color = _verdict_map.get(verdict, ("Unknown", ""))
-    html += (
-        f'<tr><td colspan="4" style="padding:16px 12px;background:{theme["row_alt"]};'
-        f'border-top:2px solid {theme["border_medium"]}"><div style="display:flex;'
-        f'align-items:center;justify-content:space-between;gap:12px">'
-        f'<span style="font-weight:700;text-transform:uppercase;font-size:0.85rem;'
-        f'color:{theme["text"]}">Are You Interested?</span>'
-    )
-    for color, label in (("red", "No — Pass"), ("yellow", "Kind Of"), ("green", "Yes — Deep Dive")):
-        is_on = (verdict == "pass" and color == "red") or \
-                (verdict == "revisit" and color == "yellow") or \
-                (verdict == "deep_dive" and color == "green")
-        if is_on:
-            bg = _colors[color]
-            text_color = "white"
-            border = _colors[color]
-            weight = "700"
-            opacity = "1"
-        else:
-            bg = "transparent"
-            text_color = theme["text_muted"]
-            border = theme["border_light"]
-            weight = "400"
-            opacity = "0.45"
-        html += (
-            f'<span style="background:{bg};color:{text_color};padding:8px 16px;'
-            f'border-radius:20px;font-weight:{weight};font-size:0.85rem;'
-            f'border:1px solid {border};opacity:{opacity}">{label}</span>'
-        )
-    html += '</div></td></tr>'
+    vmap = {"pass": ("PASS", "red"), "revisit": ("REVISIT", "yellow"),
+            "deep_dive": ("DEEP DIVE", "green")}
+    vlabel, vk = vmap.get(verdict, ("\u2014", "yellow"))
+    vcolor, vfill = band_color[vk], band_fill[vk]
+    pill = (f'<span style="padding:3px 13px;border-radius:980px;background:{vfill};'
+            f'border:1px solid {vcolor};color:{text};font-weight:600;'
+            f'font-size:0.7rem;letter-spacing:0.06em">{vlabel}</span>')
+    phase = data.get("phase", {}) or {}
+    phase_label = _html.escape(f"{company} ({ticker}) \u00b7 Phase "
+                               f"{phase.get('number', '?')} \u00b7 "
+                               f"{phase.get('name', '')}")
+    header = (f'<div style="display:flex;justify-content:space-between;'
+              f'align-items:center;margin-bottom:2px"><span style="color:{muted};'
+              f'font-size:0.7rem;font-weight:600;letter-spacing:0.04em">'
+              f'{phase_label}</span>{pill}</div>')
 
-    html += '</tbody></table>'
-
-    # 3-sentence summary inside the card
     summary = (data.get("summary") or "").strip()
+    foot = ""
     if summary:
-        import re as _re_strip
-        # Strip markdown headers, bold/italic markers, list bullets, and HTML
-        clean = _re_strip.sub(r'^#+\s*', '', summary, flags=_re_strip.MULTILINE)
-        clean = _re_strip.sub(r'\*\*(.*?)\*\*', r'\1', clean)
-        clean = _re_strip.sub(r'__(.*?)__', r'\1', clean)
-        clean = _re_strip.sub(r'\*(.*?)\*', r'\1', clean)
-        clean = _re_strip.sub(r'^\s*[-*]\s+', '', clean, flags=_re_strip.MULTILINE)
-        clean = _re_strip.sub(r'<[^>]+>', '', clean)
-        clean = clean.strip()
-        html += (
-            f'<div style="margin-top:18px;padding:14px 18px;'
-            f'background:{theme["row_alt"]};border-left:3px solid {theme["accent"]};'
-            f'border-radius:6px;font-size:0.9rem;line-height:1.55;'
-            f'color:{theme["text"]}">{clean}</div>'
-        )
+        import re as _re
+        clean = _re.sub(r"^#+\s*", "", summary, flags=_re.MULTILINE)
+        clean = _re.sub(r"\*\*(.*?)\*\*", r"\1", clean)
+        clean = _re.sub(r"\*(.*?)\*", r"\1", clean)
+        clean = _re.sub(r"^\s*[-*]\s+", "", clean, flags=_re.MULTILINE)
+        clean = _re.sub(r"<[^>]+>", "", clean).strip()
+        foot = (f'<div style="margin-top:14px;padding-top:10px;border-top:1px '
+                f'solid {border_light};color:{muted};font-size:0.78rem;'
+                f'line-height:1.5">{_html.escape(clean)}</div>')
 
-    html += '</div>'
-    return html
+    return f'<div style="font-family:{font}">{header}{"".join(rows)}{foot}</div>'
 
 
 # Default AI research prompts loaded via "Load default prompts" button
