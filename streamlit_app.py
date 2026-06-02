@@ -311,12 +311,13 @@ def _render_robustness_table(cfg: dict, theme: dict) -> str:
            f'<div style="width:{tw}px;flex:none;display:flex;justify-content:space-between;'
            f'color:{muted};font-size:0.6rem;letter-spacing:0.04em;text-transform:uppercase">'
            f'<span>most</span><span>least</span></div><div style="flex:1"></div></div>')
-    legend = '&#9873; deal-breaker — a red band here caps the verdict'
+    legend = ('&#9873; deal-breaker (ROCE &middot; net debt &middot; management) — '
+              'a red sinks the verdict, amber caps it at borderline')
     foot_text = f'{reason} &nbsp;·&nbsp; {legend}' if reason else legend
     foot = (f'<div style="color:{muted};font-size:0.7rem;margin-top:10px;'
             f'border-top:1px solid {border_light};padding-top:8px">{foot_text}</div>')
     return (f'<div style="background:{card};border:1px solid {border_light};border-radius:16px;'
-            f'padding:18px 22px;margin:6px auto 0;max-width:980px;box-shadow:{shadow};'
+            f'padding:18px 22px;margin:6px 0 0;box-shadow:{shadow};'
             f'font-family:{font}">{header}{cap}{"".join(rows)}{foot}</div>')
 
 
@@ -7103,39 +7104,43 @@ def _dcf_editor(ticker):
         _gem_ok = _gemini_ready()
         _company_name = cfg.get('company', ticker)
 
-        # ── Verdict zone: robustness table, centered above the research cards ──
-        _rob_l, _rob_c, _rob_r = st.columns([1, 8, 1])
-        with _rob_c:
-            st.markdown(_render_robustness_table(cfg, T), unsafe_allow_html=True)
+        # ── Verdict: robustness table (full width), then the research sections ──
+        st.markdown(_render_robustness_table(cfg, T), unsafe_allow_html=True)
 
-            # Override editor: adjust any axis band; re-derive verdict + persist.
-            _rob_state = cfg.get("robustness") or {}
-            if _rob_state.get("axes_base"):
-                import robustness as _rob_mod
-                with st.expander("Adjust robustness bands"):
-                    _ov = dict(_rob_state.get("overrides") or {})
-                    _changed = False
-                    for _k, _lbl, _db, _src in _rob_mod.AXES:
-                        _cur = (_rob_state["axes"].get(_k) or {}).get("band", "mid")
-                        _new = st.selectbox(
-                            _lbl, _rob_mod.BANDS, index=_rob_mod.BANDS.index(_cur),
-                            key=f"rob_ov_{ticker}_{_k}")
-                        _base_band = (_rob_state["axes_base"].get(_k) or {}).get("band", "mid")
-                        if _new != _base_band:
-                            _ov[_k] = _new
-                        elif _k in _ov:
-                            del _ov[_k]
-                        if _new != _cur:
-                            _changed = True
-                    if _changed and st.button("Save bands", key=f"rob_save_{ticker}"):
-                        _eff, _verdict = _rob_mod.resolve(_rob_state["axes_base"], _ov)
-                        cfg["robustness"] = {**_rob_state, "axes": _eff,
-                                             "overrides": _ov, **_verdict}
-                        save_config(_sb_client, ticker, cfg)
-                        st.session_state["_wl_config_dirty"] = True
-                        st.rerun()
+        # Override editor: adjust any axis band; re-derive verdict + persist.
+        _rob_state = cfg.get("robustness") or {}
+        if _rob_state.get("axes_base"):
+            import robustness as _rob_mod
+            with st.expander("Adjust robustness bands"):
+                _ov = dict(_rob_state.get("overrides") or {})
+                _changed = False
+                for _k, _lbl, _db, _src in _rob_mod.AXES:
+                    _cur = (_rob_state["axes"].get(_k) or {}).get("band", "mid")
+                    _new = st.selectbox(
+                        _lbl, _rob_mod.BANDS, index=_rob_mod.BANDS.index(_cur),
+                        key=f"rob_ov_{ticker}_{_k}")
+                    _base_band = (_rob_state["axes_base"].get(_k) or {}).get("band", "mid")
+                    if _new != _base_band:
+                        _ov[_k] = _new
+                    elif _k in _ov:
+                        del _ov[_k]
+                    if _new != _cur:
+                        _changed = True
+                if _changed and st.button("Save bands", key=f"rob_save_{ticker}"):
+                    _eff, _verdict = _rob_mod.resolve(_rob_state["axes_base"], _ov)
+                    cfg["robustness"] = {**_rob_state, "axes": _eff,
+                                         "overrides": _ov, **_verdict}
+                    save_config(_sb_client, ticker, cfg)
+                    st.session_state["_wl_config_dirty"] = True
+                    st.rerun()
+
 
         st.divider()
+        st.markdown("#### AI Research Sections")
+        st.caption(
+            "Run prompts on Groq Llama 3.3 70B (with fallback to Gemini 2.5 Flash)."
+        )
+
         with st.expander("Phase scorecard", expanded=False):
             # ── Scorecard overview ──
             _sc_raw = (cfg.get('ai_notes') or {}).get('Scorecard', '') if isinstance(cfg.get('ai_notes'), dict) else ''
@@ -7440,11 +7445,6 @@ def _dcf_editor(ticker):
                     icon="📋",
                 )
 
-        st.divider()
-        st.markdown("#### AI Research Sections")
-        st.caption(
-            "Run prompts on Groq Llama 3.3 70B (with fallback to Gemini 2.5 Flash)."
-        )
 
         # ── Load library (globaal, via user_prefs) ──
         _prefs = load_user_prefs(_sb_client)
@@ -7579,7 +7579,7 @@ def _dcf_editor(ticker):
             _content = _results.get(_title, '')
             _widget_key = f"ed_ai_res_{_li}"
             with st.container(key=f"prescan_card_{_li}"), \
-                    st.expander(_title, expanded=True):
+                    st.expander(_title, expanded=False):
                 _rb1, _rb2, _rb3, _rb4 = st.columns([1, 1, 1, 2])
                 with _rb1:
                     _run_clicked = st.button(
