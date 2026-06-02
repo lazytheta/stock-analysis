@@ -229,62 +229,80 @@ def _render_fv_cell(price: float, summary: dict | None,
 
 
 def _render_robustness_table(cfg: dict, theme: dict) -> str:
-    """Render the Prasad robustness table: one continuum row per axis +
-    a verdict banner. Pure HTML-string builder (no Streamlit calls)."""
+    """Render the Prasad robustness table: compact aligned continuum rows + a
+    verdict pill. Pure HTML-string builder (no Streamlit calls).
+
+    Layout per row: fixed-width label (deal-breakers flagged), a band disc, a
+    short fixed-width gradient track with a single marker in its zone, then the
+    value/note truncated with the full text on hover. Verdict shows as a pill
+    top-right with the reason beneath."""
+    import html as _html
+
     import robustness as _rob
 
     rob = (cfg or {}).get("robustness") or {}
     axes = rob.get("axes") or {}
-    if not axes:
-        return (f'<div style="color:{theme.get("text_muted", "#888")};font-size:0.85rem">'
-                'Robustness not yet assessed — run the Robustness section.</div>')
-
     text = theme.get("text", "#111")
     muted = theme.get("text_muted", "#888")
+    if not axes:
+        return (f'<div style="color:{muted};font-size:0.85rem;margin:6px 0 14px">'
+                'Robustness not yet assessed — run the Robustness section.</div>')
+
     band_color = {"robust": "#3a9d5d", "mid": "#d6a72e", "fragile": "#d05a4a"}
-    band_pos = {"robust": 8.0, "mid": 50.0, "fragile": 92.0}   # dot % on the continuum
-    band_dot = {"robust": "\U0001f7e2", "mid": "\U0001f7e1", "fragile": "\U0001f534"}
+    band_pos = {"robust": 12.0, "mid": 50.0, "fragile": 88.0}   # marker % on track
+    lw, dw, tw = 168, 11, 116   # label / disc / track widths (px)
 
     def _val_label(key, ax):
         if key == "roce" and ax.get("value") is not None:
             return f'{ax["value"]:.0f}% {ax.get("metric", "ROCE")}'
-        if key == "net_debt":
-            v = ax.get("value")
-            if v is not None:
-                return "net cash" if v <= 0 else f'{v:.1f}× EBITDA'
-            return ax.get("note", "") or "—"
-        return ax.get("note", "") or "—"
+        if key == "net_debt" and ax.get("value") is not None:
+            v = ax["value"]
+            return "net cash" if v <= 0 else f'{v:.1f}× EBITDA'
+        return ax.get("note", "") or ""
 
     rows = []
-    for key, label, _db, _src in _rob.AXES:
+    for key, label, is_db, _src in _rob.AXES:
         ax = axes.get(key, {"band": "mid"})
         band = ax.get("band", "mid")
         color = band_color.get(band, muted)
         left = band_pos.get(band, 50.0)
+        note = _html.escape(_val_label(key, ax))
+        flag = (f'<span title="deal-breaker" style="color:{muted};font-size:0.7rem">&#9873;</span>'
+                if is_db else '')
         rows.append(
-            f'<div class="rb-row" style="display:flex;align-items:center;gap:8px;'
-            f'margin:3px 0;font-size:0.8rem">'
-            f'<div style="width:150px;color:{text}">{band_dot.get(band, "")} {label}</div>'
-            f'<div style="flex:1;position:relative;height:6px;background:#8884;'
-            f'border-radius:3px">'
-            f'<div style="position:absolute;left:{left:.0f}%;top:-3px;width:12px;height:12px;'
+            f'<div class="rb-row" style="display:flex;align-items:center;gap:10px;height:26px;'
+            f'font-size:0.8rem">'
+            f'<div style="width:{lw}px;flex:none;color:{text};white-space:nowrap;overflow:hidden;'
+            f'text-overflow:ellipsis">{label} {flag}</div>'
+            f'<span style="width:{dw}px;height:{dw}px;border-radius:50%;background:{color};'
+            f'flex:none"></span>'
+            f'<div style="width:{tw}px;flex:none;position:relative;height:5px;border-radius:3px;'
+            f'background:linear-gradient(90deg,#3a9d5d33,#d6a72e33,#d05a4a33)">'
+            f'<div style="position:absolute;left:{left:.0f}%;top:-3px;width:11px;height:11px;'
             f'border-radius:50%;background:{color};transform:translateX(-50%)"></div></div>'
-            f'<div style="width:150px;color:{muted};text-align:right">{_val_label(key, ax)}</div>'
+            f'<div title="{note}" style="flex:1;min-width:0;color:{muted};white-space:nowrap;'
+            f'overflow:hidden;text-overflow:ellipsis">{note}</div>'
             f'</div>'
         )
 
-    v = rob.get("verdict", "?").upper()
-    vmap = {"ROBUST": "#3a9d5d", "BORDERLINE": "#d6a72e", "FRAGILE": "#d05a4a"}
-    vcolor = vmap.get(v, muted)
-    banner = (
-        f'<div style="margin-top:8px;padding:8px 12px;border-radius:8px;'
-        f'background:{vcolor}22;border:1px solid {vcolor};color:{text};font-size:0.85rem">'
-        f'<b style="color:{vcolor}">{v}</b> — {rob.get("verdict_reason", "")}</div>'
-    )
-    head = (f'<div style="display:flex;justify-content:space-between;color:{muted};'
-            f'font-size:0.72rem;margin-bottom:2px"><span>ROBUSTNESS</span>'
-            f'<span>most ◀───▶ least</span></div>')
-    return f'<div style="margin:6px 0 14px">{head}{"".join(rows)}{banner}</div>'
+    v = rob.get("verdict", "?")
+    vcolor = band_color.get(
+        {"robust": "robust", "borderline": "mid", "fragile": "fragile"}.get(v, "mid"), muted)
+    reason = _html.escape(rob.get("verdict_reason", ""))
+    pill = (f'<span title="{reason}" style="padding:2px 11px;border-radius:980px;'
+            f'background:{vcolor}1f;border:1px solid {vcolor};color:{vcolor};font-weight:600;'
+            f'font-size:0.72rem;letter-spacing:0.04em">{v.upper()}</span>')
+    header = (f'<div style="display:flex;justify-content:space-between;align-items:center;'
+              f'margin-bottom:4px"><span style="color:{muted};font-size:0.72rem;font-weight:600;'
+              f'letter-spacing:0.09em">ROBUSTNESS</span>{pill}</div>')
+    cap = (f'<div style="display:flex;align-items:center;gap:10px;height:13px;margin-bottom:3px">'
+           f'<div style="width:{lw}px;flex:none"></div><span style="width:{dw}px;flex:none"></span>'
+           f'<div style="width:{tw}px;flex:none;display:flex;justify-content:space-between;'
+           f'color:{muted};font-size:0.6rem;letter-spacing:0.03em">'
+           f'<span>most</span><span>least</span></div><div style="flex:1"></div></div>')
+    foot = (f'<div style="color:{muted};font-size:0.7rem;margin-top:6px">'
+            f'{reason}</div>') if reason else ''
+    return f'<div style="margin:6px 0 16px">{header}{cap}{"".join(rows)}{foot}</div>'
 
 
 def _render_football_field(summary: dict | None, theme: dict) -> str:
