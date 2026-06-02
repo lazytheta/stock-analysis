@@ -7108,10 +7108,33 @@ def _dcf_editor(ticker):
         st.markdown(_render_robustness_table(cfg, T), unsafe_allow_html=True)
 
         # Override editor: adjust any axis band; re-derive verdict + persist.
+        # Styled as a hero-card to match the section cards / Phase scorecard.
         _rob_state = cfg.get("robustness") or {}
         if _rob_state.get("axes_base"):
             import robustness as _rob_mod
-            with st.expander("Adjust robustness bands"):
+            st.markdown(
+                '<style>'
+                f'.st-key-prescan_robust_editor [data-testid="stExpander"] {{'
+                f'  background: {T["card"]}; border: none !important;'
+                f'  border-top: 3px solid {T["accent"]} !important;'
+                f'  border-radius: 24px !important; box-shadow: {T["shadow"]};'
+                f'  margin-bottom: 20px; overflow: hidden; }}'
+                f'.st-key-prescan_robust_editor [data-testid="stExpander"] summary,'
+                f'.st-key-prescan_robust_editor [data-testid="stExpander"] summary *,'
+                f'.st-key-prescan_robust_editor [data-testid="stExpander"] details,'
+                f'.st-key-prescan_robust_editor [data-testid="stExpander"] details > div {{'
+                f'  border: none !important; background: transparent !important;'
+                f'  box-shadow: none !important; }}'
+                f'.st-key-prescan_robust_editor [data-testid="stExpander"] details > summary {{'
+                f'  padding: 20px 32px !important; font-weight: 700;'
+                f'  font-size: 0.95rem; color: {T["text"]}; }}'
+                f'.st-key-prescan_robust_editor [data-testid="stExpander"] details > div {{'
+                f'  padding: 0 32px 28px 32px !important; }}'
+                '</style>',
+                unsafe_allow_html=True,
+            )
+            with st.container(key="prescan_robust_editor"), \
+                    st.expander("Adjust robustness bands"):
                 _ov = dict(_rob_state.get("overrides") or {})
                 _changed = False
                 for _k, _lbl, _db, _src in _rob_mod.AXES:
@@ -7137,9 +7160,6 @@ def _dcf_editor(ticker):
 
         st.divider()
         st.markdown("#### AI Research Sections")
-        st.caption(
-            "Run prompts on Groq Llama 3.3 70B (with fallback to Gemini 2.5 Flash)."
-        )
 
         # Hero-card styling for the Phase scorecard, matching the section cards
         # below (see 10 UI Patterns → Collapsible hero-card).
@@ -7599,6 +7619,12 @@ def _dcf_editor(ticker):
 
         for _li, _lp in enumerate(_library):
             _title = _lp.get('title', f'Prompt {_li + 1}')
+            # Scorecard + Robustness already have their own visuals above (the
+            # Phase scorecard card and the robustness table). Keep them in the
+            # library so they still run in the background, but don't render
+            # duplicate prompt cards here.
+            if _title in ("Scorecard", "Robustness"):
+                continue
             _prompt = _lp.get('prompt', '')
             _content = _results.get(_title, '')
             _widget_key = f"ed_ai_res_{_li}"
