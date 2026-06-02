@@ -8,9 +8,26 @@ the RLS WITH CHECK clause is satisfied.
 """
 
 import logging
+import time
 from datetime import UTC
 
 logger = logging.getLogger(__name__)
+
+# Transport-level blips (a dropped keep-alive connection surfacing as
+# httpx.RemoteProtocolError, connection resets, timeouts) are transient and
+# worth retrying — they should not crash a watchlist that loads ~25 configs in
+# parallel. Matched by class name OR message so we stay httpx-version- and
+# import-free here.
+_TRANSIENT_MARKERS = (
+    "RemoteProtocolError", "ConnectError", "ConnectTimeout", "ReadTimeout",
+    "ReadError", "WriteError", "PoolTimeout", "ConnectionError",
+    "Server disconnected", "Connection reset", "connection was closed",
+)
+
+
+def _is_transient(exc):
+    blob = f"{type(exc).__name__}: {exc}"
+    return any(m in blob for m in _TRANSIENT_MARKERS)
 
 
 # ---------------------------------------------------------------------------
@@ -168,22 +185,33 @@ def load_config(client, ticker, user_id=None):
     APIError exposes.
     """
     ticker = ticker.upper()
-    query = (
-        client.table("watchlist_configs")
-        .select("config")
-        .eq("ticker", ticker)
-    )
-    if user_id is not None:
-        query = query.eq("user_id", user_id)
-    try:
-        resp = query.maybe_single().execute()
-    except Exception as e:
-        if "PGRST116" in str(e) or "0 rows" in str(e):
-            return None
-        raise
-    if resp and resp.data:
-        return _restore_tuples(resp.data["config"])
-    return None
+    last_exc = None
+    for attempt in range(3):
+        query = (
+            client.table("watchlist_configs")
+            .select("config")
+            .eq("ticker", ticker)
+        )
+        if user_id is not None:
+            query = query.eq("user_id", user_id)
+        try:
+            resp = query.maybe_single().execute()
+        except Exception as e:
+            if "PGRST116" in str(e) or "0 rows" in str(e):
+                return None
+            # Retry transient transport blips before giving up so one dropped
+            # connection doesn't crash the whole (parallel) watchlist load.
+            last_exc = e
+            if attempt < 2 and _is_transient(e):
+                logger.warning("load_config(%s): transient error, retry %d/2: %s",
+                               ticker, attempt + 1, e)
+                time.sleep(0.25 * (attempt + 1))
+                continue
+            raise
+        if resp and resp.data:
+            return _restore_tuples(resp.data["config"])
+        return None
+    raise last_exc  # unreachable: loop always returns or raises
 
 
 def list_watchlist(client, user_id=None):
