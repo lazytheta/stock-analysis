@@ -7103,17 +7103,7 @@ def _dcf_editor(ticker):
         _gem_ok = _gemini_ready()
         _company_name = cfg.get('company', ticker)
 
-        # ── Two framed segments: Robustness verdict + AI Research Sections ──
-        st.markdown(
-            '<style>'
-            f'.st-key-prescan_seg_robustness, .st-key-prescan_seg_research {{'
-            f'  border: 1px solid {T["border_light"]} !important;'
-            f'  border-radius: 20px !important;'
-            f'  padding: 8px 26px 22px 26px !important;'
-            f'  margin-bottom: 24px !important; }}'
-            '</style>',
-            unsafe_allow_html=True,
-        )
+        # ── Two standalone sections (portfolio-style cards, no outer frame) ──
         with st.container(key="prescan_seg_robustness"):
             st.markdown("#### Robustness")
             st.markdown(_render_robustness_table(cfg, T), unsafe_allow_html=True)
@@ -7170,6 +7160,7 @@ def _dcf_editor(ticker):
 
 
 
+        st.markdown("<br>", unsafe_allow_html=True)
         with st.container(key="prescan_seg_research"):
             st.markdown("#### AI Research Sections")
 
