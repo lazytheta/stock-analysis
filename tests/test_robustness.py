@@ -152,3 +152,13 @@ def test_compute_data_axes_value_and_net_debt_m():
     assert axes["roce"]["metric"] == "ROCE"
     assert axes["net_debt"]["value"] == -0.4
     assert axes["net_debt"]["net_debt_m"] == -20000.0
+
+
+def test_default_prompts_include_robustness():
+    import streamlit_app
+    titles = [p["title"] for p in streamlit_app.DEFAULT_AI_PROMPTS]
+    assert "Robustness" in titles
+    entry = next(p for p in streamlit_app.DEFAULT_AI_PROMPTS if p["title"] == "Robustness")
+    for key in ("customers", "barriers", "management", "industry"):
+        assert key in entry["prompt"]
+    assert "{prior:Moat Analysis}" in entry["prompt"]

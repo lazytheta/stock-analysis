@@ -929,6 +929,42 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
 # Default AI research prompts loaded via "Load default prompts" button
 DEFAULT_AI_PROMPTS: list[dict] = [
     {
+        "title": "Robustness",
+        "prompt": (
+            "You are scoring **{company} ({ticker})** on Pulak Prasad's robustness "
+            "framework (risk first). Judge ONLY these four qualitative axes; the ROCE "
+            "and net-debt axes are computed from data elsewhere — do not output them.\n\n"
+            "For each axis pick a band: \"robust\" (most robust pole), \"mid\", or "
+            "\"fragile\" (least robust pole), and a one-line note grounded in the prior "
+            "analysis.\n\n"
+            "- **customers**: customer & supplier base — robust = highly fragmented (no "
+            "dependence on any single party); fragile = concentrated.\n"
+            "- **barriers**: competitive barriers / moat — robust = wide/widening; "
+            "fragile = none/eroding.\n"
+            "- **management**: stability & honesty of management/governance — robust = "
+            "stable, honest signals, clean capital allocation; fragile = dubious, "
+            "serial acquirer, turnaround.\n"
+            "- **industry**: pace of industry change — robust = slow-changing/predictable; "
+            "fragile = fast-changing.\n\n"
+            "Use the prior sections as evidence:\n"
+            "Moat: {prior:Moat Analysis}\n\n"
+            "Risk: {prior:Risk Analysis}\n\n"
+            "Disruption resilience: {prior:SaaSpocalypse Resistance}\n\n"
+            "Business: {prior:Business Analysis}\n\n"
+            "Respond with ONLY a fenced JSON block, no prose:\n"
+            "```json\n"
+            "{\n"
+            '  "axes": {\n'
+            '    "customers":  {"band": "robust|mid|fragile", "note": "..."},\n'
+            '    "barriers":   {"band": "robust|mid|fragile", "note": "..."},\n'
+            '    "management": {"band": "robust|mid|fragile", "note": "..."},\n'
+            '    "industry":   {"band": "robust|mid|fragile", "note": "..."}\n'
+            "  }\n"
+            "}\n"
+            "```"
+        ),
+    },
+    {
         "title": "Business Phase Analysis",
         "prompt": """# BUSINESS PHASE ANALYSIS v18.7
 
