@@ -89,3 +89,19 @@ def parse_scorecard(ai_notes: dict | None) -> dict:
         phase_num = int(phase_raw)
 
     return {"verdict": verdict, "phase": phase_num}
+
+
+def resolve_verdict(cfg):
+    """Single source of truth for a ticker's verdict + phase.
+
+    The robustness table (cfg['robustness']['verdict_mapped']) is authoritative
+    when present; otherwise fall back to the Scorecard section. Phase always
+    comes from the Scorecard. Never raises.
+    """
+    cfg = cfg if isinstance(cfg, dict) else {}
+    sc = parse_scorecard(cfg.get("ai_notes"))
+    rob = cfg.get("robustness")
+    verdict = sc["verdict"]
+    if isinstance(rob, dict) and rob.get("verdict_mapped"):
+        verdict = rob["verdict_mapped"]
+    return {"verdict": verdict, "phase": sc["phase"]}
