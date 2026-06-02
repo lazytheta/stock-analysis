@@ -2765,6 +2765,7 @@ st.markdown(f"""
     [data-testid="stTabs"] [data-baseweb="tab-list"] {{
         background: var(--card);
         border-radius: 18px;
+        border-top: 3px solid var(--accent);
         box-shadow: var(--shadow);
         padding: 4px 18px;
         margin-bottom: 18px;
@@ -3276,7 +3277,7 @@ st.markdown(f"""
         background-color: var(--accent) !important;
     }}
     .stTabs [data-baseweb="tab-border"] {{
-        background-color: var(--border-medium) !important;
+        background-color: transparent !important;
     }}
 
     /* Sliders — Green accent */
@@ -7109,7 +7110,7 @@ def _dcf_editor(ticker):
                 unsafe_allow_html=True,
             )
             with st.container(key="prescan_scorecard"), \
-                    st.expander("Phase scorecard", expanded=False):
+                    st.expander("Phase scorecard", expanded=True):
                 # ── Scorecard overview ──
                 _sc_raw = (cfg.get('ai_notes') or {}).get('Scorecard', '') if isinstance(cfg.get('ai_notes'), dict) else ''
                 _sc_data = _parse_scorecard_json(_sc_raw) if _sc_raw else None
