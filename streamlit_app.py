@@ -2756,15 +2756,36 @@ st.markdown(f"""
         margin-top: 4px;
     }}
 
-    /* Tabs card — wraps tab bar + content in a card */
+    /* Tabs: bar and each content panel are separate blocks (not one card) */
     [data-testid="stTabs"] {{
+        background: transparent;
+        padding: 0;
+        margin-bottom: 8px;
+        animation: fadeInUp 0.4s ease-out both;
+    }}
+    /* The tab bar as its own card strip */
+    [data-testid="stTabs"] [data-baseweb="tab-list"] {{
+        background: var(--card);
+        border-radius: 18px;
+        box-shadow: var(--shadow);
+        padding: 4px 18px;
+        margin-bottom: 18px;
+    }}
+    /* Each tab's content as its own card */
+    [data-testid="stTabs"] [data-baseweb="tab-panel"] {{
         background: var(--card);
         border-radius: 24px;
         border-top: 3px solid var(--accent);
         padding: 28px 24px;
         box-shadow: var(--shadow);
-        margin-bottom: 8px;
-        animation: fadeInUp 0.4s ease-out both;
+    }}
+    /* ...except Pre-Scan (first panel): transparent, so its Robustness and
+       AI Research panels read as two standalone boxes. */
+    [data-testid="stTabs"] [data-baseweb="tab-panel"]:first-of-type {{
+        background: transparent;
+        border-top: none;
+        padding: 0;
+        box-shadow: none;
     }}
     /* Inputs inside tabs card — subtle spreadsheet cell style */
     [data-testid="stTabs"] .stNumberInput > div,
