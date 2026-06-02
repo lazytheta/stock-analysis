@@ -164,6 +164,10 @@ async def _tool_save_prescan_section(user_id: str, args: dict) -> Any:
     )
 
 
+async def _tool_set_robustness(user_id: str, args: dict) -> Any:
+    return mcp_server._set_robustness_impl(args["ticker"], args["axes"], user_id=user_id)
+
+
 # ---- Tool definitions (MCP wire format) ----
 
 TOOLS: list[dict] = [
@@ -267,9 +271,14 @@ TOOLS: list[dict] = [
         "name": "update_valuation_inputs",
         "description": (
             "Override one or more valuation_inputs fields for a watchlist "
-            "ticker (e.g. dividend_5y_cagr, forward_eps, ttm_ebitda). Each "
-            "updated field is removed from _auto_filled so the override "
-            "survives the next yfinance refresh."
+            "ticker. Valid keys per lens: Dividend (ttm_dividend, "
+            "dividend_5y_cagr, median_5y_yield); Historical "
+            "(historical_fwd_pe, historical_trailing_pe, "
+            "historical_ev_ebitda, forward_eps, ttm_eps, ttm_ebitda); "
+            "Multiples (forward_eps, ttm_ebitda). Any other key is silently "
+            "stored but ignored by every lens. Each updated field is removed "
+            "from _auto_filled so the override survives the next yfinance "
+            "refresh."
         ),
         "inputSchema": {
             "type": "object",
@@ -504,6 +513,22 @@ TOOLS: list[dict] = [
             "required": ["ticker", "title", "content"],
         },
     },
+    {
+        "name": "set_robustness",
+        "description": (
+            "Set the 4 qualitative robustness axes (customers, barriers, "
+            "management, industry) for a ticker; ROCE/net-debt + verdict "
+            "are computed server-side."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "axes": {"type": "object"},
+            },
+            "required": ["ticker", "axes"],
+        },
+    },
 ]
 
 
@@ -526,6 +551,7 @@ TOOL_HANDLERS: dict[str, Callable[[str, dict], Awaitable[Any]]] = {
     "get_prescan_prompts": _tool_get_prescan_prompts,
     "get_prescan_sections": _tool_get_prescan_sections,
     "save_prescan_section": _tool_save_prescan_section,
+    "set_robustness": _tool_set_robustness,
 }
 
 
