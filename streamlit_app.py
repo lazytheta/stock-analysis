@@ -2768,7 +2768,7 @@ st.markdown(f"""
         border-top: 3px solid var(--accent);
         box-shadow: var(--shadow);
         padding: 4px 18px;
-        margin-bottom: 18px;
+        margin-bottom: 6px;
     }}
     /* Tab content panels stay transparent; each tab supplies its own cards. */
     /* Inputs inside tabs card — subtle spreadsheet cell style */
