@@ -303,9 +303,8 @@ def _render_robustness_table(cfg: dict, theme: dict) -> str:
     pill = (f'<span title="{reason}" style="padding:3px 13px;border-radius:980px;'
             f'background:{vfill};border:1px solid {vcolor};color:{text};font-weight:600;'
             f'font-size:0.7rem;letter-spacing:0.06em">{v.upper()}</span>')
-    header = (f'<div style="display:flex;justify-content:space-between;align-items:center;'
-              f'margin-bottom:10px"><span style="color:{muted};font-size:0.68rem;font-weight:600;'
-              f'letter-spacing:0.1em;text-transform:uppercase">Robustness</span>{pill}</div>')
+    header = (f'<div style="display:flex;justify-content:flex-end;align-items:center;'
+              f'margin-bottom:6px">{pill}</div>')
     cap = (f'<div style="display:flex;align-items:center;gap:12px;height:13px;margin-bottom:4px">'
            f'<div style="width:{lw}px;flex:none"></div><span style="width:{dw}px;flex:none"></span>'
            f'<div style="width:{tw}px;flex:none;display:flex;justify-content:space-between;'
@@ -7105,6 +7104,7 @@ def _dcf_editor(ticker):
         _company_name = cfg.get('company', ticker)
 
         # ── Verdict: robustness table (full width), then the research sections ──
+        st.markdown("#### Robustness")
         st.markdown(_render_robustness_table(cfg, T), unsafe_allow_html=True)
 
         # Override editor: adjust any axis band; re-derive verdict + persist.
