@@ -311,11 +311,12 @@ def _render_robustness_table(cfg: dict, theme: dict) -> str:
            f'<div style="width:{tw}px;flex:none;display:flex;justify-content:space-between;'
            f'color:{muted};font-size:0.6rem;letter-spacing:0.04em;text-transform:uppercase">'
            f'<span>most</span><span>least</span></div><div style="flex:1"></div></div>')
-    foot = (f'<div style="color:{muted};font-size:0.72rem;margin-top:10px;'
-            f'border-top:1px solid {border_light};padding-top:8px">{reason}</div>'
-            if reason else '')
+    legend = '&#9873; deal-breaker — a red band here caps the verdict'
+    foot_text = f'{reason} &nbsp;·&nbsp; {legend}' if reason else legend
+    foot = (f'<div style="color:{muted};font-size:0.7rem;margin-top:10px;'
+            f'border-top:1px solid {border_light};padding-top:8px">{foot_text}</div>')
     return (f'<div style="background:{card};border:1px solid {border_light};border-radius:16px;'
-            f'padding:18px 22px;margin:6px auto 0;max-width:760px;box-shadow:{shadow};'
+            f'padding:18px 22px;margin:6px auto 0;max-width:980px;box-shadow:{shadow};'
             f'font-family:{font}">{header}{cap}{"".join(rows)}{foot}</div>')
 
 
@@ -7103,7 +7104,7 @@ def _dcf_editor(ticker):
         _company_name = cfg.get('company', ticker)
 
         # ── Verdict zone: robustness table, centered above the research cards ──
-        _rob_l, _rob_c, _rob_r = st.columns([1, 3, 1])
+        _rob_l, _rob_c, _rob_r = st.columns([1, 8, 1])
         with _rob_c:
             st.markdown(_render_robustness_table(cfg, T), unsafe_allow_html=True)
 
