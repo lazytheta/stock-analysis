@@ -162,3 +162,26 @@ def test_default_prompts_include_robustness():
     for key in ("customers", "barriers", "management", "industry"):
         assert key in entry["prompt"]
     assert "{prior:Moat Analysis}" in entry["prompt"]
+
+
+def test_render_robustness_table_html_contains_axes_and_verdict():
+    import streamlit_app
+    cfg = {
+        "robustness": {
+            "axes": {
+                "roce":       {"band": "robust", "value": 30.0, "metric": "ROCE"},
+                "net_debt":   {"band": "robust", "value": -0.4, "unit": "x_ebitda"},
+                "customers":  {"band": "robust", "note": "fragmented"},
+                "barriers":   {"band": "robust", "note": "wide moat"},
+                "management": {"band": "mid", "note": "founder control"},
+                "industry":   {"band": "fragile", "note": "fast AI"},
+            },
+            "verdict": "borderline", "verdict_mapped": "revisit",
+            "verdict_reason": "deal-breaker amber: management",
+        }
+    }
+    html = streamlit_app._render_robustness_table(cfg, theme={"text": "#111", "text_muted": "#888"})
+    assert "ROCE" in html
+    assert "Management" in html
+    assert "BORDERLINE" in html.upper()
+    assert html.count('class="rb-row"') == 6
