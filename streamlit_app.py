@@ -7103,651 +7103,663 @@ def _dcf_editor(ticker):
         _gem_ok = _gemini_ready()
         _company_name = cfg.get('company', ticker)
 
-        # ── Verdict: robustness table (full width), then the research sections ──
-        st.markdown("#### Robustness")
-        st.markdown(_render_robustness_table(cfg, T), unsafe_allow_html=True)
+        # ── Two framed segments: Robustness verdict + AI Research Sections ──
+        st.markdown(
+            '<style>'
+            f'.st-key-prescan_seg_robustness, .st-key-prescan_seg_research {{'
+            f'  border: 1px solid {T["border_light"]} !important;'
+            f'  border-radius: 20px !important;'
+            f'  padding: 8px 26px 22px 26px !important;'
+            f'  margin-bottom: 24px !important; }}'
+            '</style>',
+            unsafe_allow_html=True,
+        )
+        with st.container(key="prescan_seg_robustness"):
+            st.markdown("#### Robustness")
+            st.markdown(_render_robustness_table(cfg, T), unsafe_allow_html=True)
 
-        # Override editor: adjust any axis band; re-derive verdict + persist.
-        # Styled as a hero-card to match the section cards / Phase scorecard.
-        _rob_state = cfg.get("robustness") or {}
-        if _rob_state.get("axes_base"):
-            import robustness as _rob_mod
+            # Override editor: adjust any axis band; re-derive verdict + persist.
+            # Styled as a hero-card to match the section cards / Phase scorecard.
+            _rob_state = cfg.get("robustness") or {}
+            if _rob_state.get("axes_base"):
+                import robustness as _rob_mod
+                st.markdown(
+                    '<style>'
+                    f'.st-key-prescan_robust_editor [data-testid="stExpander"] {{'
+                    f'  background: {T["card"]}; border: none !important;'
+                    f'  border-top: 3px solid {T["accent"]} !important;'
+                    f'  border-radius: 24px !important; box-shadow: {T["shadow"]};'
+                    f'  margin-bottom: 20px; overflow: hidden; }}'
+                    f'.st-key-prescan_robust_editor [data-testid="stExpander"] summary,'
+                    f'.st-key-prescan_robust_editor [data-testid="stExpander"] summary *,'
+                    f'.st-key-prescan_robust_editor [data-testid="stExpander"] details,'
+                    f'.st-key-prescan_robust_editor [data-testid="stExpander"] details > div {{'
+                    f'  border: none !important; background: transparent !important;'
+                    f'  box-shadow: none !important; }}'
+                    f'.st-key-prescan_robust_editor [data-testid="stExpander"] details > summary {{'
+                    f'  padding: 20px 32px !important; font-weight: 700;'
+                    f'  font-size: 0.95rem; color: {T["text"]}; }}'
+                    f'.st-key-prescan_robust_editor [data-testid="stExpander"] details > div {{'
+                    f'  padding: 0 32px 28px 32px !important; }}'
+                    '</style>',
+                    unsafe_allow_html=True,
+                )
+                with st.container(key="prescan_robust_editor"), \
+                        st.expander("Adjust robustness bands"):
+                    _ov = dict(_rob_state.get("overrides") or {})
+                    _changed = False
+                    for _k, _lbl, _db, _src in _rob_mod.AXES:
+                        _cur = (_rob_state["axes"].get(_k) or {}).get("band", "mid")
+                        _new = st.selectbox(
+                            _lbl, _rob_mod.BANDS, index=_rob_mod.BANDS.index(_cur),
+                            key=f"rob_ov_{ticker}_{_k}")
+                        _base_band = (_rob_state["axes_base"].get(_k) or {}).get("band", "mid")
+                        if _new != _base_band:
+                            _ov[_k] = _new
+                        elif _k in _ov:
+                            del _ov[_k]
+                        if _new != _cur:
+                            _changed = True
+                    if _changed and st.button("Save bands", key=f"rob_save_{ticker}"):
+                        _eff, _verdict = _rob_mod.resolve(_rob_state["axes_base"], _ov)
+                        cfg["robustness"] = {**_rob_state, "axes": _eff,
+                                             "overrides": _ov, **_verdict}
+                        save_config(_sb_client, ticker, cfg)
+                        st.session_state["_wl_config_dirty"] = True
+                        st.rerun()
+
+
+
+        with st.container(key="prescan_seg_research"):
+            st.markdown("#### AI Research Sections")
+
+            # Hero-card styling for the Phase scorecard, matching the section cards
+            # below (see 10 UI Patterns → Collapsible hero-card).
             st.markdown(
                 '<style>'
-                f'.st-key-prescan_robust_editor [data-testid="stExpander"] {{'
+                f'.st-key-prescan_scorecard [data-testid="stExpander"] {{'
                 f'  background: {T["card"]}; border: none !important;'
                 f'  border-top: 3px solid {T["accent"]} !important;'
                 f'  border-radius: 24px !important; box-shadow: {T["shadow"]};'
                 f'  margin-bottom: 20px; overflow: hidden; }}'
-                f'.st-key-prescan_robust_editor [data-testid="stExpander"] summary,'
-                f'.st-key-prescan_robust_editor [data-testid="stExpander"] summary *,'
-                f'.st-key-prescan_robust_editor [data-testid="stExpander"] details,'
-                f'.st-key-prescan_robust_editor [data-testid="stExpander"] details > div {{'
+                f'.st-key-prescan_scorecard [data-testid="stExpander"] summary,'
+                f'.st-key-prescan_scorecard [data-testid="stExpander"] summary *,'
+                f'.st-key-prescan_scorecard [data-testid="stExpander"] details,'
+                f'.st-key-prescan_scorecard [data-testid="stExpander"] details > div {{'
                 f'  border: none !important; background: transparent !important;'
                 f'  box-shadow: none !important; }}'
-                f'.st-key-prescan_robust_editor [data-testid="stExpander"] details > summary {{'
+                f'.st-key-prescan_scorecard [data-testid="stExpander"] details > summary {{'
                 f'  padding: 20px 32px !important; font-weight: 700;'
                 f'  font-size: 0.95rem; color: {T["text"]}; }}'
-                f'.st-key-prescan_robust_editor [data-testid="stExpander"] details > div {{'
+                f'.st-key-prescan_scorecard [data-testid="stExpander"] details > div {{'
                 f'  padding: 0 32px 28px 32px !important; }}'
                 '</style>',
                 unsafe_allow_html=True,
             )
-            with st.container(key="prescan_robust_editor"), \
-                    st.expander("Adjust robustness bands"):
-                _ov = dict(_rob_state.get("overrides") or {})
-                _changed = False
-                for _k, _lbl, _db, _src in _rob_mod.AXES:
-                    _cur = (_rob_state["axes"].get(_k) or {}).get("band", "mid")
-                    _new = st.selectbox(
-                        _lbl, _rob_mod.BANDS, index=_rob_mod.BANDS.index(_cur),
-                        key=f"rob_ov_{ticker}_{_k}")
-                    _base_band = (_rob_state["axes_base"].get(_k) or {}).get("band", "mid")
-                    if _new != _base_band:
-                        _ov[_k] = _new
-                    elif _k in _ov:
-                        del _ov[_k]
-                    if _new != _cur:
-                        _changed = True
-                if _changed and st.button("Save bands", key=f"rob_save_{ticker}"):
-                    _eff, _verdict = _rob_mod.resolve(_rob_state["axes_base"], _ov)
-                    cfg["robustness"] = {**_rob_state, "axes": _eff,
-                                         "overrides": _ov, **_verdict}
-                    save_config(_sb_client, ticker, cfg)
-                    st.session_state["_wl_config_dirty"] = True
-                    st.rerun()
+            with st.container(key="prescan_scorecard"), \
+                    st.expander("Phase scorecard", expanded=False):
+                # ── Scorecard overview ──
+                _sc_raw = (cfg.get('ai_notes') or {}).get('Scorecard', '') if isinstance(cfg.get('ai_notes'), dict) else ''
+                _sc_data = _parse_scorecard_json(_sc_raw) if _sc_raw else None
+                _sc_form_key = f"sc_form_editing_{ticker}"
+                _sc_form_editing = bool(st.session_state.get(_sc_form_key, False))
 
+                _sc_rating_options = ["red", "yellow", "green"]
+                _sc_rating_labels = {"red": "🔴 Red", "yellow": "🟡 Yellow", "green": "🟢 Green"}
+                _sc_verdict_options = [
+                    ("pass", "No — Pass"),
+                    ("revisit", "Kind Of — Revisit"),
+                    ("deep_dive", "Yes — Deep Dive"),
+                ]
+                _sc_ap_keys = [
+                    ("business_description", "Business Description"),
+                    ("moat", "Moat"),
+                    ("long_term_potential", "Long Term Potential"),
+                ]
 
-        st.divider()
-        st.markdown("#### AI Research Sections")
+                def _sc_rating_index(value: str) -> int:
+                    v = (value or "").lower().strip()
+                    return _sc_rating_options.index(v) if v in _sc_rating_options else 1
 
-        # Hero-card styling for the Phase scorecard, matching the section cards
-        # below (see 10 UI Patterns → Collapsible hero-card).
-        st.markdown(
-            '<style>'
-            f'.st-key-prescan_scorecard [data-testid="stExpander"] {{'
-            f'  background: {T["card"]}; border: none !important;'
-            f'  border-top: 3px solid {T["accent"]} !important;'
-            f'  border-radius: 24px !important; box-shadow: {T["shadow"]};'
-            f'  margin-bottom: 20px; overflow: hidden; }}'
-            f'.st-key-prescan_scorecard [data-testid="stExpander"] summary,'
-            f'.st-key-prescan_scorecard [data-testid="stExpander"] summary *,'
-            f'.st-key-prescan_scorecard [data-testid="stExpander"] details,'
-            f'.st-key-prescan_scorecard [data-testid="stExpander"] details > div {{'
-            f'  border: none !important; background: transparent !important;'
-            f'  box-shadow: none !important; }}'
-            f'.st-key-prescan_scorecard [data-testid="stExpander"] details > summary {{'
-            f'  padding: 20px 32px !important; font-weight: 700;'
-            f'  font-size: 0.95rem; color: {T["text"]}; }}'
-            f'.st-key-prescan_scorecard [data-testid="stExpander"] details > div {{'
-            f'  padding: 0 32px 28px 32px !important; }}'
-            '</style>',
-            unsafe_allow_html=True,
-        )
-        with st.container(key="prescan_scorecard"), \
-                st.expander("Phase scorecard", expanded=False):
-            # ── Scorecard overview ──
-            _sc_raw = (cfg.get('ai_notes') or {}).get('Scorecard', '') if isinstance(cfg.get('ai_notes'), dict) else ''
-            _sc_data = _parse_scorecard_json(_sc_raw) if _sc_raw else None
-            _sc_form_key = f"sc_form_editing_{ticker}"
-            _sc_form_editing = bool(st.session_state.get(_sc_form_key, False))
+                def _sc_clear_form_state():
+                    for _k in list(st.session_state.keys()):
+                        if _k.startswith(f"sc_f_{ticker}_"):
+                            del st.session_state[_k]
 
-            _sc_rating_options = ["red", "yellow", "green"]
-            _sc_rating_labels = {"red": "🔴 Red", "yellow": "🟡 Yellow", "green": "🟢 Green"}
-            _sc_verdict_options = [
-                ("pass", "No — Pass"),
-                ("revisit", "Kind Of — Revisit"),
-                ("deep_dive", "Yes — Deep Dive"),
-            ]
-            _sc_ap_keys = [
-                ("business_description", "Business Description"),
-                ("moat", "Moat"),
-                ("long_term_potential", "Long Term Potential"),
-            ]
+                if _sc_form_editing and _sc_data:
+                    # Fallback summary same as view mode so editing inherits derived value
+                    if not (_sc_data.get("summary") or "").strip():
+                        _inv_sum = (cfg.get('ai_notes') or {}).get('Investment Summary', '') \
+                            if isinstance(cfg.get('ai_notes'), dict) else ''
+                        if _inv_sum:
+                            import re as _re2
+                            _m = _re2.search(
+                                r'One-line thesis[^\n:]*:\s*([^\n]+)', _inv_sum, _re2.IGNORECASE,
+                            )
+                            if _m:
+                                _thesis = _m.group(1).strip()
+                                _thesis = _re2.sub(r'^\**\s*\[?', '', _thesis)
+                                _thesis = _re2.sub(r'\]?\s*\**$', '', _thesis)
+                                if _thesis and not _thesis.startswith('['):
+                                    _sc_data["summary"] = _thesis
 
-            def _sc_rating_index(value: str) -> int:
-                v = (value or "").lower().strip()
-                return _sc_rating_options.index(v) if v in _sc_rating_options else 1
+                    with st.container(border=True):
+                        _hcol1, _hcol2, _hcol3 = st.columns([4, 1, 1])
+                        _hcol1.markdown("**Edit Scorecard fields**")
+                        if _hcol2.button("💾 Save", key=f"sc_form_save_{ticker}",
+                                         use_container_width=True, type="primary"):
+                            def _g(suffix, default=""):
+                                return st.session_state.get(f"sc_f_{ticker}_{suffix}", default)
 
-            def _sc_clear_form_state():
-                for _k in list(st.session_state.keys()):
-                    if _k.startswith(f"sc_f_{ticker}_"):
-                        del st.session_state[_k]
+                            _phase_num_raw = str(_g("pn", "")).strip()
+                            try:
+                                _phase_num = int(_phase_num_raw) if _phase_num_raw else _phase_num_raw
+                            except ValueError:
+                                _phase_num = _phase_num_raw
 
-            if _sc_form_editing and _sc_data:
-                # Fallback summary same as view mode so editing inherits derived value
-                if not (_sc_data.get("summary") or "").strip():
-                    _inv_sum = (cfg.get('ai_notes') or {}).get('Investment Summary', '') \
-                        if isinstance(cfg.get('ai_notes'), dict) else ''
-                    if _inv_sum:
-                        import re as _re2
-                        _m = _re2.search(
-                            r'One-line thesis[^\n:]*:\s*([^\n]+)', _inv_sum, _re2.IGNORECASE,
+                            _km_count = int(st.session_state.get(f"sc_f_{ticker}_km_count", 0))
+                            _new_metrics = []
+                            for _i in range(_km_count):
+                                _name = (_g(f"km_{_i}_name", "") or "").strip()
+                                if not _name:
+                                    continue
+                                _new_metrics.append({
+                                    "name": _name,
+                                    "rating": _g(f"km_{_i}_r", "yellow"),
+                                    "value": (_g(f"km_{_i}_v", "") or "").strip(),
+                                })
+
+                            _verdict_label = _g("verdict", _sc_verdict_options[1][1])
+                            _verdict_code = next(
+                                (v for v, lbl in _sc_verdict_options if lbl == _verdict_label),
+                                "",
+                            )
+
+                            _new_sc = {
+                                "phase": {
+                                    "number": _phase_num,
+                                    "name": _g("pname", ""),
+                                },
+                                "summary": _g("sum", ""),
+                                "all_phases": {
+                                    _k: {
+                                        "rating": _g(f"ap_{_k}_r", "yellow"),
+                                        "note": _g(f"ap_{_k}_n", ""),
+                                    }
+                                    for _k, _ in _sc_ap_keys
+                                },
+                                "key_metrics": _new_metrics,
+                                "execution_risk": {
+                                    "rating": _g("er_r", "yellow"),
+                                    "note": _g("er_n", ""),
+                                },
+                                "valuation": {
+                                    _k: {
+                                        "name": (_g(f"val_{_k}_name", "") or "").strip(),
+                                        "rating": _g(f"val_{_k}_r", "yellow"),
+                                        "note": _g(f"val_{_k}_n", ""),
+                                    }
+                                    for _k in ("primary", "secondary")
+                                },
+                                "verdict": _verdict_code,
+                            }
+
+                            import json as _json
+                            _new_sc_text = (
+                                "```json\n"
+                                + _json.dumps(_new_sc, indent=2, ensure_ascii=False)
+                                + "\n```"
+                            )
+
+                            _ai_notes = cfg.get('ai_notes') or {}
+                            if not isinstance(_ai_notes, dict):
+                                _ai_notes = {}
+                            _ai_notes['Scorecard'] = _new_sc_text
+                            cfg['ai_notes'] = _ai_notes
+                            save_config(_sb_client, ticker, cfg)
+                            _sc_clear_form_state()
+                            st.session_state[_sc_form_key] = False
+                            st.rerun()
+
+                        if _hcol3.button("Cancel", key=f"sc_form_cancel_{ticker}",
+                                         use_container_width=True):
+                            _sc_clear_form_state()
+                            st.session_state[_sc_form_key] = False
+                            st.rerun()
+
+                        # Phase
+                        _phase = _sc_data.get("phase", {}) or {}
+                        _ph_c1, _ph_c2 = st.columns([1, 3])
+                        _ph_c1.text_input(
+                            "Phase #", value=str(_phase.get("number", "")),
+                            key=f"sc_f_{ticker}_pn",
                         )
-                        if _m:
-                            _thesis = _m.group(1).strip()
-                            _thesis = _re2.sub(r'^\**\s*\[?', '', _thesis)
-                            _thesis = _re2.sub(r'\]?\s*\**$', '', _thesis)
-                            if _thesis and not _thesis.startswith('['):
-                                _sc_data["summary"] = _thesis
+                        _ph_c2.text_input(
+                            "Phase name", value=_phase.get("name", ""),
+                            key=f"sc_f_{ticker}_pname",
+                        )
 
-                with st.container(border=True):
-                    _hcol1, _hcol2, _hcol3 = st.columns([4, 1, 1])
-                    _hcol1.markdown("**Edit Scorecard fields**")
-                    if _hcol2.button("💾 Save", key=f"sc_form_save_{ticker}",
-                                     use_container_width=True, type="primary"):
-                        def _g(suffix, default=""):
-                            return st.session_state.get(f"sc_f_{ticker}_{suffix}", default)
+                        st.text_area(
+                            "Summary",
+                            value=_sc_data.get("summary", "") or "",
+                            key=f"sc_f_{ticker}_sum",
+                            height=80,
+                        )
 
-                        _phase_num_raw = str(_g("pn", "")).strip()
-                        try:
-                            _phase_num = int(_phase_num_raw) if _phase_num_raw else _phase_num_raw
-                        except ValueError:
-                            _phase_num = _phase_num_raw
+                        st.markdown("**Assess for All Phases**")
+                        _all_phases = _sc_data.get("all_phases", {}) or {}
+                        for _k, _label in _sc_ap_keys:
+                            _item = _all_phases.get(_k, {}) or {}
+                            _r1, _r2, _r3 = st.columns([2, 1, 4])
+                            _r1.markdown(f"**{_label}**")
+                            _r2.selectbox(
+                                f"{_label} rating",
+                                _sc_rating_options,
+                                format_func=lambda x: _sc_rating_labels[x],
+                                index=_sc_rating_index(_item.get("rating")),
+                                key=f"sc_f_{ticker}_ap_{_k}_r",
+                                label_visibility="collapsed",
+                            )
+                            _r3.text_area(
+                                f"{_label} note",
+                                value=_item.get("note", "") or "",
+                                key=f"sc_f_{ticker}_ap_{_k}_n",
+                                label_visibility="collapsed",
+                                height=80,
+                            )
 
-                        _km_count = int(st.session_state.get(f"sc_f_{ticker}_km_count", 0))
-                        _new_metrics = []
+                        st.markdown("**Key Metrics**  *(empty rows are dropped on save)*")
+                        _km_data = _sc_data.get("key_metrics", []) or []
+                        _km_count = max(len(_km_data), 0) + 2
+                        st.session_state[f"sc_f_{ticker}_km_count"] = _km_count
                         for _i in range(_km_count):
-                            _name = (_g(f"km_{_i}_name", "") or "").strip()
-                            if not _name:
-                                continue
-                            _new_metrics.append({
-                                "name": _name,
-                                "rating": _g(f"km_{_i}_r", "yellow"),
-                                "value": (_g(f"km_{_i}_v", "") or "").strip(),
-                            })
+                            _m = _km_data[_i] if _i < len(_km_data) else {}
+                            _km_c1, _km_c2, _km_c3 = st.columns([2, 1, 2])
+                            _km_c1.text_input(
+                                f"Metric {_i} name", value=_m.get("name", "") or "",
+                                key=f"sc_f_{ticker}_km_{_i}_name",
+                                placeholder="Metric name",
+                                label_visibility="collapsed",
+                            )
+                            _km_c2.selectbox(
+                                f"Metric {_i} rating",
+                                _sc_rating_options,
+                                format_func=lambda x: _sc_rating_labels[x],
+                                index=_sc_rating_index(_m.get("rating")),
+                                key=f"sc_f_{ticker}_km_{_i}_r",
+                                label_visibility="collapsed",
+                            )
+                            _km_c3.text_input(
+                                f"Metric {_i} value", value=_m.get("value", "") or "",
+                                key=f"sc_f_{ticker}_km_{_i}_v",
+                                placeholder="Value",
+                                label_visibility="collapsed",
+                            )
 
-                        _verdict_label = _g("verdict", _sc_verdict_options[1][1])
-                        _verdict_code = next(
-                            (v for v, lbl in _sc_verdict_options if lbl == _verdict_label),
-                            "",
-                        )
-
-                        _new_sc = {
-                            "phase": {
-                                "number": _phase_num,
-                                "name": _g("pname", ""),
-                            },
-                            "summary": _g("sum", ""),
-                            "all_phases": {
-                                _k: {
-                                    "rating": _g(f"ap_{_k}_r", "yellow"),
-                                    "note": _g(f"ap_{_k}_n", ""),
-                                }
-                                for _k, _ in _sc_ap_keys
-                            },
-                            "key_metrics": _new_metrics,
-                            "execution_risk": {
-                                "rating": _g("er_r", "yellow"),
-                                "note": _g("er_n", ""),
-                            },
-                            "valuation": {
-                                _k: {
-                                    "name": (_g(f"val_{_k}_name", "") or "").strip(),
-                                    "rating": _g(f"val_{_k}_r", "yellow"),
-                                    "note": _g(f"val_{_k}_n", ""),
-                                }
-                                for _k in ("primary", "secondary")
-                            },
-                            "verdict": _verdict_code,
-                        }
-
-                        import json as _json
-                        _new_sc_text = (
-                            "```json\n"
-                            + _json.dumps(_new_sc, indent=2, ensure_ascii=False)
-                            + "\n```"
-                        )
-
-                        _ai_notes = cfg.get('ai_notes') or {}
-                        if not isinstance(_ai_notes, dict):
-                            _ai_notes = {}
-                        _ai_notes['Scorecard'] = _new_sc_text
-                        cfg['ai_notes'] = _ai_notes
-                        save_config(_sb_client, ticker, cfg)
-                        _sc_clear_form_state()
-                        st.session_state[_sc_form_key] = False
-                        st.rerun()
-
-                    if _hcol3.button("Cancel", key=f"sc_form_cancel_{ticker}",
-                                     use_container_width=True):
-                        _sc_clear_form_state()
-                        st.session_state[_sc_form_key] = False
-                        st.rerun()
-
-                    # Phase
-                    _phase = _sc_data.get("phase", {}) or {}
-                    _ph_c1, _ph_c2 = st.columns([1, 3])
-                    _ph_c1.text_input(
-                        "Phase #", value=str(_phase.get("number", "")),
-                        key=f"sc_f_{ticker}_pn",
-                    )
-                    _ph_c2.text_input(
-                        "Phase name", value=_phase.get("name", ""),
-                        key=f"sc_f_{ticker}_pname",
-                    )
-
-                    st.text_area(
-                        "Summary",
-                        value=_sc_data.get("summary", "") or "",
-                        key=f"sc_f_{ticker}_sum",
-                        height=80,
-                    )
-
-                    st.markdown("**Assess for All Phases**")
-                    _all_phases = _sc_data.get("all_phases", {}) or {}
-                    for _k, _label in _sc_ap_keys:
-                        _item = _all_phases.get(_k, {}) or {}
-                        _r1, _r2, _r3 = st.columns([2, 1, 4])
-                        _r1.markdown(f"**{_label}**")
-                        _r2.selectbox(
-                            f"{_label} rating",
+                        st.markdown("**Risk**")
+                        _er = _sc_data.get("execution_risk", {}) or {}
+                        _er_c1, _er_c2, _er_c3 = st.columns([2, 1, 4])
+                        _er_c1.markdown("**Execution Risk**")
+                        _er_c2.selectbox(
+                            "Execution Risk rating",
                             _sc_rating_options,
                             format_func=lambda x: _sc_rating_labels[x],
-                            index=_sc_rating_index(_item.get("rating")),
-                            key=f"sc_f_{ticker}_ap_{_k}_r",
+                            index=_sc_rating_index(_er.get("rating")),
+                            key=f"sc_f_{ticker}_er_r",
                             label_visibility="collapsed",
                         )
-                        _r3.text_area(
-                            f"{_label} note",
-                            value=_item.get("note", "") or "",
-                            key=f"sc_f_{ticker}_ap_{_k}_n",
+                        _er_c3.text_area(
+                            "Execution Risk note",
+                            value=_er.get("note", "") or "",
+                            key=f"sc_f_{ticker}_er_n",
                             label_visibility="collapsed",
                             height=80,
                         )
 
-                    st.markdown("**Key Metrics**  *(empty rows are dropped on save)*")
-                    _km_data = _sc_data.get("key_metrics", []) or []
-                    _km_count = max(len(_km_data), 0) + 2
-                    st.session_state[f"sc_f_{ticker}_km_count"] = _km_count
-                    for _i in range(_km_count):
-                        _m = _km_data[_i] if _i < len(_km_data) else {}
-                        _km_c1, _km_c2, _km_c3 = st.columns([2, 1, 2])
-                        _km_c1.text_input(
-                            f"Metric {_i} name", value=_m.get("name", "") or "",
-                            key=f"sc_f_{ticker}_km_{_i}_name",
-                            placeholder="Metric name",
-                            label_visibility="collapsed",
-                        )
-                        _km_c2.selectbox(
-                            f"Metric {_i} rating",
-                            _sc_rating_options,
-                            format_func=lambda x: _sc_rating_labels[x],
-                            index=_sc_rating_index(_m.get("rating")),
-                            key=f"sc_f_{ticker}_km_{_i}_r",
-                            label_visibility="collapsed",
-                        )
-                        _km_c3.text_input(
-                            f"Metric {_i} value", value=_m.get("value", "") or "",
-                            key=f"sc_f_{ticker}_km_{_i}_v",
-                            placeholder="Value",
-                            label_visibility="collapsed",
-                        )
+                        st.markdown("**Valuation**")
+                        _val = _sc_data.get("valuation", {}) or {}
+                        for _k, _label_prefix in (("primary", "Primary"), ("secondary", "Secondary")):
+                            _v = _val.get(_k, {}) or {}
+                            _v_c1, _v_c2, _v_c3 = st.columns([2, 1, 4])
+                            _v_c1.text_input(
+                                f"{_label_prefix} metric name", value=_v.get("name", "") or "",
+                                key=f"sc_f_{ticker}_val_{_k}_name",
+                                placeholder=f"{_label_prefix} metric",
+                                label_visibility="collapsed",
+                            )
+                            _v_c2.selectbox(
+                                f"{_label_prefix} rating",
+                                _sc_rating_options,
+                                format_func=lambda x: _sc_rating_labels[x],
+                                index=_sc_rating_index(_v.get("rating")),
+                                key=f"sc_f_{ticker}_val_{_k}_r",
+                                label_visibility="collapsed",
+                            )
+                            _v_c3.text_area(
+                                f"{_label_prefix} note",
+                                value=_v.get("note", "") or "",
+                                key=f"sc_f_{ticker}_val_{_k}_n",
+                                label_visibility="collapsed",
+                                height=80,
+                            )
 
-                    st.markdown("**Risk**")
-                    _er = _sc_data.get("execution_risk", {}) or {}
-                    _er_c1, _er_c2, _er_c3 = st.columns([2, 1, 4])
-                    _er_c1.markdown("**Execution Risk**")
-                    _er_c2.selectbox(
-                        "Execution Risk rating",
-                        _sc_rating_options,
-                        format_func=lambda x: _sc_rating_labels[x],
-                        index=_sc_rating_index(_er.get("rating")),
-                        key=f"sc_f_{ticker}_er_r",
-                        label_visibility="collapsed",
+                        st.markdown("**Verdict**")
+                        _cur_verdict = (_sc_data.get("verdict") or "").lower().strip()
+                        _cur_verdict_label = next(
+                            (lbl for v, lbl in _sc_verdict_options if v == _cur_verdict),
+                            _sc_verdict_options[1][1],
+                        )
+                        st.pills(
+                            "Verdict",
+                            [lbl for _, lbl in _sc_verdict_options],
+                            default=_cur_verdict_label,
+                            key=f"sc_f_{ticker}_verdict",
+                            label_visibility="collapsed",
+                        )
+                elif _sc_data:
+                    # Fallback: derive summary from Investment Summary result if the
+                    # Scorecard JSON is missing a summary field
+                    if not (_sc_data.get("summary") or "").strip():
+                        _inv_sum = (cfg.get('ai_notes') or {}).get('Investment Summary', '') \
+                            if isinstance(cfg.get('ai_notes'), dict) else ''
+                        if _inv_sum:
+                            import re as _re2
+                            _m = _re2.search(
+                                r'One-line thesis[^\n:]*:\s*([^\n]+)', _inv_sum, _re2.IGNORECASE,
+                            )
+                            if _m:
+                                _thesis = _m.group(1).strip()
+                                _thesis = _re2.sub(r'^\**\s*\[?', '', _thesis)
+                                _thesis = _re2.sub(r'\]?\s*\**$', '', _thesis)
+                                if _thesis and not _thesis.startswith('['):
+                                    _sc_data["summary"] = _thesis
+                    _hcol1, _hcol2 = st.columns([5, 1])
+                    with _hcol2:
+                        if st.button(
+                            "✏ Edit fields", key=f"sc_form_edit_btn_{ticker}",
+                            use_container_width=True,
+                        ):
+                            _sc_clear_form_state()
+                            st.session_state[_sc_form_key] = True
+                            st.rerun()
+                    st.markdown(
+                        _render_scorecard(
+                            _sc_data, T, ticker, cfg.get('company', ticker),
+                        ),
+                        unsafe_allow_html=True,
                     )
-                    _er_c3.text_area(
-                        "Execution Risk note",
-                        value=_er.get("note", "") or "",
-                        key=f"sc_f_{ticker}_er_n",
-                        label_visibility="collapsed",
-                        height=80,
+                elif _sc_raw:
+                    st.warning(
+                        "Scorecard output exists but could not be parsed as JSON. "
+                        "Click Clear and Run again on the Scorecard section below.",
+                        icon="⚠️",
+                    )
+                else:
+                    st.info(
+                        "Run all analyses below, then run **Scorecard** at the bottom "
+                        "to generate a visual overview here.",
+                        icon="📋",
                     )
 
-                    st.markdown("**Valuation**")
-                    _val = _sc_data.get("valuation", {}) or {}
-                    for _k, _label_prefix in (("primary", "Primary"), ("secondary", "Secondary")):
-                        _v = _val.get(_k, {}) or {}
-                        _v_c1, _v_c2, _v_c3 = st.columns([2, 1, 4])
-                        _v_c1.text_input(
-                            f"{_label_prefix} metric name", value=_v.get("name", "") or "",
-                            key=f"sc_f_{ticker}_val_{_k}_name",
-                            placeholder=f"{_label_prefix} metric",
-                            label_visibility="collapsed",
-                        )
-                        _v_c2.selectbox(
-                            f"{_label_prefix} rating",
-                            _sc_rating_options,
-                            format_func=lambda x: _sc_rating_labels[x],
-                            index=_sc_rating_index(_v.get("rating")),
-                            key=f"sc_f_{ticker}_val_{_k}_r",
-                            label_visibility="collapsed",
-                        )
-                        _v_c3.text_area(
-                            f"{_label_prefix} note",
-                            value=_v.get("note", "") or "",
-                            key=f"sc_f_{ticker}_val_{_k}_n",
-                            label_visibility="collapsed",
-                            height=80,
-                        )
 
-                    st.markdown("**Verdict**")
-                    _cur_verdict = (_sc_data.get("verdict") or "").lower().strip()
-                    _cur_verdict_label = next(
-                        (lbl for v, lbl in _sc_verdict_options if v == _cur_verdict),
-                        _sc_verdict_options[1][1],
-                    )
-                    st.pills(
-                        "Verdict",
-                        [lbl for _, lbl in _sc_verdict_options],
-                        default=_cur_verdict_label,
-                        key=f"sc_f_{ticker}_verdict",
-                        label_visibility="collapsed",
-                    )
-            elif _sc_data:
-                # Fallback: derive summary from Investment Summary result if the
-                # Scorecard JSON is missing a summary field
-                if not (_sc_data.get("summary") or "").strip():
-                    _inv_sum = (cfg.get('ai_notes') or {}).get('Investment Summary', '') \
-                        if isinstance(cfg.get('ai_notes'), dict) else ''
-                    if _inv_sum:
-                        import re as _re2
-                        _m = _re2.search(
-                            r'One-line thesis[^\n:]*:\s*([^\n]+)', _inv_sum, _re2.IGNORECASE,
-                        )
-                        if _m:
-                            _thesis = _m.group(1).strip()
-                            _thesis = _re2.sub(r'^\**\s*\[?', '', _thesis)
-                            _thesis = _re2.sub(r'\]?\s*\**$', '', _thesis)
-                            if _thesis and not _thesis.startswith('['):
-                                _sc_data["summary"] = _thesis
-                _hcol1, _hcol2 = st.columns([5, 1])
-                with _hcol2:
-                    if st.button(
-                        "✏ Edit fields", key=f"sc_form_edit_btn_{ticker}",
-                        use_container_width=True,
+            # ── Load library (globaal, via user_prefs) ──
+            _prefs = load_user_prefs(_sb_client)
+            _library = list(_prefs.get('ai_prompts') or [])
+
+            # ── Results per ticker ──
+            # New format: cfg['ai_notes'] is dict {title: content}
+            # Old format (legacy): list of {"title","prompt","content"}
+            _raw = cfg.get('ai_notes') or {}
+            _results: dict[str, str] = {}
+            if isinstance(_raw, list):
+                # Migrate old list format → library + results
+                for _sec in _raw:
+                    _t = _sec.get('title')
+                    if not _t:
+                        continue
+                    _results[_t] = _sec.get('content', '')
+                    # Promote prompt to library if not present yet
+                    if _sec.get('prompt') and not any(
+                        p.get('title') == _t for p in _library
                     ):
-                        _sc_clear_form_state()
-                        st.session_state[_sc_form_key] = True
-                        st.rerun()
+                        _library.append({"title": _t, "prompt": _sec['prompt']})
+                cfg['ai_notes'] = _results
+                _prefs['ai_prompts'] = _library
+                save_user_prefs(_sb_client, _prefs)
+                save_config(_sb_client, ticker, cfg)
+            else:
+                _results = dict(_raw)
+
+            # ── Auto-load shipped defaults into library ──
+            _lib_titles = {p.get('title', '') for p in _library}
+            _missing_defaults = [p for p in DEFAULT_AI_PROMPTS if p['title'] not in _lib_titles]
+            if _missing_defaults:
+                for p in _missing_defaults:
+                    _library.append({"title": p['title'], "prompt": p['prompt']})
+                _prefs['ai_prompts'] = _library
+                save_user_prefs(_sb_client, _prefs)
+
+            # ── Per-ticker: render each library prompt with Run + result ──
+            _results_changed = False
+            def _fill_prompt(_prompt: str) -> str:
+                """Apply {ticker}, {company}, and {prior:Section} substitutions.
+                Used for both the Run button and the copy-prompt expander so the
+                two stay in sync."""
+                import re as _re
+                def _sub_prior(_m):
+                    _t = _m.group(1).strip()
+                    _c = _results.get(_t, '').strip()
+                    if not _c:
+                        return f"(no prior '{_t}' analysis available for this ticker)"
+                    return _c
+                _filled = _re.sub(r'\{prior:([^}]+)\}', _sub_prior, _prompt)
+                _filled = _filled.replace("{ticker}", ticker).replace(
+                    "{company}", _company_name
+                )
+                if "{ticker}" not in _prompt and "{company}" not in _prompt and "{prior:" not in _prompt:
+                    _filled = (
+                        f"**IMPORTANT OVERRIDE:** The company to analyze is "
+                        f"**{_company_name} (ticker: {ticker})**. "
+                        f"Do NOT ask the user for a company — it is provided here. "
+                        f"Begin the analysis immediately using this company.\n\n"
+                        f"---\n\n{_filled}"
+                    )
+                return _filled
+
+            import json as _json_for_copy
+            import streamlit.components.v1 as _components
+
+            # Hero-card styling for each prescan section + reset for the nested
+            # Edit/paste expander inside it. Same pattern as the watchlist
+            # categories (see 10 UI Patterns → Collapsible hero-card).
+            if _library:
                 st.markdown(
-                    _render_scorecard(
-                        _sc_data, T, ticker, cfg.get('company', ticker),
-                    ),
+                    '<style>'
+                    + ''.join(
+                        f'.st-key-prescan_card_{i} [data-testid="stExpander"] {{'
+                        f'  background: {T["card"]};'
+                        f'  border: none !important;'
+                        f'  border-top: 3px solid {T["accent"]} !important;'
+                        f'  border-radius: 24px !important;'
+                        f'  box-shadow: {T["shadow"]};'
+                        f'  margin-bottom: 20px;'
+                        f'  overflow: hidden;'
+                        f'}}'
+                        f'.st-key-prescan_card_{i} [data-testid="stExpander"] summary,'
+                        f'.st-key-prescan_card_{i} [data-testid="stExpander"] summary *,'
+                        f'.st-key-prescan_card_{i} [data-testid="stExpander"] details,'
+                        f'.st-key-prescan_card_{i} [data-testid="stExpander"] details > div {{'
+                        f'  border: none !important;'
+                        f'  background: transparent !important;'
+                        f'  box-shadow: none !important;'
+                        f'}}'
+                        f'.st-key-prescan_card_{i} [data-testid="stExpander"] details > summary {{'
+                        f'  padding: 20px 32px !important;'
+                        f'  font-weight: 700;'
+                        f'  font-size: 0.95rem;'
+                        f'  color: {T["text"]};'
+                        f'}}'
+                        f'.st-key-prescan_card_{i} [data-testid="stExpander"] details > div {{'
+                        f'  padding: 0 32px 28px 32px !important;'
+                        f'}}'
+                        # Reset for the inner Edit/paste expander so it
+                        # doesn't inherit the hero-card look as a nested card.
+                        f'.st-key-prescan_card_{i}_edit [data-testid="stExpander"] {{'
+                        f'  background: transparent !important;'
+                        f'  border: 1px solid {T["border_light"]} !important;'
+                        f'  border-top: 1px solid {T["border_light"]} !important;'
+                        f'  border-radius: 8px !important;'
+                        f'  box-shadow: none !important;'
+                        f'  margin-top: 12px;'
+                        f'  margin-bottom: 0;'
+                        f'  overflow: visible;'
+                        f'}}'
+                        f'.st-key-prescan_card_{i}_edit [data-testid="stExpander"] details > summary {{'
+                        f'  padding: 10px 16px !important;'
+                        f'  font-weight: 400;'
+                        f'  font-size: 0.85rem;'
+                        f'  color: {T["text_muted"]};'
+                        f'}}'
+                        f'.st-key-prescan_card_{i}_edit [data-testid="stExpander"] details > div {{'
+                        f'  padding: 0 16px 12px 16px !important;'
+                        f'}}'
+                        for i in range(len(_library))
+                    )
+                    + '</style>',
                     unsafe_allow_html=True,
                 )
-            elif _sc_raw:
-                st.warning(
-                    "Scorecard output exists but could not be parsed as JSON. "
-                    "Click Clear and Run again on the Scorecard section below.",
-                    icon="⚠️",
-                )
-            else:
-                st.info(
-                    "Run all analyses below, then run **Scorecard** at the bottom "
-                    "to generate a visual overview here.",
-                    icon="📋",
-                )
 
-
-        # ── Load library (globaal, via user_prefs) ──
-        _prefs = load_user_prefs(_sb_client)
-        _library = list(_prefs.get('ai_prompts') or [])
-
-        # ── Results per ticker ──
-        # New format: cfg['ai_notes'] is dict {title: content}
-        # Old format (legacy): list of {"title","prompt","content"}
-        _raw = cfg.get('ai_notes') or {}
-        _results: dict[str, str] = {}
-        if isinstance(_raw, list):
-            # Migrate old list format → library + results
-            for _sec in _raw:
-                _t = _sec.get('title')
-                if not _t:
+            for _li, _lp in enumerate(_library):
+                _title = _lp.get('title', f'Prompt {_li + 1}')
+                # Scorecard + Robustness already have their own visuals above (the
+                # Phase scorecard card and the robustness table). Keep them in the
+                # library so they still run in the background, but don't render
+                # duplicate prompt cards here.
+                if _title in ("Scorecard", "Robustness"):
                     continue
-                _results[_t] = _sec.get('content', '')
-                # Promote prompt to library if not present yet
-                if _sec.get('prompt') and not any(
-                    p.get('title') == _t for p in _library
-                ):
-                    _library.append({"title": _t, "prompt": _sec['prompt']})
-            cfg['ai_notes'] = _results
-            _prefs['ai_prompts'] = _library
-            save_user_prefs(_sb_client, _prefs)
-            save_config(_sb_client, ticker, cfg)
-        else:
-            _results = dict(_raw)
-
-        # ── Auto-load shipped defaults into library ──
-        _lib_titles = {p.get('title', '') for p in _library}
-        _missing_defaults = [p for p in DEFAULT_AI_PROMPTS if p['title'] not in _lib_titles]
-        if _missing_defaults:
-            for p in _missing_defaults:
-                _library.append({"title": p['title'], "prompt": p['prompt']})
-            _prefs['ai_prompts'] = _library
-            save_user_prefs(_sb_client, _prefs)
-
-        # ── Per-ticker: render each library prompt with Run + result ──
-        _results_changed = False
-        def _fill_prompt(_prompt: str) -> str:
-            """Apply {ticker}, {company}, and {prior:Section} substitutions.
-            Used for both the Run button and the copy-prompt expander so the
-            two stay in sync."""
-            import re as _re
-            def _sub_prior(_m):
-                _t = _m.group(1).strip()
-                _c = _results.get(_t, '').strip()
-                if not _c:
-                    return f"(no prior '{_t}' analysis available for this ticker)"
-                return _c
-            _filled = _re.sub(r'\{prior:([^}]+)\}', _sub_prior, _prompt)
-            _filled = _filled.replace("{ticker}", ticker).replace(
-                "{company}", _company_name
-            )
-            if "{ticker}" not in _prompt and "{company}" not in _prompt and "{prior:" not in _prompt:
-                _filled = (
-                    f"**IMPORTANT OVERRIDE:** The company to analyze is "
-                    f"**{_company_name} (ticker: {ticker})**. "
-                    f"Do NOT ask the user for a company — it is provided here. "
-                    f"Begin the analysis immediately using this company.\n\n"
-                    f"---\n\n{_filled}"
-                )
-            return _filled
-
-        import json as _json_for_copy
-        import streamlit.components.v1 as _components
-
-        # Hero-card styling for each prescan section + reset for the nested
-        # Edit/paste expander inside it. Same pattern as the watchlist
-        # categories (see 10 UI Patterns → Collapsible hero-card).
-        if _library:
-            st.markdown(
-                '<style>'
-                + ''.join(
-                    f'.st-key-prescan_card_{i} [data-testid="stExpander"] {{'
-                    f'  background: {T["card"]};'
-                    f'  border: none !important;'
-                    f'  border-top: 3px solid {T["accent"]} !important;'
-                    f'  border-radius: 24px !important;'
-                    f'  box-shadow: {T["shadow"]};'
-                    f'  margin-bottom: 20px;'
-                    f'  overflow: hidden;'
-                    f'}}'
-                    f'.st-key-prescan_card_{i} [data-testid="stExpander"] summary,'
-                    f'.st-key-prescan_card_{i} [data-testid="stExpander"] summary *,'
-                    f'.st-key-prescan_card_{i} [data-testid="stExpander"] details,'
-                    f'.st-key-prescan_card_{i} [data-testid="stExpander"] details > div {{'
-                    f'  border: none !important;'
-                    f'  background: transparent !important;'
-                    f'  box-shadow: none !important;'
-                    f'}}'
-                    f'.st-key-prescan_card_{i} [data-testid="stExpander"] details > summary {{'
-                    f'  padding: 20px 32px !important;'
-                    f'  font-weight: 700;'
-                    f'  font-size: 0.95rem;'
-                    f'  color: {T["text"]};'
-                    f'}}'
-                    f'.st-key-prescan_card_{i} [data-testid="stExpander"] details > div {{'
-                    f'  padding: 0 32px 28px 32px !important;'
-                    f'}}'
-                    # Reset for the inner Edit/paste expander so it
-                    # doesn't inherit the hero-card look as a nested card.
-                    f'.st-key-prescan_card_{i}_edit [data-testid="stExpander"] {{'
-                    f'  background: transparent !important;'
-                    f'  border: 1px solid {T["border_light"]} !important;'
-                    f'  border-top: 1px solid {T["border_light"]} !important;'
-                    f'  border-radius: 8px !important;'
-                    f'  box-shadow: none !important;'
-                    f'  margin-top: 12px;'
-                    f'  margin-bottom: 0;'
-                    f'  overflow: visible;'
-                    f'}}'
-                    f'.st-key-prescan_card_{i}_edit [data-testid="stExpander"] details > summary {{'
-                    f'  padding: 10px 16px !important;'
-                    f'  font-weight: 400;'
-                    f'  font-size: 0.85rem;'
-                    f'  color: {T["text_muted"]};'
-                    f'}}'
-                    f'.st-key-prescan_card_{i}_edit [data-testid="stExpander"] details > div {{'
-                    f'  padding: 0 16px 12px 16px !important;'
-                    f'}}'
-                    for i in range(len(_library))
-                )
-                + '</style>',
-                unsafe_allow_html=True,
-            )
-
-        for _li, _lp in enumerate(_library):
-            _title = _lp.get('title', f'Prompt {_li + 1}')
-            # Scorecard + Robustness already have their own visuals above (the
-            # Phase scorecard card and the robustness table). Keep them in the
-            # library so they still run in the background, but don't render
-            # duplicate prompt cards here.
-            if _title in ("Scorecard", "Robustness"):
-                continue
-            _prompt = _lp.get('prompt', '')
-            _content = _results.get(_title, '')
-            _widget_key = f"ed_ai_res_{_li}"
-            with st.container(key=f"prescan_card_{_li}"), \
-                    st.expander(_title, expanded=False):
-                _rb1, _rb2, _rb3, _rb4 = st.columns([1, 1, 1, 2])
-                with _rb1:
-                    _run_clicked = st.button(
-                        "▶ Run", key=f"ed_ai_run_{_li}",
-                        use_container_width=True, type="primary",
-                        disabled=not _gem_ok,
-                    )
-                with _rb2:
-                    _clear_clicked = st.button(
-                        "Clear", key=f"ed_ai_clear_{_li}",
-                        use_container_width=True, type="primary",
-                        disabled=not _content,
-                    )
-                with _rb3:
-                    # Native HTML button so navigator.clipboard.writeText fires
-                    # in the user-gesture context (st.button would roundtrip
-                    # through the server first, breaking the gesture). The
-                    # click handler is attached via addEventListener instead
-                    # of inline onclick so apostrophes/quotes in the prompt
-                    # body can't break HTML attribute parsing. Styling
-                    # mirrors the LazyTheta primary-button override
-                    # (sage-green pill) so it sits next to Run/Clear visually.
-                    if _prompt.strip():
-                        _filled_for_copy = _fill_prompt(_prompt)
-                        _safe_payload = _json_for_copy.dumps(_filled_for_copy)
-                        _btn_id = f"cp-btn-{_li}"
-                        _accent = T['accent']
-                        _accent_hover = T['accent_hover']
-                        _btn_text_color = T['text']
-                        _components.html(
-                            f"""
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600&display=swap');
-  body {{ margin: 0; padding: 0; }}
-  .lt-copy-btn {{
-    width: 100%;
-    background-color: {_accent};
-    color: {_btn_text_color};
-    border: none;
-    border-radius: 980px;
-    padding: 12px 24px;
-    font-size: 1rem;
-    font-weight: 400;
-    cursor: pointer;
-    font-family: 'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-    transition: background-color 0.2s ease;
-  }}
-  .lt-copy-btn:hover {{ background-color: {_accent_hover}; }}
-</style>
-<button id="{_btn_id}" type="button" class="lt-copy-btn">Copy prompt</button>
-<script>
-(function() {{
-  const text = {_safe_payload};
-  const btn = document.getElementById("{_btn_id}");
-  if (!btn) return;
-  btn.addEventListener("click", function() {{
-    navigator.clipboard.writeText(text).then(function() {{
-      const original = btn.textContent;
-      btn.textContent = "Gekopieerd";
-      setTimeout(function() {{ btn.textContent = original; }}, 1500);
-    }}).catch(function() {{ btn.textContent = "Failed"; }});
-  }});
-}})();
-</script>
-                            """,
-                            height=60,
+                _prompt = _lp.get('prompt', '')
+                _content = _results.get(_title, '')
+                _widget_key = f"ed_ai_res_{_li}"
+                with st.container(key=f"prescan_card_{_li}"), \
+                        st.expander(_title, expanded=False):
+                    _rb1, _rb2, _rb3, _rb4 = st.columns([1, 1, 1, 2])
+                    with _rb1:
+                        _run_clicked = st.button(
+                            "▶ Run", key=f"ed_ai_run_{_li}",
+                            use_container_width=True, type="primary",
+                            disabled=not _gem_ok,
                         )
+                    with _rb2:
+                        _clear_clicked = st.button(
+                            "Clear", key=f"ed_ai_clear_{_li}",
+                            use_container_width=True, type="primary",
+                            disabled=not _content,
+                        )
+                    with _rb3:
+                        # Native HTML button so navigator.clipboard.writeText fires
+                        # in the user-gesture context (st.button would roundtrip
+                        # through the server first, breaking the gesture). The
+                        # click handler is attached via addEventListener instead
+                        # of inline onclick so apostrophes/quotes in the prompt
+                        # body can't break HTML attribute parsing. Styling
+                        # mirrors the LazyTheta primary-button override
+                        # (sage-green pill) so it sits next to Run/Clear visually.
+                        if _prompt.strip():
+                            _filled_for_copy = _fill_prompt(_prompt)
+                            _safe_payload = _json_for_copy.dumps(_filled_for_copy)
+                            _btn_id = f"cp-btn-{_li}"
+                            _accent = T['accent']
+                            _accent_hover = T['accent_hover']
+                            _btn_text_color = T['text']
+                            _components.html(
+                                f"""
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600&display=swap');
+      body {{ margin: 0; padding: 0; }}
+      .lt-copy-btn {{
+        width: 100%;
+        background-color: {_accent};
+        color: {_btn_text_color};
+        border: none;
+        border-radius: 980px;
+        padding: 12px 24px;
+        font-size: 1rem;
+        font-weight: 400;
+        cursor: pointer;
+        font-family: 'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+        transition: background-color 0.2s ease;
+      }}
+      .lt-copy-btn:hover {{ background-color: {_accent_hover}; }}
+    </style>
+    <button id="{_btn_id}" type="button" class="lt-copy-btn">Copy prompt</button>
+    <script>
+    (function() {{
+      const text = {_safe_payload};
+      const btn = document.getElementById("{_btn_id}");
+      if (!btn) return;
+      btn.addEventListener("click", function() {{
+        navigator.clipboard.writeText(text).then(function() {{
+          const original = btn.textContent;
+          btn.textContent = "Gekopieerd";
+          setTimeout(function() {{ btn.textContent = original; }}, 1500);
+        }}).catch(function() {{ btn.textContent = "Failed"; }});
+      }});
+    }})();
+    </script>
+                                """,
+                                height=60,
+                            )
 
-                if _run_clicked:
-                    if not _prompt.strip():
-                        st.error("Prompt is leeg. Vul 'm in via de 📚 Prompt Library expander bovenaan.")
-                        st.stop()
-                    _filled = _fill_prompt(_prompt)
-                    with st.spinner(f"AI aan het werk ({_title})..."):
-                        _ans, _err = _gemini_run(_filled)
-                    if _err:
-                        st.error(_err)
-                    elif not _ans or not _ans.strip():
-                        st.warning(f"AI call returned empty response for {_title}")
-                    else:
-                        _results[_title] = _ans
+                    if _run_clicked:
+                        if not _prompt.strip():
+                            st.error("Prompt is leeg. Vul 'm in via de 📚 Prompt Library expander bovenaan.")
+                            st.stop()
+                        _filled = _fill_prompt(_prompt)
+                        with st.spinner(f"AI aan het werk ({_title})..."):
+                            _ans, _err = _gemini_run(_filled)
+                        if _err:
+                            st.error(_err)
+                        elif not _ans or not _ans.strip():
+                            st.warning(f"AI call returned empty response for {_title}")
+                        else:
+                            _results[_title] = _ans
+                            cfg['ai_notes'] = _results
+                            save_config(_sb_client, ticker, cfg)
+                            st.session_state.pop(_widget_key, None)
+                            st.rerun()
+
+                    if _clear_clicked:
+                        _results.pop(_title, None)
                         cfg['ai_notes'] = _results
                         save_config(_sb_client, ticker, cfg)
                         st.session_state.pop(_widget_key, None)
                         st.rerun()
 
-                if _clear_clicked:
-                    _results.pop(_title, None)
-                    cfg['ai_notes'] = _results
-                    save_config(_sb_client, ticker, cfg)
-                    st.session_state.pop(_widget_key, None)
-                    st.rerun()
+                    if _content.strip():
+                        with st.container(key=f"ai_out_{_li}"):
+                            st.markdown(_content)
+                    else:
+                        st.caption("_No output yet. Click ▶ Run or paste manually via Edit._")
+                    with st.container(key=f"prescan_card_{_li}_edit"), \
+                            st.expander("Edit / paste", expanded=False):
+                        # Sync widget state to saved content when they diverge
+                        # (e.g. after Run or a switch between tickers)
+                        if _widget_key not in st.session_state:
+                            st.session_state[_widget_key] = _content
+                        _new_content = st.text_area(
+                            "Content",
+                            height=280,
+                            key=_widget_key,
+                            label_visibility="collapsed",
+                            placeholder="Plak of bewerk output hier (markdown)...",
+                        )
+                        if _new_content != _content:
+                            _results[_title] = _new_content
+                            _results_changed = True
 
-                if _content.strip():
-                    with st.container(key=f"ai_out_{_li}"):
-                        st.markdown(_content)
-                else:
-                    st.caption("_No output yet. Click ▶ Run or paste manually via Edit._")
-                with st.container(key=f"prescan_card_{_li}_edit"), \
-                        st.expander("Edit / paste", expanded=False):
-                    # Sync widget state to saved content when they diverge
-                    # (e.g. after Run or a switch between tickers)
-                    if _widget_key not in st.session_state:
-                        st.session_state[_widget_key] = _content
-                    _new_content = st.text_area(
-                        "Content",
-                        height=280,
-                        key=_widget_key,
-                        label_visibility="collapsed",
-                        placeholder="Plak of bewerk output hier (markdown)...",
-                    )
-                    if _new_content != _content:
-                        _results[_title] = _new_content
-                        _results_changed = True
-
-        if _results_changed:
-            cfg['ai_notes'] = _results
-            save_config(_sb_client, ticker, cfg)
+            if _results_changed:
+                cfg['ai_notes'] = _results
+                save_config(_sb_client, ticker, cfg)
 
     with _tab_dcf:
         # ── Valuation Bridge (inside DCF tab) ──
