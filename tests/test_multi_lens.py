@@ -106,6 +106,32 @@ def test_compute_cost_of_equity_matches_wacc_internals():
     assert ke == pytest.approx(wacc, abs=1e-9)
 
 
+def test_wacc_derives_equity_market_value_when_missing():
+    """Some config paths (e.g. an MCP save_to_watchlist with a hand-built
+    config) omit equity_market_value. compute_wacc / compute_cost_of_equity
+    must derive it from stock_price × shares_outstanding instead of raising
+    KeyError — otherwise the watchlist overview silently drops the ticker.
+    Matches the mkt_cap fallback convention in dcf_template."""
+    import dcf_calculator
+    base = {
+        "debt_market_value": 200,
+        "sector_betas": [("Software", 1.10, 1.0)],
+        "tax_rate": 0.21,
+        "risk_free_rate": 0.04,
+        "erp": 0.05,
+        "credit_spread": 0.01,
+        "stock_price": 100.0,
+        "shares_outstanding": 10,   # → derived equity_market_value = 1000
+    }
+    with_emv = {**base, "equity_market_value": 1000}
+    without_emv = dict(base)        # key absent entirely
+
+    assert dcf_calculator.compute_wacc(without_emv) == pytest.approx(
+        dcf_calculator.compute_wacc(with_emv), abs=1e-9)
+    assert dcf_calculator.compute_cost_of_equity(without_emv) == pytest.approx(
+        dcf_calculator.compute_cost_of_equity(with_emv), abs=1e-9)
+
+
 # ---------------------------------------------------------------- dividend lens
 
 # Helpers for dividend-lens tests
