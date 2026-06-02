@@ -6,6 +6,21 @@ without generating a full Excel workbook.
 """
 
 
+def _equity_market_value(cfg):
+    """Equity market value ($M) used for WACC/CAPM weighting.
+
+    Some config paths (e.g. an MCP save_to_watchlist with a hand-built
+    config) omit ``equity_market_value``. Fall back to
+    ``stock_price × shares_outstanding`` — the same mkt_cap fallback
+    convention used in dcf_template — so callers never raise KeyError
+    (which would silently drop the ticker from the watchlist overview).
+    """
+    emv = cfg.get("equity_market_value") or 0
+    if emv:
+        return emv
+    return (cfg.get("stock_price", 0) or 0) * (cfg.get("shares_outstanding", 0) or 0)
+
+
 def compute_cost_of_equity(cfg):
     """Compute the cost of equity (CAPM) from the config dict.
 
@@ -17,7 +32,7 @@ def compute_cost_of_equity(cfg):
 
     Returns the cost of equity as a float (e.g. 0.087 for 8.7%).
     """
-    eq_val = cfg["equity_market_value"]
+    eq_val = _equity_market_value(cfg)
     debt_val = cfg["debt_market_value"]
     wu_beta = sum(ub * wt for _, ub, wt in cfg["sector_betas"])
     de_ratio = debt_val / eq_val if eq_val > 0 else 0
@@ -30,7 +45,7 @@ def compute_wacc(cfg):
 
     Returns the WACC as a float (e.g. 0.08 for 8%).
     """
-    eq_val = cfg['equity_market_value']
+    eq_val = _equity_market_value(cfg)
     debt_val = cfg['debt_market_value']
     eq_wt = eq_val / (eq_val + debt_val)
     debt_wt = debt_val / (eq_val + debt_val)
