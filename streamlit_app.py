@@ -860,12 +860,14 @@ def _render_scorecard(data: dict, theme: dict, ticker: str, company: str) -> str
             f'</div>'
         )
 
-    def _group(title):
-        return (f'<div style="color:{muted};font-size:0.66rem;font-weight:600;'
+    def _group(title, first=False):
+        sep = ("" if first
+               else f'border-top:1px solid {border_light};margin-top:18px;padding-top:14px;')
+        return (f'<div style="color:{muted};font-size:0.68rem;font-weight:700;'
                 f'letter-spacing:0.09em;text-transform:uppercase;'
-                f'margin:14px 0 4px">{title}</div>')
+                f'{sep}margin-bottom:6px">{title}</div>')
 
-    rows = [_group("Quality")]
+    rows = [_group("Quality", first=True)]
     ap = data.get("all_phases", {}) or {}
     for key, label in (("business_description", "Business"), ("moat", "Moat"),
                        ("long_term_potential", "Long-term potential")):
@@ -7008,7 +7010,19 @@ def _dcf_editor(ticker):
         _gem_ok = _gemini_ready()
         _company_name = cfg.get('company', ticker)
 
-        # ── Two standalone sections (portfolio-style cards, no outer frame) ──
+        # ── Two portfolio-style section panels (sage top accent + faint tint) ──
+        st.markdown(
+            '<style>'
+            f'.st-key-prescan_seg_robustness, .st-key-prescan_seg_research {{'
+            f'  background: {T["accent_light"]} !important;'
+            f'  border-radius: 24px !important;'
+            f'  border-top: 3px solid {T["accent"]} !important;'
+            f'  box-shadow: {T["shadow"]} !important;'
+            f'  padding: 10px 28px 24px 28px !important;'
+            f'  margin-bottom: 30px !important; }}'
+            '</style>',
+            unsafe_allow_html=True,
+        )
         with st.container(key="prescan_seg_robustness"):
             st.markdown("#### Robustness")
             st.markdown(_render_robustness_table(cfg, T), unsafe_allow_html=True)
@@ -7065,8 +7079,6 @@ def _dcf_editor(ticker):
 
 
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.divider()
         with st.container(key="prescan_seg_research"):
             st.markdown("#### AI Research Sections")
 
