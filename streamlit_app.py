@@ -3425,13 +3425,10 @@ st.markdown(f"""
 
     /* Valuation Bridge — same card style as tabs */
     .st-key-valuation_bridge_card {{
-        background: var(--card);
-        border-radius: 24px;
-        border-top: 3px solid var(--accent);
-        padding: 28px 24px;
-        box-shadow: var(--shadow);
-        margin-bottom: 32px;
-        animation: fadeInUp 0.4s ease-out both;
+        background: transparent;
+        border-top: 1px solid var(--border-light);
+        padding: 18px 0 0 0;
+        margin-top: 22px;
     }}
     .st-key-valuation_bridge_card .stNumberInput > div,
     .st-key-valuation_bridge_card .stNumberInput > div > div,
@@ -5048,6 +5045,11 @@ def _dcf_editor(ticker):
             )
             if _new_snapshot != _prev_snapshot:
                 save_config(_sb_client, ticker, cfg)
+
+            # Placeholder inside the DCF card. The Valuation Bridge (rendered
+            # last, after all tabs, so it sees final cfg) fills this slot, so it
+            # sits inside the DCF card without changing render order.
+            _bridge_slot = st.container()
 
     with _tab_rdcf:
         with st.container(key="tabcard_rdcf"):
@@ -7707,8 +7709,8 @@ def _dcf_editor(ticker):
                 save_config(_sb_client, ticker, cfg)
 
     with _tab_dcf:
-        with st.container(key="tabcard_dcf_2"):
-            # ── Valuation Bridge (inside DCF tab) ──
+        with _bridge_slot:
+            # ── Valuation Bridge (rendered into the DCF card via _bridge_slot) ──
             _bridge_keys = "ed_cash,ed_sec,ed_eqi,ed_debt,ed_min,ed_pen,ed_shares,ed_mos"
             _bk = _bridge_keys.split(",")
             _sel_input = ",\n".join(f'.st-key-{k} .stNumberInput input[type="number"]' for k in _bk)
