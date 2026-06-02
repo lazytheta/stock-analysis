@@ -317,7 +317,7 @@ def _render_robustness_table(cfg: dict, theme: dict) -> str:
     foot = (f'<div style="color:{muted};font-size:0.7rem;margin-top:10px;'
             f'border-top:1px solid {border_light};padding-top:8px">{foot_text}</div>')
     return (f'<div style="background:{card};border:1px solid {border_light};border-radius:16px;'
-            f'padding:18px 22px;margin:6px 0 0;box-shadow:{shadow};'
+            f'padding:18px 22px;margin:6px 0 22px;box-shadow:{shadow};'
             f'font-family:{font}">{header}{cap}{"".join(rows)}{foot}</div>')
 
 
@@ -7141,7 +7141,31 @@ def _dcf_editor(ticker):
             "Run prompts on Groq Llama 3.3 70B (with fallback to Gemini 2.5 Flash)."
         )
 
-        with st.expander("Phase scorecard", expanded=False):
+        # Hero-card styling for the Phase scorecard, matching the section cards
+        # below (see 10 UI Patterns → Collapsible hero-card).
+        st.markdown(
+            '<style>'
+            f'.st-key-prescan_scorecard [data-testid="stExpander"] {{'
+            f'  background: {T["card"]}; border: none !important;'
+            f'  border-top: 3px solid {T["accent"]} !important;'
+            f'  border-radius: 24px !important; box-shadow: {T["shadow"]};'
+            f'  margin-bottom: 20px; overflow: hidden; }}'
+            f'.st-key-prescan_scorecard [data-testid="stExpander"] summary,'
+            f'.st-key-prescan_scorecard [data-testid="stExpander"] summary *,'
+            f'.st-key-prescan_scorecard [data-testid="stExpander"] details,'
+            f'.st-key-prescan_scorecard [data-testid="stExpander"] details > div {{'
+            f'  border: none !important; background: transparent !important;'
+            f'  box-shadow: none !important; }}'
+            f'.st-key-prescan_scorecard [data-testid="stExpander"] details > summary {{'
+            f'  padding: 20px 32px !important; font-weight: 700;'
+            f'  font-size: 0.95rem; color: {T["text"]}; }}'
+            f'.st-key-prescan_scorecard [data-testid="stExpander"] details > div {{'
+            f'  padding: 0 32px 28px 32px !important; }}'
+            '</style>',
+            unsafe_allow_html=True,
+        )
+        with st.container(key="prescan_scorecard"), \
+                st.expander("Phase scorecard", expanded=False):
             # ── Scorecard overview ──
             _sc_raw = (cfg.get('ai_notes') or {}).get('Scorecard', '') if isinstance(cfg.get('ai_notes'), dict) else ''
             _sc_data = _parse_scorecard_json(_sc_raw) if _sc_raw else None
