@@ -250,8 +250,6 @@ def _render_robustness_table(cfg: dict, theme: dict) -> str:
 
     card = theme.get("card", "#fff")
     border_light = theme.get("border_light", "#e8e8ed")
-    shadow = theme.get("shadow", "0 1px 3px rgba(0,0,0,0.04)")
-    accent = theme.get("accent", "#81b29a")
     # Lazy Theta semantic palette (same earthy tones as the Scorecard).
     band_color = {"robust": theme.get("green", "#81b29a"),
                   "mid": theme.get("yellow", "#f2cc8f"),
@@ -316,9 +314,7 @@ def _render_robustness_table(cfg: dict, theme: dict) -> str:
     foot_text = f'{reason} &nbsp;·&nbsp; {legend}' if reason else legend
     foot = (f'<div style="color:{muted};font-size:0.7rem;margin-top:10px;'
             f'border-top:1px solid {border_light};padding-top:8px">{foot_text}</div>')
-    return (f'<div style="background:{card};border-radius:24px;'
-            f'border-top:3px solid {accent};padding:22px 28px;margin:6px 0 20px;'
-            f'box-shadow:{shadow};font-family:{font}">'
+    return (f'<div style="font-family:{font};margin:2px 0 4px">'
             f'{header}{cap}{"".join(rows)}{foot}</div>')
 
 
@@ -2773,22 +2769,7 @@ st.markdown(f"""
         padding: 4px 18px;
         margin-bottom: 18px;
     }}
-    /* Each tab's content as its own card */
-    [data-testid="stTabs"] [data-baseweb="tab-panel"] {{
-        background: var(--card);
-        border-radius: 24px;
-        border-top: 3px solid var(--accent);
-        padding: 28px 24px;
-        box-shadow: var(--shadow);
-    }}
-    /* ...except the Pre-Scan panel (identified by its robustness container):
-       transparent, so its content reads as standalone cards. */
-    [data-testid="stTabs"] [data-baseweb="tab-panel"]:has(.st-key-prescan_seg_robustness) {{
-        background: transparent;
-        border-top: none;
-        padding: 0;
-        box-shadow: none;
-    }}
+    /* Tab content panels stay transparent; each tab supplies its own cards. */
     /* Inputs inside tabs card — subtle spreadsheet cell style */
     [data-testid="stTabs"] .stNumberInput > div,
     [data-testid="stTabs"] .stNumberInput > div > div,
@@ -7037,9 +7018,11 @@ def _dcf_editor(ticker):
         st.markdown(
             '<style>'
             f'.st-key-prescan_seg_robustness, .st-key-prescan_seg_research {{'
-            f'  background: transparent !important; border: none !important;'
-            f'  box-shadow: none !important; padding: 0 !important;'
-            f'  margin-bottom: 10px !important; }}'
+            f'  background: {T["card"]} !important; border: none !important;'
+            f'  border-top: 3px solid {T["accent"]} !important;'
+            f'  border-radius: 24px !important; box-shadow: {T["shadow"]} !important;'
+            f'  padding: 6px 28px 20px 28px !important;'
+            f'  margin-bottom: 26px !important; }}'
             '</style>',
             unsafe_allow_html=True,
         )
@@ -7055,10 +7038,10 @@ def _dcf_editor(ticker):
                 st.markdown(
                     '<style>'
                     f'.st-key-prescan_robust_editor [data-testid="stExpander"] {{'
-                    f'  background: {T["card"]}; border: none !important;'
-                    f'  border-top: 3px solid {T["accent"]} !important;'
-                    f'  border-radius: 24px !important; box-shadow: {T["shadow"]};'
-                    f'  margin-bottom: 20px; overflow: hidden; }}'
+                    f'  background: transparent !important; border: none !important;'
+                    f'  border-top: 1px solid {T["border_light"]} !important;'
+                    f'  border-radius: 0 !important; box-shadow: none !important;'
+                    f'  margin-bottom: 0; }}'
                     f'.st-key-prescan_robust_editor [data-testid="stExpander"] summary,'
                     f'.st-key-prescan_robust_editor [data-testid="stExpander"] summary *,'
                     f'.st-key-prescan_robust_editor [data-testid="stExpander"] details,'
@@ -7066,10 +7049,10 @@ def _dcf_editor(ticker):
                     f'  border: none !important; background: transparent !important;'
                     f'  box-shadow: none !important; }}'
                     f'.st-key-prescan_robust_editor [data-testid="stExpander"] details > summary {{'
-                    f'  padding: 20px 32px !important; font-weight: 700;'
-                    f'  font-size: 0.95rem; color: {T["text"]}; }}'
+                    f'  padding: 14px 2px !important; font-weight: 600;'
+                    f'  font-size: 0.92rem; color: {T["text"]}; }}'
                     f'.st-key-prescan_robust_editor [data-testid="stExpander"] details > div {{'
-                    f'  padding: 0 32px 28px 32px !important; }}'
+                    f'  padding: 0 2px 16px 2px !important; }}'
                     '</style>',
                     unsafe_allow_html=True,
                 )
@@ -7107,10 +7090,10 @@ def _dcf_editor(ticker):
             st.markdown(
                 '<style>'
                 f'.st-key-prescan_scorecard [data-testid="stExpander"] {{'
-                f'  background: {T["card"]}; border: none !important;'
-                f'  border-top: 3px solid {T["accent"]} !important;'
-                f'  border-radius: 24px !important; box-shadow: {T["shadow"]};'
-                f'  margin-bottom: 20px; overflow: hidden; }}'
+                f'  background: transparent !important; border: none !important;'
+                f'  border-top: 1px solid {T["border_light"]} !important;'
+                f'  border-radius: 0 !important; box-shadow: none !important;'
+                f'  margin-bottom: 0; }}'
                 f'.st-key-prescan_scorecard [data-testid="stExpander"] summary,'
                 f'.st-key-prescan_scorecard [data-testid="stExpander"] summary *,'
                 f'.st-key-prescan_scorecard [data-testid="stExpander"] details,'
@@ -7118,10 +7101,10 @@ def _dcf_editor(ticker):
                 f'  border: none !important; background: transparent !important;'
                 f'  box-shadow: none !important; }}'
                 f'.st-key-prescan_scorecard [data-testid="stExpander"] details > summary {{'
-                f'  padding: 20px 32px !important; font-weight: 700;'
-                f'  font-size: 0.95rem; color: {T["text"]}; }}'
+                f'  padding: 14px 2px !important; font-weight: 600;'
+                f'  font-size: 0.92rem; color: {T["text"]}; }}'
                 f'.st-key-prescan_scorecard [data-testid="stExpander"] details > div {{'
-                f'  padding: 0 32px 28px 32px !important; }}'
+                f'  padding: 0 2px 16px 2px !important; }}'
                 '</style>',
                 unsafe_allow_html=True,
             )
@@ -7506,13 +7489,12 @@ def _dcf_editor(ticker):
                     '<style>'
                     + ''.join(
                         f'.st-key-prescan_card_{i} [data-testid="stExpander"] {{'
-                        f'  background: {T["card"]};'
+                        f'  background: transparent !important;'
                         f'  border: none !important;'
-                        f'  border-top: 3px solid {T["accent"]} !important;'
-                        f'  border-radius: 24px !important;'
-                        f'  box-shadow: {T["shadow"]};'
-                        f'  margin-bottom: 20px;'
-                        f'  overflow: hidden;'
+                        f'  border-top: 1px solid {T["border_light"]} !important;'
+                        f'  border-radius: 0 !important;'
+                        f'  box-shadow: none !important;'
+                        f'  margin-bottom: 0;'
                         f'}}'
                         f'.st-key-prescan_card_{i} [data-testid="stExpander"] summary,'
                         f'.st-key-prescan_card_{i} [data-testid="stExpander"] summary *,'
@@ -7523,13 +7505,13 @@ def _dcf_editor(ticker):
                         f'  box-shadow: none !important;'
                         f'}}'
                         f'.st-key-prescan_card_{i} [data-testid="stExpander"] details > summary {{'
-                        f'  padding: 20px 32px !important;'
-                        f'  font-weight: 700;'
-                        f'  font-size: 0.95rem;'
+                        f'  padding: 14px 2px !important;'
+                        f'  font-weight: 600;'
+                        f'  font-size: 0.92rem;'
                         f'  color: {T["text"]};'
                         f'}}'
                         f'.st-key-prescan_card_{i} [data-testid="stExpander"] details > div {{'
-                        f'  padding: 0 32px 28px 32px !important;'
+                        f'  padding: 0 2px 16px 2px !important;'
                         f'}}'
                         # Reset for the inner Edit/paste expander so it
                         # doesn't inherit the hero-card look as a nested card.
