@@ -326,12 +326,13 @@ def _try_tags(facts, tags, n_years=6, unit_key="USD", taxonomy="us-gaap"):
     return best
 
 
-def _parse_financials_ifrs(facts, n_years=6, ticker=None):
+def _parse_financials_ifrs(facts, n_years=6):
     """parse_financials for IFRS (Form 20-F) filers — maps ifrs-full concepts
     (USD convenience translation) into the same shape as the us-gaap path.
 
     Foreign private issuers (e.g. TSM) report under ifrs-full, not us-gaap.
-    Share count is the ordinary count (dei) divided by the ADR ratio.
+    Shares are the raw ordinary count (dei); callers that know the ticker
+    apply the ADR ratio (see ADR_SHARE_RATIOS / apply_adr_share_ratio).
     """
     print("[EDGAR] Parsing IFRS (20-F) financial statements...")
     M = 1_000_000
@@ -356,9 +357,6 @@ def _parse_financials_ifrs(facts, n_years=6, ticker=None):
         return round(nz[-1] / M, 0) if nz else 0
 
     shares_raw = col(["EntityCommonStockSharesOutstanding"], "shares", "dei")
-    ratio = ADR_SHARE_RATIOS.get((ticker or "").upper())
-    if ratio and ratio != 1:
-        shares_raw = [round(s / ratio) if s else s for s in shares_raw]
 
     st_debt = col(["CurrentBorrowings", "ShorttermBorrowings",
                    "CurrentPortionOfLongtermBorrowings"])
@@ -401,7 +399,7 @@ def _parse_financials_ifrs(facts, n_years=6, ticker=None):
     return result
 
 
-def parse_financials(facts, n_years=6, ticker=None):
+def parse_financials(facts, n_years=6):
     """Extract all needed financial data from EDGAR Company Facts.
 
     Returns dict with lists of values aligned to fiscal years.
@@ -421,7 +419,7 @@ def parse_financials(facts, n_years=6, ticker=None):
     if not rev_data:
         # Foreign private issuers file Form 20-F under IFRS, not us-gaap.
         if "ifrs-full" in facts.get("facts", {}):
-            return _parse_financials_ifrs(facts, n_years, ticker)
+            return _parse_financials_ifrs(facts, n_years)
         raise ValueError("Could not find revenue data in EDGAR filings")
 
     years = [y for y, _ in rev_data]
@@ -2925,6 +2923,16 @@ ADR_SHARE_RATIOS = {
     "TSM": 5,   # 1 ADR = 5 ordinary TSMC shares
 }
 
+
+def apply_adr_share_ratio(shares, ticker):
+    """Divide an ordinary share-count list by the ticker's ADR ratio so
+    per-share figures line up with the ADR market price. No-op (returns the
+    list unchanged) for tickers that aren't depositary receipts."""
+    ratio = ADR_SHARE_RATIOS.get((ticker or "").upper())
+    if not ratio or ratio == 1:
+        return shares
+    return [round(s / ratio) if s else s for s in shares]
+
 # Map our metric keys -> candidate IFRS (ifrs-full) concept names, used for
 # foreign private issuers that file Form 20-F under IFRS (USD convenience
 # translation). Only filled when us-gaap tags are absent.
@@ -3262,12 +3270,8 @@ def fetch_fundamentals(ticker, n_years=10):
     for key in metrics:
         result[key] = [data_by_year[yr].get(key) for yr in all_years]
 
-    # ADR tickers: divide ordinary share count by the ADR ratio so per-share
-    # figures (and market cap = price × shares) match the ADR market price.
-    _adr_ratio = ADR_SHARE_RATIOS.get(ticker.upper())
-    if _adr_ratio and _adr_ratio != 1:
-        result["shares"] = [round(s / _adr_ratio) if s else s
-                            for s in result["shares"]]
+    # ADR tickers: per-share figures line up with the ADR market price.
+    result["shares"] = apply_adr_share_ratio(result["shares"], ticker)
 
     # Adjust shares for stock splits — walk backwards from most recent,
     # detect jumps > 1.5x and apply cumulative split ratio

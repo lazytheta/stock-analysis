@@ -24,6 +24,7 @@ from error_logger import log_error, log_error_with_trace
 from dcf_calculator import compute_wacc, compute_intrinsic_value, compute_reverse_dcf
 from valuation_lenses import FORWARD_LENSES
 from config_store import save_config, load_config, list_watchlist, remove_from_watchlist, load_user_prefs, save_user_prefs, load_credential, delete_credential, load_ibkr_credentials, save_ibkr_credentials, delete_ibkr_credentials, log_page_view
+import gather_data
 from gather_data import (
     get_cik,
     fetch_company_submissions,
@@ -8083,7 +8084,13 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
         status.write("\u23f3 Fetching financial statements from EDGAR...")
         with contextlib.redirect_stdout(buf):
             facts = fetch_company_facts(cik)
-            financials = parse_financials(facts, n_years=6, ticker=ticker)
+            financials = parse_financials(facts, n_years=6)
+            # ADR tickers: convert ordinary shares to ADR-equivalent so market
+            # cap / per-share line up with the ADR price. getattr keeps this a
+            # no-op if an older gather_data module is loaded (avoids hard fail).
+            _apply_adr = getattr(gather_data, "apply_adr_share_ratio", None)
+            if _apply_adr and financials.get("shares"):
+                financials["shares"] = _apply_adr(financials["shares"], ticker)
         pos = _flush_clean(buf, pos, status)
         years = financials.get("years", [])
         if years:
