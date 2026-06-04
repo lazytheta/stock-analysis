@@ -2868,8 +2868,11 @@ _IFRS_TAGS = {
     "da": ["DepreciationAndAmortisationExpense",
            "DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss"],
     "cfo": ["CashFlowsFromUsedInOperatingActivities"],
-    "total_debt": ["NoncurrentBorrowings", "Borrowings"],
-    "short_term_debt": ["CurrentBorrowings"],
+    "total_debt": ["NoncurrentBorrowings", "Borrowings", "LongtermBorrowings",
+                   "NoncurrentPortionOfNoncurrentBondsIssued"],
+    "short_term_debt": ["CurrentBorrowings", "ShorttermBorrowings",
+                        "CurrentPortionOfLongtermBorrowings"],
+    "operating_lease_liabilities": ["NoncurrentLeaseLiabilities"],
 }
 _IFRS_CAPEX_TAGS = [
     "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
