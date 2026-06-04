@@ -8083,7 +8083,7 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
         status.write("\u23f3 Fetching financial statements from EDGAR...")
         with contextlib.redirect_stdout(buf):
             facts = fetch_company_facts(cik)
-            financials = parse_financials(facts, n_years=6)
+            financials = parse_financials(facts, n_years=6, ticker=ticker)
         pos = _flush_clean(buf, pos, status)
         years = financials.get("years", [])
         if years:

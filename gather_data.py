@@ -326,7 +326,82 @@ def _try_tags(facts, tags, n_years=6, unit_key="USD", taxonomy="us-gaap"):
     return best
 
 
-def parse_financials(facts, n_years=6):
+def _parse_financials_ifrs(facts, n_years=6, ticker=None):
+    """parse_financials for IFRS (Form 20-F) filers — maps ifrs-full concepts
+    (USD convenience translation) into the same shape as the us-gaap path.
+
+    Foreign private issuers (e.g. TSM) report under ifrs-full, not us-gaap.
+    Share count is the ordinary count (dei) divided by the ADR ratio.
+    """
+    print("[EDGAR] Parsing IFRS (20-F) financial statements...")
+    M = 1_000_000
+
+    def _col(tags, unit="USD", taxonomy="ifrs-full", yrs=None):
+        m = dict(_try_tags(facts, tags, n_years, unit_key=unit, taxonomy=taxonomy))
+        return m if yrs is None else [m.get(y) for y in yrs]
+
+    rev_map = _col(["Revenue"])
+    if not rev_map:
+        raise ValueError("Could not find IFRS revenue data in EDGAR filings")
+    years = sorted(rev_map.keys())[-n_years:]
+
+    def col(tags, unit="USD", taxonomy="ifrs-full"):
+        return _col(tags, unit, taxonomy, years)
+
+    def mil(vals):
+        return [round(v / M, 0) if v is not None else None for v in vals]
+
+    def last_m(vals):
+        nz = [v for v in vals if v]
+        return round(nz[-1] / M, 0) if nz else 0
+
+    shares_raw = col(["EntityCommonStockSharesOutstanding"], "shares", "dei")
+    ratio = ADR_SHARE_RATIOS.get((ticker or "").upper())
+    if ratio and ratio != 1:
+        shares_raw = [round(s / ratio) if s else s for s in shares_raw]
+
+    st_debt = col(["CurrentBorrowings", "ShorttermBorrowings",
+                   "CurrentPortionOfLongtermBorrowings"])
+    lt_debt = col(["NoncurrentBorrowings", "Borrowings", "LongtermBorrowings"])
+    lt_leases = col(["NoncurrentLeaseLiabilities"])
+    goodwill = col(["Goodwill"])
+    intang = col(["IntangibleAssetsOtherThanGoodwill"])
+    goodwill_intang = [(g or 0) + (i or 0) if (g is not None or i is not None) else None
+                       for g, i in zip(goodwill, intang)]
+
+    result = {
+        "years": years,
+        "revenue": mil(col(["Revenue"])),
+        "operating_income": mil(col(["ProfitLossFromOperatingActivities"])),
+        "net_income": mil(col(["ProfitLoss"])),
+        "cost_of_revenue": mil(col(["CostOfSales"])),
+        "sbc": [None] * len(years),
+        "shares": [round(s / M, 0) if s is not None else None for s in shares_raw],
+        "current_assets": mil(col(["CurrentAssets"])),
+        "cash": mil(col(["CashAndCashEquivalents"])),
+        "st_investments": mil(col(["OtherCurrentFinancialAssets"])),
+        "current_liabilities": mil(col(["CurrentLiabilities"])),
+        "st_debt": mil(st_debt),
+        "st_leases": [None] * len(years),
+        "net_ppe": mil(col(["PropertyPlantAndEquipment"])),
+        "goodwill_intang": mil(goodwill_intang),
+        "lt_debt_latest": last_m(lt_debt),
+        "lt_leases_latest": last_m(lt_leases),
+        "st_debt_latest": last_m(st_debt),
+        "interest_expense_latest": last_m(col(["FinanceCosts"])),
+        "finance_leases_latest": 0,
+        "minority_interest_latest": last_m(col(["NoncontrollingInterests"])),
+        "equity_investments_latest": last_m(col(["InvestmentAccountedForUsingEquityMethod"])),
+        "unfunded_pension_latest": 0,
+        "entity_public_float": 0,
+        "tax_provision": mil(col(["IncomeTaxExpenseContinuingOperations"])),
+        "pretax_income": mil(col(["ProfitLossBeforeTax", "AccountingProfit"])),
+    }
+    print(f"  [IFRS] Found {len(years)} years: {years[0]}-{years[-1]}")
+    return result
+
+
+def parse_financials(facts, n_years=6, ticker=None):
     """Extract all needed financial data from EDGAR Company Facts.
 
     Returns dict with lists of values aligned to fiscal years.
@@ -344,6 +419,9 @@ def parse_financials(facts, n_years=6):
     ], n_years)
 
     if not rev_data:
+        # Foreign private issuers file Form 20-F under IFRS, not us-gaap.
+        if "ifrs-full" in facts.get("facts", {}):
+            return _parse_financials_ifrs(facts, n_years, ticker)
         raise ValueError("Could not find revenue data in EDGAR filings")
 
     years = [y for y, _ in rev_data]
