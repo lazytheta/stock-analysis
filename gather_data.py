@@ -1497,50 +1497,130 @@ def fetch_historical_multiples(ticker: str) -> dict:
 
     if history is None or len(history) < 24:
         logger.info(
-            "Historical multiples: %s has only %s months of price history; skipping",
+            "Historical multiples: %s has only %s months of price history; "
+            "using snapshot fallback",
             ticker, 0 if history is None else len(history),
         )
-        return out
+    else:
+        months_dt = list(history.index)
+        closes = [float(p) for p in history["Close"].values]
 
-    months_dt = list(history.index)
-    closes = [float(p) for p in history["Close"].values]
+        # ---- Build monthly TTM-EPS series via linear interpolation between annual anchors ----
+        eps_series_monthly = _interpolate_yearly_to_monthly(
+            income, "Diluted EPS", months_dt
+        )
+        if eps_series_monthly:
+            pe_values = []
+            for price, eps in zip(closes, eps_series_monthly):
+                if eps is None or eps <= 0:
+                    continue
+                pe_values.append(price / eps)
+            if len(pe_values) >= 12:
+                out["historical_trailing_pe"] = round(statistics.median(pe_values), 1)
 
-    # ---- Build monthly TTM-EPS series via linear interpolation between annual anchors ----
-    eps_series_monthly = _interpolate_yearly_to_monthly(income, "Diluted EPS", months_dt)
-    if eps_series_monthly:
-        pe_values = []
-        for price, eps in zip(closes, eps_series_monthly):
-            if eps is None or eps <= 0:
-                continue
-            pe_values.append(price / eps)
-        if len(pe_values) >= 12:
-            out["historical_trailing_pe"] = round(statistics.median(pe_values), 1)
+        # ---- Build monthly EV/EBITDA series via interpolation of EBITDA, debt, cash ----
+        ebitda_series_monthly = _interpolate_yearly_to_monthly(
+            income, "EBITDA", months_dt
+        )
+        debt_series_monthly = _interpolate_quarterly_to_monthly(
+            qbs, "Total Debt", months_dt
+        )
+        cash_series_monthly = _interpolate_quarterly_to_monthly(
+            qbs, "Cash And Cash Equivalents", months_dt
+        )
 
-    # ---- Build monthly EV/EBITDA series via interpolation of EBITDA, debt, cash ----
-    ebitda_series_monthly = _interpolate_yearly_to_monthly(income, "EBITDA", months_dt)
-    debt_series_monthly = _interpolate_quarterly_to_monthly(qbs, "Total Debt", months_dt)
-    cash_series_monthly = _interpolate_quarterly_to_monthly(
-        qbs, "Cash And Cash Equivalents", months_dt
-    )
+        shares = info.get("sharesOutstanding")
+        if (ebitda_series_monthly and debt_series_monthly and cash_series_monthly
+                and isinstance(shares, (int, float)) and shares > 0):
+            ev_ebitda_values = []
+            for price, ebitda, debt, cash in zip(
+                closes, ebitda_series_monthly, debt_series_monthly, cash_series_monthly
+            ):
+                if ebitda is None or ebitda <= 0:
+                    continue
+                mkt_cap = price * shares
+                ev = mkt_cap + (debt or 0) - (cash or 0)
+                if ev <= 0:
+                    continue
+                ev_ebitda_values.append(ev / ebitda)
+            if len(ev_ebitda_values) >= 12:
+                out["historical_ev_ebitda"] = round(statistics.median(ev_ebitda_values), 1)
 
-    shares = info.get("sharesOutstanding")
-    if (ebitda_series_monthly and debt_series_monthly and cash_series_monthly
-            and isinstance(shares, (int, float)) and shares > 0):
-        ev_ebitda_values = []
-        for price, ebitda, debt, cash in zip(
-            closes, ebitda_series_monthly, debt_series_monthly, cash_series_monthly
-        ):
-            if ebitda is None or ebitda <= 0:
-                continue
-            mkt_cap = price * shares
-            ev = mkt_cap + (debt or 0) - (cash or 0)
-            if ev <= 0:
-                continue
-            ev_ebitda_values.append(ev / ebitda)
-        if len(ev_ebitda_values) >= 12:
-            out["historical_ev_ebitda"] = round(statistics.median(ev_ebitda_values), 1)
+    # ---- Snapshot fallback when 4y interpolation produced insufficient data ----
+    # Goal: the Historical lens must activate reliably. If we couldn't build a
+    # 12-month median series (e.g. yfinance returned sparse income/balance
+    # data), use current yfinance trailingPE / EV/EBITDA as a single-point
+    # proxy and flag it as low confidence so callers can mark it.
+    low_confidence = []
+    if "historical_trailing_pe" not in out:
+        snap_pe = info.get("trailingPE")
+        if isinstance(snap_pe, (int, float)) and snap_pe > 0:
+            out["historical_trailing_pe"] = round(float(snap_pe), 1)
+            low_confidence.append("historical_trailing_pe")
+
+    if "historical_ev_ebitda" not in out:
+        snap_ev = info.get("enterpriseValue")
+        snap_ebitda = _yf_ebitda(info)
+        if (isinstance(snap_ev, (int, float)) and snap_ev > 0
+                and snap_ebitda is not None and snap_ebitda > 0):
+            out["historical_ev_ebitda"] = round(snap_ev / snap_ebitda, 1)
+            low_confidence.append("historical_ev_ebitda")
+
+    if low_confidence:
+        out["_low_confidence"] = low_confidence
 
     return out
+
+
+def fetch_historical_forward_pe(
+    ticker: str, historical_trailing_pe: float | None = None
+) -> dict:
+    """Estimate historical_fwd_pe by scaling historical_trailing_pe with the
+    current yfinance forward/trailing P/E ratio.
+
+    Returns {"historical_fwd_pe": float} on success, empty dict on failure.
+
+    Best-effort approximation: yfinance does not expose true forward-EPS
+    history, so a real rolling forward P/E cannot be computed. Instead we use
+    the current period's forward/trailing relationship as the structural ratio
+    and project it onto the historical trailing median. Reasonable when the
+    business mix is stable; less accurate around growth-rate inflections.
+
+    Args:
+        ticker: Stock ticker (e.g. "NVDA")
+        historical_trailing_pe: Pre-computed value from
+            fetch_historical_multiples. Required — when None or unusable, the
+            function returns {} and skips writing historical_fwd_pe.
+    """
+    if not (isinstance(historical_trailing_pe, (int, float))
+            and historical_trailing_pe > 0):
+        return {}
+
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info
+    except ImportError:
+        logger.warning(
+            "yfinance not installed; skipping historical forward P/E for %s", ticker
+        )
+        return {}
+    except Exception as e:
+        logger.warning(
+            "yfinance forward-PE fetch failed for %s: %s", ticker, e
+        )
+        return {}
+
+    current_fwd_pe = info.get("forwardPE")
+    current_trailing_pe = info.get("trailingPE")
+
+    if not (isinstance(current_fwd_pe, (int, float)) and current_fwd_pe > 0):
+        return {}
+    if not (isinstance(current_trailing_pe, (int, float))
+            and current_trailing_pe > 0):
+        return {}
+
+    ratio = current_fwd_pe / current_trailing_pe
+    return {"historical_fwd_pe": round(historical_trailing_pe * ratio, 1)}
 
 
 def fetch_dividend_history(ticker: str, n_years: int = 5) -> dict:
@@ -2759,6 +2839,44 @@ def apply_fundamentals_overrides(fund, overrides):
     return result
 
 
+# Foreign filers trade in the US as ADRs that bundle N ordinary shares.
+# The EDGAR financials are whole-company; the ordinary share count must be
+# divided by the ratio so per-share figures match the ADR market price.
+# ticker -> ordinary shares per ADR.
+ADR_SHARE_RATIOS = {
+    "TSM": 5,   # 1 ADR = 5 ordinary TSMC shares
+}
+
+# Map our metric keys -> candidate IFRS (ifrs-full) concept names, used for
+# foreign private issuers that file Form 20-F under IFRS (USD convenience
+# translation). Only filled when us-gaap tags are absent.
+_IFRS_TAGS = {
+    "revenue": ["Revenue"],
+    "cost_of_revenue": ["CostOfSales"],
+    "gross_profit": ["GrossProfit"],
+    "operating_income": ["ProfitLossFromOperatingActivities"],
+    "net_income": ["ProfitLoss"],
+    "pretax_income": ["ProfitLossBeforeTax", "AccountingProfit"],
+    "tax_provision": ["IncomeTaxExpenseContinuingOperations"],
+    "total_equity": ["EquityAttributableToOwnersOfParent", "Equity"],
+    "cash": ["CashAndCashEquivalents"],
+    "total_assets": ["Assets"],
+    "current_liabilities": ["CurrentLiabilities"],
+    "ppe": ["PropertyPlantAndEquipment"],
+    "goodwill": ["Goodwill"],
+    "intangibles": ["IntangibleAssetsOtherThanGoodwill"],
+    "da": ["DepreciationAndAmortisationExpense",
+           "DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss"],
+    "cfo": ["CashFlowsFromUsedInOperatingActivities"],
+    "total_debt": ["NoncurrentBorrowings", "Borrowings"],
+    "short_term_debt": ["CurrentBorrowings"],
+}
+_IFRS_CAPEX_TAGS = [
+    "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+    "PurchaseOfPropertyPlantAndEquipmentIntangibleAssetsOtherThanGoodwillInvestmentPropertyAndOtherNoncurrentAssets",
+]
+
+
 def fetch_fundamentals(ticker, n_years=10):
     """Fetch historical financial fundamentals from EDGAR XBRL.
 
@@ -2799,6 +2917,7 @@ def fetch_fundamentals(ticker, n_years=10):
             return None
 
     # ── EDGAR XBRL ──────────────────────────────────────────────────
+    facts = None
     try:
         cik = get_cik(ticker)
         facts = fetch_company_facts(cik)
@@ -3027,6 +3146,32 @@ def fetch_fundamentals(ticker, n_years=10):
     except Exception as e:
         print(f"[EDGAR] Warning: {e}")
 
+    # ── IFRS fallback: foreign private issuers (Form 20-F) report under
+    #    ifrs-full with USD convenience translation. Fill anything still
+    #    missing from us-gaap. Runs independently so a us-gaap parse failure
+    #    doesn't block it. ──
+    try:
+        if facts and "ifrs-full" in facts.get("facts", {}):
+            for our_key, tags in _IFRS_TAGS.items():
+                for yr_val, val in _try_tags(facts, tags, n_years,
+                                             unit_key="USD", taxonomy="ifrs-full"):
+                    d = data_by_year.setdefault(yr_val, {})
+                    if d.get(our_key) is None:
+                        d[our_key] = round(val / M, 0)
+            for yr_val, val in _try_tags(facts, _IFRS_CAPEX_TAGS, n_years,
+                                         unit_key="USD", taxonomy="ifrs-full"):
+                d = data_by_year.setdefault(yr_val, {})
+                if d.get("capex") is None:
+                    d["capex"] = -round(val / M, 0)  # outflow → negative
+            # Shares: cover-page ordinary share count (dei taxonomy).
+            for yr_val, val in _try_tags(facts, ["EntityCommonStockSharesOutstanding"],
+                                         n_years, unit_key="shares", taxonomy="dei"):
+                d = data_by_year.setdefault(yr_val, {})
+                if d.get("shares") is None:
+                    d["shares"] = val
+    except Exception as e:
+        print(f"[EDGAR-IFRS] Warning: {e}")
+
     # ── Assemble result ───────────────────────────────────────────
     all_years = sorted(data_by_year.keys())
     if len(all_years) > n_years:
@@ -3035,6 +3180,13 @@ def fetch_fundamentals(ticker, n_years=10):
     result = {"years": all_years}
     for key in metrics:
         result[key] = [data_by_year[yr].get(key) for yr in all_years]
+
+    # ADR tickers: divide ordinary share count by the ADR ratio so per-share
+    # figures (and market cap = price × shares) match the ADR market price.
+    _adr_ratio = ADR_SHARE_RATIOS.get(ticker.upper())
+    if _adr_ratio and _adr_ratio != 1:
+        result["shares"] = [round(s / _adr_ratio) if s else s
+                            for s in result["shares"]]
 
     # Adjust shares for stock splits — walk backwards from most recent,
     # detect jumps > 1.5x and apply cumulative split ratio
