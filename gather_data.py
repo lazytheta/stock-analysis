@@ -234,11 +234,18 @@ def _extract_annual_values(facts, tag, n_years=6, unit_key="USD", taxonomy="us-g
     except KeyError:
         return []
 
-    # Filter for annual filings
+    # Filter for annual filings. Forms covered:
+    #   10-K, 10-K405, 10-K/A — US domestic filers (us-gaap taxonomy)
+    #   20-F, 20-F/A          — foreign private issuers (ifrs-full taxonomy)
+    #   40-F, 40-F/A          — Canadian filers under MJDS (ifrs-full),
+    #                           e.g. Wheaton Precious Metals, Brookfield,
+    #                           Franco-Nevada. Reported in USD on EDGAR.
     annual = []
     for entry in tag_data:
         form = entry.get("form", "")
-        if form not in ("10-K", "10-K405", "10-K/A", "20-F", "20-F/A"):
+        if form not in ("10-K", "10-K405", "10-K/A",
+                        "20-F", "20-F/A",
+                        "40-F", "40-F/A"):
             continue
 
         end = entry.get("end", "")
@@ -327,14 +334,16 @@ def _try_tags(facts, tags, n_years=6, unit_key="USD", taxonomy="us-gaap"):
 
 
 def _parse_financials_ifrs(facts, n_years=6):
-    """parse_financials for IFRS (Form 20-F) filers — maps ifrs-full concepts
-    (USD convenience translation) into the same shape as the us-gaap path.
+    """parse_financials for IFRS filers — maps ifrs-full concepts (USD
+    convenience translation) into the same shape as the us-gaap path.
 
-    Foreign private issuers (e.g. TSM) report under ifrs-full, not us-gaap.
+    Covers two filer cohorts that both use ifrs-full:
+      - Foreign private issuers on Form 20-F (e.g. TSM)
+      - Canadian filers under MJDS on Form 40-F (e.g. WPM, FNV, Brookfield)
     Shares are the raw ordinary count (dei); callers that know the ticker
     apply the ADR ratio (see ADR_SHARE_RATIOS / apply_adr_share_ratio).
     """
-    print("[EDGAR] Parsing IFRS (20-F) financial statements...")
+    print("[EDGAR] Parsing IFRS (20-F/40-F) financial statements...")
     M = 1_000_000
 
     def _col(tags, unit="USD", taxonomy="ifrs-full", yrs=None):
@@ -417,7 +426,8 @@ def parse_financials(facts, n_years=6):
     ], n_years)
 
     if not rev_data:
-        # Foreign private issuers file Form 20-F under IFRS, not us-gaap.
+        # Foreign private issuers (20-F) and Canadian MJDS filers (40-F)
+        # report under ifrs-full, not us-gaap.
         if "ifrs-full" in facts.get("facts", {}):
             return _parse_financials_ifrs(facts, n_years)
         raise ValueError("Could not find revenue data in EDGAR filings")
@@ -521,6 +531,20 @@ def parse_financials(facts, n_years=6):
     tax_provision = _get_values(["IncomeTaxExpenseBenefit"])
     pretax_income = _get_values(["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
                                   "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments"])
+
+    # OI fallback: some filers (notably large pharma like LLY) don't tag
+    # OperatingIncomeLoss in XBRL — they only expose NonoperatingIncomeExpense.
+    # Derive OI = pretax_income - nonoperating_income for any year where the
+    # primary tag is missing but both inputs are available. Per-year fallback
+    # so partial gaps (some years tagged, some not) get filled correctly.
+    nonoperating_income = _get_values(["NonoperatingIncomeExpense",
+                                        "OtherNonoperatingIncomeExpense"])
+    for i, oi_val in enumerate(operating_income):
+        if oi_val is None:
+            pti = pretax_income[i] if i < len(pretax_income) else None
+            nop = nonoperating_income[i] if i < len(nonoperating_income) else None
+            if pti is not None and nop is not None:
+                operating_income[i] = pti - nop
 
     result = {
         "years": years,
