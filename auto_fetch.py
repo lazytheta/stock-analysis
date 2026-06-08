@@ -18,15 +18,36 @@ def auto_fill_valuation_inputs(cfg: dict) -> None:
     """Auto-fill `cfg["valuation_inputs"]` from yfinance.
 
     Combines results from gather_data.fetch_market_inputs (Phase 2-B:
-    forward_eps, ttm_ebitda) and gather_data.fetch_historical_multiples
-    (Phase 2-B.2: historical_trailing_pe, historical_ev_ebitda, ttm_eps).
+    forward_eps, ttm_ebitda), gather_data.fetch_historical_multiples
+    (Phase 2-B.2: historical_trailing_pe, historical_ev_ebitda, ttm_eps,
+    with snapshot fallback when 4y interpolation is data-starved), and
+    gather_data.fetch_historical_forward_pe (Phase 2-B.3: historical_fwd_pe
+    derived by scaling historical_trailing_pe with the current
+    forward/trailing P/E ratio).
     Fields listed in `_auto_filled` or absent are written; user-set fields
     (present, not in _auto_filled) are preserved. Updates `_fetched_at`.
+    Snapshot-fallback fields are tracked in `_low_confidence` so the
+    Historical lens consumer can flag them.
     """
+    ticker = cfg.get("ticker", "")
     inputs = cfg.setdefault("valuation_inputs", {})
     auto_filled = list(inputs.get("_auto_filled", []))
-    fetched = gather_data.fetch_market_inputs(cfg.get("ticker", ""))
-    fetched.update(gather_data.fetch_historical_multiples(cfg.get("ticker", "")))
+    fetched = gather_data.fetch_market_inputs(ticker)
+    hist = gather_data.fetch_historical_multiples(ticker)
+    low_confidence = list(hist.pop("_low_confidence", []))
+    fetched.update(hist)
+
+    # Derive historical_fwd_pe from the freshly fetched (or pre-existing
+    # user-set) historical_trailing_pe so the Historical lens has all three
+    # sub-anchors available.
+    trailing_pe_for_scaling = fetched.get("historical_trailing_pe") \
+        or inputs.get("historical_trailing_pe")
+    if trailing_pe_for_scaling:
+        fetched.update(
+            gather_data.fetch_historical_forward_pe(
+                ticker, historical_trailing_pe=trailing_pe_for_scaling,
+            )
+        )
 
     for key, value in fetched.items():
         existing = inputs.get(key)
@@ -37,10 +58,14 @@ def auto_fill_valuation_inputs(cfg: dict) -> None:
         else:
             logger.info(
                 "Auto-fill skipped for %s.%s: user-set value preserved",
-                cfg.get("ticker", "?"), key,
+                ticker or "?", key,
             )
 
     inputs["_auto_filled"] = auto_filled
+    if low_confidence:
+        inputs["_low_confidence"] = low_confidence
+    elif "_low_confidence" in inputs:
+        del inputs["_low_confidence"]
     inputs["_fetched_at"] = datetime.now(UTC).isoformat()
 
 

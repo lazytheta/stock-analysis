@@ -40,7 +40,7 @@ def make_yf_history(months=48, base_price=100.0, growth_pct=0.10):
     DataFrame with `months` rows of monthly Close prices growing at
     growth_pct per year (linear)."""
     import pandas as pd
-    dates = pd.date_range(end="2026-05-01", periods=months, freq="ME")
+    dates = pd.date_range(end="2026-04-30", periods=months, freq="ME")
     monthly_growth = (1 + growth_pct) ** (1 / 12) - 1
     closes = [base_price * (1 + monthly_growth) ** i for i in range(months)]
     return pd.DataFrame({"Close": closes}, index=dates)
@@ -91,7 +91,7 @@ def make_yf_dividends(quarterly_amounts=None, n_years=5):
         for q in range(n_years * 4):
             year_offset = q // 4
             quarterly_amounts.append(per_quarter * (1 + annual_growth) ** year_offset)
-    dates = pd.date_range(end="2026-05-01", periods=len(quarterly_amounts), freq="QE")
+    dates = pd.date_range(end="2026-03-31", periods=len(quarterly_amounts), freq="QE")
     return pd.Series(quarterly_amounts, index=dates, name="Dividends")
 
 
@@ -270,7 +270,12 @@ import auto_fetch
 
 
 def test_auto_fill_inputs_populates_empty():
-    """Empty valuation_inputs → both keys filled, both in _auto_filled."""
+    """Empty valuation_inputs → both market-input keys filled.
+
+    Phase 2-B.2 snapshot fallback may also populate historical_ev_ebitda
+    when the test fixture provides enterpriseValue + trailingEbitda (which
+    make_yf_info defaults to). That field is then flagged in
+    _low_confidence to mark it as the snapshot-derived proxy."""
     cfg = {"ticker": "ABT", "valuation_inputs": {}}
     info = make_yf_info(forwardEps=5.48, trailingEbitda=11_800_000_000)
     with patch_yfinance_info(info):
@@ -279,8 +284,11 @@ def test_auto_fill_inputs_populates_empty():
     inputs = cfg["valuation_inputs"]
     assert inputs["forward_eps"] == 5.48
     assert inputs["ttm_ebitda"] == 11800.0
-    assert set(inputs["_auto_filled"]) == {"forward_eps", "ttm_ebitda"}
+    assert {"forward_eps", "ttm_ebitda"}.issubset(set(inputs["_auto_filled"]))
     assert "_fetched_at" in inputs
+    # Snapshot fallback ⇒ historical_ev_ebitda auto-filled and flagged
+    assert inputs.get("historical_ev_ebitda") == round(200_000_000_000 / 11_800_000_000, 1)
+    assert "historical_ev_ebitda" in inputs.get("_low_confidence", [])
 
 
 def test_auto_fill_inputs_respects_user_set_value():
@@ -599,12 +607,95 @@ def test_fetch_historical_multiples_missing_ebitda():
 
 
 def test_fetch_historical_multiples_no_shares_outstanding():
-    """Missing sharesOutstanding → EV cannot be computed → ev_ebitda absent."""
-    info = {"trailingEps": 5.0}  # no sharesOutstanding
+    """Missing sharesOutstanding → EV cannot be computed → ev_ebitda absent
+    from monthly path; snapshot fallback only fires when enterpriseValue is
+    also present."""
+    info = {"trailingEps": 5.0}  # no sharesOutstanding, no enterpriseValue
     with patch_yfinance_full(info=info):
         result = gather_data.fetch_historical_multiples("XYZ")
     assert "historical_trailing_pe" in result
     assert "historical_ev_ebitda" not in result
+
+
+def test_fetch_historical_multiples_snapshot_fallback_on_short_history():
+    """Phase 2-B.2: when monthly interpolation skips (history < 24 months) but
+    yfinance info has trailingPE / enterpriseValue, fall back to single-point
+    snapshot values and flag them in _low_confidence."""
+    info = {
+        "trailingEps": 5.0,
+        "trailingPE": 30.5,
+        "enterpriseValue": 100_000_000_000,
+        "trailingEbitda": 4_000_000_000,
+    }
+    short_history = make_yf_history(months=6)
+    with patch_yfinance_full(info=info, history=short_history):
+        result = gather_data.fetch_historical_multiples("RECENT_IPO")
+
+    assert result["historical_trailing_pe"] == 30.5
+    assert result["historical_ev_ebitda"] == 25.0  # 100B / 4B
+    assert set(result.get("_low_confidence", [])) == {
+        "historical_trailing_pe", "historical_ev_ebitda"
+    }
+
+
+def test_fetch_historical_multiples_snapshot_partial_fill():
+    """Snapshot fallback only fills the fields the monthly path missed —
+    fields the monthly path computed stay as-is (no _low_confidence flag)."""
+    info = {
+        "trailingEps": 5.0,
+        "sharesOutstanding": 1e9,
+        "trailingPE": 99.9,  # snapshot value; should NOT override the monthly median
+    }
+    # Full happy-path fixtures so monthly historical_trailing_pe is computed
+    with patch_yfinance_full(info=info):
+        result = gather_data.fetch_historical_multiples("XYZ")
+
+    assert "historical_trailing_pe" in result
+    assert result["historical_trailing_pe"] != 99.9  # monthly median wins
+    assert "historical_trailing_pe" not in result.get("_low_confidence", [])
+
+
+def test_fetch_historical_forward_pe_scales_with_current_ratio():
+    """Phase 2-B.3: historical_fwd_pe = historical_trailing_pe ×
+    (current forwardPE / current trailingPE)."""
+    info = {"forwardPE": 30.0, "trailingPE": 50.0}  # ratio 0.6
+    with patch_yfinance_info(info):
+        result = gather_data.fetch_historical_forward_pe(
+            "XYZ", historical_trailing_pe=40.0,
+        )
+    assert result == {"historical_fwd_pe": 24.0}  # 40 × 0.6
+
+
+def test_fetch_historical_forward_pe_missing_trailing_pe_returns_empty():
+    """No historical_trailing_pe input → can't scale → empty dict."""
+    info = {"forwardPE": 30.0, "trailingPE": 50.0}
+    with patch_yfinance_info(info):
+        result = gather_data.fetch_historical_forward_pe(
+            "XYZ", historical_trailing_pe=None,
+        )
+    assert result == {}
+
+
+def test_fetch_historical_forward_pe_missing_yfinance_ratio_returns_empty():
+    """yfinance lacks forwardPE or trailingPE → empty dict (don't fabricate)."""
+    info = {"trailingPE": 50.0}  # no forwardPE
+    with patch_yfinance_info(info):
+        result = gather_data.fetch_historical_forward_pe(
+            "XYZ", historical_trailing_pe=40.0,
+        )
+    assert result == {}
+
+
+def test_fetch_historical_forward_pe_yfinance_error_returns_empty():
+    """yfinance throws → empty dict, no crash."""
+    from unittest.mock import MagicMock as _Mock
+    fake_yf = _Mock()
+    fake_yf.Ticker = _Mock(side_effect=Exception("boom"))
+    with patch.dict("sys.modules", {"yfinance": fake_yf}):
+        result = gather_data.fetch_historical_forward_pe(
+            "XYZ", historical_trailing_pe=40.0,
+        )
+    assert result == {}
 
 
 def test_fetch_dividend_history_full_5y_payer():
@@ -686,7 +777,7 @@ def test_fetch_dividend_history_stopped_payer_ttm_zero():
     # Easiest: build a series whose latest ex-div is ~2y before today.
     quarterly = [0.50] * 40  # 10 years of $0.50/quarter
     # Most-recent ex-div should be ~2 years before today
-    end = pd.Timestamp.now(tz=None) - pd.Timedelta(days=730)
+    end = (pd.Timestamp.now(tz=None) - pd.Timedelta(days=730)).normalize() + pd.offsets.QuarterEnd(0)
     dates = pd.date_range(end=end, periods=len(quarterly), freq="QE")
     divs = pd.Series(quarterly, index=dates, name="Dividends")
     with patch_yfinance_dividends(divs):
@@ -724,6 +815,49 @@ def test_auto_fill_inputs_includes_historical_multiples():
     # All three new keys in _auto_filled
     auto_filled = set(inputs.get("_auto_filled", []))
     assert {"ttm_eps", "historical_trailing_pe", "historical_ev_ebitda"}.issubset(auto_filled)
+
+
+def test_auto_fill_inputs_writes_historical_fwd_pe():
+    """Phase 2-B.3: auto_fill_valuation_inputs derives historical_fwd_pe by
+    scaling the freshly fetched historical_trailing_pe with the current
+    forward/trailing P/E ratio, and adds it to _auto_filled."""
+    cfg = {"ticker": "MSFT", "valuation_inputs": {}}
+    info = {
+        "forwardEps": 19.42, "trailingEbitda": 184e9, "trailingEps": 16.78,
+        "sharesOutstanding": 7.43e9,
+        "forwardPE": 27.0, "trailingPE": 36.0,  # ratio 0.75
+    }
+    with patch_yfinance_full(info=info):
+        auto_fetch.auto_fill_valuation_inputs(cfg)
+
+    inputs = cfg["valuation_inputs"]
+    assert "historical_trailing_pe" in inputs
+    assert "historical_fwd_pe" in inputs
+    # historical_fwd_pe should be historical_trailing_pe × 0.75
+    assert inputs["historical_fwd_pe"] == pytest.approx(
+        inputs["historical_trailing_pe"] * 0.75, rel=0.01,
+    )
+    assert "historical_fwd_pe" in inputs["_auto_filled"]
+
+
+def test_auto_fill_inputs_low_confidence_propagated_to_inputs():
+    """When fetch_historical_multiples returns _low_confidence, that flag is
+    propagated to cfg["valuation_inputs"]["_low_confidence"] so callers (UI,
+    MCP get_config) can mark snapshot-derived fields."""
+    cfg = {"ticker": "RECENT_IPO", "valuation_inputs": {}}
+    info = {
+        "forwardEps": 5.0, "trailingEbitda": 4e9, "trailingEps": 3.0,
+        "trailingPE": 30.0, "enterpriseValue": 100e9,
+    }
+    short_history = make_yf_history(months=6)
+    with patch_yfinance_full(info=info, history=short_history):
+        auto_fetch.auto_fill_valuation_inputs(cfg)
+
+    inputs = cfg["valuation_inputs"]
+    assert "historical_trailing_pe" in inputs
+    assert "historical_ev_ebitda" in inputs
+    low_conf = set(inputs.get("_low_confidence", []))
+    assert {"historical_trailing_pe", "historical_ev_ebitda"}.issubset(low_conf)
 
 
 def test_mcp_calculate_multi_lens_valuation_does_auto_fetch():
