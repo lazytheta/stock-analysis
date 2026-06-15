@@ -4688,6 +4688,25 @@ def _dcf_editor(ticker):
                 _s2c_gi = cfg.get('goodwill_intang', [])
                 _s2c_n = len(_s2c_years)
 
+                # Niet alle bedrijven rapporteren elk balans-item (TSM mist bv.
+                # st_investments/st_debt/st_leases voor sommige jaren). Vul korte
+                # lijsten aan met 0 zodat de loop niet op een IndexError klapt;
+                # een niet-gerapporteerd item telt als 0.
+                def _pad(_lst, _n):
+                    _lst = list(_lst or [])
+                    if len(_lst) < _n:
+                        _lst = _lst + [0.0] * (_n - len(_lst))
+                    return _lst
+
+                _s2c_ca = _pad(_s2c_ca, _s2c_n)
+                _s2c_cash = _pad(_s2c_cash, _s2c_n)
+                _s2c_si = _pad(_s2c_si, _s2c_n)
+                _s2c_cl = _pad(_s2c_cl, _s2c_n)
+                _s2c_sd = _pad(_s2c_sd, _s2c_n)
+                _s2c_sl = _pad(_s2c_sl, _s2c_n)
+                _s2c_ppe = _pad(_s2c_ppe, _s2c_n)
+                _s2c_gi = _pad(_s2c_gi, _s2c_n)
+
                 if _s2c_n >= 2 and len(_s2c_rev) >= _s2c_n:
                     _s2c_ratios = []
                     for _si in range(1, _s2c_n):
