@@ -57,6 +57,7 @@ from broker_adapter import (
 )
 import plotly.graph_objects as go
 from scorecard_utils import parse_scorecard_json as _parse_scorecard_json
+from scorecard_utils import prettify_company_name as _prettify_company
 
 # ── Input sanitization ──
 def sanitize_ticker(raw: str) -> str | None:
@@ -4175,7 +4176,7 @@ def _watchlist_overview():
             continue
         rows.append({
             'ticker': t,
-            'company': cfg_wl.get('company', t),
+            'company': _prettify_company(cfg_wl.get('company', t)),
             'notes': cfg_wl.get('notes', ''),
             'category': cfg_wl.get('category', 'Uncategorized'),
             'price': live_price,
@@ -8032,7 +8033,7 @@ def _dcf_editor(ticker):
 
     _hero_placeholder.markdown(
         f'<div class="hero-card">'
-        f'<p class="hero-label">{cfg.get("company", ticker)}</p>'
+        f'<p class="hero-label">{_prettify_company(cfg.get("company", ticker))}</p>'
         f'<div style="display:flex;align-items:center;justify-content:center;gap:12px">'
         f'<img src="https://assets.parqet.com/logos/symbol/{ticker}" '
         f'style="width:36px;height:36px;border-radius:50%;object-fit:cover" '

@@ -105,3 +105,46 @@ def resolve_verdict(cfg):
     if isinstance(rob, dict) and rob.get("verdict_mapped"):
         verdict = rob["verdict_mapped"]
     return {"verdict": verdict, "phase": sc["phase"]}
+
+
+# Brand forms that must survive title-casing intact (internal capitals/acronyms).
+_COMPANY_KEEP = {"AT&T", "NVIDIA", "AECOM", "PNC", "KLA", "PTC", "DTE", "NXP"}
+# Title-cased word -> corrected brand spelling.
+_COMPANY_FIXUPS = {
+    "Mercadolibre": "MercadoLibre",
+    "Pepsico": "PepsiCo",
+    "Abbvie": "AbbVie",
+    "Powerschool": "PowerSchool",
+    "Lvmh": "LVMH",
+}
+# Connector words rendered lowercase when not the first word.
+_COMPANY_CONNECTORS = {"and", "of", "the", "for", "on", "in"}
+
+
+def prettify_company_name(name):
+    """Display-format an issuer name without mutating stored data.
+
+    EDGAR returns names in all-caps (e.g. "TAIWAN SEMICONDUCTOR MANUFACTURING
+    CO LTD"). Title-case only names that are predominantly uppercase; leave
+    already-cased names (e.g. "AbbVie Inc.") untouched. Known brand acronyms
+    are preserved and a few common mis-cased forms are fixed up. Never raises.
+    """
+    if not isinstance(name, str) or not name.strip():
+        return name
+
+    letters = [c for c in name if c.isalpha()]
+    # Already mixed/lower case -> assume it's nicely formatted, leave as-is.
+    if not letters or sum(c.isupper() for c in letters) / len(letters) < 0.7:
+        return name
+
+    out = []
+    for i, word in enumerate(name.split()):
+        if word in _COMPANY_KEEP:
+            out.append(word)
+            continue
+        tc = word.capitalize()
+        tc = _COMPANY_FIXUPS.get(tc, tc)
+        if i > 0 and tc.lower().strip(".,") in _COMPANY_CONNECTORS:
+            tc = tc.lower()
+        out.append(tc)
+    return " ".join(out)
