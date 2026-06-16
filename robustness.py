@@ -55,10 +55,13 @@ def phased_roce_band(headline, phase):
     if phase == 2:
         r40 = headline.get("rule_of_40_pct")
         iroic = headline.get("incremental_roic_pct")
-        if r40 is None or iroic is None:
-            return band_for_roce(avg)  # strict gate — can't pass on unmeasurable
-        # Rule of 40 + positive incremental ROIC → conditional (never robust)
-        return "mid" if (r40 >= 40 and iroic > 0) else "fragile"
+        if r40 is None:
+            return band_for_roce(avg)  # primary signal unmeasurable → strict gate
+        # Rule of 40 is the primary phase-2 gate; incremental ROIC is a noisy
+        # secondary that only fails it when *measurably* ≤ 0 (an unmeasurable
+        # incr. ROIC must not slam an otherwise-passing name back to the gate).
+        # Pass → 'mid' (conditional, never robust).
+        return "mid" if (r40 >= 40 and (iroic is None or iroic > 0)) else "fragile"
     if phase == 3:
         latest = headline.get("roce_latest_pct")
         iroic = headline.get("incremental_roic_pct")

@@ -92,7 +92,13 @@ phase == 4:   >=20 robust, >=15 mid, else fragile     (on GAAP avg_roce_pct)
 phase == 3:   strong = (roce_latest >= 10 and roce_rising); roic = (incr_roic > 20)
               both -> robust; either -> mid; neither -> fragile
               (if both inputs None -> strict GAAP gate)
-phase == 2:   (rule_of_40 >= 40 and incr_roic > 0) -> 'mid' (capped); else 'fragile'
+phase == 2:   rule_of_40 is primary; incr_roic only fails it if measurably <= 0.
+              r40 is None              -> strict GAAP gate (primary unmeasurable)
+              r40 >= 40 and (incr_roic is None or incr_roic > 0) -> 'mid' (capped)
+              else                     -> 'fragile'
+              (rationale: an unmeasurable noisy secondary must not slam an
+               otherwise-passing name back to the 20% gate — NET has no debt
+               data so incr_roic is None, but Rule of 40 ≈ 44 is a clear pass)
 phase == 1:   'n/a'
 ```
 
