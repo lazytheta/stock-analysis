@@ -5,6 +5,66 @@ the Scorecard pre-scan section uses."""
 import json
 import re
 
+# Average (TA−CL)/TA below this = a genuine float business (current
+# liabilities — customer deposits, settlement balances — fund 75%+ of the
+# asset base), where capital employed is too small for ROCE to be meaningful;
+# fall back to ROE. Settlement networks (V/MA) and goodwill-heavy or
+# buyback-thin names sit well above this and stay on ROCE.
+FLOAT_CE_TA_THRESHOLD = 0.25
+
+
+def compute_roce_metric(fund, cfg=None):
+    """Single source of truth for the watchlist/detail/MCP quality metric.
+
+    Returns ``(metric, avg_value)`` where ``metric`` is ``'ROCE'`` or ``'ROE'``:
+      • ROCE = avg of EBIT / (Total Assets − Current Liabilities). Goodwill and
+        cash are NOT subtracted (vault methodology 2026-06-12).
+      • ROE  = avg of Net Income / Total Equity.
+
+    Metric selection:
+      1. Manual override wins: ``cfg['roce_metric_override']`` in
+         {'ROCE','ROE'} forces that metric (use 'ROE' to flag a genuine
+         float business that the auto-test doesn't catch).
+      2. Auto fallback: ROE when avg (TA−CL)/TA < FLOAT_CE_TA_THRESHOLD,
+         else ROCE.
+    ``avg_value`` is None when the chosen metric has no computable years.
+    """
+    oi_w = fund.get("operating_income") or []
+    ta_w = fund.get("total_assets") or []
+    cl_w = fund.get("current_liabilities") or []
+    ni_w = fund.get("net_income") or []
+    eq_w = fund.get("total_equity") or []
+    n = len(fund.get("years") or oi_w)
+
+    roce_pcts, ce_ta_ratios = [], []
+    for i in range(n):
+        oi_v = oi_w[i] if i < len(oi_w) else None
+        ta_v = ta_w[i] if i < len(ta_w) else None
+        cl_v = cl_w[i] if i < len(cl_w) else None
+        if oi_v is not None and ta_v and ta_v > 0 and cl_v is not None:
+            ce = ta_v - cl_v
+            ce_ta_ratios.append(max(ce, 0) / ta_v)
+            if ce > 0:
+                roce_pcts.append(oi_v / ce * 100)
+
+    roe_pcts = []
+    for i in range(n):
+        ni_v = ni_w[i] if i < len(ni_w) else None
+        eq_v = eq_w[i] if i < len(eq_w) else None
+        if ni_v is not None and eq_v and eq_v > 0:
+            roe_pcts.append(ni_v / eq_v * 100)
+
+    avg_ce_ta = (sum(ce_ta_ratios) / len(ce_ta_ratios)) if ce_ta_ratios else 1.0
+    override = (cfg or {}).get("roce_metric_override")
+    if override in ("ROCE", "ROE"):
+        metric = override
+    else:
+        metric = "ROE" if (ce_ta_ratios and avg_ce_ta < FLOAT_CE_TA_THRESHOLD) else "ROCE"
+
+    pcts = roe_pcts if metric == "ROE" else roce_pcts
+    avg_value = (sum(pcts) / len(pcts)) if pcts else None
+    return metric, avg_value
+
 
 def parse_scorecard_json(raw: str | None) -> dict | None:
     """Extract a JSON dict from a markdown answer.
