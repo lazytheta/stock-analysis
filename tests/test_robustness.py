@@ -233,9 +233,10 @@ def test_phased_band_phase3_roce_and_roic():
 
 
 def test_phased_band_phase2_rule_of_40():
-    # Rule of 40 met + positive incr ROIC -> conditional (mid), never robust
+    # Rule of 40 met -> robust FOR ITS PHASE (named, not generic mid); the
+    # verdict step caps it at conditional — see test_verdict_phase2_cap.
     assert robustness.phased_roce_band(
-        _hl(rule_of_40_pct=43.0, incremental_roic_pct=5.0), 2) == "mid"
+        _hl(rule_of_40_pct=43.0, incremental_roic_pct=5.0), 2) == "robust"
     # Rule of 40 missed -> fragile
     assert robustness.phased_roce_band(
         _hl(rule_of_40_pct=35.0, incremental_roic_pct=5.0), 2) == "fragile"
@@ -244,9 +245,43 @@ def test_phased_band_phase2_rule_of_40():
         _hl(rule_of_40_pct=43.0, incremental_roic_pct=-1.0), 2) == "fragile"
     # incr ROIC unmeasurable (None) must NOT block a met Rule of 40 (NET case)
     assert robustness.phased_roce_band(
-        _hl(avg_roce_pct=-12.0, rule_of_40_pct=43.0, incremental_roic_pct=None), 2) == "mid"
+        _hl(avg_roce_pct=-12.0, rule_of_40_pct=43.0, incremental_roic_pct=None), 2) == "robust"
     # Rule of 40 itself unmeasurable -> strict gate fallback
     assert robustness.phased_roce_band(_hl(avg_roce_pct=7.0, rule_of_40_pct=None), 2) == "fragile"
+
+
+def test_phased_axis_names_the_phase_metric():
+    # phase 2: axis is labelled "Rule of 40" with the R40 value (not GAAP ROCE)
+    ax = robustness.phased_roce_axis(_hl(avg_roce_pct=-12.0, rule_of_40_pct=43.8,
+                                         incremental_roic_pct=None), 2)
+    assert ax["band"] == "robust"
+    assert ax["metric"] == "Rule of 40"
+    assert round(ax["value"], 1) == 43.8
+    # phase 3 carried by incremental ROIC names that metric
+    ax3 = robustness.phased_roce_axis(_hl(roce_latest_pct=8.0, roce_rising=True,
+                                          incremental_roic_pct=25.0), 3)
+    assert ax3["metric"] == "Incr. ROIC"
+
+
+def test_verdict_phase2_cap_to_conditional():
+    # phase-2 robust ROCE + all else green -> capped to borderline, reason names
+    # the cleared metric (never a clean deep_dive).
+    axes = _axes(roce="robust")
+    axes["roce"].update({"phase": 2, "metric": "Rule of 40", "value": 43.8})
+    v = robustness.derive_verdict(axes)
+    assert v["verdict"] == "borderline"
+    assert v["verdict_mapped"] == "revisit"
+    assert "rule of 40" in v["verdict_reason"].lower()
+    assert "conditional" in v["verdict_reason"].lower()
+
+
+def test_verdict_phase4_robust_not_capped():
+    # phase 4 can earn a clean robust/deep_dive (it's effectively mature)
+    axes = _axes(roce="robust")
+    axes["roce"].update({"phase": 4, "metric": "ROCE", "value": 22.0})
+    v = robustness.derive_verdict(axes)
+    assert v["verdict"] == "robust"
+    assert v["verdict_mapped"] == "deep_dive"
 
 
 def test_verdict_phase1_defers_not_pass():
@@ -269,9 +304,11 @@ def test_build_table_phase2_conditional_revisit():
             "management": {"band": "robust"}, "industry": {"band": "robust"}}}),
     }
     table = robustness.build_table(headline, ai_notes)
-    assert table["axes"]["roce"]["band"] == "mid"        # conditional, not fragile
-    assert table["verdict"] == "borderline"              # never a clean deep_dive
+    assert table["axes"]["roce"]["band"] == "robust"     # cleared its phase bar
+    assert table["axes"]["roce"]["metric"] == "Rule of 40"  # named, not GAAP ROCE
+    assert table["verdict"] == "borderline"              # capped — never a clean deep_dive
     assert table["verdict_mapped"] == "revisit"
+    assert "rule of 40" in table["verdict_reason"].lower()
 
 
 def test_build_table_phase5_unchanged_strict_gate():

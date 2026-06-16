@@ -35,55 +35,81 @@ def band_for_roce(pct):
     return "fragile"
 
 
-def phased_roce_band(headline, phase):
-    """Phase-aware ROCE band (see specs/2026-06-16-phase-aware-roce-gate-design).
+def phased_roce_axis(headline, phase):
+    """Phase-aware ROCE/capital-returns axis (see
+    specs/2026-06-16-phase-aware-roce-gate-design).
 
-    Earlier phases clear a phase-appropriate bar instead of the flat 20% gate;
-    mature (phase 5) and unknown phases keep the strict Prasad gate. Returns
-    'robust'|'mid'|'fragile', or 'n/a' for phase 1 (too early — defer, handled
-    in derive_verdict). Anti-dodge: when a phase's specific inputs are missing,
-    fall back to the strict GAAP gate — no soft pass for unmeasurable metrics.
-    The 20% bar for phase 5 is never lowered; phases 1–3 never reach 'robust'
-    enough to clear the gate into deep_dive on capital efficiency alone (2 caps
-    at 'mid').
+    Returns ``{"band", "metric", "value", "basis"}`` where the band reflects
+    whether the company cleared its *phase-appropriate* bar — and ``metric`` /
+    ``value`` name the test that actually applied (e.g. "Rule of 40" 44, not a
+    misleading GAAP ROCE) so the table states *why* it passed for that phase.
+
+    A passing early-phase name is 'robust' **for its phase** (green); the
+    verdict step caps phases 1–3 at conditional so it never becomes a clean
+    deep_dive. Phase 1 → 'n/a' (defer). Anti-dodge: when a phase's primary
+    input is unmeasurable, fall back to the strict GAAP gate. Phase 5's 20%
+    bar is never lowered.
     """
     avg = headline.get("avg_roce_pct")
+    metric = headline.get("roce_metric", "ROCE")
     if phase == 1:
-        return "n/a"
+        return {"band": "n/a", "metric": metric, "value": avg,
+                "basis": "phase 1 — too early to judge capital returns"}
     if phase == 6:
-        return "fragile"
+        return {"band": "fragile", "metric": metric, "value": avg,
+                "basis": "phase 6 — decline / avoid"}
     if phase == 2:
         r40 = headline.get("rule_of_40_pct")
         iroic = headline.get("incremental_roic_pct")
-        if r40 is None:
-            return band_for_roce(avg)  # primary signal unmeasurable → strict gate
-        # Rule of 40 is the primary phase-2 gate; incremental ROIC is a noisy
-        # secondary that only fails it when *measurably* ≤ 0 (an unmeasurable
-        # incr. ROIC must not slam an otherwise-passing name back to the gate).
-        # Pass → 'mid' (conditional, never robust).
-        return "mid" if (r40 >= 40 and (iroic is None or iroic > 0)) else "fragile"
+        if r40 is None:  # primary signal unmeasurable → strict gate
+            return {"band": band_for_roce(avg), "metric": metric, "value": avg,
+                    "basis": "phase 2 — Rule of 40 unavailable → strict 20% gate"}
+        # Rule of 40 is primary; incremental ROIC is a noisy secondary that
+        # only fails it when *measurably* ≤ 0. Pass → robust FOR ITS PHASE.
+        passed = r40 >= 40 and (iroic is None or iroic > 0)
+        return {"band": "robust" if passed else "fragile",
+                "metric": "Rule of 40", "value": r40,
+                "basis": f"phase 2 — Rule of 40 {'≥' if passed else '<'} 40"
+                         + ("" if iroic is None else f", incr. ROIC {iroic:.0f}%")}
     if phase == 3:
         latest = headline.get("roce_latest_pct")
         iroic = headline.get("incremental_roic_pct")
         if latest is None and iroic is None:
-            return band_for_roce(avg)
+            return {"band": band_for_roce(avg), "metric": metric, "value": avg,
+                    "basis": "phase 3 — inputs unavailable → strict 20% gate"}
         strong_roce = latest is not None and latest >= 10 and bool(headline.get("roce_rising"))
         strong_roic = iroic is not None and iroic > 20
         if strong_roce and strong_roic:
-            return "robust"
-        if strong_roce or strong_roic:
-            return "mid"
-        return "fragile"
+            band = "robust"
+        elif strong_roce or strong_roic:
+            band = "mid"
+        else:
+            band = "fragile"
+        # Name the metric that carried it (incr. ROIC if that's the strong leg)
+        if strong_roic and not strong_roce:
+            return {"band": band, "metric": "Incr. ROIC", "value": iroic,
+                    "basis": "phase 3 — incremental ROIC > 20%"}
+        return {"band": band, "metric": "ROCE (latest)", "value": latest,
+                "basis": "phase 3 — ROCE ≥ 10% and rising"}
     if phase == 4:
         if avg is None:
-            return "fragile"
-        if avg >= ROCE_GATE:
-            return "robust"
-        if avg >= 15:
-            return "mid"
-        return "fragile"
+            band = "fragile"
+        elif avg >= ROCE_GATE:
+            band = "robust"
+        elif avg >= 15:
+            band = "mid"
+        else:
+            band = "fragile"
+        return {"band": band, "metric": metric, "value": avg,
+                "basis": "phase 4 — ROCE ≥ 15% (climbing to 20)"}
     # phase 5, None, or unrecognized → strict Prasad gate
-    return band_for_roce(avg)
+    return {"band": band_for_roce(avg), "metric": metric, "value": avg,
+            "basis": "phase 5 — ROCE ≥ 20% (Prasad gate)"}
+
+
+def phased_roce_band(headline, phase):
+    """Thin wrapper: just the band from phased_roce_axis."""
+    return phased_roce_axis(headline, phase)["band"]
 
 
 def band_for_net_debt(nd_ebitda, net_debt_m=None):
@@ -148,6 +174,19 @@ def derive_verdict(axes):
     else:
         verdict, reason = "robust", "all deal-breakers green"
 
+    # Phase cap: an early-phase (2–3) name that cleared its phase-appropriate bar
+    # is conditional at best — never a clean deep_dive (it has not yet proven a
+    # mature 20%+ ROCE). Name the test it passed rather than collapsing to a
+    # generic 'mid'. (Phase 1 already returned above; phase 4 can earn robust.)
+    _rax = axes.get("roce", {})
+    _ph = _rax.get("phase")
+    if verdict == "robust" and _ph in (2, 3):
+        _m, _v = _rax.get("metric", "phase bar"), _rax.get("value")
+        _vs = f"{_v:.0f}" if isinstance(_v, (int, float)) else "—"
+        verdict = "borderline"
+        reason = (f"phase {_ph} — {_m} {_vs} cleared; conditional "
+                  "(not yet a proven 20%+ mature ROCE)")
+
     return {"verdict": verdict, "verdict_mapped": _VERDICT_MAP[verdict],
             "verdict_reason": reason}
 
@@ -156,13 +195,12 @@ def compute_data_axes(headline, phase=None):
     """Two data-driven axes from a fundamentals headline dict
     (mcp_server._compute_fundamentals_headline). The ROCE band is phase-aware
     when ``phase`` is supplied (defaults to the strict gate)."""
-    roce_pct = headline.get("avg_roce_pct")
-    metric = headline.get("roce_metric", "ROCE")
+    rax = phased_roce_axis(headline, phase)
     nd_ebitda = headline.get("latest_net_debt_ebitda")
     nd_m = headline.get("latest_adjusted_net_debt_m")
     return {
-        "roce": {"band": phased_roce_band(headline, phase), "value": roce_pct,
-                 "metric": metric, "phase": phase, "source": "data"},
+        "roce": {"band": rax["band"], "value": rax["value"], "metric": rax["metric"],
+                 "basis": rax["basis"], "phase": phase, "source": "data"},
         "net_debt": {"band": band_for_net_debt(nd_ebitda, nd_m), "value": nd_ebitda,
                      "net_debt_m": nd_m, "unit": "x_ebitda", "source": "data"},
     }
