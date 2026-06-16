@@ -66,6 +66,7 @@ import dcf_calculator
 import auto_fetch
 import config_store
 import valuation_lenses
+from scorecard_utils import compute_roce_metric
 
 
 # ---------------------------------------------------------------------------
@@ -668,47 +669,20 @@ def _compute_fundamentals_headline(fund, cfg):
     if not n:
         return headline
 
-    # Avg ROCE with float-business fallback (same formula as Streamlit)
-    oi_w = fund.get("operating_income") or []
-    ta_w = fund.get("total_assets") or []
-    cl_w = fund.get("current_liabilities") or []
-    cash_w = fund.get("cash") or []
-    gw_w = fund.get("goodwill") or []
-    roce_pcts = []
-    ce_ta_ratios = []
-    for i in range(n):
-        oi = oi_w[i] if i < len(oi_w) else None
-        ta = ta_w[i] if i < len(ta_w) else None
-        cl = cl_w[i] if i < len(cl_w) else None
-        cash_v = (cash_w[i] if i < len(cash_w) else 0) or 0
-        gw = (gw_w[i] if i < len(gw_w) else 0) or 0
-        if oi is not None and ta and cl is not None:
-            ce = ta - cl - cash_v - gw
-            ce_ta_ratios.append(max(ce, 0) / ta)
-            if ce > 0:
-                roce_pcts.append(oi / ce * 100)
-    avg_ce_ta = sum(ce_ta_ratios) / len(ce_ta_ratios) if ce_ta_ratios else 1.0
-    if ce_ta_ratios and avg_ce_ta < 0.25:
-        headline["roce_metric"] = "ROE"
-        ni_w = fund.get("net_income") or []
-        eq_w = fund.get("total_equity") or []
-        roe_pcts = []
-        for i in range(n):
-            ni = ni_w[i] if i < len(ni_w) else None
-            eq = eq_w[i] if i < len(eq_w) else None
-            if ni is not None and eq and eq > 0:
-                roe_pcts.append(ni / eq * 100)
-        if roe_pcts:
-            headline["avg_roce_pct"] = round(sum(roe_pcts) / len(roe_pcts), 2)
-    elif roce_pcts:
-        headline["avg_roce_pct"] = round(sum(roce_pcts) / len(roce_pcts), 2)
+    # Avg ROCE (EBIT/(TA−CL)) with float-business ROE fallback + manual
+    # override — single source of truth shared with the Streamlit watchlist
+    # and detail page (scorecard_utils.compute_roce_metric).
+    cash_w = fund.get("cash") or []  # used below for EV / net-debt
+    _metric, _metric_val = compute_roce_metric(fund, cfg)
+    headline["roce_metric"] = _metric
+    headline["avg_roce_pct"] = round(_metric_val, 2) if _metric_val is not None else None
 
     # Current FCF Yield + EBIT/EV
     mcap_m = (cfg.get("equity_market_value") or 0) if isinstance(cfg, dict) else 0
     fcf_list = [v for v in (fund.get("fcf") or []) if v is not None]
     if fcf_list and mcap_m > 0:
         headline["current_fcf_yield_pct"] = round(fcf_list[-1] / mcap_m * 100, 2)
-    oi_latest = next((v for v in reversed(oi_w) if v is not None), None)
+    oi_latest = next((v for v in reversed(fund.get("operating_income") or []) if v is not None), None)
     debt_latest = next((v for v in reversed(fund.get("total_debt") or []) if v is not None), None)
     cash_latest = next((v for v in reversed(cash_w) if v is not None), 0) or 0
     if oi_latest is not None and debt_latest is not None and mcap_m > 0:

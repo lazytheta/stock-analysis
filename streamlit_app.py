@@ -56,6 +56,7 @@ from broker_adapter import (
     fetch_benchmark_monthly_returns,
 )
 import plotly.graph_objects as go
+from scorecard_utils import compute_roce_metric
 from scorecard_utils import parse_scorecard_json as _parse_scorecard_json
 from scorecard_utils import prettify_company_name as _prettify_company
 
@@ -3950,8 +3951,13 @@ def _watchlist_overview():
 
     if wl_add and wl_ticker:
         ticker_clean = sanitize_ticker(wl_ticker)
+        _existing_wl_tickers = {item["ticker"].upper() for item in list_watchlist(_sb_client)}
         if ticker_clean is None:
             st.warning("Invalid ticker. Use 1–5 letters only (e.g. AAPL).")
+        elif ticker_clean in _existing_wl_tickers:
+            st.info(f"✓ **{ticker_clean}** is already in your watchlist — "
+                    "no need to re-analyse. Open it from the list below to view "
+                    "its valuation, or use **↻ Refresh all** to recompute.")
         elif not rate_limited_lookup():
             pass
         else:
@@ -4128,49 +4134,9 @@ def _watchlist_overview():
                 _mc = cfg_wl.get('equity_market_value', 0) or 0  # in $M
                 if _mc > 0:
                     fcf_yield_val = _fcf_vals[-1] / _mc
-            # Average ROCE — same formula as the Fundamentals tab
-            # (EBIT / (TA − CL − Cash − Goodwill), Prasad/PE-conventie).
-            # Float businesses (ABNB, V, MA, BKNG, brokers) have customer
-            # cash that's offset by customer payables in current liabilities;
-            # subtracting both yields a nonsense-tiny CE. Fall back to ROE
-            # when avg CE/TA < 25% — the textbook signal that the business
-            # runs on working-capital float, not on tangible operating capital.
-            roce_avg = None
-            roce_metric = 'ROCE'  # 'ROCE' or 'ROE' — surfaced in render
-            _oi_w = _fund.get('operating_income', []) or []
-            _ta_w = _fund.get('total_assets', []) or []
-            _cl_w = _fund.get('current_liabilities', []) or []
-            _cash_w = _fund.get('cash', []) or []
-            _gw_w = _fund.get('goodwill', []) or []
-            _roce_pcts = []
-            _ce_ta_ratios = []
-            for _i in range(len(_oi_w)):
-                _oi_v = _oi_w[_i]
-                _ta_v = _ta_w[_i] if _i < len(_ta_w) else None
-                _cl_v = _cl_w[_i] if _i < len(_cl_w) else None
-                _cash_v = (_cash_w[_i] if _i < len(_cash_w) else 0) or 0
-                _gw_v = (_gw_w[_i] if _i < len(_gw_w) else 0) or 0
-                if _oi_v is not None and _ta_v is not None and _ta_v > 0 and _cl_v is not None:
-                    _ce = _ta_v - _cl_v - _cash_v - _gw_v
-                    _ce_ta_ratios.append(max(_ce, 0) / _ta_v)
-                    if _ce > 0:
-                        _roce_pcts.append(_oi_v / _ce * 100)
-            _avg_ce_ta = (sum(_ce_ta_ratios) / len(_ce_ta_ratios)) if _ce_ta_ratios else 1.0
-            if _ce_ta_ratios and _avg_ce_ta < 0.25:
-                # Float business → fall back to ROE
-                roce_metric = 'ROE'
-                _ni_w = _fund.get('net_income', []) or []
-                _eq_w = _fund.get('total_equity', []) or []
-                _roe_pcts = []
-                for _i in range(len(_ni_w)):
-                    _ni_v = _ni_w[_i]
-                    _eq_v = _eq_w[_i] if _i < len(_eq_w) else None
-                    if _ni_v is not None and _eq_v and _eq_v > 0:
-                        _roe_pcts.append(_ni_v / _eq_v * 100)
-                if _roe_pcts:
-                    roce_avg = sum(_roe_pcts) / len(_roe_pcts)
-            elif _roce_pcts:
-                roce_avg = sum(_roce_pcts) / len(_roce_pcts)
+            # Avg ROCE (EBIT/(TA−CL)) with float ROE-fallback + manual override
+            # — shared single source of truth (scorecard_utils.compute_roce_metric).
+            roce_metric, roce_avg = compute_roce_metric(_fund, cfg_wl)
         except Exception as e:
             logger.warning("Watchlist row build failed for %s: %s", t, e)
             continue
@@ -5833,10 +5799,31 @@ def _dcf_editor(ticker):
             unsafe_allow_html=True,
         )
         with st.container(key="fund_sec_0_roce"):
-            # ── ROCE ──
+            # ── ROCE / ROE (float businesses) ──
+            _fund_metric, _ = compute_roce_metric(fund, cfg)
+            _roce_override = cfg.get('roce_metric_override') == 'ROE'
+            if _fund_metric == 'ROE':
+                _roce_tip = (
+                    'Net Income / Total Equity — return on shareholders’ equity.<br><br>'
+                    '<b>&gt;15%</b> solide<br>'
+                    '<b>&gt;20%</b> kwaliteitsbar voor float-bedrijven<br>'
+                    '<b>&lt;10%</b> zwak<br><br>'
+                    'Gebruikt voor echte float-bedrijven (banken, verzekeraars, '
+                    'settlement) waar capital employed te klein is voor zinvolle ROCE.'
+                )
+            else:
+                _roce_tip = (
+                    'EBIT / Capital Employed — pre-tax return on capital tied up in the operating business.<br><br>'
+                    '<b>&gt;WACC</b> creates value<br>'
+                    '<b>&gt;20%</b> Prasad/PE-screen quality bar — sustained 5+ jaar duidt op moat<br>'
+                    '<b>&lt;WACC</b> destroys value<br><br>'
+                    'Capital Employed = Total Assets − Current Liabilities.<br>'
+                    'Goodwill en cash worden niet afgetrokken — zo blijven acquisitie-zware en cash-rijke namen vergelijkbaar en triggert de float/ROE-fallback alleen bij echte float-bedrijven.<br>'
+                    'PE-conventie zoals Nalanda Capital, gebruikt EBIT (pre-tax) ipv NOPAT.'
+                )
             st.markdown(
                 f'<div style="display:flex;align-items:center;gap:6px">'
-                f'<span style="font-weight:700">ROCE</span>'
+                f'<span style="font-weight:700">{_fund_metric}</span>'
                 f'<span class="roce-tip" style="position:relative;cursor:help">'
                 f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
                 f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
@@ -5847,42 +5834,64 @@ def _dcf_editor(ticker):
                 f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
                 f'font-weight:400;width:260px;z-index:999;box-shadow:{T["shadow_hover"]};'
                 f'pointer-events:none;transition:opacity 0.15s ease">'
-                f'EBIT / Tangible Operating Capital — pre-tax return on capital actually tied up in the operating business.<br><br>'
-                f'<b>&gt;WACC</b> creates value<br>'
-                f'<b>&gt;20%</b> Prasad/PE-screen quality bar — sustained 5+ jaar duidt op moat<br>'
-                f'<b>&lt;WACC</b> destroys value<br><br>'
-                f'Capital Employed = Total Assets − Current Liabilities − Cash − Goodwill.<br>'
-                f'Cash excluded → focus op operationeel kapitaal, niet cash hoards.<br>'
-                f'Goodwill excluded → vergelijkbaar tussen organische en acquisitieve groei.<br>'
-                f'PE-conventie zoals Nalanda Capital, gebruikt EBIT (pre-tax) ipv NOPAT.'
+                f'{_roce_tip}'
                 f'</span></span></div>'
                 f'<style>.roce-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
                 unsafe_allow_html=True,
             )
+            # Float-business flag — forces ROE (Net Income / Equity) instead of
+            # ROCE. For genuine float businesses (banks, insurers, settlement
+            # networks) where capital employed is too small for ROCE to mean
+            # anything. The auto-detector (avg CE/TA < 25%) already catches
+            # extreme cases; this is the manual override for the rest.
+            _float_flag = st.toggle(
+                "Float-bedrijf (toon ROE i.p.v. ROCE)",
+                value=_roce_override,
+                key=f"roce_float_{ticker}",
+                help="Forceert ROE = Net Income / Equity. Alleen aanzetten voor "
+                     "echte float-bedrijven (banken, verzekeraars, pure "
+                     "betaalverwerkers). Auto-detectie pakt extreme gevallen "
+                     "(gem. CE/TA < 25%) al zelf op.",
+            )
+            if _float_flag != _roce_override:
+                if _float_flag:
+                    cfg['roce_metric_override'] = 'ROE'
+                else:
+                    cfg.pop('roce_metric_override', None)
+                save_config(_sb_client, ticker, cfg)
+                st.rerun()
             if _n >= 3:
+                # Numerator/denominator follow the chosen metric: ROCE uses
+                # EBIT / (Total Assets − Current Liabilities); ROE uses
+                # Net Income / Total Equity.
+                if _fund_metric == 'ROE':
+                    _num_tbl = fund.get('net_income') or []
+                    _den_src = fund.get('total_equity') or []
+                    _num_label, _den_label = 'Net Income', 'Equity'
+                else:
+                    _num_tbl = fund.get('operating_income') or []
+                    _den_src = None
+                    _num_label, _den_label = 'EBIT', 'Capital Employed'
                 roce_vals = []
                 _ebit_tbl = []
                 _ce_tbl = []
                 for i in range(_n):
-                    oi = fund['operating_income'][i]
-                    ta = fund['total_assets'][i]
-                    cl = fund['current_liabilities'][i]
-                    cash_v = fund['cash'][i] or 0
-                    gw = fund['goodwill'][i] or 0
-                    # Prasad / PE-conventie: cash en goodwill eraf voor tangible
-                    # operating capital. Zo isoleer je het rendement op het
-                    # kapitaal dat écht in de business werkt, los van cash hoards
-                    # en M&A-premies op de balans.
-                    ce = (ta - cl - cash_v - gw) if ta is not None and cl is not None else None
-                    _ebit_tbl.append(oi)
-                    _ce_tbl.append(ce if ce and ce != 0 else None)
-                    roce_vals.append(oi / ce * 100 if oi is not None and ce and ce > 0 else None)
+                    _num = _num_tbl[i] if i < len(_num_tbl) else None
+                    if _fund_metric == 'ROE':
+                        _den = _den_src[i] if i < len(_den_src) else None
+                    else:
+                        ta = fund['total_assets'][i]
+                        cl = fund['current_liabilities'][i]
+                        _den = (ta - cl) if ta is not None and cl is not None else None
+                    _ebit_tbl.append(_num)
+                    _ce_tbl.append(_den if _den and _den != 0 else None)
+                    roce_vals.append(_num / _den * 100 if _num is not None and _den and _den > 0 else None)
 
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
-                    x=_yrs, y=roce_vals, name='ROCE',
+                    x=_yrs, y=roce_vals, name=_fund_metric,
                     line=dict(color=_COLORS['primary'], width=2.5),
-                    hovertemplate='%{y:.1f}%<extra>ROCE</extra>',
+                    hovertemplate='%{y:.1f}%<extra>' + _fund_metric + '</extra>',
                 ))
                 wacc_pct = val.get('wacc', 0) * 100
                 if wacc_pct > 0:
@@ -5934,7 +5943,7 @@ def _dcf_editor(ticker):
                     # EBIT row
                     _eb_valid = [v for v in _ebit_tbl if v is not None]
                     _eb_avg = sum(_eb_valid) / len(_eb_valid) if _eb_valid else None
-                    _rce_html += f'<tr><td style="{_rce_label}">EBIT</td>'
+                    _rce_html += f'<tr><td style="{_rce_label}">{_num_label}</td>'
                     for v in _ebit_tbl:
                         _rce_html += f'<td style="{_rce_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rce_cell}">—</td>'
                     _rce_html += f'<td style="{_rce_avg}">{_eb_avg:,.0f}</td>' if _eb_avg is not None else f'<td style="{_rce_avg}">—</td>'
@@ -5943,7 +5952,7 @@ def _dcf_editor(ticker):
                     # Capital Employed row
                     _ce_valid = [v for v in _ce_tbl if v is not None]
                     _ce_avg = sum(_ce_valid) / len(_ce_valid) if _ce_valid else None
-                    _rce_html += f'<tr><td style="{_rce_label}">Capital Employed</td>'
+                    _rce_html += f'<tr><td style="{_rce_label}">{_den_label}</td>'
                     for v in _ce_tbl:
                         _rce_html += f'<td style="{_rce_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rce_cell}">—</td>'
                     _rce_html += f'<td style="{_rce_avg}">{_ce_avg:,.0f}</td>' if _ce_avg is not None else f'<td style="{_rce_avg}">—</td>'
@@ -5952,7 +5961,7 @@ def _dcf_editor(ticker):
                     # ROCE % row — thick top border
                     _roce_valid = [v for v in roce_vals if v is not None]
                     _roce_avg = sum(_roce_valid) / len(_roce_valid) if _roce_valid else None
-                    _rce_html += f'<tr><td style="{_rce_label};{_rce_div}">ROCE</td>'
+                    _rce_html += f'<tr><td style="{_rce_label};{_rce_div}">{_fund_metric}</td>'
                     for v in roce_vals:
                         if v is not None:
                             # 20%+ is Prasad-screen kwaliteitsbar
@@ -5969,9 +5978,12 @@ def _dcf_editor(ticker):
 
                     _rce_html += '</tbody></table></div>'
                     st.markdown(_rce_html, unsafe_allow_html=True)
-                    st.caption("In $M. EBIT = Operating Income (proxy). Capital Employed = Total Assets − Current Liabilities − Cash − Goodwill (Prasad/PE-conventie).")
+                    if _fund_metric == 'ROE':
+                        st.caption("In $M. ROE = Net Income / Total Equity (float-business weergave).")
+                    else:
+                        st.caption("In $M. EBIT = Operating Income (proxy). Capital Employed = Total Assets − Current Liabilities (goodwill en cash niet afgetrokken).")
             else:
-                st.info("Insufficient data for ROCE (need 3+ years)")
+                st.info(f"Insufficient data for {_fund_metric} (need 3+ years)")
 
         with st.container(key="fund_sec_1_fcf_yield"):
             # ── FCF Yield ──
@@ -7954,42 +7966,8 @@ def _dcf_editor(ticker):
     except NameError:
         _h_fund = None
     if _h_fund:
-        _h_oi = _h_fund.get('operating_income') or []
-        _h_ta = _h_fund.get('total_assets') or []
-        _h_cl = _h_fund.get('current_liabilities') or []
-        _h_cash = _h_fund.get('cash') or []
-        _h_gw = _h_fund.get('goodwill') or []
-        _h_roce_pcts = []
-        _h_ce_ratios = []
-        for _i in range(len(_h_oi)):
-            _oi_v = _h_oi[_i]
-            _ta_v = _h_ta[_i] if _i < len(_h_ta) else None
-            _cl_v = _h_cl[_i] if _i < len(_h_cl) else None
-            _cash_v = (_h_cash[_i] if _i < len(_h_cash) else 0) or 0
-            _gw_v = (_h_gw[_i] if _i < len(_h_gw) else 0) or 0
-            if _oi_v is not None and _ta_v and _cl_v is not None:
-                _ce = _ta_v - _cl_v - _cash_v - _gw_v
-                _h_ce_ratios.append(max(_ce, 0) / _ta_v)
-                if _ce > 0:
-                    _h_roce_pcts.append(_oi_v / _ce * 100)
-        _h_avg_ce_ta = sum(_h_ce_ratios) / len(_h_ce_ratios) if _h_ce_ratios else 1.0
-        _h_metric_label = 'ROCE'
-        _h_metric_val = None
-        if _h_ce_ratios and _h_avg_ce_ta < 0.25:
-            # Float-business fallback to ROE — same logic as watchlist
-            _h_metric_label = 'ROE'
-            _h_ni = _h_fund.get('net_income') or []
-            _h_eq = _h_fund.get('total_equity') or []
-            _h_roe_pcts = []
-            for _i in range(len(_h_ni)):
-                _ni_v = _h_ni[_i]
-                _eq_v = _h_eq[_i] if _i < len(_h_eq) else None
-                if _ni_v is not None and _eq_v and _eq_v > 0:
-                    _h_roe_pcts.append(_ni_v / _eq_v * 100)
-            if _h_roe_pcts:
-                _h_metric_val = sum(_h_roe_pcts) / len(_h_roe_pcts)
-        elif _h_roce_pcts:
-            _h_metric_val = sum(_h_roce_pcts) / len(_h_roce_pcts)
+        # Shared single source of truth — same metric/value as the watchlist.
+        _h_metric_label, _h_metric_val = compute_roce_metric(_h_fund, cfg)
         if _h_metric_val is not None:
             _h_roce_color = (
                 T['accent'] if _h_metric_val >= 20
@@ -10117,7 +10095,13 @@ elif page == "Portfolio":
         if outcome == "exception":
             err = diag.get("streamer_error") or "Internal error"
             return ("Couldn't load", err)
-        return ("Live data unavailable", "Live updates during US market hours (9:30 AM – 4:00 PM ET)")
+        # Unmapped outcome — don't assert "market closed" as the cause (it
+        # often isn't). State it's unexpected and list market hours only as
+        # one possibility. fetch_greeks_and_bwd should always set a specific
+        # outcome; reaching here means a code path that needs investigating.
+        return ("Live data unavailable",
+                "Couldn't determine the cause — try refresh. Live Greeks also need "
+                "US market hours (9:30 AM – 4:00 PM ET).")
 
     _cards = []
     if has_greeks or greeks_unavailable:
