@@ -4177,11 +4177,36 @@ def _watchlist_overview():
     _categories = ["Yes", "Maybe", "Watch Later", "No", "Uncategorized"]
     _cat_icons = {"Yes": "✅", "Maybe": "🤔", "Watch Later": "⏳", "No": "❌", "Uncategorized": ""}
 
+    _cap_help = (
+        "Capital returns — the phase-appropriate quality metric (matches the "
+        "Robustness table). The bar a company must clear depends on its life-cycle "
+        "phase:\n"
+        "• Phase 5 (mature): ROCE = EBIT / (Total Assets − Current Liabilities); "
+        "≥20% = Prasad quality gate.\n"
+        "• Phase 4: ROCE ≥15% (climbing to 20).\n"
+        "• Phase 3 (scaling): ROCE ≥10% & rising, or incremental ROIC >20%.\n"
+        "• Phase 2 (hyper-growth): Rule of 40 = 3y revenue growth% + FCF margin% ≥40.\n"
+        "• Phase 1: too early → defer.\n"
+        "Float businesses (banks/payment networks) show ROE instead of ROCE.\n"
+        "Colour = robustness band for that phase: green = cleared its bar, "
+        "red = failed, default = borderline."
+    )
+
     def _render_wl_header():
         hdr = st.columns([0.3, 1.0, 1.6, 0.8, 1.5, 0.8, 0.7, 0.6, 0.7, 0.7, 0.3])
         _wl_hdr = ["", "Ticker", "Company", "Price", "Fair Value", "Buy", "Upside", "Capital", "FCF Yield", "Earnings", ""]
         for col, label in zip(hdr, _wl_hdr):
-            if label:
+            if not label:
+                continue
+            if label == "Capital":
+                col.markdown(
+                    f'<span style="font-weight:600">{label}</span>'
+                    f'<span title="{_cap_help}" style="cursor:help;margin-left:4px;'
+                    f'border:1px solid currentColor;border-radius:50%;padding:0 5px;'
+                    f'font-size:0.7rem;opacity:0.5">?</span>',
+                    unsafe_allow_html=True,
+                )
+            else:
                 col.markdown(f"**{label}**")
 
     def _render_wl_row(row):
@@ -4239,10 +4264,11 @@ def _watchlist_overview():
             else:
                 cols[7].markdown(_txt)
         else:
-            # Fallback: raw Avg ROCE/ROE (ticker not yet assessed)
+            # Fallback: raw Avg ROCE/ROE (ticker not yet assessed in Robustness).
+            # Always label the metric so the number is never a bare "9.1%".
             _wl_roce = row.get('roce_avg')
             _wl_metric = row.get('roce_metric', 'ROCE')
-            _wl_suffix = " (ROE)" if _wl_metric == 'ROE' else ""
+            _wl_suffix = f" {_wl_metric}"
             if _wl_roce is None:
                 cols[7].markdown("—")
             elif _wl_roce >= 20:
