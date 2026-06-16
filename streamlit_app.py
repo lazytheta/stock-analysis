@@ -4160,6 +4160,7 @@ def _watchlist_overview():
             'cap_metric': _rob_roce.get('metric'),
             'cap_value': _rob_roce.get('value'),
             'cap_phase': _rob_roce.get('phase'),
+            'cap_basis': _rob_roce.get('basis'),
             'fcf_yield': fcf_yield_val,
             'valuation_summary': cfg_wl.get('valuation_summary'),
         })
@@ -4177,36 +4178,50 @@ def _watchlist_overview():
     _categories = ["Yes", "Maybe", "Watch Later", "No", "Uncategorized"]
     _cat_icons = {"Yes": "✅", "Maybe": "🤔", "Watch Later": "⏳", "No": "❌", "Uncategorized": ""}
 
-    _cap_help = (
-        "Capital returns — the phase-appropriate quality metric (matches the "
-        "Robustness table). The bar a company must clear depends on its life-cycle "
-        "phase:\n"
-        "• Phase 5 (mature): ROCE = EBIT / (Total Assets − Current Liabilities); "
-        "≥20% = Prasad quality gate.\n"
-        "• Phase 4: ROCE ≥15% (climbing to 20).\n"
-        "• Phase 3 (scaling): ROCE ≥10% & rising, or incremental ROIC >20%.\n"
-        "• Phase 2 (hyper-growth): Rule of 40 = 3y revenue growth% + FCF margin% ≥40.\n"
-        "• Phase 1: too early → defer.\n"
-        "Float businesses (banks/payment networks) show ROE instead of ROCE.\n"
-        "Colour = robustness band for that phase: green = cleared its bar, "
-        "red = failed, default = borderline."
-    )
+    # Per-phase definitions for the inline "?" tooltip on each Capital cell.
+    _CAP_DEFS = {
+        "Rule of 40": "Rule of 40 = 3-year revenue growth% + FCF margin%; ≥40 is the phase-2 hyper-growth bar",
+        "Incr. ROIC": "Incremental ROIC = ΔNOPAT / ΔInvested capital — the return on newly deployed capital",
+        "ROCE (latest)": "Latest-year ROCE = EBIT / (Total Assets − Current Liabilities)",
+        "ROCE": "ROCE = EBIT / (Total Assets − Current Liabilities); ≥20% is the mature Prasad quality gate",
+        "ROE": "ROE = Net income / Total Equity — used for float businesses where capital employed is too small for a meaningful ROCE",
+    }
+
+    def _cap_cell_md(row):
+        """Markdown for the Capital cell: just the number (no metric label) plus a
+        "?" whose hover tooltip explains exactly what that figure is for this
+        ticker's phase. Colour follows the robustness band (phase-aware) or the
+        20% screen-bar (fallback)."""
+        import html as _html
+
+        def _q(text, color, help_text):
+            num = f":{color}[{text}]" if color else text
+            return (f'{num} <span title="{_html.escape(help_text)}" '
+                    f'style="cursor:help;opacity:0.4;font-size:0.72rem">?</span>')
+
+        band, metric, value = row.get('cap_band'), row.get('cap_metric'), row.get('cap_value')
+        basis = row.get('cap_basis')
+        if band == "n/a":
+            return _q("— defer", None, "Phase 1 — too early to judge capital returns; defer.")
+        if band and metric and value is not None:
+            base = _CAP_DEFS.get(metric, metric)
+            help_text = f"{base}. {basis}." if basis else f"{base}."
+            color = {"robust": "green", "fragile": "red"}.get(band)
+            return _q(f"{value:.0f}%", color, help_text)
+        # Fallback: raw multi-year Avg ROCE/ROE (ticker not yet assessed)
+        rv, rm = row.get('roce_avg'), row.get('roce_metric', 'ROCE')
+        if rv is None:
+            return "—"
+        help_text = (f"{_CAP_DEFS.get(rm, rm)} — multi-year average; this ticker "
+                     "isn't assessed in the Robustness table yet.")
+        color = "green" if rv >= 20 else ("red" if rv < 10 else None)
+        return _q(f"{rv:.1f}%", color, help_text)
 
     def _render_wl_header():
         hdr = st.columns([0.3, 1.0, 1.6, 0.8, 1.5, 0.8, 0.7, 0.6, 0.7, 0.7, 0.3])
         _wl_hdr = ["", "Ticker", "Company", "Price", "Fair Value", "Buy", "Upside", "Capital", "FCF Yield", "Earnings", ""]
         for col, label in zip(hdr, _wl_hdr):
-            if not label:
-                continue
-            if label == "Capital":
-                col.markdown(
-                    f'<span style="font-weight:600">{label}</span>'
-                    f'<span title="{_cap_help}" style="cursor:help;margin-left:4px;'
-                    f'border:1px solid currentColor;border-radius:50%;padding:0 5px;'
-                    f'font-size:0.7rem;opacity:0.5">?</span>',
-                    unsafe_allow_html=True,
-                )
-            else:
+            if label:
                 col.markdown(f"**{label}**")
 
     def _render_wl_row(row):
@@ -4243,40 +4258,9 @@ def _watchlist_overview():
         )
         cols[5].markdown(f"${row['buy_price']:.2f}")
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
-        # Capital returns — phase-aware. When the robustness engine has assessed
-        # the ticker, show the metric that applied for its phase (e.g. "Rule of
-        # 40" for a phase-2 name) coloured by its band, matching the detail page.
-        # Otherwise fall back to the raw Avg ROCE/ROE on Prasad's 20% screen-bar.
-        _cap_band = row.get('cap_band')
-        _cap_metric = row.get('cap_metric')
-        _cap_value = row.get('cap_value')
-        _cap_abbr = {"Rule of 40": "R40", "Incr. ROIC": "iROIC",
-                     "ROCE (latest)": "ROCE", "ROCE": "ROCE", "ROE": "ROE"}
-        if _cap_band == "n/a":
-            cols[7].markdown("— *defer*")
-        elif _cap_band and _cap_metric and _cap_value is not None:
-            _abbr = _cap_abbr.get(_cap_metric, _cap_metric)
-            _txt = f"{_cap_value:.0f}% {_abbr}"
-            if _cap_band == "robust":
-                cols[7].markdown(f":green[{_txt}]")
-            elif _cap_band == "fragile":
-                cols[7].markdown(f":red[{_txt}]")
-            else:
-                cols[7].markdown(_txt)
-        else:
-            # Fallback: raw Avg ROCE/ROE (ticker not yet assessed in Robustness).
-            # Always label the metric so the number is never a bare "9.1%".
-            _wl_roce = row.get('roce_avg')
-            _wl_metric = row.get('roce_metric', 'ROCE')
-            _wl_suffix = f" {_wl_metric}"
-            if _wl_roce is None:
-                cols[7].markdown("—")
-            elif _wl_roce >= 20:
-                cols[7].markdown(f":green[{_wl_roce:.1f}%{_wl_suffix}]")
-            elif _wl_roce < 10:
-                cols[7].markdown(f":red[{_wl_roce:.1f}%{_wl_suffix}]")
-            else:
-                cols[7].markdown(f"{_wl_roce:.1f}%{_wl_suffix}")
+        # Capital returns — just the figure plus a per-cell "?" explaining what
+        # that number is for this ticker's phase (no inline metric label).
+        cols[7].markdown(_cap_cell_md(row), unsafe_allow_html=True)
         cols[8].markdown(f"{row['fcf_yield']:.1%}" if row['fcf_yield'] else "—")
         _earn = _earnings_map.get(t)
         if _earn and _earn.get('date'):
