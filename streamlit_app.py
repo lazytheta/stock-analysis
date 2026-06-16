@@ -4245,7 +4245,13 @@ def _watchlist_overview():
         hdr = st.columns([0.3, 1.0, 1.6, 0.8, 1.5, 0.8, 0.7, 0.6, 0.7, 0.7, 0.3])
         _wl_hdr = ["", "Ticker", "Company", "Price", "Fair Value", "Buy", "Upside", "Capital", "FCF Yield", "Earnings", ""]
         for col, label in zip(hdr, _wl_hdr):
-            if label:
+            if not label:
+                continue
+            if label == "Capital":
+                # Right-align to sit above the right-aligned figures below.
+                col.markdown('<div style="text-align:right"><b>Capital</b></div>',
+                             unsafe_allow_html=True)
+            else:
                 col.markdown(f"**{label}**")
 
     def _render_wl_row(row):
@@ -4282,9 +4288,12 @@ def _watchlist_overview():
         )
         cols[5].markdown(f"${row['buy_price']:.2f}")
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
-        # Capital returns — just the figure plus a per-cell "?" explaining what
-        # that number is for this ticker's phase (no inline metric label).
-        cols[7].markdown(_cap_cell_md(row), unsafe_allow_html=True)
+        # Capital returns — figure + per-cell "?" tooltip, right-aligned so the
+        # values line up under each other regardless of width (1 vs 2 digits).
+        cols[7].markdown(
+            f'<div style="text-align:right;white-space:nowrap">{_cap_cell_md(row)}</div>',
+            unsafe_allow_html=True,
+        )
         cols[8].markdown(f"{row['fcf_yield']:.1%}" if row['fcf_yield'] else "—")
         _earn = _earnings_map.get(t)
         if _earn and _earn.get('date'):
