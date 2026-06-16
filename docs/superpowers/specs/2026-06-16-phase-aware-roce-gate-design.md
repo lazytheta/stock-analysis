@@ -45,16 +45,24 @@ or infer it.
 | Phase | Meaning | Test | ROCE band outcome |
 |------:|---------|------|-------------------|
 | 1 | Pre-product / pre-scale | none — too early | `n/a` → not a deal-breaker; verdict capped at `revisit` (defer), never `deep_dive` |
-| 2 | Hyper-growth, not yet profitable | **Rule of 40 ≥ 40** AND **incremental ROIC > 0** | pass → `mid` (conditional, never `robust`); fail → `fragile` |
+| 2 | Hyper-growth, not yet profitable | **Rule of 40 ≥ 40** AND **incremental ROIC > 0** | pass → `robust` *for its phase* (axis labelled "Rule of 40 N", verdict step caps at conditional); fail → `fragile` |
 | 3 | Scaling into profitability | **ROCE ≥ 10% (latest yr) and rising** OR **incremental ROIC > 20%** | both strong → `robust`; one met → `mid`; neither → `fragile` |
 | 4 | Maturing | **GAAP ROCE ≥ 15%** (target rising to 20) | ≥20 `robust`; 15–<20 `mid`; <15 `fragile` |
 | 5 | Mature compounder | **GAAP ROCE ≥ 20%**, multi-year | current Prasad gate: ≥20 `robust`; 12–<20 `mid`; <12 `fragile` |
 | 6 | Declining / avoid | — | `fragile` |
 
-**Net effect on verdict:** because `derive_verdict` already caps any non-robust ROCE
-at `borderline` (= `revisit`), a phase-2 "pass" landing on `mid` naturally yields
-`revisit` ("conditional") — never a clean `deep_dive`. No new verdict band needed.
-Phase 1's `n/a` needs explicit handling (below).
+**Naming the pass (review revision):** a phase-2 company that clears Rule of 40 is
+`robust` **for its phase** — the ROCE axis is labelled with the metric that actually
+applied ("Rule of 40 44", not a misleading GAAP ROCE) so the table states *why* it
+passed. Collapsing every passing early-phase name to a generic `mid` was wrong — it
+read as mediocrity rather than "cleared its phase bar".
+
+**Verdict cap:** `derive_verdict` then caps phases **1–3** so they never reach a clean
+`deep_dive` on capital efficiency alone — a phase-2/3 name that would otherwise be
+`robust` is downgraded to `borderline` (`revisit` / "conditional"), with a reason that
+*names the cleared test*. Phase 1 defers via `n/a`. Phase 4 can still earn `robust`
+(it is effectively mature). This keeps "never a clean pass for early phases" while
+making the axis informative.
 
 ## Metric definitions (computed in `_compute_fundamentals_headline`)
 
