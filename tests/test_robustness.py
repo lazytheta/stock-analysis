@@ -185,3 +185,99 @@ def test_render_robustness_table_html_contains_axes_and_verdict():
     assert "Management" in html
     assert "BORDERLINE" in html.upper()
     assert html.count('class="rb-row"') == 6
+
+
+# ── Phase-aware ROCE gate (2026-06-16) ──────────────────────────────────────
+
+def _hl(**kw):
+    """Headline stub; avg_roce_pct defaults so non-phase fields are present."""
+    base = {"avg_roce_pct": None, "roce_latest_pct": None, "roce_rising": None,
+            "rule_of_40_pct": None, "incremental_roic_pct": None}
+    base.update(kw)
+    return base
+
+
+def test_phased_band_mature_and_unknown_use_strict_gate():
+    # phase 5, None, and unrecognized all use the flat 20% Prasad gate
+    for ph in (5, None, 99):
+        assert robustness.phased_roce_band(_hl(avg_roce_pct=25.0), ph) == "robust"
+        assert robustness.phased_roce_band(_hl(avg_roce_pct=7.0), ph) == "fragile"
+
+
+def test_phased_band_phase1_is_na_and_phase6_fragile():
+    assert robustness.phased_roce_band(_hl(avg_roce_pct=50.0), 1) == "n/a"
+    assert robustness.phased_roce_band(_hl(avg_roce_pct=50.0), 6) == "fragile"
+
+
+def test_phased_band_phase4_relaxed_to_15():
+    assert robustness.phased_roce_band(_hl(avg_roce_pct=21.0), 4) == "robust"
+    assert robustness.phased_roce_band(_hl(avg_roce_pct=16.0), 4) == "mid"
+    assert robustness.phased_roce_band(_hl(avg_roce_pct=14.0), 4) == "fragile"
+
+
+def test_phased_band_phase3_roce_and_roic():
+    # both strong -> robust
+    assert robustness.phased_roce_band(
+        _hl(roce_latest_pct=12.0, roce_rising=True, incremental_roic_pct=25.0), 3) == "robust"
+    # only rising ROCE >=10 -> mid
+    assert robustness.phased_roce_band(
+        _hl(roce_latest_pct=12.0, roce_rising=True, incremental_roic_pct=5.0), 3) == "mid"
+    # only incr ROIC >20 -> mid
+    assert robustness.phased_roce_band(
+        _hl(roce_latest_pct=8.0, roce_rising=True, incremental_roic_pct=25.0), 3) == "mid"
+    # neither -> fragile
+    assert robustness.phased_roce_band(
+        _hl(roce_latest_pct=8.0, roce_rising=False, incremental_roic_pct=5.0), 3) == "fragile"
+    # both inputs missing -> strict gate fallback (anti-dodge)
+    assert robustness.phased_roce_band(_hl(avg_roce_pct=25.0), 3) == "robust"
+
+
+def test_phased_band_phase2_rule_of_40():
+    # Rule of 40 met + positive incr ROIC -> conditional (mid), never robust
+    assert robustness.phased_roce_band(
+        _hl(rule_of_40_pct=43.0, incremental_roic_pct=5.0), 2) == "mid"
+    # Rule of 40 missed -> fragile
+    assert robustness.phased_roce_band(
+        _hl(rule_of_40_pct=35.0, incremental_roic_pct=5.0), 2) == "fragile"
+    # incr ROIC negative -> fragile even if R40 met
+    assert robustness.phased_roce_band(
+        _hl(rule_of_40_pct=43.0, incremental_roic_pct=-1.0), 2) == "fragile"
+    # missing input -> strict gate fallback
+    assert robustness.phased_roce_band(_hl(avg_roce_pct=7.0, rule_of_40_pct=43.0), 2) == "fragile"
+
+
+def test_verdict_phase1_defers_not_pass():
+    axes = _axes(roce="n/a")
+    v = robustness.derive_verdict(axes)
+    assert v["verdict"] == "borderline"
+    assert v["verdict_mapped"] == "revisit"
+    assert "phase 1" in v["verdict_reason"].lower()
+
+
+def test_build_table_phase2_conditional_revisit():
+    # NET-like: phase 2 from Scorecard, Rule of 40 met + positive incr ROIC.
+    headline = _hl(avg_roce_pct=7.0, rule_of_40_pct=43.0, incremental_roic_pct=5.0,
+                   roce_metric="ROCE", latest_net_debt_ebitda=-0.9,
+                   latest_adjusted_net_debt_m=-2000.0)
+    ai_notes = {
+        "Scorecard": json.dumps({"phase": 2, "verdict": "revisit"}),
+        "Robustness": json.dumps({"axes": {
+            "customers": {"band": "robust"}, "barriers": {"band": "robust"},
+            "management": {"band": "robust"}, "industry": {"band": "robust"}}}),
+    }
+    table = robustness.build_table(headline, ai_notes)
+    assert table["axes"]["roce"]["band"] == "mid"        # conditional, not fragile
+    assert table["verdict"] == "borderline"              # never a clean deep_dive
+    assert table["verdict_mapped"] == "revisit"
+
+
+def test_build_table_phase5_unchanged_strict_gate():
+    # Mature name with low ROCE and no Scorecard phase -> strict gate -> fragile roce
+    headline = _hl(avg_roce_pct=7.0, roce_metric="ROCE",
+                   latest_net_debt_ebitda=0.5, latest_adjusted_net_debt_m=1000.0)
+    ai_notes = {"Robustness": json.dumps({"axes": {
+        "customers": {"band": "robust"}, "barriers": {"band": "robust"},
+        "management": {"band": "robust"}, "industry": {"band": "robust"}}})}
+    table = robustness.build_table(headline, ai_notes)
+    assert table["axes"]["roce"]["band"] == "fragile"
+    assert table["verdict"] == "fragile"  # ROCE is a deal-breaker

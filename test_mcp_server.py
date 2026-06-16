@@ -1332,3 +1332,60 @@ def test_update_fundamentals_unknown_ticker_returns_error(monkeypatch):
         "UNKNOWN", {"operating_income": {2024: 100}},
     )
     assert "error" in _json.loads(result_json)
+
+
+def test_phase_gate_metrics_computes_rule_of_40_and_incr_roic():
+    """_phase_gate_metrics: Rule of 40 (3y CAGR + FCF margin), incremental ROIC
+    (3-delta), and latest ROCE + rising on EBIT/(TA-CL)."""
+    import mcp_server
+    fund = {
+        "years":               [2021, 2022, 2023, 2024, 2025],
+        "revenue":             [100, 130, 170, 220, 286],
+        "fcf":                 [5, 10, 18, 24, 28.6],
+        "operating_income":    [10, 15, 22, 30, 40],
+        "pretax_income":       [10, 15, 22, 30, 40],
+        "tax_provision":       [0, 0, 0, 0, 0],   # tr=0 -> NOPAT == EBIT
+        "total_debt":          [0, 0, 0, 0, 0],
+        "total_equity":        [50, 60, 75, 95, 120],
+        "cash":                [0, 0, 0, 0, 0],
+        "total_assets":        [100, 120, 150, 190, 240],
+        "current_liabilities": [20, 20, 20, 20, 20],
+    }
+    m = mcp_server._phase_gate_metrics(fund)
+    assert m["fcf_margin_pct"] == pytest.approx(10.0, abs=0.1)          # 28.6/286
+    assert m["revenue_cagr_3y_pct"] == pytest.approx(30.06, abs=0.5)    # 130->286 / 3y
+    assert m["rule_of_40_pct"] == pytest.approx(40.06, abs=0.6)
+    assert m["incremental_roic_pct"] == pytest.approx(41.67, abs=0.5)   # d25/d60
+    assert m["roce_latest_pct"] == pytest.approx(18.18, abs=0.2)        # 40/220
+    assert m["roce_rising"] is True
+
+
+def test_phase_gate_metrics_guards_on_thin_data():
+    import mcp_server
+    # <4 usable years -> incremental ROIC None; sparse -> other fields None-safe
+    m = mcp_server._phase_gate_metrics({
+        "years": [2024, 2025], "revenue": [100, 130], "fcf": [10, 13],
+        "operating_income": [10, 15], "total_assets": [100, 120],
+        "current_liabilities": [20, 20], "total_equity": [50, 60],
+        "total_debt": [0, 0], "cash": [0, 0],
+    })
+    assert m["incremental_roic_pct"] is None        # needs >=4 deltas
+    assert m["fcf_margin_pct"] == pytest.approx(10.0, abs=0.1)
+    assert m["roce_latest_pct"] == pytest.approx(15.0, abs=0.2)  # 15/(120-20)
+
+
+def test_phase_gate_metrics_incr_roic_none_when_capital_shrinks():
+    import mcp_server
+    # invested capital shrinks across the window -> guard returns None
+    m = mcp_server._phase_gate_metrics({
+        "years": [2021, 2022, 2023, 2024, 2025],
+        "revenue": [100, 110, 120, 130, 140], "fcf": [10, 11, 12, 13, 14],
+        "operating_income": [10, 11, 12, 13, 14],
+        "pretax_income": [10, 11, 12, 13, 14], "tax_provision": [0, 0, 0, 0, 0],
+        "total_debt": [0, 0, 0, 0, 0],
+        "total_equity": [120, 110, 100, 90, 80],   # shrinking (buybacks)
+        "cash": [0, 0, 0, 0, 0],
+        "total_assets": [200, 200, 200, 200, 200],
+        "current_liabilities": [50, 50, 50, 50, 50],
+    })
+    assert m["incremental_roic_pct"] is None
