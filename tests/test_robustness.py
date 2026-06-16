@@ -239,11 +239,14 @@ def test_phased_band_phase2_rule_of_40():
     # Rule of 40 missed -> fragile
     assert robustness.phased_roce_band(
         _hl(rule_of_40_pct=35.0, incremental_roic_pct=5.0), 2) == "fragile"
-    # incr ROIC negative -> fragile even if R40 met
+    # incr ROIC measurably negative -> fragile even if R40 met
     assert robustness.phased_roce_band(
         _hl(rule_of_40_pct=43.0, incremental_roic_pct=-1.0), 2) == "fragile"
-    # missing input -> strict gate fallback
-    assert robustness.phased_roce_band(_hl(avg_roce_pct=7.0, rule_of_40_pct=43.0), 2) == "fragile"
+    # incr ROIC unmeasurable (None) must NOT block a met Rule of 40 (NET case)
+    assert robustness.phased_roce_band(
+        _hl(avg_roce_pct=-12.0, rule_of_40_pct=43.0, incremental_roic_pct=None), 2) == "mid"
+    # Rule of 40 itself unmeasurable -> strict gate fallback
+    assert robustness.phased_roce_band(_hl(avg_roce_pct=7.0, rule_of_40_pct=None), 2) == "fragile"
 
 
 def test_verdict_phase1_defers_not_pass():
