@@ -5,7 +5,7 @@ No I/O. Data axes (ROCE, net debt) are fed from the fundamentals headline
 the AI 'Robustness' prescan section. See
 docs/superpowers/specs/2026-06-02-prescan-robustness-table-design.md
 """
-from scorecard_utils import parse_scorecard_json
+from scorecard_utils import parse_scorecard, parse_scorecard_json
 
 # key -> (label, is_deal_breaker, source)
 AXES = (
@@ -33,6 +33,54 @@ def band_for_roce(pct):
     if pct >= 12:
         return "mid"
     return "fragile"
+
+
+def phased_roce_band(headline, phase):
+    """Phase-aware ROCE band (see specs/2026-06-16-phase-aware-roce-gate-design).
+
+    Earlier phases clear a phase-appropriate bar instead of the flat 20% gate;
+    mature (phase 5) and unknown phases keep the strict Prasad gate. Returns
+    'robust'|'mid'|'fragile', or 'n/a' for phase 1 (too early — defer, handled
+    in derive_verdict). Anti-dodge: when a phase's specific inputs are missing,
+    fall back to the strict GAAP gate — no soft pass for unmeasurable metrics.
+    The 20% bar for phase 5 is never lowered; phases 1–3 never reach 'robust'
+    enough to clear the gate into deep_dive on capital efficiency alone (2 caps
+    at 'mid').
+    """
+    avg = headline.get("avg_roce_pct")
+    if phase == 1:
+        return "n/a"
+    if phase == 6:
+        return "fragile"
+    if phase == 2:
+        r40 = headline.get("rule_of_40_pct")
+        iroic = headline.get("incremental_roic_pct")
+        if r40 is None or iroic is None:
+            return band_for_roce(avg)  # strict gate — can't pass on unmeasurable
+        # Rule of 40 + positive incremental ROIC → conditional (never robust)
+        return "mid" if (r40 >= 40 and iroic > 0) else "fragile"
+    if phase == 3:
+        latest = headline.get("roce_latest_pct")
+        iroic = headline.get("incremental_roic_pct")
+        if latest is None and iroic is None:
+            return band_for_roce(avg)
+        strong_roce = latest is not None and latest >= 10 and bool(headline.get("roce_rising"))
+        strong_roic = iroic is not None and iroic > 20
+        if strong_roce and strong_roic:
+            return "robust"
+        if strong_roce or strong_roic:
+            return "mid"
+        return "fragile"
+    if phase == 4:
+        if avg is None:
+            return "fragile"
+        if avg >= ROCE_GATE:
+            return "robust"
+        if avg >= 15:
+            return "mid"
+        return "fragile"
+    # phase 5, None, or unrecognized → strict Prasad gate
+    return band_for_roce(avg)
 
 
 def band_for_net_debt(nd_ebitda, net_debt_m=None):
@@ -71,13 +119,24 @@ def derive_verdict(axes):
     def band(k):
         return axes.get(k, {}).get("band", "mid")
 
+    # Phase 1 — too early to judge capital returns. ROCE is 'n/a' (not a red
+    # deal-breaker); defer rather than pass, and never robust.
+    if band("roce") == "n/a":
+        return {"verdict": "borderline", "verdict_mapped": _VERDICT_MAP["borderline"],
+                "verdict_reason": "phase 1 — too early to judge capital returns (defer)"}
+
     red_db = [k for k in DEAL_BREAKERS if band(k) == "fragile"]
     noncrit_red = sum(1 for k, _, db, _ in AXES if not db and band(k) == "fragile")
 
     if red_db:
         verdict, reason = "fragile", f"deal-breaker red: {', '.join(red_db)}"
     elif band("roce") != "robust":
-        verdict, reason = "borderline", f"ROCE below the {ROCE_GATE}% gate"
+        _ph = axes.get("roce", {}).get("phase")
+        if _ph in (2, 3, 4):
+            reason = f"phase {_ph} — capital returns conditional (below the mature 20% gate)"
+        else:
+            reason = f"ROCE below the {ROCE_GATE}% gate"
+        verdict = "borderline"
     elif any(band(k) == "mid" for k in DEAL_BREAKERS) or noncrit_red >= 2:
         amber_db = [k for k in DEAL_BREAKERS if band(k) == "mid"]
         reason = (f"deal-breaker amber: {', '.join(amber_db)}" if amber_db
@@ -90,16 +149,17 @@ def derive_verdict(axes):
             "verdict_reason": reason}
 
 
-def compute_data_axes(headline):
+def compute_data_axes(headline, phase=None):
     """Two data-driven axes from a fundamentals headline dict
-    (mcp_server._compute_fundamentals_headline)."""
+    (mcp_server._compute_fundamentals_headline). The ROCE band is phase-aware
+    when ``phase`` is supplied (defaults to the strict gate)."""
     roce_pct = headline.get("avg_roce_pct")
     metric = headline.get("roce_metric", "ROCE")
     nd_ebitda = headline.get("latest_net_debt_ebitda")
     nd_m = headline.get("latest_adjusted_net_debt_m")
     return {
-        "roce": {"band": band_for_roce(roce_pct), "value": roce_pct,
-                 "metric": metric, "source": "data"},
+        "roce": {"band": phased_roce_band(headline, phase), "value": roce_pct,
+                 "metric": metric, "phase": phase, "source": "data"},
         "net_debt": {"band": band_for_net_debt(nd_ebitda, nd_m), "value": nd_ebitda,
                      "net_debt_m": nd_m, "unit": "x_ebitda", "source": "data"},
     }
@@ -123,8 +183,11 @@ def parse_ai_axes(ai_notes):
 
 
 def merge_base_axes(headline, ai_notes):
-    """Data axes + AI axes (no overrides). Missing AI axes default to 'mid'."""
-    axes = dict(compute_data_axes(headline))
+    """Data axes + AI axes (no overrides). Missing AI axes default to 'mid'.
+    The business phase is read from the Scorecard section (set by the prescan,
+    never inferred here) and drives the phase-aware ROCE band."""
+    phase = parse_scorecard(ai_notes).get("phase")
+    axes = dict(compute_data_axes(headline, phase))
     ai = parse_ai_axes(ai_notes)
     for key in AI_AXES:
         axes[key] = ai.get(key, {"band": "mid", "note": "", "source": "ai"})

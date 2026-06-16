@@ -650,6 +650,91 @@ def _set_sotp_corporate_overhead_impl(ticker: str, value: float,
 # ---------------------------------------------------------------------------
 
 
+def _phase_gate_metrics(fund):
+    """Extra metrics for the phase-aware ROCE gate (robustness engine, see
+    specs/2026-06-16-phase-aware-roce-gate-design): Rule of 40 (3y revenue CAGR
+    + FCF margin), incremental ROIC (3-delta, best-effort), and latest-year
+    ROCE + rising trend on the same EBIT/(TA−CL) basis as the headline ROCE.
+    Every key defaults to None when not computable."""
+    out = {
+        "revenue_cagr_3y_pct": None, "fcf_margin_pct": None, "rule_of_40_pct": None,
+        "incremental_roic_pct": None, "roce_latest_pct": None, "roce_rising": None,
+    }
+    rev = fund.get("revenue") or []
+    fcf = fund.get("fcf") or []
+    oi = fund.get("operating_income") or []
+    tax = fund.get("tax_provision") or []
+    pretax = fund.get("pretax_income") or []
+    debt = fund.get("total_debt") or []
+    eq = fund.get("total_equity") or []
+    cash = fund.get("cash") or []
+    ta = fund.get("total_assets") or []
+    cl = fund.get("current_liabilities") or []
+    n = len(fund.get("years") or [])
+
+    # Revenue 3y CAGR over the last 4 usable revenue points (steadier than YoY)
+    rev_pts = [(i, v) for i, v in enumerate(rev) if v is not None and v > 0]
+    if len(rev_pts) >= 2:
+        last_i, last_v = rev_pts[-1]
+        base_i, base_v = rev_pts[max(0, len(rev_pts) - 4)]
+        years = last_i - base_i
+        if years > 0 and base_v > 0:
+            out["revenue_cagr_3y_pct"] = ((last_v / base_v) ** (1 / years) - 1) * 100
+
+    # FCF margin — latest year where both revenue and FCF exist
+    for i in range(n - 1, -1, -1):
+        rv = rev[i] if i < len(rev) else None
+        fv = fcf[i] if i < len(fcf) else None
+        if rv and fv is not None and rv > 0:
+            out["fcf_margin_pct"] = fv / rv * 100
+            break
+
+    if out["revenue_cagr_3y_pct"] is not None and out["fcf_margin_pct"] is not None:
+        out["rule_of_40_pct"] = out["revenue_cagr_3y_pct"] + out["fcf_margin_pct"]
+
+    # Incremental ROIC = ΔNOPAT / ΔInvestedCapital over the last 3 deltas
+    nopat, invcap = {}, {}
+    for i in range(n):
+        oi_v = oi[i] if i < len(oi) else None
+        if oi_v is None:
+            continue
+        tr = 0.21  # fallback effective tax rate
+        px = pretax[i] if i < len(pretax) else None
+        tx = tax[i] if i < len(tax) else None
+        if px and tx is not None and px != 0:
+            _tr = tx / px
+            if 0 <= _tr <= 0.35:
+                tr = _tr
+        nopat[i] = oi_v * (1 - tr)
+        d = debt[i] if i < len(debt) else None
+        e = eq[i] if i < len(eq) else None
+        c = (cash[i] if i < len(cash) else 0) or 0
+        if d is not None and e is not None:
+            invcap[i] = d + e - c
+    common = sorted(set(nopat) & set(invcap))
+    if len(common) >= 4:
+        pts = common[-4:]
+        d_nopat = nopat[pts[-1]] - nopat[pts[0]]
+        d_inv = invcap[pts[-1]] - invcap[pts[0]]
+        if d_inv > 0:  # guard: shrinking capital → sign-flipped artifact
+            out["incremental_roic_pct"] = d_nopat / d_inv * 100
+
+    # Latest-year ROCE + rising trend, EBIT/(TA−CL) (cash kept, like headline)
+    roce = {}
+    for i in range(n):
+        oi_v = oi[i] if i < len(oi) else None
+        ta_v = ta[i] if i < len(ta) else None
+        cl_v = cl[i] if i < len(cl) else None
+        if oi_v is not None and ta_v and cl_v is not None and (ta_v - cl_v) > 0:
+            roce[i] = oi_v / (ta_v - cl_v) * 100
+    rk = sorted(roce)
+    if rk:
+        out["roce_latest_pct"] = roce[rk[-1]]
+        if len(rk) >= 2:
+            out["roce_rising"] = roce[rk[-1]] > roce[rk[max(0, len(rk) - 4)]]
+    return out
+
+
 def _compute_fundamentals_headline(fund, cfg):
     """Compute the same headline metrics the watchlist + detail page show:
     avg ROCE (with ROE fallback for float businesses), current FCF Yield,
@@ -704,6 +789,9 @@ def _compute_fundamentals_headline(fund, cfg):
             ebitda = oi_latest + da_latest
             if ebitda > 0:
                 headline["latest_net_debt_ebitda"] = round(nd / ebitda, 2)
+
+    # Phase-aware ROCE-gate inputs (robustness engine reads these)
+    headline.update(_phase_gate_metrics(fund))
     return headline
 
 
