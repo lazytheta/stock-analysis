@@ -4204,8 +4204,11 @@ def _watchlist_overview():
         shadow = T.get("shadow_hover", "0 6px 20px rgba(0,0,0,0.15)")
 
         def _tip(text_val, color, help_text):
-            num = (f'<span style="color:{color};font-weight:500">{text_val}</span>'
-                   if color else f'<span>{text_val}</span>')
+            # Fixed-width right-aligned number box so figures line up under each
+            # other (1 vs 2 digits, decimals) while the cell stays centered.
+            _ns = "display:inline-block;min-width:42px;text-align:right"
+            num = (f'<span style="{_ns};color:{color};font-weight:500">{text_val}</span>'
+                   if color else f'<span style="{_ns}">{text_val}</span>')
             return (
                 f'{num}'
                 f'<span class="cap-tip" style="position:relative;cursor:help;margin-left:5px">'
@@ -4248,8 +4251,8 @@ def _watchlist_overview():
             if not label:
                 continue
             if label == "Capital":
-                # Right-align to sit above the right-aligned figures below.
-                col.markdown('<div style="text-align:right"><b>Capital</b></div>',
+                # Centered header above the centered figure column.
+                col.markdown('<div style="text-align:center"><b>Capital</b></div>',
                              unsafe_allow_html=True)
             else:
                 col.markdown(f"**{label}**")
@@ -4288,10 +4291,10 @@ def _watchlist_overview():
         )
         cols[5].markdown(f"${row['buy_price']:.2f}")
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
-        # Capital returns — figure + per-cell "?" tooltip, right-aligned so the
-        # values line up under each other regardless of width (1 vs 2 digits).
+        # Capital returns — figure + per-cell "?" tooltip. Cell centered; the
+        # fixed-width number box inside keeps the figures aligned under each other.
         cols[7].markdown(
-            f'<div style="text-align:right;white-space:nowrap">{_cap_cell_md(row)}</div>',
+            f'<div style="text-align:center;white-space:nowrap">{_cap_cell_md(row)}</div>',
             unsafe_allow_html=True,
         )
         cols[8].markdown(f"{row['fcf_yield']:.1%}" if row['fcf_yield'] else "—")
