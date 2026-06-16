@@ -4137,6 +4137,11 @@ def _watchlist_overview():
             # Avg ROCE (EBIT/(TA−CL)) with float ROE-fallback + manual override
             # — shared single source of truth (scorecard_utils.compute_roce_metric).
             roce_metric, roce_avg = compute_roce_metric(_fund, cfg_wl)
+            # Phase-aware capital-returns axis from the robustness engine (when the
+            # ticker has been assessed): names the metric that actually applied for
+            # its phase (e.g. "Rule of 40" for a phase-2 name) with its own band,
+            # instead of a misleading raw ROCE. Falls back to Avg ROCE below.
+            _rob_roce = ((cfg_wl.get('robustness') or {}).get('axes') or {}).get('roce') or {}
         except Exception as e:
             logger.warning("Watchlist row build failed for %s: %s", t, e)
             continue
@@ -4151,6 +4156,10 @@ def _watchlist_overview():
             'upside': upside,
             'roce_avg': roce_avg,
             'roce_metric': roce_metric,
+            'cap_band': _rob_roce.get('band'),
+            'cap_metric': _rob_roce.get('metric'),
+            'cap_value': _rob_roce.get('value'),
+            'cap_phase': _rob_roce.get('phase'),
             'fcf_yield': fcf_yield_val,
             'valuation_summary': cfg_wl.get('valuation_summary'),
         })
@@ -4170,7 +4179,7 @@ def _watchlist_overview():
 
     def _render_wl_header():
         hdr = st.columns([0.3, 1.0, 1.6, 0.8, 1.5, 0.8, 0.7, 0.6, 0.7, 0.7, 0.3])
-        _wl_hdr = ["", "Ticker", "Company", "Price", "Fair Value", "Buy", "Upside", "Avg ROCE", "FCF Yield", "Earnings", ""]
+        _wl_hdr = ["", "Ticker", "Company", "Price", "Fair Value", "Buy", "Upside", "Capital", "FCF Yield", "Earnings", ""]
         for col, label in zip(hdr, _wl_hdr):
             if label:
                 col.markdown(f"**{label}**")
@@ -4209,21 +4218,39 @@ def _watchlist_overview():
         )
         cols[5].markdown(f"${row['buy_price']:.2f}")
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
-        # Avg ROCE — color-coded vs Prasad's 20% screen-bar. For float
-        # businesses (ABNB, V, MA, brokers) the cell silently swaps to
-        # ROE with a "(ROE)" suffix so the user sees they're reading a
-        # different metric for those names.
-        _wl_roce = row.get('roce_avg')
-        _wl_metric = row.get('roce_metric', 'ROCE')
-        _wl_suffix = " (ROE)" if _wl_metric == 'ROE' else ""
-        if _wl_roce is None:
-            cols[7].markdown("—")
-        elif _wl_roce >= 20:
-            cols[7].markdown(f":green[{_wl_roce:.1f}%{_wl_suffix}]")
-        elif _wl_roce < 10:
-            cols[7].markdown(f":red[{_wl_roce:.1f}%{_wl_suffix}]")
+        # Capital returns — phase-aware. When the robustness engine has assessed
+        # the ticker, show the metric that applied for its phase (e.g. "Rule of
+        # 40" for a phase-2 name) coloured by its band, matching the detail page.
+        # Otherwise fall back to the raw Avg ROCE/ROE on Prasad's 20% screen-bar.
+        _cap_band = row.get('cap_band')
+        _cap_metric = row.get('cap_metric')
+        _cap_value = row.get('cap_value')
+        _cap_abbr = {"Rule of 40": "R40", "Incr. ROIC": "iROIC",
+                     "ROCE (latest)": "ROCE", "ROCE": "ROCE", "ROE": "ROE"}
+        if _cap_band == "n/a":
+            cols[7].markdown("— *defer*")
+        elif _cap_band and _cap_metric and _cap_value is not None:
+            _abbr = _cap_abbr.get(_cap_metric, _cap_metric)
+            _txt = f"{_cap_value:.0f}% {_abbr}"
+            if _cap_band == "robust":
+                cols[7].markdown(f":green[{_txt}]")
+            elif _cap_band == "fragile":
+                cols[7].markdown(f":red[{_txt}]")
+            else:
+                cols[7].markdown(_txt)
         else:
-            cols[7].markdown(f"{_wl_roce:.1f}%{_wl_suffix}")
+            # Fallback: raw Avg ROCE/ROE (ticker not yet assessed)
+            _wl_roce = row.get('roce_avg')
+            _wl_metric = row.get('roce_metric', 'ROCE')
+            _wl_suffix = " (ROE)" if _wl_metric == 'ROE' else ""
+            if _wl_roce is None:
+                cols[7].markdown("—")
+            elif _wl_roce >= 20:
+                cols[7].markdown(f":green[{_wl_roce:.1f}%{_wl_suffix}]")
+            elif _wl_roce < 10:
+                cols[7].markdown(f":red[{_wl_roce:.1f}%{_wl_suffix}]")
+            else:
+                cols[7].markdown(f"{_wl_roce:.1f}%{_wl_suffix}")
         cols[8].markdown(f"{row['fcf_yield']:.1%}" if row['fcf_yield'] else "—")
         _earn = _earnings_map.get(t)
         if _earn and _earn.get('date'):
