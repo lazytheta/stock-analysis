@@ -4188,34 +4188,58 @@ def _watchlist_overview():
     }
 
     def _cap_cell_md(row):
-        """Markdown for the Capital cell: just the number (no metric label) plus a
-        "?" whose hover tooltip explains exactly what that figure is for this
-        ticker's phase. Colour follows the robustness band (phase-aware) or the
-        20% screen-bar (fallback)."""
+        """HTML for the Capital cell: the figure plus the same circle-"?" hover
+        tooltip used on the Fundamentals tab (CSS hover-span, not a `title` attr
+        which Streamlit strips). The tooltip explains exactly what the figure is
+        for this ticker's phase. Colour follows the robustness band (phase-aware)
+        or the 20% screen-bar (fallback)."""
         import html as _html
 
-        def _q(text, color, help_text):
-            num = f":{color}[{text}]" if color else text
-            return (f'{num} <span title="{_html.escape(help_text)}" '
-                    f'style="cursor:help;opacity:0.4;font-size:0.72rem">?</span>')
+        green = T.get("green", "#81b29a")
+        red = T.get("red", "#e07a5f")
+        card = T.get("card", "#ffffff")
+        txt = T.get("text", "#111111")
+        muted = T.get("text_muted", "#888888")
+        border = T.get("border_medium", "#dddddd")
+        shadow = T.get("shadow_hover", "0 6px 20px rgba(0,0,0,0.15)")
+
+        def _tip(text_val, color, help_text):
+            num = (f'<span style="color:{color};font-weight:500">{text_val}</span>'
+                   if color else f'<span>{text_val}</span>')
+            return (
+                f'{num}'
+                f'<span class="cap-tip" style="position:relative;cursor:help;margin-left:5px">'
+                f'<svg width="14" height="14" viewBox="0 0 16 16" fill="none" '
+                f'style="opacity:0.4;vertical-align:middle">'
+                f'<circle cx="8" cy="8" r="7" stroke="{muted}" stroke-width="1.5"/>'
+                f'<text x="8" y="11.5" text-anchor="middle" font-size="10" '
+                f'font-weight="600" fill="{muted}">?</text></svg>'
+                f'<span style="visibility:hidden;opacity:0;position:absolute;right:20px;'
+                f'top:-10px;background:{card};color:{txt};border:1px solid {border};'
+                f'border-radius:8px;padding:9px 12px;font-size:0.75rem;line-height:1.45;'
+                f'font-weight:400;width:230px;white-space:normal;z-index:999;'
+                f'box-shadow:{shadow};pointer-events:none;transition:opacity 0.15s ease">'
+                f'{_html.escape(help_text)}</span></span>'
+                f'<style>.cap-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>'
+            )
 
         band, metric, value = row.get('cap_band'), row.get('cap_metric'), row.get('cap_value')
         basis = row.get('cap_basis')
         if band == "n/a":
-            return _q("— defer", None, "Phase 1 — too early to judge capital returns; defer.")
+            return _tip("— defer", None, "Phase 1 — too early to judge capital returns; defer.")
         if band and metric and value is not None:
             base = _CAP_DEFS.get(metric, metric)
             help_text = f"{base}. {basis}." if basis else f"{base}."
-            color = {"robust": "green", "fragile": "red"}.get(band)
-            return _q(f"{value:.0f}%", color, help_text)
+            color = {"robust": green, "fragile": red}.get(band)
+            return _tip(f"{value:.0f}%", color, help_text)
         # Fallback: raw multi-year Avg ROCE/ROE (ticker not yet assessed)
         rv, rm = row.get('roce_avg'), row.get('roce_metric', 'ROCE')
         if rv is None:
             return "—"
         help_text = (f"{_CAP_DEFS.get(rm, rm)} — multi-year average; this ticker "
                      "isn't assessed in the Robustness table yet.")
-        color = "green" if rv >= 20 else ("red" if rv < 10 else None)
-        return _q(f"{rv:.1f}%", color, help_text)
+        color = green if rv >= 20 else (red if rv < 10 else None)
+        return _tip(f"{rv:.1f}%", color, help_text)
 
     def _render_wl_header():
         hdr = st.columns([0.3, 1.0, 1.6, 0.8, 1.5, 0.8, 0.7, 0.6, 0.7, 0.7, 0.3])
