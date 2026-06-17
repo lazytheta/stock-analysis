@@ -9,9 +9,9 @@
 | `tastytrade_api.py` | Tastytrade API client (OAuth, positions, transactions, net liq) | ~1200 lines |
 | `ibkr_api.py` | Interactive Brokers API client (positions, transactions, net liq) | ~500 lines |
 | `broker_adapter.py` | Unified broker interface — wraps tastytrade/ibkr APIs | ~150 lines |
-| `dcf_template.py` | DCF Excel model generator (Damodaran methodology) | ~1500 lines |
 | `gather_data.py` | Automated data pipeline for DCF inputs (EDGAR, Yahoo, Treasury) | ~1300 lines |
-| `dcf_calculator.py` | Pure-Python DCF calculator (no Excel) | ~200 lines |
+| `dcf_calculator.py` | Pure-Python DCF engine (Damodaran methodology; see docs/dcf-methodology.md) | ~200 lines |
+| `notifications.py` | Notifications data layer (settings, reminders, feed, per-ticker alerts) | ~180 lines |
 | `config_store.py` | Supabase CRUD for user configs/credentials | ~150 lines |
 | `error_logger.py` | Centralized error logging to Supabase | ~50 lines |
 | `trade_utils.py` | Shared trade/position helpers | ~80 lines |
@@ -22,7 +22,7 @@
 User → Streamlit App → auth.py (Supabase Auth)
                       → broker_adapter.py → tastytrade_api.py / ibkr_api.py
                       → config_store.py (Supabase DB)
-                      → dcf_template.py → Excel output
+                      → dcf_calculator.py → multi-lens fair value
 ```
 
 ## Key Patterns

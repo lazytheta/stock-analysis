@@ -33,12 +33,11 @@ Claude hooks run ruff automatically on every file edit and at session end.
 - Use `sys.modules[...] = mock` (not `setdefault`) for module-level mocks
 - Always `del sys.modules["module"]` before reimport to ensure fresh mocks
 
-### DCF Models
-- All Excel values must use formulas, never hardcoded Python values
-- Blue font = editable inputs, Black = formulas, Green = notes
-- SBC deducted from FCFF → use GROSS buyback rate for shares
-- Always include Peer Comparison tab
-- Read `SKILL.md` before building any DCF
+### DCF (watchlist engine)
+- The DCF engine is `dcf_calculator.py`; see `docs/dcf-methodology.md` for conventions.
+- **SBC is counted once** via GAAP operating margins — do NOT subtract a separate SBC
+  line from FCFF (Option 2, 2026-06-17). `sbc_pct` is display-only.
+- Use GAAP margins; convert any pre-SBC margins via `margin_gaap = margin_presbc − sbc%`.
 
 ### Security
 - Never commit `.env` files or API keys
