@@ -93,11 +93,6 @@ def compute_intrinsic_value(cfg, wacc=None):
     if len(stc_list) < n_p:
         stc_list = list(stc_list) + [stc_list[-1] if stc_list else default_stc] * (n_p - len(stc_list))
 
-    default_sbc = cfg.get('sbc_pct', 0.004)
-    sbc_list = cfg.get('sbc_per_year', [default_sbc] * n_p)
-    if len(sbc_list) < n_p:
-        sbc_list = list(sbc_list) + [sbc_list[-1] if sbc_list else default_sbc] * (n_p - len(sbc_list))
-
     default_wacc = wacc
     wacc_list = cfg.get('wacc_per_year', [default_wacc] * n_p)
     if len(wacc_list) < n_p:
@@ -106,7 +101,6 @@ def compute_intrinsic_value(cfg, wacc=None):
     # Terminal overrides
     tv_tax = cfg.get('terminal_tax', tax_list[-1])
     tv_stc = cfg.get('terminal_stc', stc_list[-1])
-    tv_sbc_pct = cfg.get('terminal_sbc', sbc_list[-1])
     tv_wacc = cfg.get('terminal_wacc', wacc_list[-1])
 
     # Project revenues
@@ -117,11 +111,13 @@ def compute_intrinsic_value(cfg, wacc=None):
     # Discount projected FCFFs
     pv_fcff = 0
     for i in range(1, n_p + 1):
+        # op_margins are GAAP (SBC already expensed in operating income), so SBC
+        # is counted once here — no separate SBC line (avoids double-counting).
+        # Convention decided 2026-06-17 (Option 2); see notifications/SBC spec.
         oi = revs[i] * margins[i - 1]
         nopat = oi * (1 - tax_list[i - 1])
         reinvest = (revs[i] - revs[i - 1]) / stc_list[i - 1]
-        sbc = revs[i] * sbc_list[i - 1] * (1 - tax_list[i - 1])
-        fcff = nopat - reinvest - sbc
+        fcff = nopat - reinvest
         period = 0.5 + (i - 1)
         df = 1 / (1 + wacc_list[i - 1]) ** period
         pv_fcff += fcff * df
@@ -131,8 +127,7 @@ def compute_intrinsic_value(cfg, wacc=None):
     tv_oi = tv_rev * tm
     tv_nopat = tv_oi * (1 - tv_tax)
     tv_reinvest = (tv_rev - revs[-1]) / tv_stc
-    tv_sbc = tv_rev * tv_sbc_pct * (1 - tv_tax)
-    tv_fcff = tv_nopat - tv_reinvest - tv_sbc
+    tv_fcff = tv_nopat - tv_reinvest
     tv = tv_fcff / (tv_wacc - tg)
     tv_df = 1 / (1 + tv_wacc) ** (0.5 + n_p - 1)
     pv_tv = tv * tv_df

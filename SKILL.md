@@ -240,7 +240,16 @@ Do NOT add probability-weighted averages. The scenarios serve as a range, not a 
 ## Methodology Notes
 
 ### SBC Treatment
-- SBC is deducted as a real economic cost from FCFF (after-tax: Revenue × SBC% × (1-t))
+> **App engine convention (2026-06-17, Option 2):** the LazyTheta watchlist DCF
+> (`dcf_calculator.py`) uses **GAAP operating margins** (SBC already expensed in
+> operating income) and counts SBC **once** — it does **not** subtract a separate
+> SBC line from FCFF (that double-counted it). `sbc_pct` is kept for display
+> (SBC-adjusted margin, Rule of 40) only. Pre-SBC margins must NOT be used in the
+> app; convert any to GAAP via `margin_gaap = margin_presbc − sbc%` (value-
+> preserving). The Excel-template notes below describe the older separate-deduction
+> approach and should be aligned to this convention when next touched.
+
+- (Legacy/Excel) SBC deducted as a real economic cost from FCFF (after-tax: Revenue × SBC% × (1-t))
 - This is the Damodaran approach: SBC dilutes existing shareholders and is a real cost
 - Default SBC%: average of last 3 years (SBC / Revenue)
 - Since SBC is already deducted from cash flows, share count should reflect GROSS buyback activity, not net dilution
