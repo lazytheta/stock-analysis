@@ -4053,8 +4053,6 @@ def _watchlist_overview():
         unsafe_allow_html=True,
     )
 
-    _render_notifications_panel()
-
     # Red hover effect for delete buttons
     st.markdown(f"""<style>
     button[data-testid="stBaseButton-secondary"]:has(span[data-testid="stIconMaterial"]):hover {{
@@ -4633,6 +4631,9 @@ def _watchlist_overview():
                     _render_wl_row(row)
 
     st.markdown("")
+    # Notifications hub — below the watchlist (reminders, alerts, Telegram).
+    st.divider()
+    _render_notifications_panel()
 
 
 def _dcf_editor(ticker):
