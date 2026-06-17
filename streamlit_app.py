@@ -3994,27 +3994,34 @@ def _render_notifications_panel():
                 _notif.mark_all_read(_sb_client)
                 st.rerun()
             if items:
-                for it in items:
+                for it in items[:3]:
                     dot = "🟢" if not it.get("read_at") else "⚪"
-                    tk = f"**{it['ticker']}** · " if it.get("ticker") else ""
-                    st.markdown(f"{dot} {tk}{it.get('title', '')}")
+                    tk = f"{it['ticker']} · " if it.get("ticker") else ""
+                    st.markdown(
+                        f"<div style='padding:1px 0;font-size:0.9rem;white-space:nowrap;"
+                        f"overflow:hidden;text-overflow:ellipsis'>{dot} {tk}"
+                        f"{it.get('title', '')}</div>", unsafe_allow_html=True)
+                if len(items) > 3:
+                    st.caption(f"+{len(items) - 3} more")
             else:
                 st.caption("No alerts yet.")
 
         # ── Per-ticker alert opt-in (Yes-category only) ──
         # Guarded: never let this section crash the whole watchlist (e.g. a stale
         # imported-module cache on Streamlit Cloud after a deploy).
+        _yes_err = False
         try:
             yes_tickers = _notif.list_yes_tickers(_sb_client)
         except Exception:
-            yes_tickers = []
+            yes_tickers, _yes_err = [], True
         _on = sum(1 for y in yes_tickers if y["enabled"])
         with st.expander(
                 f"Alerts per ticker · {_on}/{len(yes_tickers)} on" if yes_tickers
                 else "Alerts per ticker", expanded=False):
-            st.caption("Only **Yes**-category tickers get price & earnings alerts. "
-                       "Toggle individual names below.")
-            if not yes_tickers:
+            st.caption("Only **Yes**-category tickers get price & earnings alerts.")
+            if _yes_err:
+                st.caption("⚠️ Couldn't load the list — reboot the app (Manage app → Reboot).")
+            elif not yes_tickers:
                 st.caption("No tickers in the **Yes** category yet.")
             for y in yes_tickers:
                 tc1, tc2 = st.columns([5, 1], vertical_alignment="center")
