@@ -12,7 +12,6 @@ import logging
 import os
 import sys
 import contextlib
-import tempfile
 import time
 from datetime import date, datetime, timedelta
 from collections import defaultdict
@@ -3873,28 +3872,6 @@ def _flush_clean(buf, prev_pos, status):
     return buf.tell()
 
 
-def _build_excel_bytes(cfg):
-    """Build DCF Excel model in memory, return bytes."""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    template_path = os.path.join(script_dir, "dcf_template.py")
-
-    ns = {}
-    with open(template_path, "r") as f:
-        exec(f.read(), ns)
-
-    tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
-    tmp_path = tmp.name
-    tmp.close()
-
-    try:
-        ns["build_dcf_model"](cfg, tmp_path)
-        with open(tmp_path, "rb") as f:
-            return f.read()
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-
-
 TELEGRAM_BOT_USERNAME = "LazyTheta_bot"
 
 
@@ -4025,7 +4002,12 @@ def _render_notifications_panel():
                 st.caption("No alerts yet.")
 
         # ── Per-ticker alert opt-in (Yes-category only) ──
-        yes_tickers = _notif.list_yes_tickers(_sb_client)
+        # Guarded: never let this section crash the whole watchlist (e.g. a stale
+        # imported-module cache on Streamlit Cloud after a deploy).
+        try:
+            yes_tickers = _notif.list_yes_tickers(_sb_client)
+        except Exception:
+            yes_tickers = []
         _on = sum(1 for y in yes_tickers if y["enabled"])
         with st.expander(
                 f"Alerts per ticker · {_on}/{len(yes_tickers)} on" if yes_tickers
@@ -4123,7 +4105,7 @@ def _watchlist_overview():
             pass
         else:
             try:
-                _, wl_cfg, _ = run_analysis(
+                wl_cfg, _ = run_analysis(
                     ticker_clean,
                     peer_mode="Auto-discover",
                     manual_peers="",
@@ -8102,7 +8084,7 @@ def _dcf_editor(ticker):
 
     # ── Action buttons ──
     st.markdown("---")
-    btn1, btn2, btn3 = st.columns(3)
+    btn1, btn3 = st.columns(2)
     with btn1:
         if st.button("Save", key="ed_save", use_container_width=True, type="primary"):
             # Pick up any unsubmitted peer ticker from the add-peer text field
@@ -8119,23 +8101,6 @@ def _dcf_editor(ticker):
             save_config(_sb_client, ticker, cfg)
             st.success(f"{ticker} saved")
             st.rerun()
-    with btn2:
-        @st.cache_data(ttl=60, show_spinner=False)
-        def _cached_excel(ticker_key, cfg_json):
-            import json as _json
-            return _build_excel_bytes(_json.loads(cfg_json))
-
-        import json as _json
-        excel_bytes = _cached_excel(ticker, _json.dumps(cfg, sort_keys=True, default=str))
-        st.download_button(
-            label="Download Excel",
-            data=excel_bytes,
-            file_name=f"{ticker}_DCF.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            key="ed_dl",
-            type="primary",
-        )
     with btn3:
         if st.button("Remove from Watchlist", key="ed_remove", use_container_width=True, type="primary"):
             remove_from_watchlist(_sb_client, ticker)
@@ -8446,15 +8411,9 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
 
         status.write(f"\u2705 Configuration complete")
 
-        # ── Step 8: Generate Excel ──
-        status.write("\u23f3 Generating Excel DCF model...")
-        with contextlib.redirect_stdout(buf):
-            excel_bytes = _build_excel_bytes(cfg)
-        pos = _flush_clean(buf, pos, status)
-
         status.update(label=f"Analysis complete \u2014 {company_name} ({ticker})", state="complete", expanded=False)
 
-    return excel_bytes, cfg, _cr
+    return cfg, _cr
 
 
 # ══════════════════════════════════════════════════════

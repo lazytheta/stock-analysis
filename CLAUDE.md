@@ -9,7 +9,7 @@ Options portfolio tracker + DCF valuation tool. Streamlit app at lazytheta.io.
 | Architecture & module map | `docs/architecture.md` |
 | Coding standards & lint rules | `docs/coding-standards.md` |
 | Testing guide | `docs/testing.md` |
-| DCF methodology & config reference | `SKILL.md` |
+| DCF methodology & config reference | `docs/dcf-methodology.md` |
 | Saved company configs | `configs/` |
 
 ## Enforced Rules

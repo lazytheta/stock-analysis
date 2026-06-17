@@ -2601,12 +2601,9 @@ def write_config(cfg, output_path):
     lines.append(f"Auto-generated: {datetime.now().strftime('%B %d, %Y')}")
     lines.append(f"Source: EDGAR XBRL + Yahoo Finance + Treasury.gov")
     lines.append(f"")
-    lines.append(f"Usage:")
-    lines.append(f"    exec(open('dcf_template.py').read())")
-    lines.append(f"    exec(open('configs/{ticker.lower()}_config.py').read())")
-    lines.append(f"    build_dcf_model(cfg, 'output/{ticker}_DCF.xlsx')")
+    lines.append(f"Auto-generated DCF config for the LazyTheta watchlist app.")
     lines.append(f"")
-    lines.append(f"All values in $M unless noted. Blue cells in Excel = editable assumptions.")
+    lines.append(f"All values in $M unless noted.")
     lines.append(f'"""')
     lines.append(f"")
     lines.append(f"cfg = {{")
@@ -3375,12 +3372,6 @@ Examples:
         "--output",
         help="Output file path (default: configs/<ticker>_config.py)",
     )
-    parser.add_argument(
-        "--build",
-        action="store_true",
-        help="Also build the DCF Excel model after generating the config",
-    )
-
     args = parser.parse_args()
     ticker = args.ticker.upper()
 
@@ -3547,34 +3538,7 @@ Examples:
     print(f"  Config ready at: {output_path}")
     print(f"{'=' * 60}")
 
-    # ── Step 9: Build DCF Excel model ──
-    if args.build:
-        output_dir = os.path.expanduser("~/Desktop/DCF Output")
-        os.makedirs(output_dir, exist_ok=True)
-        excel_path = os.path.join(output_dir, f"{ticker}_DCF.xlsx")
-
-        print(f"\n[Build] Generating DCF model → {excel_path}")
-        template_path = os.path.join(script_dir, "dcf_template.py")
-
-        try:
-            ns = {}
-            exec(open(template_path).read(), ns)
-            ns["build_dcf_model"](cfg, excel_path)
-            print(f"\n{'=' * 60}")
-            print(f"  DCF model saved: {excel_path}")
-            print(f"{'=' * 60}")
-        except Exception as e:
-            print(f"\n  ERROR building DCF: {e}")
-            print(f"  Config was saved — you can build manually:")
-            print(f"    exec(open('dcf_template.py').read())")
-            print(f"    exec(open('{output_path}').read())")
-            print(f"    build_dcf_model(cfg, '{excel_path}')")
-    else:
-        print(f"\nNext steps:")
-        print(f"  python3 gather_data.py {ticker} --build   # or manually:")
-        print(f"  exec(open('dcf_template.py').read())")
-        print(f"  exec(open('{output_path}').read())")
-        print(f"  build_dcf_model(cfg, os.path.expanduser('~/Desktop/DCF Output/{ticker}_DCF.xlsx'))")
+    print(f"\nConfig saved → load {ticker} in the LazyTheta watchlist app.")
 
 
 if __name__ == "__main__":
