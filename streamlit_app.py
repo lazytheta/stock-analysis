@@ -3898,65 +3898,141 @@ def _build_excel_bytes(cfg):
 TELEGRAM_BOT_USERNAME = "LazyTheta_bot"
 
 
+def _notif_bell_svg(color, size=20):
+    """Filled bell icon in the given colour (emoji can't be recoloured)."""
+    return (
+        f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="{color}" '
+        f'style="vertical-align:middle;flex:none">'
+        f'<path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm7-5v-1l-1.6-1.6'
+        f'V9.5a5.5 5.5 0 0 0-4.4-5.39V3.5a1 1 0 0 0-2 0v.61A5.5 5.5 0 0 0 6.6 9.5v4.9'
+        f'L5 16v1z"/></svg>'
+    )
+
+
+def _notif_friendly_date(iso_str, today):
+    """'Today' / 'Tomorrow' / weekday / 'Mon 23 Jun', or 'Overdue · …'."""
+    from datetime import date as _d
+    try:
+        d = _d.fromisoformat(str(iso_str))
+    except Exception:
+        return str(iso_str), False
+    delta = (d - today).days
+    if delta < 0:
+        return f"Overdue · {d.strftime('%-d %b')}", True
+    if delta == 0:
+        return "Today", False
+    if delta == 1:
+        return "Tomorrow", False
+    if delta < 7:
+        return d.strftime("%A"), False
+    return d.strftime("%a %-d %b"), False
+
+
 def _render_notifications_panel():
-    """Subtle in-app notifications hub at the top of the watchlist: an unread
-    count in the expander label, the recent feed, a custom-reminder form, and
-    the Telegram connect link. Fails quiet if the tables/session aren't ready."""
+    """Agenda-style notifications dashboard at the top of the watchlist: a green
+    bell header with summary chips, upcoming reminders grouped by date, a recent-
+    alerts feed, an add-reminder form, and Telegram linking. Fails quiet if the
+    tables/session aren't ready."""
     import notifications as _notif
+    from datetime import date
 
     try:
-        n_unread = _notif.unread_count(_sb_client)
+        items = _notif.list_notifications(_sb_client, limit=30)
+        reminders = _notif.list_custom_reminders(_sb_client)
+        connected = _notif.telegram_connected(_sb_client)
     except Exception:
         return
-    label = f"🔔 Notifications ({n_unread})" if n_unread else "🔔 Notifications"
-    with st.expander(label, expanded=bool(n_unread)):
-        items = _notif.list_notifications(_sb_client, limit=20)
-        if any(not i.get("read_at") for i in items) and st.button(
-                "Mark all read", key="notif_mark_all"):
-            _notif.mark_all_read(_sb_client)
+
+    n_unread = sum(1 for i in items if not i.get("read_at"))
+    today = date.today()
+    accent = T["accent"]
+    muted = T["text_muted"]
+    fill = T.get("accent_fill", accent)
+    red = T.get("red", "#e07a5f")
+
+    st.markdown(f"""<style>
+    .st-key-notif_dash {{ border:1px solid {T['border_light']}; border-radius:16px;
+        padding:14px 20px 8px; background:{T['card']}; margin:4px 0 18px;
+        box-shadow:{T.get('shadow', '0 1px 3px rgba(0,0,0,0.06)')}; }}
+    .notif-chip {{ font-size:0.76rem; padding:2px 10px; border-radius:980px;
+        background:{fill}; color:{accent}; font-weight:600; margin-left:6px;
+        white-space:nowrap; }}
+    .notif-date {{ font-size:0.74rem; font-weight:700; color:{muted};
+        text-transform:uppercase; letter-spacing:0.05em; margin:12px 0 2px; }}
+    .notif-tk {{ background:{fill}; color:{accent}; font-weight:700; font-size:0.7rem;
+        padding:1px 7px; border-radius:6px; margin-right:7px; }}
+    </style>""", unsafe_allow_html=True)
+
+    with st.container(key="notif_dash"):
+        up_chip = f'<span class="notif-chip">{len(reminders)} upcoming</span>' if reminders else ""
+        un_chip = f'<span class="notif-chip">{n_unread} new</span>' if n_unread else ""
+        tg_chip = ('<span class="notif-chip">✓ Telegram</span>' if connected
+                   else '<span class="notif-chip" style="opacity:0.6">Telegram off</span>')
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:9px;margin-bottom:2px">'
+            f'{_notif_bell_svg(accent)}'
+            f'<span style="font-weight:700;font-size:1.08rem">Notifications</span>'
+            f'<span style="flex:1"></span>{up_chip}{un_chip}{tg_chip}</div>',
+            unsafe_allow_html=True)
+
+        # ── Agenda: upcoming reminders grouped by date ──
+        if reminders:
+            last_label = None
+            for rem in reminders:
+                label, overdue = _notif_friendly_date(rem["fire_date"], today)
+                if label != last_label:
+                    _c = red if overdue else muted
+                    st.markdown(f'<div class="notif-date" style="color:{_c}">{label}</div>',
+                                unsafe_allow_html=True)
+                    last_label = label
+                ac1, ac2 = st.columns([9, 0.6], vertical_alignment="center")
+                tkb = f'<span class="notif-tk">{rem["ticker"]}</span>' if rem.get("ticker") else ""
+                ac1.markdown(f'<div style="padding:2px 0">{tkb}{rem["text_body"]}</div>',
+                             unsafe_allow_html=True)
+                if ac2.button("✕", key=f"notif_rem_del_{rem['id']}", help="Delete reminder"):
+                    _notif.delete_custom_reminder(_sb_client, rem["id"])
+                    st.rerun()
+        else:
+            st.markdown(f'<div style="color:{muted};font-size:0.9rem;margin:8px 0">'
+                        'Niets gepland — voeg hieronder een reminder toe.</div>',
+                        unsafe_allow_html=True)
+
+        # ── Add a reminder ──
+        rc1, rc2, rc3 = st.columns([1.1, 2.8, 0.7], vertical_alignment="bottom")
+        r_date = rc1.date_input("Date", key="notif_rem_date", min_value=today,
+                                label_visibility="collapsed")
+        r_text = rc2.text_input("Reminder", key="notif_rem_text",
+                                placeholder="New reminder — e.g. Re-check AVGO after earnings",
+                                label_visibility="collapsed")
+        if rc3.button("Add", key="notif_rem_add", use_container_width=True) and r_text:
+            _notif.add_custom_reminder(_sb_client, r_date, r_text)
+            st.toast("Reminder added")
             st.rerun()
-        if items:
-            for it in items:
-                dot = "🟢" if not it.get("read_at") else "⚪"
-                tk = f"**{it['ticker']}** · " if it.get("ticker") else ""
-                body = it.get("body") or ""
-                st.markdown(
-                    f"{dot} {tk}{it.get('title', '')}  \n"
-                    f"<span style='color:{T['text_muted']};font-size:0.85rem'>{body}</span>",
-                    unsafe_allow_html=True,
-                )
-        else:
-            st.caption("No notifications yet.")
 
-        st.divider()
-        st.markdown("**Add a reminder**")
-        rc1, rc2, rc3 = st.columns([1.2, 2.6, 0.7], vertical_alignment="bottom")
-        with rc1:
-            r_date = st.date_input("Date", key="notif_rem_date", label_visibility="collapsed")
-        with rc2:
-            r_text = st.text_input("Reminder", key="notif_rem_text",
-                                   placeholder="e.g. Re-check AVGO after earnings",
-                                   label_visibility="collapsed")
-        with rc3:
-            if st.button("Add", key="notif_rem_add", use_container_width=True) and r_text:
-                _notif.add_custom_reminder(_sb_client, r_date, r_text)
-                st.toast("Reminder added")
+        # ── Recent alerts feed (collapsed) ──
+        with st.expander(f"Recent alerts · {n_unread} new" if n_unread else "Recent alerts",
+                         expanded=False):
+            if any(not i.get("read_at") for i in items) and st.button(
+                    "Mark all read", key="notif_mark_all"):
+                _notif.mark_all_read(_sb_client)
                 st.rerun()
-        for rem in _notif.list_custom_reminders(_sb_client):
-            pc1, pc2 = st.columns([5, 0.5], vertical_alignment="center")
-            _rtk = f"{rem['ticker']} · " if rem.get("ticker") else ""
-            pc1.markdown(f"📅 **{rem['fire_date']}** — {_rtk}{rem['text_body']}")
-            if pc2.button("✕", key=f"notif_rem_del_{rem['id']}", help="Delete reminder"):
-                _notif.delete_custom_reminder(_sb_client, rem["id"])
-                st.rerun()
+            if items:
+                for it in items:
+                    dot = "🟢" if not it.get("read_at") else "⚪"
+                    tk = f"**{it['ticker']}** · " if it.get("ticker") else ""
+                    st.markdown(f"{dot} {tk}{it.get('title', '')}")
+            else:
+                st.caption("No alerts yet.")
 
-        st.divider()
-        if _notif.telegram_connected(_sb_client):
-            st.caption("✅ Telegram connected — alerts will be pushed to your chat.")
-        else:
+        # ── Telegram linking ──
+        if not connected:
             tok = _notif.ensure_link_token(_sb_client)
             url = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={tok}"
-            st.markdown(f"[🔗 Connect Telegram for push alerts]({url}) — tap **Start** in the bot.")
+            st.markdown(
+                f'<div style="margin:6px 0 2px;font-size:0.9rem">🔗 '
+                f'<a href="{url}" target="_blank" style="color:{accent};font-weight:600">'
+                f'Connect Telegram for push alerts</a> — tap <b>Start</b> in the bot.</div>',
+                unsafe_allow_html=True)
 
 
 def _watchlist_overview():
