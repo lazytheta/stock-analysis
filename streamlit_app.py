@@ -3895,6 +3895,70 @@ def _build_excel_bytes(cfg):
             os.remove(tmp_path)
 
 
+TELEGRAM_BOT_USERNAME = "LazyTheta_bot"
+
+
+def _render_notifications_panel():
+    """Subtle in-app notifications hub at the top of the watchlist: an unread
+    count in the expander label, the recent feed, a custom-reminder form, and
+    the Telegram connect link. Fails quiet if the tables/session aren't ready."""
+    import notifications as _notif
+
+    try:
+        n_unread = _notif.unread_count(_sb_client)
+    except Exception:
+        return
+    label = f"🔔 Notifications ({n_unread})" if n_unread else "🔔 Notifications"
+    with st.expander(label, expanded=bool(n_unread)):
+        items = _notif.list_notifications(_sb_client, limit=20)
+        if any(not i.get("read_at") for i in items) and st.button(
+                "Mark all read", key="notif_mark_all"):
+            _notif.mark_all_read(_sb_client)
+            st.rerun()
+        if items:
+            for it in items:
+                dot = "🟢" if not it.get("read_at") else "⚪"
+                tk = f"**{it['ticker']}** · " if it.get("ticker") else ""
+                body = it.get("body") or ""
+                st.markdown(
+                    f"{dot} {tk}{it.get('title', '')}  \n"
+                    f"<span style='color:{T['text_muted']};font-size:0.85rem'>{body}</span>",
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.caption("No notifications yet.")
+
+        st.divider()
+        st.markdown("**Add a reminder**")
+        rc1, rc2, rc3 = st.columns([1.2, 2.6, 0.7], vertical_alignment="bottom")
+        with rc1:
+            r_date = st.date_input("Date", key="notif_rem_date", label_visibility="collapsed")
+        with rc2:
+            r_text = st.text_input("Reminder", key="notif_rem_text",
+                                   placeholder="e.g. Re-check AVGO after earnings",
+                                   label_visibility="collapsed")
+        with rc3:
+            if st.button("Add", key="notif_rem_add", use_container_width=True) and r_text:
+                _notif.add_custom_reminder(_sb_client, r_date, r_text)
+                st.toast("Reminder added")
+                st.rerun()
+        for rem in _notif.list_custom_reminders(_sb_client):
+            pc1, pc2 = st.columns([5, 0.5], vertical_alignment="center")
+            _rtk = f"{rem['ticker']} · " if rem.get("ticker") else ""
+            pc1.markdown(f"📅 **{rem['fire_date']}** — {_rtk}{rem['text_body']}")
+            if pc2.button("✕", key=f"notif_rem_del_{rem['id']}", help="Delete reminder"):
+                _notif.delete_custom_reminder(_sb_client, rem["id"])
+                st.rerun()
+
+        st.divider()
+        if _notif.telegram_connected(_sb_client):
+            st.caption("✅ Telegram connected — alerts will be pushed to your chat.")
+        else:
+            tok = _notif.ensure_link_token(_sb_client)
+            url = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={tok}"
+            st.markdown(f"[🔗 Connect Telegram for push alerts]({url}) — tap **Start** in the bot.")
+
+
 def _watchlist_overview():
     st.markdown("## Watchlist")
     st.markdown(
@@ -3904,6 +3968,8 @@ def _watchlist_overview():
         '</p>',
         unsafe_allow_html=True,
     )
+
+    _render_notifications_panel()
 
     # Red hover effect for delete buttons
     st.markdown(f"""<style>
