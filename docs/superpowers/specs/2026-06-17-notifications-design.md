@@ -3,8 +3,24 @@
 **Date:** 2026-06-17
 **Status:** Approved — building Phase 1.
 
+## Architecture change (2026-06-17, during build)
+
+The app authenticates with the **anon key** (`auth.py`) — there is **no
+service-role key in use**, so an external GitHub Actions Python worker can't read
+across users (RLS blocks it). Re-architected the worker as a **Supabase Edge
+Function** (`notify`) which gets `SUPABASE_SERVICE_ROLE_KEY` injected automatically
+— no service key ever leaves Supabase. The function:
+- **Webhook mode:** Telegram `setWebhook` → the function receives `/start <token>`
+  updates and binds the chat to the user (instant linking).
+- **Cron mode:** `pg_cron` + `pg_net` POST to the function URL hourly (guarded by a
+  `cron_secret`); fires due custom reminders → `notifications` row + Telegram push.
+- Bot token + cron secret live in a private `notify_config` table (RLS on, no
+  policy → service-role only). The previous GitHub Actions + `notify_job.py`
+  approach was removed.
+
 ## Decisions (review 2026-06-17)
-1. **Scheduler:** Supabase **pg_cron + Edge Function** (data-local, multi-user).
+1. **Scheduler:** Supabase **pg_cron + Edge Function** (data-local, multi-user; the
+   Edge Function carries service-role automatically — no external key needed).
 2. **Price source (Phase 2):** **TastyTrade quotes** via the Vercel MCP. Caveat —
    needs per-user TT OAuth; IBKR-only / unconnected users get no price alerts, so
    keep stored-price (or a free API) as a multi-user fallback. Resolve in Phase 2.
