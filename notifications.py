@@ -88,6 +88,37 @@ def delete_custom_reminder(client, reminder_id, user_id=None):
      .eq("id", reminder_id).eq("user_id", user_id).execute())
 
 
+# ── Per-ticker alert opt-in (price + earnings) ────────────────────────────────
+
+def list_yes_tickers(client, user_id=None):
+    """Watchlist tickers in the 'Yes' category with their per-ticker alert flag.
+    Only these are eligible for price/earnings alerts. Returns
+    [{ticker, enabled}] sorted by ticker (enabled defaults to True)."""
+    user_id = user_id or _get_user_id(client)
+    rows = (client.table("watchlist_configs").select("ticker, config")
+            .eq("user_id", user_id).execute().data or [])
+    out = []
+    for r in rows:
+        cfg = r.get("config") or {}
+        if cfg.get("category") == "Yes":
+            out.append({"ticker": r["ticker"], "enabled": cfg.get("notify", True) is not False})
+    return sorted(out, key=lambda x: x["ticker"])
+
+
+def set_ticker_alert(client, ticker, enabled, user_id=None):
+    """Set the per-ticker alert opt-in flag (config['notify']). Reads the full
+    config and writes it back so nothing else is lost."""
+    user_id = user_id or _get_user_id(client)
+    rows = (client.table("watchlist_configs").select("config")
+            .eq("user_id", user_id).eq("ticker", ticker).limit(1).execute().data or [])
+    if not rows:
+        return
+    cfg = rows[0].get("config") or {}
+    cfg["notify"] = bool(enabled)
+    (client.table("watchlist_configs").update({"config": cfg})
+     .eq("user_id", user_id).eq("ticker", ticker).execute())
+
+
 # ── Emitted notifications (in-app feed) ───────────────────────────────────────
 
 def list_notifications(client, user_id=None, unread_only=False, limit=50):

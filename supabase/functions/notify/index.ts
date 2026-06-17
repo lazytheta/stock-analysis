@@ -109,6 +109,10 @@ Deno.serve(async (req: Request) => {
     const rows = wl || [];
     const tickers = [...new Set(rows.map((r: any) => r.ticker))];
 
+    // Only "Yes"-category tickers with the per-ticker alert flag on are eligible.
+    const eligible = (row: any) =>
+      row.config?.category === "Yes" && row.config?.notify !== false;
+
     // Quotes (one /quote call per unique ticker; skip on error/limit)
     const quote: Record<string, number> = {};
     for (const t of tickers) {
@@ -122,7 +126,7 @@ Deno.serve(async (req: Request) => {
     }
     for (const row of rows) {
       const s = settings[row.user_id] || {};
-      if (s.price_alerts_enabled === false) continue;
+      if (s.price_alerts_enabled === false || !eligible(row)) continue;
       const buy = row.config?.valuation_summary?.buy_price;
       const px = quote[row.ticker];
       if (typeof buy !== "number" || !px) continue;
@@ -144,37 +148,39 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Earnings calendar (single range call, filter to our tickers)
+    // Earnings calendar — fire on the day itself, with before/after-market timing.
     const today = isoToday();
-    const earnDate: Record<string, string> = {};
+    const earnInfo: Record<string, { date: string; hour: string }> = {};
     try {
-      const r = await fetch(`https://finnhub.io/api/v1/calendar/earnings?from=${today}&to=${isoToday(14)}&token=${finnhub}`);
+      const r = await fetch(`https://finnhub.io/api/v1/calendar/earnings?from=${today}&to=${isoToday(2)}&token=${finnhub}`);
       if (r.ok) {
         const j = await r.json();
         const tset = new Set(tickers);
         for (const e of j.earningsCalendar || []) {
-          if (tset.has(e.symbol) && (!earnDate[e.symbol] || e.date < earnDate[e.symbol])) {
-            earnDate[e.symbol] = e.date;
+          if (tset.has(e.symbol) && (!earnInfo[e.symbol] || e.date < earnInfo[e.symbol].date)) {
+            earnInfo[e.symbol] = { date: e.date, hour: e.hour || "" };
           }
         }
       }
     } catch (_) { /* skip earnings this run */ }
+    const TIMING: Record<string, string> = {
+      bmo: "before market open", amc: "after market close", dmh: "during market hours",
+    };
     for (const row of rows) {
       const s = settings[row.user_id] || {};
-      if (s.earnings_alerts_enabled === false) continue;
-      const d = earnDate[row.ticker];
-      if (!d) continue;
-      const days = Math.round((Date.parse(d + "T00:00:00Z") - Date.parse(today + "T00:00:00Z")) / 86400000);
-      const before = s.earnings_days_before ?? 3;
-      if (days < 0 || days > before) continue;
-      const key = `earnings:${row.user_id}:${row.ticker}:${d}`;
-      const label = days === 0 ? "today" : `in ${days}d`;
+      if (s.earnings_alerts_enabled === false || !eligible(row)) continue;
+      const info = earnInfo[row.ticker];
+      if (!info) continue;
+      const days = Math.round((Date.parse(info.date + "T00:00:00Z") - Date.parse(today + "T00:00:00Z")) / 86400000);
+      if (days !== 0) continue;  // day-of only
+      const timing = TIMING[info.hour] || "time TBA";
+      const key = `earnings:${row.user_id}:${row.ticker}:${info.date}`;
       const { error } = await sb.from("notifications").insert({
         user_id: row.user_id, kind: "earnings", ticker: row.ticker,
-        title: `${row.ticker} earnings ${label}`, body: `Reports ${d}`, dedupe_key: key,
+        title: `${row.ticker} reports earnings today`, body: timing, dedupe_key: key,
       });
       if (!error && s.telegram_chat_id) {
-        await tgSend(token, s.telegram_chat_id, `📊 <b>${row.ticker} earnings ${label}</b>\nReports ${d}`);
+        await tgSend(token, s.telegram_chat_id, `📊 <b>${row.ticker} reports earnings today</b>\n${timing}`);
         earnFired++;
       }
     }

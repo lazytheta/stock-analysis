@@ -31,7 +31,18 @@ the buy-price threshold is per-user. The Edge Function uses a free **Finnhub** k
   watchlist tickers; fire when within the user's `earnings_days_before` (default 3);
   dedupe `earnings:{user}:{ticker}:{date}` (once per event).
 Verified live: priceFired=6 on first run (deep-value names below buy), earnings
-calendar returns data (PEP 2026-07-09, ABT 07-15, NFLX 07-16 — fire ~3 days prior).
+calendar returns data (PEP 2026-07-09, ABT 07-15, NFLX 07-16).
+
+**Refinements (2026-06-17):**
+- **Eligibility:** price + earnings alerts fire **only for "Yes"-category tickers**
+  with the per-ticker flag on (`config.category == "Yes" && config.notify != false`).
+  Custom reminders are unaffected (explicit). A per-ticker toggle lives in the
+  watchlist Notifications dashboard ("Alerts per ticker", Yes-list only);
+  `notifications.set_ticker_alert` / `list_yes_tickers`.
+- **Earnings fire on the day itself** (days == 0), with before/after-market timing
+  from the Finnhub `hour` field (bmo → "before market open", amc → "after market
+  close", dmh → "during market hours", else "time TBA"). `earnings_days_before` is
+  no longer used for firing.
 
 ## Decisions (review 2026-06-17)
 1. **Scheduler:** Supabase **pg_cron + Edge Function** (data-local, multi-user; the

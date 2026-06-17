@@ -4024,6 +4024,25 @@ def _render_notifications_panel():
             else:
                 st.caption("No alerts yet.")
 
+        # ── Per-ticker alert opt-in (Yes-category only) ──
+        yes_tickers = _notif.list_yes_tickers(_sb_client)
+        _on = sum(1 for y in yes_tickers if y["enabled"])
+        with st.expander(
+                f"Alerts per ticker · {_on}/{len(yes_tickers)} on" if yes_tickers
+                else "Alerts per ticker", expanded=False):
+            st.caption("Only **Yes**-category tickers get price & earnings alerts. "
+                       "Toggle individual names below.")
+            if not yes_tickers:
+                st.caption("No tickers in the **Yes** category yet.")
+            for y in yes_tickers:
+                tc1, tc2 = st.columns([5, 1], vertical_alignment="center")
+                tc1.markdown(f"**{y['ticker']}**")
+                _new = tc2.toggle("alerts", value=y["enabled"],
+                                  key=f"notif_tk_{y['ticker']}", label_visibility="collapsed")
+                if _new != y["enabled"]:
+                    _notif.set_ticker_alert(_sb_client, y["ticker"], _new)
+                    st.rerun()
+
         # ── Telegram linking ──
         if not connected:
             tok = _notif.ensure_link_token(_sb_client)
