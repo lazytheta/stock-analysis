@@ -18,6 +18,21 @@ Function** (`notify`) which gets `SUPABASE_SERVICE_ROLE_KEY` injected automatica
   policy → service-role only). The previous GitHub Actions + `notify_job.py`
   approach was removed.
 
+## Phase 2 (done 2026-06-17) — price + earnings via Finnhub
+
+TastyTrade was dropped as the cron source: quotes need DXLink websockets (heavy in
+Deno) and per-user tokens, but **prices and earnings are public market data** — only
+the buy-price threshold is per-user. The Edge Function uses a free **Finnhub** key
+(in `notify_config.finnhub_api_key`):
+- **Price alerts:** one `/quote` per unique watchlist ticker; fire when
+  `price ≤ valuation_summary.buy_price`; dedupe `price:{user}:{ticker}`; **re-arm**
+  by deleting the marker once price closes back above buy.
+- **Earnings:** one `/calendar/earnings` range call (today→+14d), filtered to
+  watchlist tickers; fire when within the user's `earnings_days_before` (default 3);
+  dedupe `earnings:{user}:{ticker}:{date}` (once per event).
+Verified live: priceFired=6 on first run (deep-value names below buy), earnings
+calendar returns data (PEP 2026-07-09, ABT 07-15, NFLX 07-16 — fire ~3 days prior).
+
 ## Decisions (review 2026-06-17)
 1. **Scheduler:** Supabase **pg_cron + Edge Function** (data-local, multi-user; the
    Edge Function carries service-role automatically — no external key needed).
