@@ -1414,6 +1414,36 @@ def set_robustness(ticker: str, axes: dict) -> str:
         return json.dumps({"error": str(e)})
 
 
+def _set_premortem_impl(ticker, text, user_id: str | None = None):
+    """Set the free-text pre-mortem / action-triggers note (cfg['premortem'])."""
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
+    if cfg is None:
+        return {"error": f"{ticker.upper()} not on watchlist"}
+    cfg["premortem"] = text or ""
+    config_store.save_config(client, ticker, cfg, user_id=user_id)
+    return f"Saved pre-mortem for {ticker.upper()} ({len(text or '')} chars)."
+
+
+@mcp.tool()
+def set_premortem(ticker: str, text: str) -> str:
+    """Set the free-text pre-mortem / action-triggers note for a watchlist ticker.
+
+    The user-authored "what would make me sell — or add?" note shown at the top of
+    the ticker detail page (stored as cfg['premortem']). Overwrites the existing
+    note; read it back via get_config (the 'premortem' field). Plain text/markdown.
+
+    Args:
+        ticker: Stock ticker (e.g. "MSFT").
+        text: The pre-mortem / sell + add triggers as free text.
+    """
+    try:
+        return _set_premortem_impl(ticker, text)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------

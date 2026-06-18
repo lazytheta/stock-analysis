@@ -168,6 +168,10 @@ async def _tool_set_robustness(user_id: str, args: dict) -> Any:
     return mcp_server._set_robustness_impl(args["ticker"], args["axes"], user_id=user_id)
 
 
+async def _tool_set_premortem(user_id: str, args: dict) -> Any:
+    return mcp_server._set_premortem_impl(args["ticker"], args.get("text", ""), user_id=user_id)
+
+
 # ---- Tool definitions (MCP wire format) ----
 
 TOOLS: list[dict] = [
@@ -529,6 +533,22 @@ TOOLS: list[dict] = [
             "required": ["ticker", "axes"],
         },
     },
+    {
+        "name": "set_premortem",
+        "description": (
+            "Set the free-text pre-mortem / action-triggers note ('what would make "
+            "me sell — or add?') shown atop the ticker detail page (cfg['premortem']). "
+            "Overwrites the existing note; read it back via get_config."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "text": {"type": "string"},
+            },
+            "required": ["ticker", "text"],
+        },
+    },
 ]
 
 
@@ -552,6 +572,7 @@ TOOL_HANDLERS: dict[str, Callable[[str, dict], Awaitable[Any]]] = {
     "get_prescan_sections": _tool_get_prescan_sections,
     "save_prescan_section": _tool_save_prescan_section,
     "set_robustness": _tool_set_robustness,
+    "set_premortem": _tool_set_premortem,
 }
 
 
