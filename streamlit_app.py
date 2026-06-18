@@ -4709,28 +4709,6 @@ def _dcf_editor(ticker):
     growth = list(cfg.get('revenue_growth', []))
     margins = list(cfg.get('op_margins', []))
 
-    # ── Pre-mortem & action triggers (free text, always visible above the tabs) ──
-    st.markdown(f"""<style>
-    .st-key-premortem_card {{ border:1px solid {T['border_light']}; border-radius:14px;
-        padding:12px 16px 6px; background:{T['card']}; margin:2px 0 16px; }}
-    </style>""", unsafe_allow_html=True)
-    with st.container(key="premortem_card"):
-        st.markdown(
-            f'<div style="font-weight:700;font-size:0.98rem">📋 Pre-mortem & action triggers</div>'
-            f'<div style="color:{T["text_muted"]};font-size:0.82rem;margin:1px 0 6px">'
-            'What would make you sell — or add? Write the thesis-breakers and action rules.</div>',
-            unsafe_allow_html=True)
-        _pm_val = st.text_area(
-            "premortem", value=cfg.get("premortem", "") or "",
-            key=f"premortem_{ticker}", height=140, label_visibility="collapsed",
-            placeholder=("Sell if … / Add more if … — e.g. \"Sell if forward P/E > 30x, "
-                         "or AI-capex ROI disappoints 3+ quarters, or the founder leaves. "
-                         "Add a tranche if it dips to $320.\""))
-        if _pm_val != (cfg.get("premortem") or ""):
-            cfg["premortem"] = _pm_val
-            save_config(_sb_client, ticker, cfg)
-            st.toast("Pre-mortem saved")
-
     # ── Tabs: DCF / Reverse DCF / Peer Comparison / Dividend / SOTP / Fundamentals ──
     _tab_notes, _tab_fundamentals, _tab_dcf, _tab_rdcf, _tab_peers, _tab_dividend, _tab_sotp = st.tabs(["Pre-Scan", "Fundamentals", "DCF", "Reverse DCF", "Peer Comparison", "Dividend", "SOTP"])
 
@@ -7332,7 +7310,7 @@ def _dcf_editor(ticker):
         # ── Two portfolio-style section panels (sage top accent + faint tint) ──
         st.markdown(
             '<style>'
-            f'.st-key-prescan_seg_robustness, .st-key-prescan_seg_research {{'
+            f'.st-key-prescan_seg_premortem, .st-key-prescan_seg_robustness, .st-key-prescan_seg_research {{'
             f'  background: {T["card"]} !important; border: none !important;'
             f'  border-top: 3px solid {T["accent"]} !important;'
             f'  border-radius: 24px !important; box-shadow: {T["shadow"]} !important;'
@@ -7341,6 +7319,20 @@ def _dcf_editor(ticker):
             '</style>',
             unsafe_allow_html=True,
         )
+        with st.container(key="prescan_seg_premortem"):
+            st.markdown("#### Pre-mortem & action triggers")
+            st.caption("What would make you sell — or add? The thesis-breakers and action rules.")
+            _pm_val = st.text_area(
+                "premortem", value=cfg.get("premortem", "") or "",
+                key=f"premortem_{ticker}", height=140, label_visibility="collapsed",
+                placeholder=("Sell if … / Add more if … — e.g. \"Sell if forward P/E > 30x, "
+                             "or AI-capex ROI disappoints 3+ quarters, or the founder leaves. "
+                             "Add a tranche if it dips to $320.\""))
+            if _pm_val != (cfg.get("premortem") or ""):
+                cfg["premortem"] = _pm_val
+                save_config(_sb_client, ticker, cfg)
+                st.toast("Pre-mortem saved")
+
         with st.container(key="prescan_seg_robustness"):
             st.markdown("#### Robustness")
             st.markdown(_render_robustness_table(cfg, T), unsafe_allow_html=True)
