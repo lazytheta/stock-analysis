@@ -3905,62 +3905,52 @@ def _notif_friendly_date(iso_str, today):
     return d.strftime("%a %-d %b"), False
 
 
-def _render_premortem(md, theme):
-    """Clean typographic render of the pre-mortem markdown: bold **Label** lines
-    become muted uppercase section headers, '- ' lines become bullets. Returns an
-    HTML string, or None when there's nothing structured to render (fall back to
-    plain markdown)."""
-    import html as _h
-    import re as _re
+# Fixed pre-mortem sections — same for every ticker (mirror mcp_server).
+_PM_SECTIONS = [
+    ("current", "Current view"),
+    ("sell", "Sell triggers"),
+    ("add", "Add triggers"),
+    ("ignore", "Not a sell reason"),
+    ("discipline", "Discipline"),
+]
 
+
+def _pm_lines(s):
+    """Split a textarea string into cleaned bullet items (one per line)."""
+    return [ln.strip(" -•\t") for ln in (s or "").split("\n") if ln.strip(" -•\t")]
+
+
+def _render_premortem(pm, theme):
+    """Typographic render of a structured pre-mortem dict (fixed sections, same
+    order every time). Returns None for a legacy string / empty (caller falls
+    back to plain markdown)."""
+    if not isinstance(pm, dict):
+        return None
+    import html as _h
     muted = theme.get("text_muted", "#888")
     txt = theme.get("text", "#111")
-    blocks, cur_label, bullets, texts = [], None, [], []
-
-    def _flush():
-        nonlocal bullets, texts
-        if texts:
-            blocks.append((cur_label, "text", " ".join(texts).strip())); texts = []
-        if bullets:
-            blocks.append((cur_label, "bullets", bullets[:])); bullets = []
-
-    for raw in (md or "").split("\n"):
-        line = raw.strip()
-        if not line:
-            continue
-        m = _re.match(r"^\*\*(.+?)\*\*\s*[—\-:]?\s*(.*)$", line)
-        if m:
-            _flush()
-            cur_label = m.group(1).strip()
-            if m.group(2).strip():
-                texts.append(m.group(2).strip())
-        elif line[:2] in ("- ", "* ") or line.startswith("• "):
-            bullets.append(line.lstrip("-*• ").strip())
-        else:
-            texts.append(line)
-    _flush()
-    # Only take over rendering when there's recognizable section structure;
-    # otherwise let the caller fall back to plain st.markdown (preserves formatting).
-    if not any(label for label, _, _ in blocks):
-        return None
-
     css = (f"<style>.pm-label{{font-size:0.72rem;font-weight:700;letter-spacing:0.07em;"
            f"text-transform:uppercase;color:{muted};margin:14px 0 2px}}"
            f".pm-wrap>div:first-child{{margin-top:0}}"
            f".pm-text{{font-size:0.93rem;color:{txt};line-height:1.55}}"
            f".pm-list{{margin:1px 0 2px;padding-left:1.15rem}}"
            f".pm-list li{{font-size:0.93rem;color:{txt};line-height:1.55;margin:2px 0}}</style>")
-    parts = ['<div class="pm-wrap">']
-    for label, kind, payload in blocks:
-        if label:
-            parts.append(f'<div class="pm-label">{_h.escape(label)}</div>')
-        if kind == "bullets":
-            parts.append('<ul class="pm-list">'
-                         + "".join(f"<li>{_h.escape(b)}</li>" for b in payload) + "</ul>")
-        elif payload:
-            parts.append(f'<div class="pm-text">{_h.escape(payload)}</div>')
+    parts, any_content = ['<div class="pm-wrap">'], False
+    for key, label in _PM_SECTIONS:
+        if key == "current":
+            val = str(pm.get("current", "") or "").strip()
+            if val:
+                any_content = True
+                parts.append(f'<div class="pm-label">{label}</div>'
+                             f'<div class="pm-text">{_h.escape(val)}</div>')
+        else:
+            items = [str(i) for i in (pm.get(key) or []) if str(i).strip()]
+            if items:
+                any_content = True
+                parts.append(f'<div class="pm-label">{label}</div><ul class="pm-list">'
+                             + "".join(f"<li>{_h.escape(i)}</li>" for i in items) + "</ul>")
     parts.append("</div>")
-    return css + "".join(parts)
+    return css + "".join(parts) if any_content else None
 
 
 def _render_notifications_panel():
@@ -7379,27 +7369,40 @@ def _dcf_editor(ticker):
         )
         with st.container(key="prescan_seg_premortem"):
             st.markdown("#### Pre-mortem & action triggers")
-            _pm = cfg.get("premortem", "") or ""
+            _pm_raw = cfg.get("premortem")
+            _pm = _pm_raw if isinstance(_pm_raw, dict) else {}
+            _pm_legacy = _pm_raw if isinstance(_pm_raw, str) and _pm_raw.strip() else ""
+            _pm_has = any(_pm.get(k) for k, _ in _PM_SECTIONS) or bool(_pm_legacy)
             _pm_ek = f"premortem_edit_{ticker}"
-            # Render as markdown (tidy) unless editing; empty → start in edit mode.
-            if st.session_state.get(_pm_ek, False) or not _pm:
-                st.caption("What would make you sell — or add? Markdown ok "
-                           "(**Thesis** / **Sell if** / **Add if** / **Watch**).")
-                _pm_val = st.text_area(
-                    "premortem", value=_pm, key=f"premortem_{ticker}", height=200,
-                    label_visibility="collapsed",
-                    placeholder=("**Thesis** — why you own it\n\n"
-                                 "**Sell if**\n- forward P/E > 30x\n- AI-capex ROI disappoints 3+ quarters\n\n"
-                                 "**Add if**\n- dips to $320\n\n**Watch**\n- Azure growth < 25%"))
+            if st.session_state.get(_pm_ek, False) or not _pm_has:
+                st.caption("Same fixed sections for every ticker — one item per line.")
+                if _pm_legacy:
+                    st.info("Old free-text below — copy the bits into the sections, then Save:")
+                    st.code(_pm_legacy)
+                _cur = st.text_input(
+                    "Current view", value=_pm.get("current", ""), key=f"pm_cur_{ticker}",
+                    placeholder="Spot $143 | cost basis $156.69 | FV mid $174 | buy $139")
+                _ins = {}
+                for _k, _lbl in _PM_SECTIONS:
+                    if _k == "current":
+                        continue
+                    _ins[_k] = st.text_area(
+                        _lbl, value="\n".join(_pm.get(_k, []) or []),
+                        key=f"pm_{_k}_{ticker}", height=110)
                 if st.button("Save", key=f"pm_save_{ticker}", type="primary"):
-                    cfg["premortem"] = _pm_val
+                    cfg["premortem"] = {
+                        "current": _cur.strip(),
+                        "sell": _pm_lines(_ins["sell"]), "add": _pm_lines(_ins["add"]),
+                        "ignore": _pm_lines(_ins["ignore"]),
+                        "discipline": _pm_lines(_ins["discipline"]),
+                    }
                     save_config(_sb_client, ticker, cfg)
                     st.session_state[_pm_ek] = False
                     st.toast("Pre-mortem saved")
                     st.rerun()
             else:
                 _pm_html = _render_premortem(_pm, T)
-                st.markdown(_pm_html if _pm_html else _pm, unsafe_allow_html=True)
+                st.markdown(_pm_html if _pm_html else _pm_legacy, unsafe_allow_html=True)
                 if st.button("✏️ Edit", key=f"pm_edit_{ticker}"):
                     st.session_state[_pm_ek] = True
                     st.rerun()
