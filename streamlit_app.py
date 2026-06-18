@@ -3905,6 +3905,64 @@ def _notif_friendly_date(iso_str, today):
     return d.strftime("%a %-d %b"), False
 
 
+def _render_premortem(md, theme):
+    """Clean typographic render of the pre-mortem markdown: bold **Label** lines
+    become muted uppercase section headers, '- ' lines become bullets. Returns an
+    HTML string, or None when there's nothing structured to render (fall back to
+    plain markdown)."""
+    import html as _h
+    import re as _re
+
+    muted = theme.get("text_muted", "#888")
+    txt = theme.get("text", "#111")
+    blocks, cur_label, bullets, texts = [], None, [], []
+
+    def _flush():
+        nonlocal bullets, texts
+        if texts:
+            blocks.append((cur_label, "text", " ".join(texts).strip())); texts = []
+        if bullets:
+            blocks.append((cur_label, "bullets", bullets[:])); bullets = []
+
+    for raw in (md or "").split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        m = _re.match(r"^\*\*(.+?)\*\*\s*[—\-:]?\s*(.*)$", line)
+        if m:
+            _flush()
+            cur_label = m.group(1).strip()
+            if m.group(2).strip():
+                texts.append(m.group(2).strip())
+        elif line[:2] in ("- ", "* ") or line.startswith("• "):
+            bullets.append(line.lstrip("-*• ").strip())
+        else:
+            texts.append(line)
+    _flush()
+    # Only take over rendering when there's recognizable section structure;
+    # otherwise let the caller fall back to plain st.markdown (preserves formatting).
+    if not any(label for label, _, _ in blocks):
+        return None
+
+    css = (f"<style>.pm-label{{font-size:0.72rem;font-weight:700;letter-spacing:0.07em;"
+           f"text-transform:uppercase;color:{muted};margin:14px 0 2px}}"
+           f".pm-wrap>div:first-child{{margin-top:0}}"
+           f".pm-text{{font-size:0.93rem;color:{txt};line-height:1.55}}"
+           f".pm-list{{margin:1px 0 2px;padding-left:1.15rem}}"
+           f".pm-list li{{font-size:0.93rem;color:{txt};line-height:1.55;margin:2px 0}}</style>")
+    parts = ['<div class="pm-wrap">']
+    for label, kind, payload in blocks:
+        if label:
+            parts.append(f'<div class="pm-label">{_h.escape(label)}</div>')
+        if kind == "bullets":
+            parts.append('<ul class="pm-list">'
+                         + "".join(f"<li>{_h.escape(b)}</li>" for b in payload) + "</ul>")
+        elif payload:
+            parts.append(f'<div class="pm-text">{_h.escape(payload)}</div>')
+    parts.append("</div>")
+    return css + "".join(parts)
+
+
 def _render_notifications_panel():
     """Agenda-style notifications dashboard at the top of the watchlist: a green
     bell header with summary chips, upcoming reminders grouped by date, a recent-
@@ -7340,7 +7398,8 @@ def _dcf_editor(ticker):
                     st.toast("Pre-mortem saved")
                     st.rerun()
             else:
-                st.markdown(_pm)
+                _pm_html = _render_premortem(_pm, T)
+                st.markdown(_pm_html if _pm_html else _pm, unsafe_allow_html=True)
                 if st.button("✏️ Edit", key=f"pm_edit_{ticker}"):
                     st.session_state[_pm_ek] = True
                     st.rerun()
