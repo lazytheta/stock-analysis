@@ -169,7 +169,10 @@ async def _tool_set_robustness(user_id: str, args: dict) -> Any:
 
 
 async def _tool_set_premortem(user_id: str, args: dict) -> Any:
-    return mcp_server._set_premortem_impl(args["ticker"], args.get("text", ""), user_id=user_id)
+    return mcp_server._set_premortem_impl(
+        args["ticker"], text=args.get("text", ""), thesis=args.get("thesis", ""),
+        sell_triggers=args.get("sell_triggers"), add_triggers=args.get("add_triggers"),
+        watch=args.get("watch"), user_id=user_id)
 
 
 # ---- Tool definitions (MCP wire format) ----
@@ -536,17 +539,24 @@ TOOLS: list[dict] = [
     {
         "name": "set_premortem",
         "description": (
-            "Set the free-text pre-mortem / action-triggers note ('what would make "
-            "me sell — or add?') shown atop the ticker detail page (cfg['premortem']). "
-            "Overwrites the existing note; read it back via get_config."
+            "Set the pre-mortem / action-triggers note ('what would make me sell — "
+            "or add?') shown atop the Pre-Scan tab (cfg['premortem'], rendered as "
+            "markdown). Provide EITHER raw `text` OR structured fields (thesis, "
+            "sell_triggers, add_triggers, watch) which are formatted into a "
+            "consistent Thesis / Sell if / Add if / Watch layout. Overwrites; read "
+            "back via get_config."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "ticker": {"type": "string"},
                 "text": {"type": "string"},
+                "thesis": {"type": "string"},
+                "sell_triggers": {"type": "array", "items": {"type": "string"}},
+                "add_triggers": {"type": "array", "items": {"type": "string"}},
+                "watch": {"type": "array", "items": {"type": "string"}},
             },
-            "required": ["ticker", "text"],
+            "required": ["ticker"],
         },
     },
 ]
