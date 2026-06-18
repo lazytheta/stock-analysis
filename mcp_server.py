@@ -1414,32 +1414,66 @@ def set_robustness(ticker: str, axes: dict) -> str:
         return json.dumps({"error": str(e)})
 
 
-def _set_premortem_impl(ticker, text, user_id: str | None = None):
-    """Set the free-text pre-mortem / action-triggers note (cfg['premortem'])."""
+def _format_premortem(text=None, thesis=None, sell_triggers=None,
+                      add_triggers=None, watch=None):
+    """Build the pre-mortem markdown. Structured fields → a consistent
+    Thesis / Sell if / Add if / Watch layout; otherwise raw `text` as-is."""
+    if not any([thesis, sell_triggers, add_triggers, watch]):
+        return text or ""
+    parts = []
+    if thesis:
+        parts.append(f"**Thesis** — {thesis}")
+
+    def _section(title, items):
+        items = [str(i).strip() for i in (items or []) if str(i).strip()]
+        if items:
+            parts.append(f"**{title}**\n" + "\n".join(f"- {i}" for i in items))
+
+    _section("Sell if", sell_triggers)
+    _section("Add if", add_triggers)
+    _section("Watch", watch)
+    return "\n\n".join(parts)
+
+
+def _set_premortem_impl(ticker, text=None, thesis=None, sell_triggers=None,
+                        add_triggers=None, watch=None, user_id: str | None = None):
+    """Set the pre-mortem / action-triggers note (cfg['premortem'])."""
     user_id = user_id or USER_ID
     client = get_supabase_client()
     cfg = config_store.load_config(client, ticker, user_id=user_id)
     if cfg is None:
         return {"error": f"{ticker.upper()} not on watchlist"}
-    cfg["premortem"] = text or ""
+    body = _format_premortem(text, thesis, sell_triggers, add_triggers, watch)
+    cfg["premortem"] = body
     config_store.save_config(client, ticker, cfg, user_id=user_id)
-    return f"Saved pre-mortem for {ticker.upper()} ({len(text or '')} chars)."
+    return f"Saved pre-mortem for {ticker.upper()} ({len(body)} chars)."
 
 
 @mcp.tool()
-def set_premortem(ticker: str, text: str) -> str:
-    """Set the free-text pre-mortem / action-triggers note for a watchlist ticker.
+def set_premortem(ticker: str, text: str = "", thesis: str = "",
+                  sell_triggers: list[str] | None = None,
+                  add_triggers: list[str] | None = None,
+                  watch: list[str] | None = None) -> str:
+    """Set the pre-mortem / action-triggers note for a watchlist ticker.
 
-    The user-authored "what would make me sell — or add?" note shown at the top of
-    the ticker detail page (stored as cfg['premortem']). Overwrites the existing
-    note; read it back via get_config (the 'premortem' field). Plain text/markdown.
+    Shown atop the Pre-Scan tab (stored as cfg['premortem'], rendered as markdown).
+    Overwrites the existing note; read back via get_config (the 'premortem' field).
+
+    Provide EITHER raw `text` (markdown) OR the structured fields, which are
+    formatted into a consistent layout (Thesis / Sell if / Add if / Watch):
+        thesis: one-line why-you-own-it.
+        sell_triggers / add_triggers / watch: bullet lists of conditions.
 
     Args:
         ticker: Stock ticker (e.g. "MSFT").
-        text: The pre-mortem / sell + add triggers as free text.
+        text: Free-text/markdown note (used only if no structured fields given).
+        thesis: One-line thesis.
+        sell_triggers / add_triggers / watch: lists of short conditions.
     """
     try:
-        return _set_premortem_impl(ticker, text)
+        return _set_premortem_impl(ticker, text=text, thesis=thesis,
+                                   sell_triggers=sell_triggers,
+                                   add_triggers=add_triggers, watch=watch)
     except Exception as e:
         return json.dumps({"error": str(e)})
 

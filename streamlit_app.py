@@ -7321,17 +7321,29 @@ def _dcf_editor(ticker):
         )
         with st.container(key="prescan_seg_premortem"):
             st.markdown("#### Pre-mortem & action triggers")
-            st.caption("What would make you sell — or add? The thesis-breakers and action rules.")
-            _pm_val = st.text_area(
-                "premortem", value=cfg.get("premortem", "") or "",
-                key=f"premortem_{ticker}", height=140, label_visibility="collapsed",
-                placeholder=("Sell if … / Add more if … — e.g. \"Sell if forward P/E > 30x, "
-                             "or AI-capex ROI disappoints 3+ quarters, or the founder leaves. "
-                             "Add a tranche if it dips to $320.\""))
-            if _pm_val != (cfg.get("premortem") or ""):
-                cfg["premortem"] = _pm_val
-                save_config(_sb_client, ticker, cfg)
-                st.toast("Pre-mortem saved")
+            _pm = cfg.get("premortem", "") or ""
+            _pm_ek = f"premortem_edit_{ticker}"
+            # Render as markdown (tidy) unless editing; empty → start in edit mode.
+            if st.session_state.get(_pm_ek, False) or not _pm:
+                st.caption("What would make you sell — or add? Markdown ok "
+                           "(**Thesis** / **Sell if** / **Add if** / **Watch**).")
+                _pm_val = st.text_area(
+                    "premortem", value=_pm, key=f"premortem_{ticker}", height=200,
+                    label_visibility="collapsed",
+                    placeholder=("**Thesis** — why you own it\n\n"
+                                 "**Sell if**\n- forward P/E > 30x\n- AI-capex ROI disappoints 3+ quarters\n\n"
+                                 "**Add if**\n- dips to $320\n\n**Watch**\n- Azure growth < 25%"))
+                if st.button("Save", key=f"pm_save_{ticker}", type="primary"):
+                    cfg["premortem"] = _pm_val
+                    save_config(_sb_client, ticker, cfg)
+                    st.session_state[_pm_ek] = False
+                    st.toast("Pre-mortem saved")
+                    st.rerun()
+            else:
+                st.markdown(_pm)
+                if st.button("✏️ Edit", key=f"pm_edit_{ticker}"):
+                    st.session_state[_pm_ek] = True
+                    st.rerun()
 
         with st.container(key="prescan_seg_robustness"):
             st.markdown("#### Robustness")
