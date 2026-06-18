@@ -170,9 +170,9 @@ async def _tool_set_robustness(user_id: str, args: dict) -> Any:
 
 async def _tool_set_premortem(user_id: str, args: dict) -> Any:
     return mcp_server._set_premortem_impl(
-        args["ticker"], text=args.get("text", ""), thesis=args.get("thesis", ""),
-        sell_triggers=args.get("sell_triggers"), add_triggers=args.get("add_triggers"),
-        watch=args.get("watch"), user_id=user_id)
+        args["ticker"], current=args.get("current", ""), sell=args.get("sell"),
+        add=args.get("add"), ignore=args.get("ignore"),
+        discipline=args.get("discipline"), user_id=user_id)
 
 
 # ---- Tool definitions (MCP wire format) ----
@@ -539,22 +539,22 @@ TOOLS: list[dict] = [
     {
         "name": "set_premortem",
         "description": (
-            "Set the pre-mortem / action-triggers note ('what would make me sell — "
-            "or add?') shown atop the Pre-Scan tab (cfg['premortem'], rendered as "
-            "markdown). Provide EITHER raw `text` OR structured fields (thesis, "
-            "sell_triggers, add_triggers, watch) which are formatted into a "
-            "consistent Thesis / Sell if / Add if / Watch layout. Overwrites; read "
-            "back via get_config."
+            "Set the structured pre-mortem / action-triggers shown atop the Pre-Scan "
+            "tab (cfg['premortem']), with the SAME fixed sections for every ticker. "
+            "Fields: current (one-line view: spot / cost basis / fair value / buy "
+            "price), sell (sell/thesis-breaker triggers), add (buy-more triggers), "
+            "ignore (signals that are NOT a reason to sell), discipline (decision "
+            "rules). Overwrites; read back via get_config."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "ticker": {"type": "string"},
-                "text": {"type": "string"},
-                "thesis": {"type": "string"},
-                "sell_triggers": {"type": "array", "items": {"type": "string"}},
-                "add_triggers": {"type": "array", "items": {"type": "string"}},
-                "watch": {"type": "array", "items": {"type": "string"}},
+                "current": {"type": "string"},
+                "sell": {"type": "array", "items": {"type": "string"}},
+                "add": {"type": "array", "items": {"type": "string"}},
+                "ignore": {"type": "array", "items": {"type": "string"}},
+                "discipline": {"type": "array", "items": {"type": "string"}},
             },
             "required": ["ticker"],
         },

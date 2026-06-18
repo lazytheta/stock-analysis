@@ -1391,19 +1391,21 @@ def test_phase_gate_metrics_incr_roic_none_when_capital_shrinks():
     assert m["incremental_roic_pct"] is None
 
 
-def test_format_premortem_structured():
+def test_premortem_dict_structured():
     import mcp_server
-    md = mcp_server._format_premortem(
-        thesis="Wide-moat compounder",
-        sell_triggers=["forward P/E > 30x", "Azure < 25%"],
-        add_triggers=["dips to $320"], watch=["FCF margin"])
-    assert "**Thesis** — Wide-moat compounder" in md
-    assert "**Sell if**" in md and "- forward P/E > 30x" in md
-    assert "**Add if**" in md and "- dips to $320" in md
-    assert "**Watch**" in md
+    d = mcp_server._premortem_dict(
+        current="Spot $143 | buy $139",
+        sell=["forward P/E > 30x", "Azure < 25%"],
+        add=["dips to $320"], ignore=["analyst PT trims"],
+        discipline=["24h cooldown"])
+    assert d["current"] == "Spot $143 | buy $139"
+    assert d["sell"] == ["forward P/E > 30x", "Azure < 25%"]
+    assert d["add"] == ["dips to $320"] and d["ignore"] == ["analyst PT trims"]
+    assert d["discipline"] == ["24h cooldown"]
 
 
-def test_format_premortem_raw_passthrough():
+def test_premortem_dict_accepts_string_and_strips_bullets():
     import mcp_server
-    assert mcp_server._format_premortem(text="just text") == "just text"
-    assert mcp_server._format_premortem() == ""
+    d = mcp_server._premortem_dict(sell="- a\n- b\n\n  c ")
+    assert d["sell"] == ["a", "b", "c"]
+    assert d["add"] == [] and d["current"] == ""
