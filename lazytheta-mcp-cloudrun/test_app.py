@@ -543,8 +543,8 @@ def test_oauth_magic_finalize_rejects_invalid_supabase_token(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_tools_list_returns_24_tools():
-    """tools/list returns 24 tools (incl. set_premortem + notification tools)."""
+def test_tools_list_returns_27_tools():
+    """tools/list returns 27 tools (incl. notification + price-alert tools)."""
     from starlette.testclient import TestClient
     from mcp_auth import sign_jwt
     from main import app
@@ -558,7 +558,7 @@ def test_tools_list_returns_24_tools():
     )
     assert r.status_code == 200
     tools = r.json()["result"]["tools"]
-    assert len(tools) == 24
+    assert len(tools) == 27
     names = {t["name"] for t in tools}
     assert names == {
         "build_dcf_config", "calculate_valuation", "calculate_multi_lens_valuation",
@@ -570,6 +570,7 @@ def test_tools_list_returns_24_tools():
         "get_prescan_prompts", "get_prescan_sections", "save_prescan_section",
         "set_robustness", "set_premortem",
         "add_reminder", "list_reminders", "delete_reminder", "set_ticker_alert",
+        "add_price_alert", "list_price_alerts", "delete_price_alert",
     }
 
 

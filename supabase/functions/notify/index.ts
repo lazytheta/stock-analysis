@@ -148,6 +148,41 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Standalone price-target alerts (explicit, one-shot — not the buy-price auto).
+    const { data: palerts } = await sb.from("price_alerts").select("*").eq("active", true);
+    for (const a of palerts || []) {
+      let px = quote[a.ticker];
+      if (px === undefined) {
+        try {
+          const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(a.ticker)}&token=${finnhub}`);
+          if (r.ok) {
+            const j = await r.json();
+            if (typeof j.c === "number" && j.c > 0) px = quote[a.ticker] = j.c;
+          }
+        } catch (_) { /* skip this run */ }
+      }
+      if (px === undefined) continue;
+      const hit = (a.direction === "above" && px >= a.target)
+        || (a.direction === "below" && px <= a.target);
+      if (!hit) continue;
+      const arrow = a.direction === "above" ? "≥" : "≤";
+      const s = settings[a.user_id] || {};
+      const note = a.note ? ` — ${a.note}` : "";
+      await sb.from("notifications").insert({
+        user_id: a.user_id, kind: "price", ticker: a.ticker,
+        title: `${a.ticker} hit your target`,
+        body: `$${px.toFixed(2)} ${arrow} $${a.target}${note}`,
+        dedupe_key: `pricealert:${a.id}`,
+      });
+      if (s.telegram_chat_id) {
+        await tgSend(token, s.telegram_chat_id,
+          `🔔 <b>${a.ticker} hit your target</b>\n$${px.toFixed(2)} ${arrow} $${a.target}${note}`);
+        priceFired++;
+      }
+      await sb.from("price_alerts").update({ active: false, triggered_at: new Date().toISOString() })
+        .eq("id", a.id);
+    }
+
     // Earnings calendar — fire on the day itself, with before/after-market timing.
     const today = isoToday();
     const earnInfo: Record<string, { date: string; hour: string }> = {};

@@ -119,6 +119,32 @@ def set_ticker_alert(client, ticker, enabled, user_id=None):
      .eq("user_id", user_id).eq("ticker", ticker).execute())
 
 
+# ── Price-target alerts (explicit, standalone — not the buy-price auto alert) ──
+
+def add_price_alert(client, ticker, target, direction, note=None, user_id=None):
+    """Add a one-shot price-target alert. direction: 'above' | 'below'."""
+    user_id = user_id or _get_user_id(client)
+    client.table("price_alerts").insert({
+        "user_id": user_id, "ticker": ticker.upper(),
+        "direction": direction, "target": float(target), "note": note,
+    }).execute()
+
+
+def list_price_alerts(client, user_id=None, active_only=True):
+    user_id = user_id or _get_user_id(client)
+    q = (client.table("price_alerts").select("*")
+         .eq("user_id", user_id).order("created_at", desc=True))
+    if active_only:
+        q = q.eq("active", True)
+    return (q.execute().data or [])
+
+
+def delete_price_alert(client, alert_id, user_id=None):
+    user_id = user_id or _get_user_id(client)
+    (client.table("price_alerts").delete()
+     .eq("id", alert_id).eq("user_id", user_id).execute())
+
+
 # ── Emitted notifications (in-app feed) ───────────────────────────────────────
 
 def list_notifications(client, user_id=None, unread_only=False, limit=50):
