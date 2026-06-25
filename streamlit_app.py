@@ -4034,6 +4034,35 @@ def _render_notifications_panel():
             st.toast("Reminder added")
             st.rerun()
 
+        # ── Price-target alerts (standalone, one-shot; not the buy-price auto) ──
+        try:
+            _palerts = _notif.list_price_alerts(_sb_client)
+        except Exception:
+            _palerts = []
+        with st.expander(f"Price alerts · {len(_palerts)}" if _palerts else "Price alerts",
+                         expanded=False):
+            st.caption("Fire once when a ticker crosses a target price "
+                       "(separate from the buy-price alert).")
+            for _a in _palerts:
+                _ac1, _ac2 = st.columns([6, 0.5], vertical_alignment="center")
+                _arrow = "≥" if _a.get("direction") == "above" else "≤"
+                _note = f" · {_a['note']}" if _a.get("note") else ""
+                _ac1.markdown(f"**{_a['ticker']}** {_arrow} ${float(_a['target']):g}{_note}")
+                if _ac2.button("✕", key=f"pa_del_{_a['id']}", help="Delete alert"):
+                    _notif.delete_price_alert(_sb_client, _a["id"])
+                    st.rerun()
+            pc1, pc2, pc3, pc4 = st.columns([1.4, 1, 1.2, 0.8], vertical_alignment="bottom")
+            _pa_tk = pc1.text_input("Ticker", key="pa_tk", placeholder="META",
+                                    label_visibility="collapsed")
+            _pa_tg = pc2.number_input("Target", key="pa_tg", min_value=0.0, step=1.0,
+                                      label_visibility="collapsed")
+            _pa_dir = pc3.selectbox("Dir", ["below", "above"], key="pa_dir",
+                                    label_visibility="collapsed")
+            if pc4.button("Add", key="pa_add", use_container_width=True) and _pa_tk and _pa_tg > 0:
+                _notif.add_price_alert(_sb_client, _pa_tk.strip().upper(), _pa_tg, _pa_dir)
+                st.toast("Price alert added")
+                st.rerun()
+
         # ── Recent alerts feed (collapsed) ──
         with st.expander(f"Recent alerts · {n_unread} new" if n_unread else "Recent alerts",
                          expanded=False):

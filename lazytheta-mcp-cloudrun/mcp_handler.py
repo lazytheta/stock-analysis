@@ -192,6 +192,20 @@ async def _tool_set_ticker_alert(user_id: str, args: dict) -> Any:
     return mcp_server._set_ticker_alert_impl(args["ticker"], args["enabled"], user_id=user_id)
 
 
+async def _tool_add_price_alert(user_id: str, args: dict) -> Any:
+    return mcp_server._add_price_alert_impl(
+        args["ticker"], args["target"], direction=(args.get("direction") or None),
+        note=(args.get("note") or None), user_id=user_id)
+
+
+async def _tool_list_price_alerts(user_id: str, args: dict) -> Any:
+    return mcp_server._list_price_alerts_impl(user_id=user_id)
+
+
+async def _tool_delete_price_alert(user_id: str, args: dict) -> Any:
+    return mcp_server._delete_price_alert_impl(args["alert_id"], user_id=user_id)
+
+
 # ---- Tool definitions (MCP wire format) ----
 
 TOOLS: list[dict] = [
@@ -622,6 +636,39 @@ TOOLS: list[dict] = [
             "required": ["ticker", "enabled"],
         },
     },
+    {
+        "name": "add_price_alert",
+        "description": (
+            "Set a one-shot price-target alert (standalone — NOT the buy-price auto "
+            "alert). Fires once via Telegram + in-app when the price crosses the "
+            "target. direction is 'above' or 'below'; if omitted it's inferred from "
+            "the last known price."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "target": {"type": "number"},
+                "direction": {"type": "string", "enum": ["above", "below"]},
+                "note": {"type": "string"},
+            },
+            "required": ["ticker", "target"],
+        },
+    },
+    {
+        "name": "list_price_alerts",
+        "description": "List the user's active price-target alerts (id, ticker, direction, target).",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "delete_price_alert",
+        "description": "Delete a price-target alert by its id (from list_price_alerts).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"alert_id": {"type": "string"}},
+            "required": ["alert_id"],
+        },
+    },
 ]
 
 
@@ -650,6 +697,9 @@ TOOL_HANDLERS: dict[str, Callable[[str, dict], Awaitable[Any]]] = {
     "list_reminders": _tool_list_reminders,
     "delete_reminder": _tool_delete_reminder,
     "set_ticker_alert": _tool_set_ticker_alert,
+    "add_price_alert": _tool_add_price_alert,
+    "list_price_alerts": _tool_list_price_alerts,
+    "delete_price_alert": _tool_delete_price_alert,
 }
 
 

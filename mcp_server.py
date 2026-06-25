@@ -1558,6 +1558,67 @@ def set_ticker_alert(ticker: str, enabled: bool) -> str:
         return json.dumps({"error": str(e)})
 
 
+def _add_price_alert_impl(ticker, target, direction=None, note=None, user_id: str | None = None):
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    if direction not in ("above", "below"):
+        cfg = config_store.load_config(client, ticker, user_id=user_id) or {}
+        px = cfg.get("stock_price") or 0
+        direction = "below" if (px and float(target) < float(px)) else "above"
+    notifications.add_price_alert(client, ticker, target, direction, note=note, user_id=user_id)
+    arrow = "≥" if direction == "above" else "≤"
+    return f"Price alert set: {ticker.upper()} {arrow} {target}."
+
+
+def _list_price_alerts_impl(user_id: str | None = None):
+    user_id = user_id or USER_ID
+    return notifications.list_price_alerts(get_supabase_client(), user_id=user_id)
+
+
+def _delete_price_alert_impl(alert_id, user_id: str | None = None):
+    user_id = user_id or USER_ID
+    notifications.delete_price_alert(get_supabase_client(), alert_id, user_id=user_id)
+    return "Price alert deleted."
+
+
+@mcp.tool()
+def add_price_alert(ticker: str, target: float, direction: str = "", note: str = "") -> str:
+    """Set a one-shot price-target alert (standalone — NOT the buy-price auto alert).
+    Fires once via Telegram + in-app when the price crosses the target, then
+    deactivates.
+
+    Args:
+        ticker: Stock ticker (e.g. "META").
+        target: Target price (e.g. 540).
+        direction: 'above' or 'below'. If omitted, inferred from the last known
+            price (target below price → 'below', else 'above').
+        note: Optional note included in the alert.
+    """
+    try:
+        return _add_price_alert_impl(ticker, target, direction=(direction or None),
+                                     note=(note or None))
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def list_price_alerts() -> str:
+    """List the user's active price-target alerts (id, ticker, direction, target)."""
+    try:
+        return json.dumps(_list_price_alerts_impl(), default=str)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def delete_price_alert(alert_id: str) -> str:
+    """Delete a price-target alert by its id (from list_price_alerts)."""
+    try:
+        return _delete_price_alert_impl(alert_id)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
