@@ -175,6 +175,23 @@ async def _tool_set_premortem(user_id: str, args: dict) -> Any:
         discipline=args.get("discipline"), user_id=user_id)
 
 
+async def _tool_add_reminder(user_id: str, args: dict) -> Any:
+    return mcp_server._add_reminder_impl(
+        args["text"], args["fire_date"], ticker=(args.get("ticker") or None), user_id=user_id)
+
+
+async def _tool_list_reminders(user_id: str, args: dict) -> Any:
+    return mcp_server._list_reminders_impl(user_id=user_id)
+
+
+async def _tool_delete_reminder(user_id: str, args: dict) -> Any:
+    return mcp_server._delete_reminder_impl(args["reminder_id"], user_id=user_id)
+
+
+async def _tool_set_ticker_alert(user_id: str, args: dict) -> Any:
+    return mcp_server._set_ticker_alert_impl(args["ticker"], args["enabled"], user_id=user_id)
+
+
 # ---- Tool definitions (MCP wire format) ----
 
 TOOLS: list[dict] = [
@@ -559,6 +576,52 @@ TOOLS: list[dict] = [
             "required": ["ticker"],
         },
     },
+    {
+        "name": "add_reminder",
+        "description": (
+            "Schedule a custom reminder; fires on the date via Telegram (if linked) "
+            "+ the in-app notifications feed. fire_date is 'YYYY-MM-DD'; ticker is "
+            "optional."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "fire_date": {"type": "string"},
+                "ticker": {"type": "string"},
+            },
+            "required": ["text", "fire_date"],
+        },
+    },
+    {
+        "name": "list_reminders",
+        "description": "List the user's pending custom reminders (id, fire_date, text, ticker).",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "delete_reminder",
+        "description": "Delete a pending custom reminder by its id (from list_reminders).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"reminder_id": {"type": "string"}},
+            "required": ["reminder_id"],
+        },
+    },
+    {
+        "name": "set_ticker_alert",
+        "description": (
+            "Turn buy-price + earnings alerts on/off for a watchlist ticker (per-ticker "
+            "opt-in; alerts only fire for 'Yes'-category tickers)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "enabled": {"type": "boolean"},
+            },
+            "required": ["ticker", "enabled"],
+        },
+    },
 ]
 
 
@@ -583,6 +646,10 @@ TOOL_HANDLERS: dict[str, Callable[[str, dict], Awaitable[Any]]] = {
     "save_prescan_section": _tool_save_prescan_section,
     "set_robustness": _tool_set_robustness,
     "set_premortem": _tool_set_premortem,
+    "add_reminder": _tool_add_reminder,
+    "list_reminders": _tool_list_reminders,
+    "delete_reminder": _tool_delete_reminder,
+    "set_ticker_alert": _tool_set_ticker_alert,
 }
 
 

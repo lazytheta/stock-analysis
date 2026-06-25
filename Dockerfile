@@ -14,7 +14,7 @@ COPY lazytheta-mcp-cloudrun/main.py \
 # Shared modules from repo root, imported by mcp_server.py's _*_impl chain
 COPY mcp_server.py auto_fetch.py valuation_lenses.py \
      config_store.py dcf_calculator.py gather_data.py \
-     scorecard_utils.py robustness.py /app/
+     scorecard_utils.py robustness.py notifications.py /app/
 
 EXPOSE 8080
 ENV PORT=8080
