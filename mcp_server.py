@@ -67,6 +67,7 @@ import auto_fetch
 import config_store
 import valuation_lenses
 from scorecard_utils import compute_roce_metric
+import notifications
 
 
 # ---------------------------------------------------------------------------
@@ -1473,6 +1474,86 @@ def set_premortem(ticker: str, current: str = "",
     try:
         return _set_premortem_impl(ticker, current=current, sell=sell, add=add,
                                    ignore=ignore, discipline=discipline)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Notifications (custom reminders + per-ticker alert opt-in)
+# ---------------------------------------------------------------------------
+
+def _add_reminder_impl(text, fire_date, ticker=None, user_id: str | None = None):
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    notifications.add_custom_reminder(client, fire_date, text, ticker=ticker, user_id=user_id)
+    return f"Reminder set for {fire_date}" + (f" · {ticker.upper()}" if ticker else "") + "."
+
+
+def _list_reminders_impl(user_id: str | None = None):
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    return notifications.list_custom_reminders(client, user_id=user_id)
+
+
+def _delete_reminder_impl(reminder_id, user_id: str | None = None):
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    notifications.delete_custom_reminder(client, reminder_id, user_id=user_id)
+    return "Reminder deleted."
+
+
+def _set_ticker_alert_impl(ticker, enabled, user_id: str | None = None):
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    notifications.set_ticker_alert(client, ticker, bool(enabled), user_id=user_id)
+    return f"Price/earnings alerts {'enabled' if enabled else 'disabled'} for {ticker.upper()}."
+
+
+@mcp.tool()
+def add_reminder(text: str, fire_date: str, ticker: str = "") -> str:
+    """Schedule a custom reminder. Fires on the date via Telegram (if linked) +
+    the in-app notifications feed.
+
+    Args:
+        text: The reminder text.
+        fire_date: Date to fire, 'YYYY-MM-DD'.
+        ticker: Optional ticker to tag the reminder with (e.g. "MSFT").
+    """
+    try:
+        return _add_reminder_impl(text, fire_date, ticker=(ticker or None))
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def list_reminders() -> str:
+    """List the user's pending custom reminders (id, fire_date, text, ticker)."""
+    try:
+        return json.dumps(_list_reminders_impl(), default=str)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def delete_reminder(reminder_id: str) -> str:
+    """Delete a pending custom reminder by its id (from list_reminders)."""
+    try:
+        return _delete_reminder_impl(reminder_id)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def set_ticker_alert(ticker: str, enabled: bool) -> str:
+    """Turn buy-price + earnings alerts on/off for a watchlist ticker. Note: alerts
+    only fire for 'Yes'-category tickers; this is the per-ticker opt-in within that.
+
+    Args:
+        ticker: Stock ticker (e.g. "MSFT").
+        enabled: True to enable alerts, False to disable.
+    """
+    try:
+        return _set_ticker_alert_impl(ticker, enabled)
     except Exception as e:
         return json.dumps({"error": str(e)})
 
