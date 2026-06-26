@@ -8557,7 +8557,7 @@ with st.sidebar:
         """Clear account page override when user clicks a main nav item."""
         st.session_state.pop("_account_page", None)
 
-    _all_pages = ["Portfolio", "Wheel Cost Basis", "Results", "Watchlist", "Option Finder"]
+    _all_pages = ["Portfolio", "Wheel Cost Basis", "Results", "Watchlist", "Option Finder", "Cashflow Champions"]
 
     # CSS to add a visual separator after "Results" (3rd item)
     st.markdown(
@@ -12036,6 +12036,135 @@ elif page == "Results":
         cards_html += '</div>'
 
         st.markdown(cards_html, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════
+#  CASHFLOW CHAMPIONS — Liontrust two-ratio screen
+# ══════════════════════════════════════════════════════
+
+elif page == "Cashflow Champions":
+    import pandas as pd
+
+    import cashflow_champions as _cc
+
+    st.markdown("## 🏆 Cashflow Champions")
+    st.caption(
+        "Liontrust's two-ratio screen: **Cash Return on Assets** "
+        "(operating cash flow ÷ assets — quality) and **Price-to-Cash-Flow** "
+        "(market cap ÷ operating cash flow — value). The top 20% of the eligible "
+        "universe (S&P 500 ∪ Nasdaq-100 ∪ Dow 30) are the Champions."
+    )
+
+    _snap = None
+    try:
+        _snap = _cc.load_latest_snapshot(_sb_client)
+    except Exception as e:
+        st.error(f"Could not load the ranking: {e}")
+
+    _c1, _c2 = st.columns([3, 1])
+    with _c2:
+        _do_refresh = st.button("↻ Refresh ranking", use_container_width=True,
+                                type="primary")
+    with _c1:
+        if _snap:
+            _ts = str(_snap.get("computed_at", ""))[:16].replace("T", " ")
+            st.markdown(
+                f"**Last computed:** {_ts}  ·  **universe as-of:** "
+                f"{_snap.get('universe_as_of', '—')}"
+            )
+
+    if _do_refresh:
+        with st.spinner("Recomputing across ~514 names — fetching EDGAR + prices. "
+                        "This takes a few minutes…"):
+            try:
+                _res = _cc.compute_champions(concurrency=8)
+                _cc.store_champions_snapshot(_cc.to_snapshot(_res), client=_sb_client)
+                st.success("Ranking refreshed.")
+                _snap = _cc.load_latest_snapshot(_sb_client)
+            except Exception as e:
+                st.error(
+                    f"Refresh failed: {e}\n\nThe heavy refresh is meant to run as "
+                    "a batch where EDGAR/Yahoo are reachable and the service-role "
+                    "key is set:  `python cashflow_champions.py --compute --store`"
+                )
+
+    if not _snap:
+        st.info(
+            "No ranking stored yet. Run the batch to populate it:\n\n"
+            "```\npython cashflow_champions.py --refresh-universe\n"
+            "python cashflow_champions.py --compute --store\n```"
+        )
+    else:
+        _summary = _snap.get("summary") or {}
+        _rows = _snap.get("rows") or []
+
+        _m = st.columns(5)
+        _m[0].metric("Ranked", _summary.get("ranked", 0))
+        _m[1].metric("Champions", _summary.get("champions", 0))
+        _m[2].metric("Failed", _summary.get("failed", 0))
+        _m[3].metric("Excluded", _summary.get("excluded", 0))
+        _m[4].metric("Financials excl.", _summary.get("excluded_financials", 0))
+
+        _df = pd.DataFrame(_rows)
+        if not _df.empty:
+            _df["indices"] = _df["indices"].apply(
+                lambda x: ", ".join(x) if isinstance(x, list) else ""
+            )
+
+            _display_cols = {
+                "rank": "Rank", "ticker": "Ticker", "name": "Name",
+                "exchange": "Exch", "cash_roa": "Cash ROA", "price_to_cf": "P/CF",
+                "cash_roa_pct": "ROA %ile", "value_pct": "Value %ile",
+                "composite": "Score", "indices": "Indices",
+                "status": "Status", "reason": "Reason",
+            }
+            _colcfg = {
+                "Cash ROA": st.column_config.NumberColumn(format="%.1f%%"),
+                "P/CF": st.column_config.NumberColumn(format="%.1f"),
+                "ROA %ile": st.column_config.NumberColumn(format="%.0f"),
+                "Value %ile": st.column_config.NumberColumn(format="%.0f"),
+                "Score": st.column_config.NumberColumn(format="%.0f"),
+            }
+
+            def _prep(frame):
+                out = frame.rename(columns=_display_cols)
+                for c in ("Cash ROA",):
+                    if c in out:
+                        out[c] = out[c] * 100
+                for c in ("ROA %ile", "Value %ile", "Score"):
+                    if c in out:
+                        out[c] = out[c] * 100
+                return out[[v for v in _display_cols.values() if v in out.columns]]
+
+            # ── Champions (top 20%) ──
+            _champ = _df[_df.get("is_champion") == True].copy()  # noqa: E712
+            if not _champ.empty:
+                _champ = _champ.sort_values("rank")
+                st.markdown(f"### 🏆 Champions — top 20% ({len(_champ)})")
+                st.caption("Highest combined rank on quality (Cash ROA) and value (P/CF). "
+                           "Your shortlist to research further.")
+                st.dataframe(
+                    _prep(_champ), hide_index=True, use_container_width=True,
+                    column_config=_colcfg,
+                )
+
+            # ── Full universe ──
+            st.markdown(f"### Full universe ({len(_df)})")
+            st.caption("Everything screened — ranked names first, then excluded/failed "
+                       "with the reason. Sort any column by clicking its header.")
+            _ranked = _df[_df["status"] == "ok"].sort_values("rank")
+            _rest = _df[_df["status"] != "ok"].sort_values(["status", "ticker"])
+            _ordered = pd.concat([_ranked, _rest], ignore_index=True)
+            st.dataframe(
+                _prep(_ordered), hide_index=True, use_container_width=True,
+                column_config=_colcfg, height=600,
+            )
+
+            _failures = _summary.get("failures") or []
+            if _failures:
+                with st.expander(f"Failures ({len(_failures)})"):
+                    st.dataframe(pd.DataFrame(_failures), hide_index=True,
+                                 use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════
