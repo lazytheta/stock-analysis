@@ -12047,32 +12047,29 @@ elif page == "Cashflow Champions":
 
     import cashflow_champions as _cc
 
-    st.markdown("## 🏆 Cashflow Champions")
-
     _snap = None
     try:
         _snap = _cc.load_latest_snapshot(_sb_client)
     except Exception as e:
         st.error(f"Could not load the ranking: {e}")
 
-    # Intro / methodology card (house container-card style: accent-left, soft shadow)
+    # ── Hero header (same hero-card pattern as Option Finder) ──
     _ts = str((_snap or {}).get("computed_at", ""))[:16].replace("T", " ")
     _uasof = (_snap or {}).get("universe_as_of", "—")
-    _meta_line = (
-        f'<div style="color:{T["text_muted"]};font-size:0.85rem;margin-top:12px">'
-        f'Last computed <b>{_ts or "—"}</b> &nbsp;·&nbsp; universe as-of <b>{_uasof}</b></div>'
+    _meta = (
+        f'<p class="hero-sub" style="font-size:0.8rem;margin-top:14px;opacity:0.75">'
+        f'Last computed {_ts or "—"} &nbsp;·&nbsp; universe as-of {_uasof}</p>'
     ) if _snap else ""
     st.markdown(
-        f'<div style="background:{T["card"]};border-radius:16px;padding:24px 28px;'
-        f'margin-bottom:20px;box-shadow:{T["shadow"]};border:1px solid {T["border_light"]};'
-        f'border-left:3px solid {T["accent"]};font-family:\'DM Sans\',-apple-system,'
-        f'BlinkMacSystemFont,\'Helvetica Neue\',Arial,sans-serif">'
-        f'<div style="color:{T["text"]};font-size:0.95rem;line-height:1.6">'
-        f'Liontrust\'s two-ratio screen. <b>Cash Return on Assets</b> '
-        f'(operating cash flow ÷ total assets — quality) and <b>Price-to-Cash-Flow</b> '
-        f'(market cap ÷ operating cash flow — value), each percentile-ranked across the '
-        f'eligible universe (S&amp;P 500 ∪ Nasdaq-100 ∪ Dow 30). The top 20% are the '
-        f'Champions.</div>{_meta_line}</div>',
+        '<div class="hero-card">'
+        '<p class="hero-value" style="font-size:1.8rem;letter-spacing:-0.02em">Cashflow Champions</p>'
+        '<p class="hero-sub" style="font-size:0.95rem;max-width:560px;margin:8px auto 0">'
+        "Liontrust's two-ratio screen — Cash Return on Assets (operating cash flow ÷ total "
+        'assets, quality) and Price-to-Cash-Flow (market cap ÷ operating cash flow, value), '
+        'each percentile-ranked across the S&amp;P 500 ∪ Nasdaq-100 ∪ Dow 30. '
+        'The top 20% are the Champions.</p>'
+        f'{_meta}'
+        '</div>',
         unsafe_allow_html=True,
     )
 
@@ -12173,7 +12170,7 @@ elif page == "Cashflow Champions":
                       f'font-size:0.85rem;vertical-align:middle;'
                       f'color:{T["text"] if ok else T["text_muted"]}')
                 lb = f'border-left:3px solid {T["accent"] if champ else "transparent"}'
-                rank_txt = (f'🏆 {r["rank"]}' if champ else (str(r["rank"]) if r.get("rank") else "·"))
+                rank_txt = str(r["rank"]) if r.get("rank") else "·"
                 logo = (f'<img src="https://assets.parqet.com/logos/symbol/{r["ticker"]}" '
                         f'style="width:20px;height:20px;border-radius:50%;object-fit:cover;'
                         f'vertical-align:middle;margin-right:6px" '
@@ -12218,7 +12215,7 @@ elif page == "Cashflow Champions":
 
         # ── Champions (top 20%) ──
         _champ = sorted((r for r in _rows if r.get("is_champion")), key=lambda r: r["rank"])
-        st.markdown(f"### 🏆 Champions — top 20% ({len(_champ)})")
+        st.markdown(f"### Champions — top 20% ({len(_champ)})")
         st.markdown(
             f'<p style="color:{T["text_muted"]};font-size:0.92rem;margin:-6px 0 12px">'
             'Your shortlist — highest combined rank on quality (Cash ROA) and value (P/CF).</p>',
