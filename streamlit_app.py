@@ -12048,12 +12048,6 @@ elif page == "Cashflow Champions":
     import cashflow_champions as _cc
 
     st.markdown("## 🏆 Cashflow Champions")
-    st.caption(
-        "Liontrust's two-ratio screen: **Cash Return on Assets** "
-        "(operating cash flow ÷ assets — quality) and **Price-to-Cash-Flow** "
-        "(market cap ÷ operating cash flow — value). The top 20% of the eligible "
-        "universe (S&P 500 ∪ Nasdaq-100 ∪ Dow 30) are the Champions."
-    )
 
     _snap = None
     try:
@@ -12061,17 +12055,28 @@ elif page == "Cashflow Champions":
     except Exception as e:
         st.error(f"Could not load the ranking: {e}")
 
-    _c1, _c2 = st.columns([3, 1])
-    with _c2:
-        _do_refresh = st.button("↻ Refresh ranking", use_container_width=True,
-                                type="primary")
-    with _c1:
-        if _snap:
-            _ts = str(_snap.get("computed_at", ""))[:16].replace("T", " ")
-            st.markdown(
-                f"**Last computed:** {_ts}  ·  **universe as-of:** "
-                f"{_snap.get('universe_as_of', '—')}"
-            )
+    # Intro / methodology card (house container-card style: accent-left, soft shadow)
+    _ts = str((_snap or {}).get("computed_at", ""))[:16].replace("T", " ")
+    _uasof = (_snap or {}).get("universe_as_of", "—")
+    _meta_line = (
+        f'<div style="color:{T["text_muted"]};font-size:0.85rem;margin-top:12px">'
+        f'Last computed <b>{_ts or "—"}</b> &nbsp;·&nbsp; universe as-of <b>{_uasof}</b></div>'
+    ) if _snap else ""
+    st.markdown(
+        f'<div style="background:{T["card"]};border-radius:16px;padding:24px 28px;'
+        f'margin-bottom:20px;box-shadow:{T["shadow"]};border:1px solid {T["border_light"]};'
+        f'border-left:3px solid {T["accent"]};font-family:\'DM Sans\',-apple-system,'
+        f'BlinkMacSystemFont,\'Helvetica Neue\',Arial,sans-serif">'
+        f'<div style="color:{T["text"]};font-size:0.95rem;line-height:1.6">'
+        f'Liontrust\'s two-ratio screen. <b>Cash Return on Assets</b> '
+        f'(operating cash flow ÷ total assets — quality) and <b>Price-to-Cash-Flow</b> '
+        f'(market cap ÷ operating cash flow — value), each percentile-ranked across the '
+        f'eligible universe (S&amp;P 500 ∪ Nasdaq-100 ∪ Dow 30). The top 20% are the '
+        f'Champions.</div>{_meta_line}</div>',
+        unsafe_allow_html=True,
+    )
+
+    _do_refresh = st.button("↻ Refresh ranking", type="primary")
 
     if _do_refresh:
         with st.spinner("Recomputing across ~514 names — fetching EDGAR + prices. "
@@ -12098,12 +12103,28 @@ elif page == "Cashflow Champions":
         _summary = _snap.get("summary") or {}
         _rows = _snap.get("rows") or []
 
+        def _metric_card(col, label, value, accent=False):
+            _left = T["accent"] if accent else T["border_medium"]
+            col.markdown(
+                f'<div style="border-top:1px solid {T["border_medium"]};'
+                f'border-right:1px solid {T["border_medium"]};'
+                f'border-bottom:1px solid {T["border_medium"]};border-left:3px solid {_left};'
+                f'border-radius:12px;padding:16px 20px;text-align:center;'
+                f'background:{T["card"]};box-shadow:{T["shadow"]}">'
+                f'<div style="color:{T["text_muted"]};font-size:0.7rem;text-transform:uppercase;'
+                f'letter-spacing:0.05em;font-weight:600">{label}</div>'
+                f'<div style="font-size:1.8rem;font-weight:700;margin-top:6px;'
+                f'color:{T["text"]}">{value}</div></div>',
+                unsafe_allow_html=True,
+            )
+
         _m = st.columns(5)
-        _m[0].metric("Ranked", _summary.get("ranked", 0))
-        _m[1].metric("Champions", _summary.get("champions", 0))
-        _m[2].metric("Failed", _summary.get("failed", 0))
-        _m[3].metric("Excluded", _summary.get("excluded", 0))
-        _m[4].metric("Financials excl.", _summary.get("excluded_financials", 0))
+        _metric_card(_m[0], "Ranked", _summary.get("ranked", 0))
+        _metric_card(_m[1], "Champions", _summary.get("champions", 0), accent=True)
+        _metric_card(_m[2], "Failed", _summary.get("failed", 0))
+        _metric_card(_m[3], "Excluded", _summary.get("excluded", 0))
+        _metric_card(_m[4], "Financials excl.", _summary.get("excluded_financials", 0))
+        st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
 
         _df = pd.DataFrame(_rows)
         if not _df.empty:
