@@ -12043,7 +12043,7 @@ elif page == "Results":
 # ══════════════════════════════════════════════════════
 
 elif page == "Cashflow Champions":
-    import pandas as pd
+    import html as _html
 
     import cashflow_champions as _cc
 
@@ -12126,66 +12126,119 @@ elif page == "Cashflow Champions":
         _metric_card(_m[4], "Financials excl.", _summary.get("excluded_financials", 0))
         st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
 
-        _df = pd.DataFrame(_rows)
-        if not _df.empty:
-            _df["indices"] = _df["indices"].apply(
-                lambda x: ", ".join(x) if isinstance(x, list) else ""
+        # ── Branded HTML table (matches the Watchlist list: logos, badges,
+        #    colored cells) — scales to 500+ rows without per-row widgets ──
+        _IDX_LABEL = {"sp500": "S&P", "nasdaq100": "NDX", "dow30": "DOW"}
+        _REASON_LABEL = {
+            "financial": "Financial", "missing_data": "Missing data",
+            "negative_cfo": "Negative CFO", "data_quality": "Data quality",
+        }
+
+        def _badges(indices):
+            return "".join(
+                f'<span style="display:inline-block;font-size:0.62rem;font-weight:600;'
+                f'background:{T["pill_bg"]};border:1px solid {T["pill_border"]};'
+                f'color:{T["text_muted"]};border-radius:6px;padding:1px 6px;'
+                f'margin-right:3px">{_IDX_LABEL.get(i, i)}</span>'
+                for i in (indices or [])
             )
 
-            _display_cols = {
-                "rank": "Rank", "ticker": "Ticker", "name": "Name",
-                "exchange": "Exch", "cash_roa": "Cash ROA", "price_to_cf": "P/CF",
-                "cash_roa_pct": "ROA %ile", "value_pct": "Value %ile",
-                "composite": "Score", "indices": "Indices",
-                "status": "Status", "reason": "Reason",
-            }
-            _colcfg = {
-                "Cash ROA": st.column_config.NumberColumn(format="%.1f%%"),
-                "P/CF": st.column_config.NumberColumn(format="%.1f"),
-                "ROA %ile": st.column_config.NumberColumn(format="%.0f"),
-                "Value %ile": st.column_config.NumberColumn(format="%.0f"),
-                "Score": st.column_config.NumberColumn(format="%.0f"),
-            }
-
-            def _prep(frame):
-                out = frame.rename(columns=_display_cols)
-                for c in ("Cash ROA",):
-                    if c in out:
-                        out[c] = out[c] * 100
-                for c in ("ROA %ile", "Value %ile", "Score"):
-                    if c in out:
-                        out[c] = out[c] * 100
-                return out[[v for v in _display_cols.values() if v in out.columns]]
-
-            # ── Champions (top 20%) ──
-            _champ = _df[_df.get("is_champion") == True].copy()  # noqa: E712
-            if not _champ.empty:
-                _champ = _champ.sort_values("rank")
-                st.markdown(f"### 🏆 Champions — top 20% ({len(_champ)})")
-                st.caption("Highest combined rank on quality (Cash ROA) and value (P/CF). "
-                           "Your shortlist to research further.")
-                st.dataframe(
-                    _prep(_champ), hide_index=True, use_container_width=True,
-                    column_config=_colcfg,
-                )
-
-            # ── Full universe ──
-            st.markdown(f"### Full universe ({len(_df)})")
-            st.caption("Everything screened — ranked names first, then excluded/failed "
-                       "with the reason. Sort any column by clicking its header.")
-            _ranked = _df[_df["status"] == "ok"].sort_values("rank")
-            _rest = _df[_df["status"] != "ok"].sort_values(["status", "ticker"])
-            _ordered = pd.concat([_ranked, _rest], ignore_index=True)
-            st.dataframe(
-                _prep(_ordered), hide_index=True, use_container_width=True,
-                column_config=_colcfg, height=600,
+        def _score_bar(score):
+            pct = max(0, min(100, round((score or 0) * 100)))
+            return (
+                f'<div style="display:flex;align-items:center;gap:8px">'
+                f'<div style="flex:1;min-width:46px;height:6px;border-radius:3px;'
+                f'background:{T["border_light"]}"><div style="width:{pct}%;height:6px;'
+                f'border-radius:3px;background:{T["accent"]}"></div></div>'
+                f'<span style="font-weight:700;color:{T["text"]};font-size:0.8rem">{pct}</span></div>'
             )
 
-            _failures = _summary.get("failures") or []
-            if _failures:
-                with st.expander(f"Failures ({len(_failures)})"):
-                    st.dataframe(pd.DataFrame(_failures), hide_index=True,
-                                 use_container_width=True)
+        def _table(rows, with_status=False, scroll=False):
+            _th = (f'padding:10px 14px;color:{T["text_muted"]};font-size:0.68rem;'
+                   f'text-transform:uppercase;letter-spacing:0.05em;font-weight:600;'
+                   f'position:sticky;top:0;background:{T["card"]};z-index:1;'
+                   f'border-bottom:1px solid {T["border_medium"]}')
+            heads = [("#", "left"), ("Ticker", "left"), ("Company", "left"),
+                     ("Cash ROA", "right"), ("P/CF", "right"),
+                     ("Score", "left"), ("Index", "left")]
+            if with_status:
+                heads.append(("Status", "left"))
+            head_html = "".join(f'<th style="{_th};text-align:{a}">{h}</th>' for h, a in heads)
+
+            body = ""
+            for r in rows:
+                champ, ok = r.get("is_champion"), r.get("status") == "ok"
+                rowbg = T["accent_light"] if champ else "transparent"
+                td = (f'padding:9px 14px;border-bottom:1px solid {T["border_light"]};'
+                      f'font-size:0.85rem;vertical-align:middle;'
+                      f'color:{T["text"] if ok else T["text_muted"]}')
+                lb = f'border-left:3px solid {T["accent"] if champ else "transparent"}'
+                rank_txt = (f'🏆 {r["rank"]}' if champ else (str(r["rank"]) if r.get("rank") else "·"))
+                logo = (f'<img src="https://assets.parqet.com/logos/symbol/{r["ticker"]}" '
+                        f'style="width:20px;height:20px;border-radius:50%;object-fit:cover;'
+                        f'vertical-align:middle;margin-right:6px" '
+                        f'onerror="this.style.display=\'none\'"><strong>{r["ticker"]}</strong>')
+                cells = [
+                    f'<td style="{td};{lb};font-weight:600;white-space:nowrap">{rank_txt}</td>',
+                    f'<td style="{td};white-space:nowrap">{logo}</td>',
+                    f'<td style="{td};max-width:230px;overflow:hidden;text-overflow:ellipsis;'
+                    f'white-space:nowrap">{_html.escape(r.get("name") or "")}</td>',
+                ]
+                if ok:
+                    cells += [
+                        f'<td style="{td};text-align:right;white-space:nowrap">{r["cash_roa"] * 100:.1f}%</td>',
+                        f'<td style="{td};text-align:right;white-space:nowrap">{r["price_to_cf"]:.1f}×</td>',
+                        f'<td style="{td};min-width:110px">{_score_bar(r.get("composite"))}</td>',
+                        f'<td style="{td};white-space:nowrap">{_badges(r.get("indices"))}</td>',
+                    ]
+                else:
+                    cells += [f'<td style="{td};text-align:right">—</td>',
+                              f'<td style="{td};text-align:right">—</td>',
+                              f'<td style="{td}">—</td>',
+                              f'<td style="{td};white-space:nowrap">{_badges(r.get("indices"))}</td>']
+                if with_status:
+                    if ok:
+                        cells.append(f'<td style="{td}">—</td>')
+                    else:
+                        lab = _REASON_LABEL.get(r.get("reason"), r.get("reason") or "—")
+                        col = T["delete_text"] if r.get("reason") in ("negative_cfo", "data_quality") else T["text_muted"]
+                        cells.append(
+                            f'<td style="{td};white-space:nowrap"><span style="font-size:0.7rem;'
+                            f'color:{col};border:1px solid {T["border_medium"]};border-radius:6px;'
+                            f'padding:1px 6px">{lab}</span></td>')
+                body += f'<tr style="background:{rowbg}">{"".join(cells)}</tr>'
+
+            inner = (f'<table style="width:100%;border-collapse:collapse;'
+                     f'font-family:\'DM Sans\',-apple-system,BlinkMacSystemFont,Arial,sans-serif">'
+                     f'<thead><tr>{head_html}</tr></thead><tbody>{body}</tbody></table>')
+            scroll_css = "max-height:620px;overflow-y:auto;" if scroll else ""
+            return (f'<div style="background:{T["card"]};border-radius:16px;'
+                    f'box-shadow:{T["shadow"]};border:1px solid {T["border_light"]};'
+                    f'overflow:hidden;margin-bottom:22px"><div style="{scroll_css}">{inner}</div></div>')
+
+        # ── Champions (top 20%) ──
+        _champ = sorted((r for r in _rows if r.get("is_champion")), key=lambda r: r["rank"])
+        st.markdown(f"### 🏆 Champions — top 20% ({len(_champ)})")
+        st.markdown(
+            f'<p style="color:{T["text_muted"]};font-size:0.92rem;margin:-6px 0 12px">'
+            'Your shortlist — highest combined rank on quality (Cash ROA) and value (P/CF).</p>',
+            unsafe_allow_html=True,
+        )
+        if _champ:
+            st.markdown(_table(_champ), unsafe_allow_html=True)
+
+        # ── Full universe ──
+        _ranked = sorted((r for r in _rows if r.get("status") == "ok"), key=lambda r: r["rank"])
+        _rest = sorted((r for r in _rows if r.get("status") != "ok"),
+                       key=lambda r: (r.get("status") or "", r.get("ticker") or ""))
+        st.markdown(f"### Full universe ({len(_rows)})")
+        st.markdown(
+            f'<p style="color:{T["text_muted"]};font-size:0.92rem;margin:-6px 0 12px">'
+            'Everything screened — ranked names first, then excluded/failed with the reason.</p>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(_table(_ranked + _rest, with_status=True, scroll=True),
+                    unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════
