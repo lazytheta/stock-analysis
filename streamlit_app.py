@@ -12148,7 +12148,7 @@ elif page == "Cashflow Champions":
                 f'<span style="font-weight:700;color:{T["text"]};font-size:0.8rem">{pct}</span></div>'
             )
 
-        def _table(rows, with_status=False, scroll=False):
+        def _table(rows, title, subtitle, with_status=False, scroll=False):
             _th = (f'padding:10px 14px;color:{T["text_muted"]};font-size:0.68rem;'
                    f'text-transform:uppercase;letter-spacing:0.05em;font-weight:600;'
                    f'position:sticky;top:0;background:{T["card"]};z-index:1;'
@@ -12207,33 +12207,43 @@ elif page == "Cashflow Champions":
                      f'font-family:\'DM Sans\',-apple-system,BlinkMacSystemFont,Arial,sans-serif">'
                      f'<thead><tr>{head_html}</tr></thead><tbody>{body}</tbody></table>')
             scroll_css = "max-height:620px;overflow-y:auto;" if scroll else ""
+            header = (
+                f'<div style="padding:20px 24px 16px;border-bottom:1px solid {T["border_light"]}">'
+                f'<div style="font-family:\'DM Serif Display\',Georgia,serif;font-size:1.4rem;'
+                f'color:{T["text"]};line-height:1.2">{title}</div>'
+                f'<div style="color:{T["text_muted"]};font-size:0.9rem;margin-top:6px">{subtitle}</div>'
+                f'</div>'
+            )
             return (f'<div style="background:{T["card"]};border-radius:16px;'
                     f'box-shadow:{T["shadow"]};border:1px solid {T["border_light"]};'
-                    f'overflow:hidden;margin-bottom:22px"><div style="{scroll_css}">{inner}</div></div>')
+                    f'overflow:hidden;margin-bottom:22px">{header}'
+                    f'<div style="{scroll_css}">{inner}</div></div>')
 
         # ── Champions (top 20%) ──
         _champ = sorted((r for r in _rows if r.get("is_champion")), key=lambda r: r["rank"])
-        st.markdown(f"### Champions — top 20% ({len(_champ)})")
-        st.markdown(
-            f'<p style="color:{T["text_muted"]};font-size:0.92rem;margin:-6px 0 12px">'
-            'Your shortlist — highest combined rank on quality (Cash ROA) and value (P/CF).</p>',
-            unsafe_allow_html=True,
-        )
         if _champ:
-            st.markdown(_table(_champ), unsafe_allow_html=True)
+            st.markdown(
+                _table(
+                    _champ,
+                    f"Champions — top 20% ({len(_champ)})",
+                    "Your shortlist — highest combined rank on quality (Cash ROA) and value (P/CF).",
+                ),
+                unsafe_allow_html=True,
+            )
 
         # ── Full universe ──
         _ranked = sorted((r for r in _rows if r.get("status") == "ok"), key=lambda r: r["rank"])
         _rest = sorted((r for r in _rows if r.get("status") != "ok"),
                        key=lambda r: (r.get("status") or "", r.get("ticker") or ""))
-        st.markdown(f"### Full universe ({len(_rows)})")
         st.markdown(
-            f'<p style="color:{T["text_muted"]};font-size:0.92rem;margin:-6px 0 12px">'
-            'Everything screened — ranked names first, then excluded/failed with the reason.</p>',
+            _table(
+                _ranked + _rest,
+                f"Full universe ({len(_rows)})",
+                "Everything screened — ranked names first, then excluded/failed with the reason.",
+                with_status=True, scroll=True,
+            ),
             unsafe_allow_html=True,
         )
-        st.markdown(_table(_ranked + _rest, with_status=True, scroll=True),
-                    unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════
