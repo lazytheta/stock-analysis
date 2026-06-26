@@ -12063,11 +12063,9 @@ elif page == "Cashflow Champions":
     st.markdown(
         '<div class="hero-card">'
         '<p class="hero-value" style="font-size:1.8rem;letter-spacing:-0.02em">Cashflow Champions</p>'
-        '<p class="hero-sub" style="font-size:0.95rem;max-width:560px;margin:8px auto 0">'
-        "Liontrust's two-ratio screen — Cash Return on Assets (operating cash flow ÷ total "
-        'assets, quality) and Price-to-Cash-Flow (market cap ÷ operating cash flow, value), '
-        'each percentile-ranked across the S&amp;P 500 ∪ Nasdaq-100 ∪ Dow 30. '
-        'The top 20% are the Champions.</p>'
+        '<p class="hero-sub" style="font-size:0.95rem;max-width:480px;margin:8px auto 0">'
+        'Ranks the S&amp;P 500, Nasdaq-100 and Dow 30 on two ratios: Cash Return on '
+        'Assets (quality) and Price-to-Cash-Flow (value). The top 20% are the Champions.</p>'
         f'{_meta}'
         '</div>',
         unsafe_allow_html=True,
@@ -12116,11 +12114,11 @@ elif page == "Cashflow Champions":
             )
 
         _m = st.columns(5)
-        _metric_card(_m[0], "Ranked", _summary.get("ranked", 0))
+        _metric_card(_m[0], "Ranked", _summary.get("ranked", 0), accent=True)
         _metric_card(_m[1], "Champions", _summary.get("champions", 0), accent=True)
-        _metric_card(_m[2], "Failed", _summary.get("failed", 0))
-        _metric_card(_m[3], "Excluded", _summary.get("excluded", 0))
-        _metric_card(_m[4], "Financials excl.", _summary.get("excluded_financials", 0))
+        _metric_card(_m[2], "Failed", _summary.get("failed", 0), accent=True)
+        _metric_card(_m[3], "Excluded", _summary.get("excluded", 0), accent=True)
+        _metric_card(_m[4], "Financials excl.", _summary.get("excluded_financials", 0), accent=True)
         st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
 
         # ── Branded HTML table (matches the Watchlist list: logos, badges,
