@@ -1,0 +1,4775 @@
+{
+  "as_of": "2026-06-26",
+  "sources": {
+    "sp500": {
+      "url": "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv",
+      "as_of": "2026-06-26",
+      "count": 503
+    },
+    "nasdaq100": {
+      "url": "https://en.wikipedia.org/wiki/Nasdaq-100",
+      "as_of": "2026-06-26",
+      "count": 101
+    },
+    "dow30": {
+      "url": "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average",
+      "as_of": "2026-06-26",
+      "count": 30
+    },
+    "sec_exchange": {
+      "url": "https://www.sec.gov/files/company_tickers_exchange.json",
+      "as_of": "2026-06-26"
+    }
+  },
+  "unresolved": [
+    "ECHO"
+  ],
+  "count": 514,
+  "constituents": [
+    {
+      "ticker": "A",
+      "name": "AGILENT TECHNOLOGIES, INC.",
+      "cik": 1090872,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AAPL",
+      "name": "Apple Inc.",
+      "cik": 320193,
+      "exchange": "Nasdaq",
+      "indices": [
+        "dow30",
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ABBV",
+      "name": "AbbVie Inc.",
+      "cik": 1551152,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ABNB",
+      "name": "Airbnb, Inc.",
+      "cik": 1559720,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ABT",
+      "name": "ABBOTT LABORATORIES",
+      "cik": 1800,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ACGL",
+      "name": "ARCH CAPITAL GROUP LTD.",
+      "cik": 947484,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ACN",
+      "name": "Accenture plc",
+      "cik": 1467373,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ADBE",
+      "name": "ADOBE INC.",
+      "cik": 796343,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ADI",
+      "name": "ANALOG DEVICES INC",
+      "cik": 6281,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ADM",
+      "name": "Archer-Daniels-Midland Co",
+      "cik": 7084,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ADP",
+      "name": "AUTOMATIC DATA PROCESSING INC",
+      "cik": 8670,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ADSK",
+      "name": "Autodesk, Inc.",
+      "cik": 769397,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AEE",
+      "name": "AMEREN CORP",
+      "cik": 1002910,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AEP",
+      "name": "AMERICAN ELECTRIC POWER CO INC",
+      "cik": 4904,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AES",
+      "name": "AES CORP",
+      "cik": 874761,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AFL",
+      "name": "AFLAC INC",
+      "cik": 4977,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AIG",
+      "name": "AMERICAN INTERNATIONAL GROUP, INC.",
+      "cik": 5272,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AIZ",
+      "name": "ASSURANT, INC.",
+      "cik": 1267238,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AJG",
+      "name": "Arthur J. Gallagher & Co.",
+      "cik": 354190,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AKAM",
+      "name": "AKAMAI TECHNOLOGIES INC",
+      "cik": 1086222,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ALB",
+      "name": "ALBEMARLE CORP",
+      "cik": 915913,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ALGN",
+      "name": "ALIGN TECHNOLOGY INC",
+      "cik": 1097149,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ALL",
+      "name": "ALLSTATE CORP",
+      "cik": 899051,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ALLE",
+      "name": "Allegion plc",
+      "cik": 1579241,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ALNY",
+      "name": "ALNYLAM PHARMACEUTICALS, INC.",
+      "cik": 1178670,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100"
+      ]
+    },
+    {
+      "ticker": "AMAT",
+      "name": "APPLIED MATERIALS INC /DE",
+      "cik": 6951,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AMCR",
+      "name": "Amcor plc",
+      "cik": 1748790,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AMD",
+      "name": "ADVANCED MICRO DEVICES INC",
+      "cik": 2488,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AME",
+      "name": "AMETEK INC/",
+      "cik": 1037868,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AMGN",
+      "name": "AMGEN INC",
+      "cik": 318154,
+      "exchange": "Nasdaq",
+      "indices": [
+        "dow30",
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AMP",
+      "name": "AMERIPRISE FINANCIAL INC",
+      "cik": 820027,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AMT",
+      "name": "AMERICAN TOWER CORP /MA/",
+      "cik": 1053507,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AMZN",
+      "name": "AMAZON COM INC",
+      "cik": 1018724,
+      "exchange": "Nasdaq",
+      "indices": [
+        "dow30",
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ANET",
+      "name": "Arista Networks, Inc.",
+      "cik": 1596532,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AON",
+      "name": "Aon plc",
+      "cik": 315293,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AOS",
+      "name": "SMITH A O CORP",
+      "cik": 91142,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "APA",
+      "name": "APA Corp",
+      "cik": 1841666,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "APD",
+      "name": "Air Products & Chemicals, Inc.",
+      "cik": 2969,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "APH",
+      "name": "AMPHENOL CORP /DE/",
+      "cik": 820313,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "APO",
+      "name": "Apollo Global Management, Inc.",
+      "cik": 1858681,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "APP",
+      "name": "AppLovin Corp",
+      "cik": 1751008,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "APTV",
+      "name": "Aptiv PLC",
+      "cik": 1521332,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ARE",
+      "name": "ALEXANDRIA REAL ESTATE EQUITIES, INC.",
+      "cik": 1035443,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ARES",
+      "name": "Ares Management Corp",
+      "cik": 1176948,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ARM",
+      "name": "ARM HOLDINGS PLC /UK",
+      "cik": 1973239,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100"
+      ]
+    },
+    {
+      "ticker": "ASML",
+      "name": "ASML HOLDING NV",
+      "cik": 937966,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100"
+      ]
+    },
+    {
+      "ticker": "ATO",
+      "name": "ATMOS ENERGY CORP",
+      "cik": 731802,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AVB",
+      "name": "AVALONBAY COMMUNITIES INC",
+      "cik": 915912,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AVGO",
+      "name": "Broadcom Inc.",
+      "cik": 1730168,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AVY",
+      "name": "Avery Dennison Corp",
+      "cik": 8818,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AWK",
+      "name": "American Water Works Company, Inc.",
+      "cik": 1410636,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AXON",
+      "name": "AXON ENTERPRISE, INC.",
+      "cik": 1069183,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AXP",
+      "name": "AMERICAN EXPRESS CO",
+      "cik": 4962,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "AZO",
+      "name": "AUTOZONE INC",
+      "cik": 866787,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BA",
+      "name": "BOEING CO",
+      "cik": 12927,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BAC",
+      "name": "BANK OF AMERICA CORP /DE/",
+      "cik": 70858,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BALL",
+      "name": "BALL Corp",
+      "cik": 9389,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BAX",
+      "name": "BAXTER INTERNATIONAL INC",
+      "cik": 10456,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BBY",
+      "name": "BEST BUY CO INC",
+      "cik": 764478,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BDX",
+      "name": "BECTON DICKINSON & CO",
+      "cik": 10795,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BEN",
+      "name": "FRANKLIN RESOURCES INC",
+      "cik": 38777,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BF-B",
+      "name": "BROWN FORMAN CORP",
+      "cik": 14693,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BG",
+      "name": "Bunge Global SA",
+      "cik": 1996862,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BIIB",
+      "name": "BIOGEN INC.",
+      "cik": 875045,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BKNG",
+      "name": "Booking Holdings Inc.",
+      "cik": 1075531,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BKR",
+      "name": "Baker Hughes Co",
+      "cik": 1701605,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BLDR",
+      "name": "Builders FirstSource, Inc.",
+      "cik": 1316835,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BLK",
+      "name": "BlackRock, Inc.",
+      "cik": 2012383,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BMY",
+      "name": "BRISTOL MYERS SQUIBB CO",
+      "cik": 14272,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BNY",
+      "name": "Bank of New York Mellon Corp",
+      "cik": 1390777,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BR",
+      "name": "BROADRIDGE FINANCIAL SOLUTIONS, INC.",
+      "cik": 1383312,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BRK-B",
+      "name": "BERKSHIRE HATHAWAY INC",
+      "cik": 1067983,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BRO",
+      "name": "BROWN & BROWN, INC.",
+      "cik": 79282,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BSX",
+      "name": "BOSTON SCIENTIFIC CORP",
+      "cik": 885725,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BX",
+      "name": "Blackstone Inc.",
+      "cik": 1393818,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "BXP",
+      "name": "BXP, Inc.",
+      "cik": 1037540,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "C",
+      "name": "CITIGROUP INC",
+      "cik": 831001,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CAG",
+      "name": "CONAGRA BRANDS INC.",
+      "cik": 23217,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CAH",
+      "name": "CARDINAL HEALTH INC",
+      "cik": 721371,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CARR",
+      "name": "CARRIER GLOBAL Corp",
+      "cik": 1783180,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CASY",
+      "name": "CASEYS GENERAL STORES INC",
+      "cik": 726958,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CAT",
+      "name": "CATERPILLAR INC",
+      "cik": 18230,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CB",
+      "name": "Chubb Ltd",
+      "cik": 896159,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CBOE",
+      "name": "Cboe Global Markets, Inc.",
+      "cik": 1374310,
+      "exchange": "CBOE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CBRE",
+      "name": "CBRE GROUP, INC.",
+      "cik": 1138118,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CCEP",
+      "name": "COCA-COLA EUROPACIFIC PARTNERS plc",
+      "cik": 1650107,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100"
+      ]
+    },
+    {
+      "ticker": "CCI",
+      "name": "CROWN CASTLE INC.",
+      "cik": 1051470,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CCL",
+      "name": "Carnival Corp Ltd.",
+      "cik": 815097,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CDNS",
+      "name": "CADENCE DESIGN SYSTEMS INC",
+      "cik": 813672,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CDW",
+      "name": "CDW Corp",
+      "cik": 1402057,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CEG",
+      "name": "Constellation Energy Corp",
+      "cik": 1868275,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CF",
+      "name": "CF Industries Holdings, Inc.",
+      "cik": 1324404,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CFG",
+      "name": "CITIZENS FINANCIAL GROUP INC/RI",
+      "cik": 759944,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CHD",
+      "name": "CHURCH & DWIGHT CO INC /DE/",
+      "cik": 313927,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CHRW",
+      "name": "C. H. ROBINSON WORLDWIDE, INC.",
+      "cik": 1043277,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CHTR",
+      "name": "CHARTER COMMUNICATIONS, INC. /MO/",
+      "cik": 1091667,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CI",
+      "name": "Cigna Group",
+      "cik": 1739940,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CIEN",
+      "name": "CIENA CORP",
+      "cik": 936395,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CINF",
+      "name": "CINCINNATI FINANCIAL CORP",
+      "cik": 20286,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CL",
+      "name": "COLGATE PALMOLIVE CO",
+      "cik": 21665,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CLX",
+      "name": "CLOROX CO /DE/",
+      "cik": 21076,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CMCSA",
+      "name": "COMCAST CORP",
+      "cik": 1166691,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CME",
+      "name": "CME GROUP INC.",
+      "cik": 1156375,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CMG",
+      "name": "CHIPOTLE MEXICAN GRILL INC",
+      "cik": 1058090,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CMI",
+      "name": "CUMMINS INC",
+      "cik": 26172,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CMS",
+      "name": "CMS ENERGY CORP",
+      "cik": 811156,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CNC",
+      "name": "CENTENE CORP",
+      "cik": 1071739,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CNP",
+      "name": "CENTERPOINT ENERGY INC",
+      "cik": 1130310,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "COF",
+      "name": "CAPITAL ONE FINANCIAL CORP",
+      "cik": 927628,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "COHR",
+      "name": "COHERENT CORP.",
+      "cik": 820318,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "COIN",
+      "name": "Coinbase Global, Inc.",
+      "cik": 1679788,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "COO",
+      "name": "COOPER COMPANIES, INC.",
+      "cik": 711404,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "COP",
+      "name": "CONOCOPHILLIPS",
+      "cik": 1163165,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "COR",
+      "name": "Cencora, Inc.",
+      "cik": 1140859,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "COST",
+      "name": "COSTCO WHOLESALE CORP /NEW",
+      "cik": 909832,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CPAY",
+      "name": "CORPAY, INC.",
+      "cik": 1175454,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CPRT",
+      "name": "COPART INC",
+      "cik": 900075,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CPT",
+      "name": "CAMDEN PROPERTY TRUST",
+      "cik": 906345,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CRH",
+      "name": "CRH PUBLIC LTD CO",
+      "cik": 849395,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CRL",
+      "name": "CHARLES RIVER LABORATORIES INTERNATIONAL, INC.",
+      "cik": 1100682,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CRM",
+      "name": "Salesforce, Inc.",
+      "cik": 1108524,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CRWD",
+      "name": "CrowdStrike Holdings, Inc.",
+      "cik": 1535527,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CSCO",
+      "name": "CISCO SYSTEMS, INC.",
+      "cik": 858877,
+      "exchange": "Nasdaq",
+      "indices": [
+        "dow30",
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CSGP",
+      "name": "COSTAR GROUP, INC.",
+      "cik": 1057352,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CSX",
+      "name": "CSX CORP",
+      "cik": 277948,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CTAS",
+      "name": "CINTAS CORP",
+      "cik": 723254,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CTSH",
+      "name": "COGNIZANT TECHNOLOGY SOLUTIONS CORP",
+      "cik": 1058290,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CTVA",
+      "name": "Corteva, Inc.",
+      "cik": 1755672,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CVNA",
+      "name": "CARVANA CO.",
+      "cik": 1690820,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CVS",
+      "name": "CVS HEALTH Corp",
+      "cik": 64803,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "CVX",
+      "name": "CHEVRON CORP",
+      "cik": 93410,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "D",
+      "name": "DOMINION ENERGY, INC",
+      "cik": 715957,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DAL",
+      "name": "DELTA AIR LINES, INC.",
+      "cik": 27904,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DASH",
+      "name": "DoorDash, Inc.",
+      "cik": 1792789,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DD",
+      "name": "DuPont de Nemours, Inc.",
+      "cik": 1666700,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DDOG",
+      "name": "Datadog, Inc.",
+      "cik": 1561550,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DE",
+      "name": "DEERE & CO",
+      "cik": 315189,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DECK",
+      "name": "DECKERS OUTDOOR CORP",
+      "cik": 910521,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DELL",
+      "name": "Dell Technologies Inc.",
+      "cik": 1571996,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DG",
+      "name": "DOLLAR GENERAL CORP",
+      "cik": 29534,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DGX",
+      "name": "QUEST DIAGNOSTICS INC",
+      "cik": 1022079,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DHI",
+      "name": "HORTON D R INC /DE/",
+      "cik": 882184,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DHR",
+      "name": "DANAHER CORP /DE/",
+      "cik": 313616,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DIS",
+      "name": "Walt Disney Co",
+      "cik": 1744489,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DLR",
+      "name": "DIGITAL REALTY TRUST, INC.",
+      "cik": 1297996,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DLTR",
+      "name": "DOLLAR TREE, INC.",
+      "cik": 935703,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DOC",
+      "name": "HEALTHPEAK PROPERTIES, INC.",
+      "cik": 765880,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DOV",
+      "name": "DOVER Corp",
+      "cik": 29905,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DOW",
+      "name": "DOW INC.",
+      "cik": 1751788,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DPZ",
+      "name": "DOMINOS PIZZA INC",
+      "cik": 1286681,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DRI",
+      "name": "DARDEN RESTAURANTS INC",
+      "cik": 940944,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DTE",
+      "name": "DTE ENERGY CO",
+      "cik": 936340,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DUK",
+      "name": "Duke Energy CORP",
+      "cik": 1326160,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DVA",
+      "name": "DAVITA INC.",
+      "cik": 927066,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DVN",
+      "name": "DEVON ENERGY CORP/DE",
+      "cik": 1090012,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "DXCM",
+      "name": "DEXCOM INC",
+      "cik": 1093557,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EA",
+      "name": "ELECTRONIC ARTS INC.",
+      "cik": 712515,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EBAY",
+      "name": "EBAY INC",
+      "cik": 1065088,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ECL",
+      "name": "ECOLAB INC.",
+      "cik": 31462,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ED",
+      "name": "CONSOLIDATED EDISON INC",
+      "cik": 1047862,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EFX",
+      "name": "EQUIFAX INC",
+      "cik": 33185,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EG",
+      "name": "EVEREST GROUP, LTD.",
+      "cik": 1095073,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EIX",
+      "name": "EDISON INTERNATIONAL",
+      "cik": 827052,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EL",
+      "name": "ESTEE LAUDER COMPANIES INC",
+      "cik": 1001250,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ELV",
+      "name": "Elevance Health, Inc.",
+      "cik": 1156039,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EME",
+      "name": "EMCOR Group, Inc.",
+      "cik": 105634,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EMR",
+      "name": "EMERSON ELECTRIC CO",
+      "cik": 32604,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EOG",
+      "name": "EOG RESOURCES INC",
+      "cik": 821189,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EQIX",
+      "name": "EQUINIX INC",
+      "cik": 1101239,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EQR",
+      "name": "EQUITY RESIDENTIAL",
+      "cik": 906107,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EQT",
+      "name": "EQT Corp",
+      "cik": 33213,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ERIE",
+      "name": "ERIE INDEMNITY CO",
+      "cik": 922621,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ES",
+      "name": "EVERSOURCE ENERGY",
+      "cik": 72741,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ESS",
+      "name": "ESSEX PROPERTY TRUST, INC.",
+      "cik": 920522,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ETN",
+      "name": "Eaton Corp plc",
+      "cik": 1551182,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ETR",
+      "name": "ENTERGY CORP /DE/",
+      "cik": 65984,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EVRG",
+      "name": "Evergy, Inc.",
+      "cik": 1711269,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EW",
+      "name": "Edwards Lifesciences Corp",
+      "cik": 1099800,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EXC",
+      "name": "EXELON CORP",
+      "cik": 1109357,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EXE",
+      "name": "EXPAND ENERGY Corp",
+      "cik": 895126,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EXPD",
+      "name": "EXPEDITORS INTERNATIONAL OF WASHINGTON INC",
+      "cik": 746515,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EXPE",
+      "name": "Expedia Group, Inc.",
+      "cik": 1324424,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "EXR",
+      "name": "Extra Space Storage Inc.",
+      "cik": 1289490,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "F",
+      "name": "FORD MOTOR CO",
+      "cik": 37996,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FANG",
+      "name": "Diamondback Energy, Inc.",
+      "cik": 1539838,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FAST",
+      "name": "FASTENAL CO",
+      "cik": 815556,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FCX",
+      "name": "FREEPORT-MCMORAN INC",
+      "cik": 831259,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FDS",
+      "name": "FACTSET RESEARCH SYSTEMS INC",
+      "cik": 1013237,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FDX",
+      "name": "FEDEX CORP",
+      "cik": 1048911,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FDXF",
+      "name": "FedEx Freight Holding Company, Inc.",
+      "cik": 2082247,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FE",
+      "name": "FIRSTENERGY CORP",
+      "cik": 1031296,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FER",
+      "name": "Ferrovial N.V.",
+      "cik": 1468522,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100"
+      ]
+    },
+    {
+      "ticker": "FFIV",
+      "name": "F5, INC.",
+      "cik": 1048695,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FICO",
+      "name": "FAIR ISAAC CORP",
+      "cik": 814547,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FIS",
+      "name": "Fidelity National Information Services, Inc.",
+      "cik": 1136893,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FISV",
+      "name": "FISERV INC",
+      "cik": 798354,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FITB",
+      "name": "FIFTH THIRD BANCORP",
+      "cik": 35527,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FIX",
+      "name": "COMFORT SYSTEMS USA INC",
+      "cik": 1035983,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FLEX",
+      "name": "FLEX LTD.",
+      "cik": 866374,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FOX",
+      "name": "Fox Corp",
+      "cik": 1754301,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FOXA",
+      "name": "Fox Corp",
+      "cik": 1754301,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FRT",
+      "name": "FEDERAL REALTY INVESTMENT TRUST",
+      "cik": 34903,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FSLR",
+      "name": "FIRST SOLAR, INC.",
+      "cik": 1274494,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FTNT",
+      "name": "Fortinet, Inc.",
+      "cik": 1262039,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "FTV",
+      "name": "Fortive Corp",
+      "cik": 1659166,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GD",
+      "name": "GENERAL DYNAMICS CORP",
+      "cik": 40533,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GDDY",
+      "name": "GoDaddy Inc.",
+      "cik": 1609711,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GE",
+      "name": "GENERAL ELECTRIC CO",
+      "cik": 40545,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GEHC",
+      "name": "GE HealthCare Technologies Inc.",
+      "cik": 1932393,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GEN",
+      "name": "Gen Digital Inc.",
+      "cik": 849399,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GEV",
+      "name": "GE Vernova Inc.",
+      "cik": 1996810,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GILD",
+      "name": "GILEAD SCIENCES, INC.",
+      "cik": 882095,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GIS",
+      "name": "GENERAL MILLS INC",
+      "cik": 40704,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GL",
+      "name": "GLOBE LIFE INC.",
+      "cik": 320335,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GLW",
+      "name": "CORNING INC /NY",
+      "cik": 24741,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GM",
+      "name": "General Motors Co",
+      "cik": 1467858,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GNRC",
+      "name": "GENERAC HOLDINGS INC.",
+      "cik": 1474735,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GOOG",
+      "name": "Alphabet Inc.",
+      "cik": 1652044,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GOOGL",
+      "name": "Alphabet Inc.",
+      "cik": 1652044,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GPC",
+      "name": "GENUINE PARTS CO",
+      "cik": 40987,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GPN",
+      "name": "GLOBAL PAYMENTS INC",
+      "cik": 1123360,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GRMN",
+      "name": "GARMIN LTD",
+      "cik": 1121788,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GS",
+      "name": "GOLDMAN SACHS GROUP INC",
+      "cik": 886982,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "GWW",
+      "name": "W.W. GRAINGER, INC.",
+      "cik": 277135,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HAL",
+      "name": "HALLIBURTON CO",
+      "cik": 45012,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HAS",
+      "name": "HASBRO, INC.",
+      "cik": 46080,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HBAN",
+      "name": "HUNTINGTON BANCSHARES INC /MD/",
+      "cik": 49196,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HCA",
+      "name": "HCA Healthcare, Inc.",
+      "cik": 860730,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HD",
+      "name": "HOME DEPOT, INC.",
+      "cik": 354950,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HIG",
+      "name": "HARTFORD INSURANCE GROUP, INC.",
+      "cik": 874766,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HII",
+      "name": "HUNTINGTON INGALLS INDUSTRIES, INC.",
+      "cik": 1501585,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HLT",
+      "name": "Hilton Worldwide Holdings Inc.",
+      "cik": 1585689,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HON",
+      "name": "HONEYWELL INTERNATIONAL INC",
+      "cik": 773840,
+      "exchange": "Nasdaq",
+      "indices": [
+        "dow30",
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HOOD",
+      "name": "Robinhood Markets, Inc.",
+      "cik": 1783879,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HPE",
+      "name": "Hewlett Packard Enterprise Co",
+      "cik": 1645590,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HPQ",
+      "name": "HP INC",
+      "cik": 47217,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HRL",
+      "name": "HORMEL FOODS CORP /DE/",
+      "cik": 48465,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HSIC",
+      "name": "HENRY SCHEIN INC",
+      "cik": 1000228,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HST",
+      "name": "HOST HOTELS & RESORTS, INC.",
+      "cik": 1070750,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HSY",
+      "name": "HERSHEY CO",
+      "cik": 47111,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HUBB",
+      "name": "HUBBELL INC",
+      "cik": 48898,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HUM",
+      "name": "HUMANA INC",
+      "cik": 49071,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "HWM",
+      "name": "Howmet Aerospace Inc.",
+      "cik": 4281,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "IBKR",
+      "name": "Interactive Brokers Group, Inc.",
+      "cik": 1381197,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "IBM",
+      "name": "INTERNATIONAL BUSINESS MACHINES CORP",
+      "cik": 51143,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ICE",
+      "name": "Intercontinental Exchange, Inc.",
+      "cik": 1571949,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "IDXX",
+      "name": "IDEXX LABORATORIES INC /DE",
+      "cik": 874716,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "IEX",
+      "name": "IDEX CORP /DE/",
+      "cik": 832101,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "IFF",
+      "name": "INTERNATIONAL FLAVORS & FRAGRANCES INC",
+      "cik": 51253,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "INCY",
+      "name": "INCYTE CORP",
+      "cik": 879169,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "INSM",
+      "name": "INSMED Inc",
+      "cik": 1104506,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100"
+      ]
+    },
+    {
+      "ticker": "INTC",
+      "name": "INTEL CORP",
+      "cik": 50863,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "INTU",
+      "name": "INTUIT INC.",
+      "cik": 896878,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "INVH",
+      "name": "Invitation Homes Inc.",
+      "cik": 1687229,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "IP",
+      "name": "INTERNATIONAL PAPER CO /NEW/",
+      "cik": 51434,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "IQV",
+      "name": "IQVIA HOLDINGS INC.",
+      "cik": 1478242,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "IR",
+      "name": "Ingersoll Rand Inc.",
+      "cik": 1699150,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "IRM",
+      "name": "IRON MOUNTAIN INC",
+      "cik": 1020569,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ISRG",
+      "name": "INTUITIVE SURGICAL INC",
+      "cik": 1035267,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "IT",
+      "name": "GARTNER INC",
+      "cik": 749251,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ITW",
+      "name": "ILLINOIS TOOL WORKS INC",
+      "cik": 49826,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "IVZ",
+      "name": "Invesco Ltd.",
+      "cik": 914208,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "J",
+      "name": "JACOBS SOLUTIONS INC.",
+      "cik": 52988,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "JBHT",
+      "name": "HUNT J B TRANSPORT SERVICES INC",
+      "cik": 728535,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "JBL",
+      "name": "JABIL INC",
+      "cik": 898293,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "JCI",
+      "name": "Johnson Controls International plc",
+      "cik": 833444,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "JKHY",
+      "name": "JACK HENRY & ASSOCIATES INC",
+      "cik": 779152,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "JNJ",
+      "name": "JOHNSON & JOHNSON",
+      "cik": 200406,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "JPM",
+      "name": "JPMORGAN CHASE & CO",
+      "cik": 19617,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "KDP",
+      "name": "Keurig Dr Pepper Inc.",
+      "cik": 1418135,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "KEY",
+      "name": "KEYCORP /NEW/",
+      "cik": 91576,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "KEYS",
+      "name": "Keysight Technologies, Inc.",
+      "cik": 1601046,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "KHC",
+      "name": "Kraft Heinz Co",
+      "cik": 1637459,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "KIM",
+      "name": "KIMCO REALTY CORP",
+      "cik": 879101,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "KKR",
+      "name": "KKR & Co. Inc.",
+      "cik": 1404912,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "KLAC",
+      "name": "KLA CORP",
+      "cik": 319201,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "KMB",
+      "name": "KIMBERLY CLARK CORP",
+      "cik": 55785,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "KMI",
+      "name": "KINDER MORGAN, INC.",
+      "cik": 1506307,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "KO",
+      "name": "COCA COLA CO",
+      "cik": 21344,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "KR",
+      "name": "KROGER CO",
+      "cik": 56873,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "KVUE",
+      "name": "Kenvue Inc.",
+      "cik": 1944048,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "L",
+      "name": "LOEWS CORP",
+      "cik": 60086,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LDOS",
+      "name": "Leidos Holdings, Inc.",
+      "cik": 1336920,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LEN",
+      "name": "LENNAR CORP /NEW/",
+      "cik": 920760,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LH",
+      "name": "LABCORP HOLDINGS INC.",
+      "cik": 920148,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LHX",
+      "name": "L3HARRIS TECHNOLOGIES, INC. /DE/",
+      "cik": 202058,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LII",
+      "name": "LENNOX INTERNATIONAL INC",
+      "cik": 1069202,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LIN",
+      "name": "LINDE PLC",
+      "cik": 1707925,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LITE",
+      "name": "Lumentum Holdings Inc.",
+      "cik": 1633978,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LLY",
+      "name": "ELI LILLY & Co",
+      "cik": 59478,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LMT",
+      "name": "LOCKHEED MARTIN CORP",
+      "cik": 936468,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LNT",
+      "name": "ALLIANT ENERGY CORP",
+      "cik": 352541,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LOW",
+      "name": "LOWES COMPANIES INC",
+      "cik": 60667,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LRCX",
+      "name": "LAM RESEARCH CORP",
+      "cik": 707549,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LULU",
+      "name": "lululemon athletica inc.",
+      "cik": 1397187,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LUV",
+      "name": "SOUTHWEST AIRLINES CO",
+      "cik": 92380,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LVS",
+      "name": "LAS VEGAS SANDS CORP",
+      "cik": 1300514,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LYB",
+      "name": "LyondellBasell Industries N.V.",
+      "cik": 1489393,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "LYV",
+      "name": "Live Nation Entertainment, Inc.",
+      "cik": 1335258,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MA",
+      "name": "Mastercard Inc",
+      "cik": 1141391,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MAA",
+      "name": "MID AMERICA APARTMENT COMMUNITIES INC.",
+      "cik": 912595,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MAR",
+      "name": "MARRIOTT INTERNATIONAL INC /MD/",
+      "cik": 1048286,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MAS",
+      "name": "MASCO CORP /DE/",
+      "cik": 62996,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MCD",
+      "name": "MCDONALDS CORP",
+      "cik": 63908,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MCHP",
+      "name": "MICROCHIP TECHNOLOGY INC",
+      "cik": 827054,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MCK",
+      "name": "MCKESSON CORP",
+      "cik": 927653,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MCO",
+      "name": "MOODYS CORP /DE/",
+      "cik": 1059556,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MDLZ",
+      "name": "Mondelez International, Inc.",
+      "cik": 1103982,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MDT",
+      "name": "Medtronic plc",
+      "cik": 1613103,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MELI",
+      "name": "MERCADOLIBRE INC",
+      "cik": 1099590,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100"
+      ]
+    },
+    {
+      "ticker": "MET",
+      "name": "METLIFE INC",
+      "cik": 1099219,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "META",
+      "name": "Meta Platforms, Inc.",
+      "cik": 1326801,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MGM",
+      "name": "MGM Resorts International",
+      "cik": 789570,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MKC",
+      "name": "MCCORMICK & CO INC",
+      "cik": 63754,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MLM",
+      "name": "MARTIN MARIETTA MATERIALS INC",
+      "cik": 916076,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MMM",
+      "name": "3M CO",
+      "cik": 66740,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MNST",
+      "name": "Monster Beverage Corp",
+      "cik": 865752,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MO",
+      "name": "ALTRIA GROUP, INC.",
+      "cik": 764180,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MOS",
+      "name": "MOSAIC CO",
+      "cik": 1285785,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MPC",
+      "name": "Marathon Petroleum Corp",
+      "cik": 1510295,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MPWR",
+      "name": "MONOLITHIC POWER SYSTEMS INC",
+      "cik": 1280452,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MRK",
+      "name": "Merck & Co., Inc.",
+      "cik": 310158,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MRNA",
+      "name": "Moderna, Inc.",
+      "cik": 1682852,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MRSH",
+      "name": "MARSH & MCLENNAN COMPANIES, INC.",
+      "cik": 62709,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MRVL",
+      "name": "Marvell Technology, Inc.",
+      "cik": 1835632,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MS",
+      "name": "MORGAN STANLEY",
+      "cik": 895421,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MSCI",
+      "name": "MSCI Inc.",
+      "cik": 1408198,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MSFT",
+      "name": "MICROSOFT CORP",
+      "cik": 789019,
+      "exchange": "Nasdaq",
+      "indices": [
+        "dow30",
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MSI",
+      "name": "Motorola Solutions, Inc.",
+      "cik": 68505,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MSTR",
+      "name": "Strategy Inc",
+      "cik": 1050446,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100"
+      ]
+    },
+    {
+      "ticker": "MTB",
+      "name": "M&T BANK CORP",
+      "cik": 36270,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MTD",
+      "name": "METTLER TOLEDO INTERNATIONAL INC/",
+      "cik": 1037646,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "MU",
+      "name": "MICRON TECHNOLOGY INC",
+      "cik": 723125,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NCLH",
+      "name": "Norwegian Cruise Line Holdings Ltd.",
+      "cik": 1513761,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NDAQ",
+      "name": "NASDAQ, INC.",
+      "cik": 1120193,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NDSN",
+      "name": "NORDSON CORP",
+      "cik": 72331,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NEE",
+      "name": "NEXTERA ENERGY INC",
+      "cik": 753308,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NEM",
+      "name": "NEWMONT Corp /DE/",
+      "cik": 1164727,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NFLX",
+      "name": "NETFLIX INC",
+      "cik": 1065280,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NI",
+      "name": "NISOURCE INC.",
+      "cik": 1111711,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NKE",
+      "name": "NIKE, Inc.",
+      "cik": 320187,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NOC",
+      "name": "NORTHROP GRUMMAN CORP /DE/",
+      "cik": 1133421,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NOW",
+      "name": "ServiceNow, Inc.",
+      "cik": 1373715,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NRG",
+      "name": "NRG ENERGY, INC.",
+      "cik": 1013871,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NSC",
+      "name": "NORFOLK SOUTHERN CORP",
+      "cik": 702165,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NTAP",
+      "name": "NetApp, Inc.",
+      "cik": 1002047,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NTRS",
+      "name": "NORTHERN TRUST CORP",
+      "cik": 73124,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NUE",
+      "name": "NUCOR CORP",
+      "cik": 73309,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NVDA",
+      "name": "NVIDIA CORP",
+      "cik": 1045810,
+      "exchange": "Nasdaq",
+      "indices": [
+        "dow30",
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NVR",
+      "name": "NVR INC",
+      "cik": 906163,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NWS",
+      "name": "NEWS CORP",
+      "cik": 1564708,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NWSA",
+      "name": "NEWS CORP",
+      "cik": 1564708,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "NXPI",
+      "name": "NXP Semiconductors N.V.",
+      "cik": 1413447,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "O",
+      "name": "REALTY INCOME CORP",
+      "cik": 726728,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ODFL",
+      "name": "OLD DOMINION FREIGHT LINE, INC.",
+      "cik": 878927,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "OKE",
+      "name": "ONEOK INC /NEW/",
+      "cik": 1039684,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "OMC",
+      "name": "OMNICOM GROUP INC.",
+      "cik": 29989,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ON",
+      "name": "ON SEMICONDUCTOR CORP",
+      "cik": 1097864,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ORCL",
+      "name": "ORACLE CORP",
+      "cik": 1341439,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ORLY",
+      "name": "O REILLY AUTOMOTIVE INC",
+      "cik": 898173,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "OTIS",
+      "name": "Otis Worldwide Corp",
+      "cik": 1781335,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "OXY",
+      "name": "OCCIDENTAL PETROLEUM CORP /DE/",
+      "cik": 797468,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PANW",
+      "name": "Palo Alto Networks Inc",
+      "cik": 1327567,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PAYX",
+      "name": "PAYCHEX INC",
+      "cik": 723531,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PCAR",
+      "name": "PACCAR INC",
+      "cik": 75362,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PCG",
+      "name": "PG&E Corp",
+      "cik": 1004980,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PDD",
+      "name": "PDD Holdings Inc.",
+      "cik": 1737806,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100"
+      ]
+    },
+    {
+      "ticker": "PEG",
+      "name": "PUBLIC SERVICE ENTERPRISE GROUP INC",
+      "cik": 788784,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PEP",
+      "name": "PEPSICO INC",
+      "cik": 77476,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PFE",
+      "name": "PFIZER INC",
+      "cik": 78003,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PFG",
+      "name": "PRINCIPAL FINANCIAL GROUP INC",
+      "cik": 1126328,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PG",
+      "name": "PROCTER & GAMBLE Co",
+      "cik": 80424,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PGR",
+      "name": "PROGRESSIVE CORP/OH/",
+      "cik": 80661,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PH",
+      "name": "Parker-Hannifin Corp",
+      "cik": 76334,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PHM",
+      "name": "PULTEGROUP INC/MI/",
+      "cik": 822416,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PKG",
+      "name": "PACKAGING CORP OF AMERICA",
+      "cik": 75677,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PLD",
+      "name": "Prologis, Inc.",
+      "cik": 1045609,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PLTR",
+      "name": "Palantir Technologies Inc.",
+      "cik": 1321655,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PM",
+      "name": "Philip Morris International Inc.",
+      "cik": 1413329,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PNC",
+      "name": "PNC FINANCIAL SERVICES GROUP, INC.",
+      "cik": 713676,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PNR",
+      "name": "PENTAIR plc",
+      "cik": 77360,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PNW",
+      "name": "PINNACLE WEST CAPITAL CORP",
+      "cik": 764622,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PODD",
+      "name": "INSULET CORP",
+      "cik": 1145197,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PPG",
+      "name": "PPG INDUSTRIES INC",
+      "cik": 79879,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PPL",
+      "name": "PPL Corp",
+      "cik": 922224,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PRU",
+      "name": "PRUDENTIAL FINANCIAL INC",
+      "cik": 1137774,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PSA",
+      "name": "Public Storage",
+      "cik": 1393311,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PSKY",
+      "name": "Paramount Skydance Corp",
+      "cik": 2041610,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PSX",
+      "name": "Phillips 66",
+      "cik": 1534701,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PTC",
+      "name": "PTC INC.",
+      "cik": 857005,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PWR",
+      "name": "QUANTA SERVICES, INC.",
+      "cik": 1050915,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "PYPL",
+      "name": "PayPal Holdings, Inc.",
+      "cik": 1633917,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "Q",
+      "name": "Qnity Electronics, Inc.",
+      "cik": 2058873,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "QCOM",
+      "name": "QUALCOMM INC/DE",
+      "cik": 804328,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "RCL",
+      "name": "ROYAL CARIBBEAN CRUISES LTD",
+      "cik": 884887,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "REG",
+      "name": "REGENCY CENTERS CORP",
+      "cik": 910606,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "REGN",
+      "name": "REGENERON PHARMACEUTICALS, INC.",
+      "cik": 872589,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "RF",
+      "name": "REGIONS FINANCIAL CORP",
+      "cik": 1281761,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "RJF",
+      "name": "RAYMOND JAMES FINANCIAL INC",
+      "cik": 720005,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "RL",
+      "name": "RALPH LAUREN CORP",
+      "cik": 1037038,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "RMD",
+      "name": "RESMED INC",
+      "cik": 943819,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ROK",
+      "name": "ROCKWELL AUTOMATION, INC",
+      "cik": 1024478,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ROL",
+      "name": "ROLLINS INC",
+      "cik": 84839,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ROP",
+      "name": "ROPER TECHNOLOGIES INC",
+      "cik": 882835,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ROST",
+      "name": "ROSS STORES, INC.",
+      "cik": 745732,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "RSG",
+      "name": "REPUBLIC SERVICES, INC.",
+      "cik": 1060391,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "RTX",
+      "name": "RTX Corp",
+      "cik": 101829,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "RVTY",
+      "name": "REVVITY, INC.",
+      "cik": 31791,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SBAC",
+      "name": "SBA COMMUNICATIONS CORP",
+      "cik": 1034054,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SBUX",
+      "name": "STARBUCKS CORP",
+      "cik": 829224,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SCHW",
+      "name": "SCHWAB CHARLES CORP",
+      "cik": 316709,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SHOP",
+      "name": "SHOPIFY INC.",
+      "cik": 1594805,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100"
+      ]
+    },
+    {
+      "ticker": "SHW",
+      "name": "SHERWIN WILLIAMS CO",
+      "cik": 89800,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SJM",
+      "name": "J M SMUCKER Co",
+      "cik": 91419,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SLB",
+      "name": "SLB LIMITED/NV",
+      "cik": 87347,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SMCI",
+      "name": "Super Micro Computer, Inc.",
+      "cik": 1375365,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SNA",
+      "name": "Snap-on Inc",
+      "cik": 91440,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SNDK",
+      "name": "Sandisk Corp",
+      "cik": 2023554,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SNPS",
+      "name": "SYNOPSYS INC",
+      "cik": 883241,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SO",
+      "name": "SOUTHERN CO",
+      "cik": 92122,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SOLV",
+      "name": "Solventum Corp",
+      "cik": 1964738,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SPG",
+      "name": "SIMON PROPERTY GROUP INC.",
+      "cik": 1063761,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SPGI",
+      "name": "S&P Global Inc.",
+      "cik": 64040,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SRE",
+      "name": "SEMPRA",
+      "cik": 1032208,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "STE",
+      "name": "STERIS plc",
+      "cik": 1757898,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "STLD",
+      "name": "STEEL DYNAMICS INC",
+      "cik": 1022671,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "STT",
+      "name": "STATE STREET CORP",
+      "cik": 93751,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "STX",
+      "name": "Seagate Technology Holdings plc",
+      "cik": 1137789,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "STZ",
+      "name": "CONSTELLATION BRANDS, INC.",
+      "cik": 16918,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SW",
+      "name": "Smurfit Westrock plc",
+      "cik": 2005951,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SWK",
+      "name": "STANLEY BLACK & DECKER, INC.",
+      "cik": 93556,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SWKS",
+      "name": "SKYWORKS SOLUTIONS, INC.",
+      "cik": 4127,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SYF",
+      "name": "Synchrony Financial",
+      "cik": 1601712,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SYK",
+      "name": "STRYKER CORP",
+      "cik": 310764,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "SYY",
+      "name": "SYSCO CORP",
+      "cik": 96021,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "T",
+      "name": "AT&T INC.",
+      "cik": 732717,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TAP",
+      "name": "MOLSON COORS BEVERAGE CO",
+      "cik": 24545,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TDG",
+      "name": "TransDigm Group INC",
+      "cik": 1260221,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TDY",
+      "name": "TELEDYNE TECHNOLOGIES INC",
+      "cik": 1094285,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TECH",
+      "name": "BIO-TECHNE Corp",
+      "cik": 842023,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TEL",
+      "name": "TE Connectivity plc",
+      "cik": 1385157,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TER",
+      "name": "TERADYNE, INC",
+      "cik": 97210,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TFC",
+      "name": "TRUIST FINANCIAL CORP",
+      "cik": 92230,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TGT",
+      "name": "TARGET CORP",
+      "cik": 27419,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TJX",
+      "name": "TJX COMPANIES INC /DE/",
+      "cik": 109198,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TKO",
+      "name": "TKO Group Holdings, Inc.",
+      "cik": 1973266,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TMO",
+      "name": "THERMO FISHER SCIENTIFIC INC.",
+      "cik": 97745,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TMUS",
+      "name": "T-Mobile US, Inc.",
+      "cik": 1283699,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TPL",
+      "name": "Texas Pacific Land Corp",
+      "cik": 1811074,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TPR",
+      "name": "TAPESTRY, INC.",
+      "cik": 1116132,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TRGP",
+      "name": "Targa Resources Corp.",
+      "cik": 1389170,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TRI",
+      "name": "THOMSON REUTERS CORP /CAN/",
+      "cik": 1075124,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100"
+      ]
+    },
+    {
+      "ticker": "TRMB",
+      "name": "TRIMBLE INC.",
+      "cik": 864749,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TROW",
+      "name": "PRICE T ROWE GROUP INC",
+      "cik": 1113169,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TRV",
+      "name": "TRAVELERS COMPANIES, INC.",
+      "cik": 86312,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TSCO",
+      "name": "TRACTOR SUPPLY CO /DE/",
+      "cik": 916365,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TSLA",
+      "name": "Tesla, Inc.",
+      "cik": 1318605,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TSN",
+      "name": "TYSON FOODS, INC.",
+      "cik": 100493,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TT",
+      "name": "Trane Technologies plc",
+      "cik": 1466258,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TTD",
+      "name": "Trade Desk, Inc.",
+      "cik": 1671933,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TTWO",
+      "name": "TAKE TWO INTERACTIVE SOFTWARE INC",
+      "cik": 946581,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TXN",
+      "name": "TEXAS INSTRUMENTS INC",
+      "cik": 97476,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TXT",
+      "name": "TEXTRON INC",
+      "cik": 217346,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "TYL",
+      "name": "TYLER TECHNOLOGIES INC",
+      "cik": 860731,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "UAL",
+      "name": "United Airlines Holdings, Inc.",
+      "cik": 100517,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "UBER",
+      "name": "Uber Technologies, Inc",
+      "cik": 1543151,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "UDR",
+      "name": "UDR, Inc.",
+      "cik": 74208,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "UHS",
+      "name": "UNIVERSAL HEALTH SERVICES INC",
+      "cik": 352915,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ULTA",
+      "name": "Ulta Beauty, Inc.",
+      "cik": 1403568,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "UNH",
+      "name": "UNITEDHEALTH GROUP INC",
+      "cik": 731766,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "UNP",
+      "name": "UNION PACIFIC CORP",
+      "cik": 100885,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "UPS",
+      "name": "UNITED PARCEL SERVICE INC",
+      "cik": 1090727,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "URI",
+      "name": "UNITED RENTALS, INC.",
+      "cik": 1067701,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "USB",
+      "name": "US BANCORP DE",
+      "cik": 36104,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "V",
+      "name": "VISA INC.",
+      "cik": 1403161,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "VEEV",
+      "name": "VEEVA SYSTEMS INC",
+      "cik": 1393052,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "VICI",
+      "name": "VICI PROPERTIES INC.",
+      "cik": 1705696,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "VLO",
+      "name": "VALERO ENERGY CORP/TX",
+      "cik": 1035002,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "VLTO",
+      "name": "Veralto Corp",
+      "cik": 1967680,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "VMC",
+      "name": "Vulcan Materials CO",
+      "cik": 1396009,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "VRSK",
+      "name": "Verisk Analytics, Inc.",
+      "cik": 1442145,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "VRSN",
+      "name": "VERISIGN INC/CA",
+      "cik": 1014473,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "VRT",
+      "name": "Vertiv Holdings Co",
+      "cik": 1674101,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "VRTX",
+      "name": "VERTEX PHARMACEUTICALS INC / MA",
+      "cik": 875320,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "VST",
+      "name": "Vistra Corp.",
+      "cik": 1692819,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "VTR",
+      "name": "Ventas, Inc.",
+      "cik": 740260,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "VTRS",
+      "name": "Viatris Inc",
+      "cik": 1792044,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "VZ",
+      "name": "VERIZON COMMUNICATIONS INC",
+      "cik": 732712,
+      "exchange": "NYSE",
+      "indices": [
+        "dow30",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WAB",
+      "name": "WESTINGHOUSE AIR BRAKE TECHNOLOGIES CORP",
+      "cik": 943452,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WAT",
+      "name": "WATERS CORP /DE/",
+      "cik": 1000697,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WBD",
+      "name": "Warner Bros. Discovery, Inc.",
+      "cik": 1437107,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WDAY",
+      "name": "Workday, Inc.",
+      "cik": 1327811,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WDC",
+      "name": "WESTERN DIGITAL CORP",
+      "cik": 106040,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WEC",
+      "name": "WEC ENERGY GROUP, INC.",
+      "cik": 783325,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WELL",
+      "name": "WELLTOWER INC.",
+      "cik": 766704,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WFC",
+      "name": "WELLS FARGO & COMPANY/MN",
+      "cik": 72971,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WM",
+      "name": "WASTE MANAGEMENT INC",
+      "cik": 823768,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WMB",
+      "name": "WILLIAMS COMPANIES, INC.",
+      "cik": 107263,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WMT",
+      "name": "Walmart Inc.",
+      "cik": 104169,
+      "exchange": "Nasdaq",
+      "indices": [
+        "dow30",
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WRB",
+      "name": "BERKLEY W R CORP",
+      "cik": 11544,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WSM",
+      "name": "WILLIAMS SONOMA INC",
+      "cik": 719955,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WST",
+      "name": "WEST PHARMACEUTICAL SERVICES INC",
+      "cik": 105770,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WTW",
+      "name": "WILLIS TOWERS WATSON PLC",
+      "cik": 1140536,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WY",
+      "name": "WEYERHAEUSER CO",
+      "cik": 106535,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "WYNN",
+      "name": "WYNN RESORTS LTD",
+      "cik": 1174922,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "XEL",
+      "name": "XCEL ENERGY INC",
+      "cik": 72903,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "XOM",
+      "name": "EXXON MOBIL CORP",
+      "cik": 34088,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "XYL",
+      "name": "Xylem Inc.",
+      "cik": 1524472,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "XYZ",
+      "name": "Block, Inc.",
+      "cik": 1512673,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "YUM",
+      "name": "YUM BRANDS INC",
+      "cik": 1041061,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ZBH",
+      "name": "ZIMMER BIOMET HOLDINGS, INC.",
+      "cik": 1136869,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ZBRA",
+      "name": "ZEBRA TECHNOLOGIES CORP",
+      "cik": 877212,
+      "exchange": "Nasdaq",
+      "indices": [
+        "sp500"
+      ]
+    },
+    {
+      "ticker": "ZS",
+      "name": "Zscaler, Inc.",
+      "cik": 1713683,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100"
+      ]
+    },
+    {
+      "ticker": "ZTS",
+      "name": "Zoetis Inc.",
+      "cik": 1555280,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ]
+    }
+  ]
+}
