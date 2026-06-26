@@ -8557,7 +8557,7 @@ with st.sidebar:
         """Clear account page override when user clicks a main nav item."""
         st.session_state.pop("_account_page", None)
 
-    _all_pages = ["Portfolio", "Wheel Cost Basis", "Results", "Watchlist", "Option Finder", "Cashflow Champions"]
+    _all_pages = ["Portfolio", "Wheel Cost Basis", "Results", "Watchlist", "Cashflow Champions", "Option Finder"]
 
     # CSS to add a visual separator after "Results" (3rd item)
     st.markdown(
