@@ -8406,7 +8406,7 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
         status.write("\u23f3 Fetching financial statements from EDGAR...")
         with contextlib.redirect_stdout(buf):
             facts = fetch_company_facts(cik)
-            financials = parse_financials(facts, n_years=6)
+            financials = parse_financials(facts, n_years=6, ticker=ticker)
             # ADR tickers: convert ordinary shares to ADR-equivalent so market
             # cap / per-share line up with the ADR price. getattr keeps this a
             # no-op if an older gather_data module is loaded (avoids hard fail).
