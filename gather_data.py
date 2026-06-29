@@ -408,11 +408,69 @@ def _parse_financials_ifrs(facts, n_years=6):
     return result
 
 
-def parse_financials(facts, n_years=6):
+def _fetch_income_statement_yf(ticker, n_years=6):
+    """Secondary income-statement source (yfinance) for filers whose EDGAR XBRL
+    has no machine-readable revenue line — e.g. APA Corp, which after its 2021
+    holding-company reorg tags revenue only dimensionally (by product), so the
+    flat companyfacts feed never exposes a total.
+
+    Returns {year: {revenue, operating_income, net_income, tax_provision,
+    pretax_income, cost_of_revenue}} in RAW dollars, or None when yfinance is
+    unavailable/empty. Only the income statement is sourced here; balance-sheet
+    and cash-flow items still come from EDGAR.
+    """
+    if not ticker:
+        return None
+    try:
+        import yfinance as yf
+    except ImportError:
+        return None
+    try:
+        df = yf.Ticker(ticker).income_stmt
+    except Exception:
+        return None
+    if df is None or getattr(df, "empty", True):
+        return None
+
+    labels = {
+        "revenue": ["Total Revenue", "Operating Revenue"],
+        "operating_income": ["Operating Income"],
+        "net_income": ["Net Income"],
+        "tax_provision": ["Tax Provision"],
+        "pretax_income": ["Pretax Income"],
+        "cost_of_revenue": ["Cost Of Revenue"],
+    }
+    out = {}
+    for col in df.columns:
+        try:
+            yr = int(str(col)[:4])
+        except (ValueError, TypeError):
+            continue
+        rec = {}
+        for key, names in labels.items():
+            val = None
+            for name in names:
+                if name in df.index:
+                    v = df.loc[name, col]
+                    if v is not None and v == v:  # not NaN
+                        val = float(v)
+                        break
+            rec[key] = val
+        if rec.get("revenue") is not None:
+            out[yr] = rec
+    return out or None
+
+
+def parse_financials(facts, n_years=6, ticker=None):
     """Extract all needed financial data from EDGAR Company Facts.
 
     Returns dict with lists of values aligned to fiscal years.
     All dollar values are in millions.
+
+    When EDGAR exposes no revenue line and `ticker` is given, the income
+    statement is filled from a secondary source (yfinance) while balance-sheet
+    and cash-flow items continue to come from EDGAR — see
+    `_fetch_income_statement_yf`.
     """
     print("[EDGAR] Parsing financial statements...")
     M = 1_000_000  # Convert to millions
@@ -425,12 +483,17 @@ def parse_financials(facts, n_years=6):
         "SalesRevenueNet",
     ], n_years)
 
+    _yf_is = None
     if not rev_data:
         # Foreign private issuers (20-F) and Canadian MJDS filers (40-F)
         # report under ifrs-full, not us-gaap.
         if "ifrs-full" in facts.get("facts", {}):
             return _parse_financials_ifrs(facts, n_years)
-        raise ValueError("Could not find revenue data in EDGAR filings")
+        # No EDGAR revenue line → secondary income-statement source (yfinance).
+        _yf_is = _fetch_income_statement_yf(ticker, n_years)
+        if not _yf_is:
+            raise ValueError("Could not find revenue data in EDGAR filings")
+        rev_data = [(y, _yf_is[y]["revenue"]) for y in sorted(_yf_is)[-n_years:]]
 
     years = [y for y, _ in rev_data]
 
@@ -545,6 +608,19 @@ def parse_financials(facts, n_years=6):
             nop = nonoperating_income[i] if i < len(nonoperating_income) else None
             if pti is not None and nop is not None:
                 operating_income[i] = pti - nop
+
+    # When the income statement came from the secondary source, override the
+    # (empty) EDGAR income-statement lines with it. Balance-sheet / cash-flow /
+    # shares above stay EDGAR-sourced, keyed by the same years.
+    if _yf_is:
+        def _yf_col(key):
+            return [(_yf_is.get(y) or {}).get(key) for y in years]
+        revenue = _yf_col("revenue")
+        operating_income = _yf_col("operating_income")
+        net_income = _yf_col("net_income")
+        cost_of_revenue = _yf_col("cost_of_revenue")
+        tax_provision = _yf_col("tax_provision")
+        pretax_income = _yf_col("pretax_income")
 
     result = {
         "years": years,
@@ -3031,7 +3107,7 @@ def fetch_fundamentals(ticker, n_years=10):
     try:
         cik = get_cik(ticker)
         facts = fetch_company_facts(cik)
-        edgar = parse_financials(facts, n_years)
+        edgar = parse_financials(facts, n_years, ticker=ticker)
 
         edgar_years = edgar.get("years", [])
         edgar_map = {
