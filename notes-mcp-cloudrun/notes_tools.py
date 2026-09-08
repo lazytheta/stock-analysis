@@ -183,7 +183,15 @@ def write_note(store, user_id: str, vault: str | None, path: str, content: str,
     synchronisatieplugin een ronde heeft gedraaid.
     """
     key = storage_key(user_id, vault, path)
-    new_revision = store.put(key, content, expected_revision=revision)
+    try:
+        new_revision = store.put(key, content, expected_revision=revision)
+    except RevisionConflict as e:
+        # De opslaglaag noemt de sleutel; die bevat de user-id en zegt de
+        # schrijver niets. Vertaal naar het pad dat hij zelf meegaf, anders is
+        # de melding net zo doodlopend als de storing die dit project net heeft
+        # weggehaald.
+        raise RevisionConflict(
+            str(e).replace(repr(key), repr(_describe(vault, path)))) from None
     return {"vault": vault, "path": path, "revision": new_revision,
             "bytes": len(content.encode("utf-8"))}
 

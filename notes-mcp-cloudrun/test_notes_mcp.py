@@ -855,3 +855,16 @@ def test_the_suggestion_finds_a_note_in_another_vault():
     with pytest.raises(NoteNotFound) as excinfo:
         notes_tools.read_note(store, USER, "v", "Concepts/X.md")
     assert "andere" in str(excinfo.value)
+
+
+def test_a_conflict_names_the_path_not_the_storage_key():
+    """De sleutel bevat de user-id en zegt de schrijver niets. Een melding die
+    de lezer niet verder helpt is precies wat deze ronde heeft opgeruimd."""
+    import notes_tools
+    from vault_storage import RevisionConflict, VaultStore
+    store = VaultStore(FakeS3({f"{USER}/v/a.md": ("oud", '"e1"')}), "vaults")
+    with pytest.raises(RevisionConflict) as excinfo:
+        notes_tools.write_note(store, USER, "v", "a.md", "nieuw")
+    message = str(excinfo.value)
+    assert USER not in message
+    assert "a.md (vault: v)" in message
