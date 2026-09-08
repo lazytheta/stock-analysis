@@ -13,7 +13,7 @@ bestanden boven ~1.000.
 from __future__ import annotations
 
 from vault_paths import NOTE_SUFFIX, UnsafePath, storage_key, vault_prefix
-from vault_storage import NoteNotFound
+from vault_storage import NoteNotFound, RevisionConflict
 
 CLAUDE_MD = "CLAUDE.md"
 
@@ -107,6 +107,53 @@ def list_vaults(store, user_id: str) -> list[dict]:
     return result
 
 
+def _describe(vault: str | None, path: str) -> str:
+    return f"{path} (vault: {vault})" if vault else f"{path} (los onder de gebruiker)"
+
+
+def _near_matches(store, user_id: str, path: str, limit: int = 3) -> list[str]:
+    """Notities met dezelfde bestandsnaam, waar ze ook staan.
+
+    De aanleiding: op 2026-09-08 werd vier keer
+    'Trading/Concepts/LazyTheta-Lens-Mechanica.md' gevraagd terwijl de notitie
+    op 'Concepts/...' stond. Wikilinks als [[LazyTheta-Lens-Mechanica]] dragen
+    geen map, dus de map wordt geraden -- en raden zit er meestal één niveau
+    naast. De bestandsnaam is dan het enige dat wél klopt.
+    """
+    target = path.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    found: list[str] = []
+    for key in store.list_keys(vault_prefix(user_id)):
+        if not _is_note(key):
+            continue
+        split = _split_key(user_id, key)
+        if split is None:
+            continue
+        found_vault, found_path = split
+        if found_path.rsplit("/", 1)[-1].lower() == target:
+            found.append(_describe(found_vault, found_path))
+        if len(found) >= limit:
+            break
+    return found
+
+
+def _miss_message(store, user_id: str, vault: str | None, path: str) -> str:
+    """Waarom de notitie er niet is, en wat de aanroeper nu moet doen.
+
+    Een kale sleutel als foutmelding laat de lezer met lege handen achter, en
+    dan valt hij terug op een andere bron -- wat precies de schade van
+    2026-09-08 was: de canonieke notitie bleef onbereikbaar en er is drie
+    maanden oude sessielog voor in de plaats gelezen.
+    """
+    head = f"Notitie niet gevonden: {_describe(vault, path)}."
+    try:
+        matches = _near_matches(store, user_id, path)
+    except Exception:
+        matches = []          # de opslag hikt; de misser zelf staat al vast
+    if matches:
+        return head + " Bedoelde je: " + " · ".join(matches) + "?"
+    return head + " Zoek het juiste pad met search_notes."
+
+
 def read_note(store, user_id: str, vault: str | None, path: str) -> dict:
     """Eén notitie, met revisie. De revisie doet in fase 1 niets, maar staat
     er zodat het contract bij het toevoegen van schrijven niet verandert.
@@ -114,8 +161,31 @@ def read_note(store, user_id: str, vault: str | None, path: str) -> dict:
     `vault=None` leest een notitie die los onder de gebruikersprefix staat --
     precies wat list_vaults en search_notes met `vault: null` aanduiden."""
     key = storage_key(user_id, vault, path)
-    text, revision = store.get(key)
+    try:
+        text, revision = store.get(key)
+    except NoteNotFound:
+        raise NoteNotFound(_miss_message(store, user_id, vault, path)) from None
     return {"vault": vault, "path": path, "revision": revision, "content": text}
+
+
+def write_note(store, user_id: str, vault: str | None, path: str, content: str,
+               revision: str | None = None) -> dict:
+    """Maak een notitie aan of werk hem bij, en geef de nieuwe revisie terug.
+
+    Zonder `revision` mag alleen een nieuwe notitie ontstaan. Bestaat het pad
+    al, dan volgt RevisionConflict: dan moet de schrijver hem eerst lezen en de
+    gelezen revisie meegeven. Dat is bewust onhandig -- de aanroeper is een
+    model dat een pad kan raden, en een geraden pad dat toevallig bestaat mag
+    geen bestaande notitie wissen.
+
+    Let op wat dit niet is: deze server schrijft naar Supabase Storage, niet
+    naar de map op de laptop. De notitie verschijnt pas in Obsidian nadat de
+    synchronisatieplugin een ronde heeft gedraaid.
+    """
+    key = storage_key(user_id, vault, path)
+    new_revision = store.put(key, content, expected_revision=revision)
+    return {"vault": vault, "path": path, "revision": new_revision,
+            "bytes": len(content.encode("utf-8"))}
 
 
 def search_notes(store, user_id: str, query: str, vault: str | None = None,
@@ -182,4 +252,5 @@ def search_notes(store, user_id: str, query: str, vault: str | None = None,
             "truncated": total > len(hits)}
 
 
-__all__ = ["NoteNotFound", "list_vaults", "read_note", "search_notes", "snippet"]
+__all__ = ["NoteNotFound", "RevisionConflict", "list_vaults", "read_note",
+           "search_notes", "snippet", "write_note"]
