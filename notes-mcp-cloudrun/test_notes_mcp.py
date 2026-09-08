@@ -111,6 +111,20 @@ def test_single_dot_segments_are_filtered():
 
 # ── vault_storage ──────────────────────────────────────────────────────────
 
+def _supabase_404():
+    """De fout die Supabase Storage echt teruggeeft bij een ontbrekend object.
+
+    Gemeten tegen de live endpoint op 2026-09-08: HTTP 404, en een LEGE
+    Error.Code en Error.Message. Geen NoSuchKey. De oude dubbel verzon die
+    code, waardoor de tests groen bleven terwijl read_note in productie
+    "Vault storage unavailable" meldde op elk verkeerd pad.
+    """
+    from botocore.exceptions import ClientError
+    return ClientError(
+        {"Error": {"Code": "", "Message": ""},
+         "ResponseMetadata": {"HTTPStatusCode": 404}}, "GetObject")
+
+
 class FakeS3:
     """Genoeg van de boto3-client om VaultStore te testen. Elke sleutel
     bevat (inhoud, etag); een sleutel in `broken` gooit een transportfout."""
@@ -136,14 +150,25 @@ class FakeS3:
 
         return _Pager()
 
+    def list_objects_v2(self, Bucket, MaxKeys=1):
+        if "LIST" in self.broken:
+            raise OSError("bucket unreachable")
+        return {"KeyCount": 0}
+
+    def put_object(self, Bucket, Key, Body, **kw):
+        if "PUT" in self.broken:
+            raise OSError("write refused")
+        text = Body.decode("utf-8") if isinstance(Body, bytes) else Body
+        etag = f'"w{len(self.objects)}"'
+        self.objects[Key] = (text, etag)
+        return {"ETag": etag}
+
     def get_object(self, Bucket, Key):
         self.calls.append(Key)
         if Key in self.broken:
             raise OSError("connection reset")
         if Key not in self.objects:
-            from botocore.exceptions import ClientError
-            raise ClientError(
-                {"Error": {"Code": "NoSuchKey", "Message": "not found"}}, "GetObject")
+            raise _supabase_404()
         body, etag = self.objects[Key]
 
         class _Body:
@@ -232,7 +257,7 @@ def test_an_exception_without_a_response_does_not_crash():
         store.get(f"{USER}/v/a.md")
 
 
-def test_only_nosuchkey_counts_as_missing():
+def test_nosuchkey_still_counts_as_missing():
     from vault_storage import NoteNotFound, VaultStore
     store = VaultStore(_RaisingClient(_client_error("NoSuchKey")), "vaults")
     with pytest.raises(NoteNotFound):
@@ -521,18 +546,21 @@ def _set_jwt_key(monkeypatch):
     monkeypatch.setenv("JWT_SIGNING_KEY", "test-key-not-for-production")
 
 
-def test_the_three_tools_are_advertised():
+def test_the_four_tools_are_advertised():
     import mcp_handler
     assert {t["name"] for t in mcp_handler.TOOLS} == {
-        "list_vaults", "search_notes", "read_note"}
+        "list_vaults", "search_notes", "read_note", "write_note"}
 
 
-def test_no_write_tool_exists_in_phase_one():
-    """Fase 1 schrijft niet. Een tool die er per ongeluk in sluipt is de
-    enige manier waarop deze fase notities kan beschadigen."""
+def test_write_is_the_only_mutation_offered():
+    """Schrijven is er sinds fase 2; verwijderen, hernoemen en verplaatsen
+    bewust niet. Een model dat een pad kan raden mag een notitie kunnen maken,
+    niet er een laten verdwijnen."""
     import mcp_handler
     names = {t["name"] for t in mcp_handler.TOOLS}
-    assert not (names & {"write_note", "append_to_note", "delete_note"})
+    assert "write_note" in names
+    assert not {n for n in names if n.startswith(("delete", "remove", "move", "rename"))}
+    assert names == set(mcp_handler.TOOL_HANDLERS)
 
 
 def test_every_tool_declares_a_schema():
@@ -574,7 +602,7 @@ def test_tools_list_needs_no_user():
     import mcp_handler
     resp = asyncio.run(mcp_handler._handle_one(
         {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, None))
-    assert len(resp["result"]["tools"]) == 3
+    assert len(resp["result"]["tools"]) == 4
 
 
 def test_health_names_this_service_and_not_the_other():
@@ -711,3 +739,132 @@ def test_no_tool_can_be_talked_into_another_users_prefix(monkeypatch):
                       {"vault": "mijn-vault", "path": f"../../{USER_B}/los-b.md"})
     assert resp["result"]["isError"] is True
     assert "losse naald van user-b" not in resp["result"]["content"][0]["text"]
+
+
+# ── fase 2: 404-duiding, suggesties en schrijven ───────────────────────────
+
+def test_a_supabase_404_on_a_live_bucket_is_a_missing_note():
+    """De bug van 2026-09-08: Supabase geeft een lege 404, en elk verkeerd pad
+    meldde daardoor 'Vault storage unavailable' -- een storing, terwijl er
+    alleen een typefout in het pad zat."""
+    from vault_storage import NoteNotFound, VaultStore
+    store = VaultStore(FakeS3({f"{USER}/v/bestaat.md": ("x", '"e"')}), "vaults")
+    with pytest.raises(NoteNotFound):
+        store.get(f"{USER}/v/weg.md")
+
+
+def test_a_supabase_404_on_a_dead_bucket_is_still_a_storage_failure():
+    """De grens die niet mag verschuiven. Een verdwenen bucket geeft dezelfde
+    lege 404 als een ontbrekende sleutel; alleen de probe onderscheidt ze. Valt
+    die weg, dan leest een storing weer als data -- het verbod uit deze module."""
+    from vault_storage import StorageUnavailable, VaultStore
+    store = VaultStore(FakeS3({}, broken=["LIST"]), "vaults")
+    with pytest.raises(StorageUnavailable):
+        store.get(f"{USER}/v/weg.md")
+
+
+def test_the_bucket_probe_only_runs_on_the_miss_path():
+    """Een geslaagde lezing mag geen extra call kosten."""
+    from vault_storage import VaultStore
+    fake = FakeS3({f"{USER}/v/a.md": ("x", '"e"')})
+    probes = []
+    fake.list_objects_v2 = lambda **kw: probes.append(1) or {"KeyCount": 0}
+    VaultStore(fake, "vaults").get(f"{USER}/v/a.md")
+    assert probes == []
+
+
+def test_write_creates_a_new_note():
+    from vault_storage import VaultStore
+    store = VaultStore(FakeS3({}), "vaults")
+    revision = store.put(f"{USER}/v/nieuw.md", "hallo")
+    assert revision
+    assert store.get(f"{USER}/v/nieuw.md")[0] == "hallo"
+
+
+def test_writing_over_an_existing_note_without_a_revision_is_refused():
+    """Blind overschrijven is hoe een kennisbank stilletjes werk verliest."""
+    from vault_storage import RevisionConflict, VaultStore
+    store = VaultStore(FakeS3({f"{USER}/v/a.md": ("oud", '"e1"')}), "vaults")
+    with pytest.raises(RevisionConflict):
+        store.put(f"{USER}/v/a.md", "nieuw")
+    assert store.get(f"{USER}/v/a.md")[0] == "oud"
+
+
+def test_writing_with_the_current_revision_succeeds():
+    from vault_storage import VaultStore
+    store = VaultStore(FakeS3({f"{USER}/v/a.md": ("oud", '"e1"')}), "vaults")
+    _, revision = store.get(f"{USER}/v/a.md")
+    store.put(f"{USER}/v/a.md", "nieuw", expected_revision=revision)
+    assert store.get(f"{USER}/v/a.md")[0] == "nieuw"
+
+
+def test_writing_with_a_stale_revision_is_refused():
+    from vault_storage import RevisionConflict, VaultStore
+    store = VaultStore(FakeS3({f"{USER}/v/a.md": ("oud", '"e1"')}), "vaults")
+    with pytest.raises(RevisionConflict):
+        store.put(f"{USER}/v/a.md", "nieuw", expected_revision="verouderd")
+    assert store.get(f"{USER}/v/a.md")[0] == "oud"
+
+
+def test_a_revision_for_a_note_that_does_not_exist_is_refused():
+    """Wijzen naar een revisie van een notitie die er niet is betekent dat de
+    schrijver een andere notitie in gedachten heeft."""
+    from vault_storage import RevisionConflict, VaultStore
+    store = VaultStore(FakeS3({}), "vaults")
+    with pytest.raises(RevisionConflict):
+        store.put(f"{USER}/v/weg.md", "x", expected_revision='"e1"')
+
+
+def test_write_note_refuses_to_leave_the_vault():
+    import notes_tools
+    from vault_paths import UnsafePath
+    from vault_storage import VaultStore
+    store = VaultStore(FakeS3({}), "vaults")
+    with pytest.raises(UnsafePath):
+        notes_tools.write_note(store, USER, "v", "../elders.md", "x")
+
+
+def test_a_missing_note_suggests_the_right_path():
+    """Precies de sessie van 2026-09-08: gevraagd werd
+    'Trading/Concepts/LazyTheta-Lens-Mechanica.md', de notitie stond op
+    'Concepts/...'. Zonder suggestie loopt de aanroeper dood."""
+    import notes_tools
+    from vault_storage import NoteNotFound, VaultStore
+    store = VaultStore(FakeS3({
+        f"{USER}/v/Concepts/LazyTheta-Lens-Mechanica.md": ("inhoud", '"e"'),
+    }), "vaults")
+    with pytest.raises(NoteNotFound) as excinfo:
+        notes_tools.read_note(store, USER, "v", "Trading/Concepts/LazyTheta-Lens-Mechanica.md")
+    assert "Concepts/LazyTheta-Lens-Mechanica.md" in str(excinfo.value)
+
+
+def test_a_missing_note_without_a_near_match_says_how_to_search():
+    import notes_tools
+    from vault_storage import NoteNotFound, VaultStore
+    store = VaultStore(FakeS3({f"{USER}/v/iets-anders.md": ("x", '"e"')}), "vaults")
+    with pytest.raises(NoteNotFound) as excinfo:
+        notes_tools.read_note(store, USER, "v", "bestaat-niet.md")
+    assert "search_notes" in str(excinfo.value)
+
+
+def test_the_suggestion_finds_a_note_in_another_vault():
+    """Vaak is niet de map fout maar de vault."""
+    import notes_tools
+    from vault_storage import NoteNotFound, VaultStore
+    store = VaultStore(FakeS3({f"{USER}/andere/Concepts/X.md": ("x", '"e"')}), "vaults")
+    with pytest.raises(NoteNotFound) as excinfo:
+        notes_tools.read_note(store, USER, "v", "Concepts/X.md")
+    assert "andere" in str(excinfo.value)
+
+
+def test_a_conflict_names_the_path_not_the_storage_key():
+    """De sleutel bevat de user-id en zegt de schrijver niets. Een melding die
+    de lezer niet verder helpt is precies wat deze ronde heeft opgeruimd."""
+    import notes_tools
+    from vault_storage import RevisionConflict, VaultStore
+    store = VaultStore(FakeS3({f"{USER}/v/a.md": ("oud", '"e1"')}), "vaults")
+    with pytest.raises(RevisionConflict) as excinfo:
+        notes_tools.write_note(store, USER, "v", "a.md", "nieuw")
+    message = str(excinfo.value)
+    assert USER not in message
+    assert "a.md (vault: v)" in message

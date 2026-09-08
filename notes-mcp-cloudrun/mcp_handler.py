@@ -6,7 +6,8 @@ Een user_id in de argumenten wordt genegeerd -- dat is de les uit het
 load_credential-lek, waar een ongefilterde lezing de rijen van alle
 gebruikers matchte.
 
-Fase 1 leest alleen. Er is met opzet geen schrijftool.
+Fase 2 schrijft ook. write_note eist de gelezen revisie voor een bestaande
+notitie, zodat een geraden pad dat toevallig bestaat niets kan wissen.
 """
 
 from __future__ import annotations
@@ -19,11 +20,12 @@ from starlette.responses import JSONResponse, Response
 
 import notes_tools
 from vault_paths import UnsafePath
-from vault_storage import NoteNotFound, StorageUnavailable, VaultStore, make_client
+from vault_storage import (NoteNotFound, RevisionConflict, StorageUnavailable,
+                           VaultStore, make_client)
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "notes-mcp"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = "2.0.0"
 
 logger = logging.getLogger(__name__)
 
@@ -58,10 +60,17 @@ async def _tool_read_note(user_id: str, args: dict):
     return notes_tools.read_note(_store(), user_id, args.get("vault"), args["path"])
 
 
+async def _tool_write_note(user_id: str, args: dict):
+    return notes_tools.write_note(
+        _store(), user_id, args.get("vault"), args["path"], args["content"],
+        revision=args.get("revision"))
+
+
 TOOL_HANDLERS = {
     "list_vaults": _tool_list_vaults,
     "search_notes": _tool_search_notes,
     "read_note": _tool_read_note,
+    "write_note": _tool_write_note,
 }
 
 TOOLS: list[dict] = [
@@ -70,7 +79,7 @@ TOOLS: list[dict] = [
         "description": (
             "List the Obsidian vaults, how many notes each holds, and whether "
             "it carries a CLAUDE.md with that vault's own conventions. Read "
-            "that file before writing anything into a vault. An entry with "
+            "that file before writing into a vault with write_note. An entry with "
             "`vault: null` means notes sit outside any vault folder, directly "
             "under the user prefix — usually a misconfigured remote prefix in "
             "the sync plugin. Pass that same null to read_note to read them."
@@ -106,7 +115,10 @@ TOOLS: list[dict] = [
             "Read one note in full. `path` is relative to the vault root, for "
             "example 'Tickers/DECK.md'. Pass `vault` exactly as list_vaults or "
             "search_notes reported it; null (or omitted) reads a note that sits "
-            "outside any vault. Returns the content and a revision marker."
+            "outside any vault. Returns the content and a `revision` — keep that "
+            "revision if you intend to write the note back. A path that does not "
+            "exist reports which notes carry the same filename, so a wrong folder "
+            "is a correctable miss and not a dead end."
         ),
         "inputSchema": {
             "type": "object",
@@ -115,6 +127,30 @@ TOOLS: list[dict] = [
                 "path": {"type": "string"},
             },
             "required": ["path"],
+        },
+    },
+    {
+        "name": "write_note",
+        "description": (
+            "Create a note, or update one you have just read. To create, pass "
+            "`path` and `content` and omit `revision`. To update, first read_note "
+            "and pass back the `revision` it returned — writing over an existing "
+            "note without its current revision is refused, and so is writing with "
+            "a stale one, because a guessed path that happens to exist must never "
+            "erase a real note. Check the vault's CLAUDE.md (see list_vaults) for "
+            "its conventions before writing. This writes to the synced copy in "
+            "storage, so the note appears in the Obsidian app only after the sync "
+            "plugin next runs."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "vault": {"type": ["string", "null"]},
+                "path": {"type": "string"},
+                "content": {"type": "string"},
+                "revision": {"type": "string"},
+            },
+            "required": ["path", "content"],
         },
     },
 ]
@@ -158,7 +194,7 @@ async def _handle_one(message: dict, user_id: str | None) -> dict | None:
                     "error": {"code": -32602, "message": f"Unknown tool: {tool_name}"}}
         try:
             result = await handler(user_id, params.get("arguments") or {})
-        except (UnsafePath, NoteNotFound, KeyError, ValueError) as e:
+        except (UnsafePath, NoteNotFound, RevisionConflict, KeyError, ValueError) as e:
             return {"jsonrpc": "2.0", "id": request_id,
                     "result": {"content": [{"type": "text", "text": f"Error: {e}"}],
                                "isError": True}}
