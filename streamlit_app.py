@@ -4188,11 +4188,13 @@ def _watchlist_overview():
         return
 
     @st.cache_data(ttl=60)
-    def _fetch_prices_batch(tickers_tuple):
+    def _fetch_prices_batch(tickers_tuple, isin_pairs=()):
         # Omit the symbols that came back empty rather than mapping them to
         # 0.0. A 0 here is indistinguishable from a real quote downstream, and
         # the row builder needs to know the difference to fall back.
-        prices = fetch_current_prices(list(tickers_tuple))
+        # isin_pairs komt als tuple binnen omdat st.cache_data alleen hashbare
+        # argumenten accepteert; een dict zou de cache-sleutel laten klappen.
+        prices = fetch_current_prices(list(tickers_tuple), dict(isin_pairs))
         return {t: p["price"] for t, p in prices.items() if p and p.get("price")}
 
     # Load all configs once (avoid redundant load_config calls)
@@ -4216,7 +4218,12 @@ def _watchlist_overview():
 
     _wl_configs = _load_all_configs(st.session_state["user"]["id"], tuple(item['ticker'] for item in watchlist))
     wl_tickers = list(_wl_configs.keys())
-    batch_prices = _fetch_prices_batch(tuple(wl_tickers)) if wl_tickers else {}
+    # De Europese lijnen hangen op hun ISIN; zonder die kaart valt de tweede
+    # koersbron stil terug op de bevroren prijs.
+    _wl_isins = tuple(sorted(
+        (t, cfg.get("isin")) for t, cfg in _wl_configs.items() if cfg.get("isin")))
+    batch_prices = (_fetch_prices_batch(tuple(wl_tickers), _wl_isins)
+                    if wl_tickers else {})
 
     @st.cache_data(ttl=86400, show_spinner=False)
     def _cached_fundamentals(t):

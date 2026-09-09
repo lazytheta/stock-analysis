@@ -64,6 +64,7 @@ mcp = FastMCP(
 import gather_data
 import dcf_calculator
 import config_store
+import quotes
 import valuation_lenses
 from scorecard_utils import compute_roce_metric, capital_employed
 import notifications
@@ -339,11 +340,42 @@ def _get_config_impl(ticker, user_id: str | None = None):
     return json.dumps(cfg, default=str)
 
 
-def _get_watchlist_impl(user_id: str | None = None):
-    """Core logic for get_watchlist."""
+# Koersen kort onthouden over aanroepen heen. Zonder dit doet elke
+# get_watchlist een ronde langs alle ~90 namen, en dat is exact het verkeer
+# waarmee Streamlit Cloud bij Yahoo op de zwarte lijst kwam. Die blokkade is de
+# reden dat er een tweede bron moest komen; hem vanaf Cloud Run herhalen zou
+# ook het laatste werkende pad dichtgooien.
+_QUOTE_CACHE = quotes.TtlCache(ttl_seconds=60)
+
+
+def _yahoo_quote(ticker: str):
+    """Eén koers via de bestaande Yahoo-route, in het koerscontract."""
+    price, _, _ = gather_data.fetch_stock_price(ticker)
+    return {"price": price} if price and price > 0 else None
+
+
+def _get_watchlist_impl(user_id: str | None = None, live_prices: bool = True):
+    """Core logic for get_watchlist.
+
+    De opgeslagen stock_price is de koers van het moment dat de config voor het
+    laatst geschreven werd, niet die van nu -- op 2026-09-09 stond Hermes hier
+    op 1613,50 terwijl de markt 1412 deed, en niets in het antwoord zei dat.
+    Daarom wordt er een live koers overheen gelegd, met de herkomst en de
+    ouderdom erbij zodat een oude koers zich niet als verse kan voordoen.
+
+    Yahoo levert de VS-namen; Deutsche Boerse vult de Europese lijnen, die
+    Yahoo niet geeft. Lukt geen van beide, dan blijft de opgeslagen koers staan
+    met price_stale: True.
+    """
     user_id = user_id or USER_ID
     client = get_supabase_client()
     entries = config_store.list_watchlist(client, user_id=user_id)
+    if live_prices:
+        quotes.apply_live_prices(
+            entries,
+            primary=lambda tickers: quotes.parallel_quotes(
+                tickers, _yahoo_quote, cache=_QUOTE_CACHE),
+            frankfurt=quotes.fetch_frankfurt_quotes)
     return json.dumps(entries, default=str)
 
 
@@ -1182,7 +1214,14 @@ def get_watchlist() -> str:
     valuation_summary is stored — run calculate_multi_lens_valuation to populate):
         ticker, company, updated, stock_price,
         fv_low, fv_mid, fv_high, buy_price, current_vs_mid,
-        lens_count, verdict, phase
+        lens_count, verdict, phase,
+        price_source, price_asof, price_stale
+
+    stock_price is live where a quote could be had: Yahoo for the US listings,
+    Deutsche Boerse for the European ones. price_source names where it came
+    from, price_asof when that venue last traded it, and price_stale is True
+    when no quote was available and the stored snapshot is showing instead —
+    that number can be weeks old, so do not read it as the market.
 
     Returns:
         JSON array of dicts with the schema above.

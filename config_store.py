@@ -365,6 +365,7 @@ def list_watchlist(client, user_id=None, tickers=None):
         client.table("watchlist_configs")
         .select("ticker, company, stock_price, updated_at, "
                 "config->valuation_summary, config->robustness, "
+                "config->isin, config->quote_venue, "
                 "config->ai_notes->Scorecard")
     )
     if user_id is not None:
@@ -407,6 +408,10 @@ def list_watchlist(client, user_id=None, tickers=None):
             "company": row.get("company", row["ticker"]),
             "updated": row.get("updated_at", ""),
             "stock_price": row.get("stock_price", 0),
+            # De beurs kent geen tickers. Zonder isin is er voor deze naam geen
+            # tweede koersbron, en dat moet de aanroeper kunnen zien.
+            "isin": row.get("isin"),
+            "quote_venue": row.get("quote_venue"),
             "fv_low":  summary.get("weighted_fv_low"),
             "fv_mid":  summary.get("weighted_fv_mid"),
             "fv_high": summary.get("weighted_fv_high"),

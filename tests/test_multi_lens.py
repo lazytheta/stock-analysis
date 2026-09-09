@@ -1137,6 +1137,10 @@ def test_list_watchlist_enriched_shape():
         "ticker", "company", "updated", "stock_price",
         "fv_low", "fv_mid", "fv_high", "buy_price",
         "current_vs_mid", "lens_count", "verdict", "phase",
+        # Deutsche Boerse werkt op ISIN, niet op ticker. Zonder deze twee is er
+        # voor de Europese lijnen geen tweede koersbron als Yahoo ze niet
+        # levert, en stonden ze op een koers van weken oud.
+        "isin", "quote_venue",
     }
     for row in out:
         assert set(row.keys()) == expected_keys

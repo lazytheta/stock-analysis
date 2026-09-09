@@ -289,3 +289,24 @@ def test_list_watchlist_tolerates_a_row_with_nothing_computed():
     assert out[0]["ticker"] == "NEW"
     assert out[0]["fv_mid"] is None
     assert out[0]["lens_count"] == 0
+
+
+def test_list_watchlist_carries_the_isin_for_a_second_quote_source():
+    """Deutsche Boerse werkt op ISIN, niet op ticker. Zonder dit veld is er
+    voor de Europese lijnen geen alternatief als Yahoo ze niet levert."""
+    c = _SelectCapturingClient([
+        {"ticker": "RMS.PA", "company": "Hermes", "stock_price": 1613.5,
+         "updated_at": "", "valuation_summary": None, "robustness": None,
+         "Scorecard": None, "isin": "FR0000052292", "quote_venue": "XETR"}])
+    out = config_store.list_watchlist(c, user_id="u")
+    assert "config->isin" in c.select_arg
+    assert out[0]["isin"] == "FR0000052292"
+    assert out[0]["quote_venue"] == "XETR"
+
+
+def test_list_watchlist_leaves_the_isin_empty_when_there_is_none():
+    c = _SelectCapturingClient([
+        {"ticker": "MSFT", "company": "Microsoft", "stock_price": 451.1,
+         "updated_at": "", "valuation_summary": None, "robustness": None,
+         "Scorecard": None}])
+    assert config_store.list_watchlist(c, user_id="u")[0]["isin"] is None

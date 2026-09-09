@@ -545,7 +545,7 @@ def fetch_all_net_liq():
 # Shared functions (broker-independent, always route to tastytrade_api)
 # ---------------------------------------------------------------------------
 
-def fetch_current_prices(tickers):
+def fetch_current_prices(tickers, isin_by_ticker=None):
     """Current prices, broker feed first and Yahoo only for what it missed.
 
     Yahoo used to be the whole story here. It throttles by source IP and has
@@ -555,6 +555,17 @@ def fetch_current_prices(tickers):
     subject to that, and it covers the US listings that are most of any
     watchlist. Yahoo still handles what the broker does not carry, chiefly
     European lines, and the caller falls back to the stored price from there.
+
+    Except that "Yahoo handles the rest" only holds where Yahoo answers at all.
+    It blocks by source IP, and from the blocked ones the European lines were
+    the only names with no second source — so they quietly kept the price from
+    their last config write. On 2026-09-09 the watchlist showed Hermes at
+    1613,50 while the market was at 1412, and nothing said the number was three
+    weeks old.
+
+    Deutsche Boerse is that second source, for any ticker whose config carries
+    an ISIN — pass `isin_by_ticker` to enable it. It runs only on what the
+    first two missed, so from an IP Yahoo still serves this never fires.
     """
     tickers = list(tickers)
     if not tickers:
@@ -571,6 +582,15 @@ def fetch_current_prices(tickers):
     missing = [t for t in tickers if not out.get(t)]
     if missing:
         out.update(tastytrade_api.fetch_current_prices(missing))
+
+    # Wat na broker én Yahoo nog ontbreekt: in de praktijk de Europese lijnen.
+    # Alleen namen met een ISIN, want de beurs kent geen tickers.
+    still_missing = {t: (isin_by_ticker or {}).get(t) for t in tickers
+                     if not out.get(t) and (isin_by_ticker or {}).get(t)}
+    if still_missing:
+        import quotes
+        out.update({t: q for t, q
+                    in quotes.fetch_frankfurt_quotes(still_missing).items() if q})
     return {t: out.get(t) for t in tickers}
 
 
