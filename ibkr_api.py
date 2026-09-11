@@ -192,13 +192,13 @@ def fetch_account_balances():
     except Exception as e:
         logger.error("IBKR fetch_account_balances failed: %s", e)
         log_error("IBKR_ERROR", f"fetch_account_balances: {e}", page="Portfolio")
-        return {
-            "net_liquidating_value": 0, "cash_balance": 0,
-            "equity_buying_power": 0, "derivative_buying_power": 0,
-            "maintenance_requirement": 0, "maintenance_excess": 0,
-            "margin_equity": 0, "used_derivative_buying_power": 0,
-            "reg_t_margin_requirement": 0,
-        }
+        # Opnieuw werpen na het loggen. Een neutrale waarde ({}, 0, []) is
+        # voor de aanroeper niet van een echt antwoord te onderscheiden:
+        # broker_adapter._in_parallel meldt uitval als (broker, False, exc)
+        # en de totalen zeggen dan dat ze incompleet zijn -- maar alleen als
+        # de fout hem bereikt. Tastytrade en T212 raisen al; IBKR was de enige
+        # die een onbereikbare rekening als net liq 0 liet doorgaan.
+        raise
 
 
 def fetch_portfolio_data():
@@ -262,7 +262,13 @@ def fetch_portfolio_data():
     except Exception as e:
         logger.error("IBKR fetch_portfolio_data failed: %s", e)
         log_error("IBKR_ERROR", f"fetch_portfolio_data: {e}", page="Portfolio")
-        return {}, ""
+        # Opnieuw werpen na het loggen. Een neutrale waarde ({}, 0, []) is
+        # voor de aanroeper niet van een echt antwoord te onderscheiden:
+        # broker_adapter._in_parallel meldt uitval als (broker, False, exc)
+        # en de totalen zeggen dan dat ze incompleet zijn -- maar alleen als
+        # de fout hem bereikt. Tastytrade en T212 raisen al; IBKR was de enige
+        # die een onbereikbare rekening als net liq 0 liet doorgaan.
+        raise
 
 
 def fetch_margin_requirements():
@@ -307,7 +313,13 @@ def fetch_net_liq_history(time_back="1y"):
     except Exception as e:
         logger.error("IBKR fetch_net_liq_history failed: %s", e)
         log_error("IBKR_ERROR", f"fetch_net_liq_history: {e}", page="Portfolio")
-        return []
+        # Opnieuw werpen na het loggen. Een neutrale waarde ({}, 0, []) is
+        # voor de aanroeper niet van een echt antwoord te onderscheiden:
+        # broker_adapter._in_parallel meldt uitval als (broker, False, exc)
+        # en de totalen zeggen dan dat ze incompleet zijn -- maar alleen als
+        # de fout hem bereikt. Tastytrade en T212 raisen al; IBKR was de enige
+        # die een onbereikbare rekening als net liq 0 liet doorgaan.
+        raise
 
 
 def fetch_portfolio_greeks():
@@ -337,7 +349,13 @@ def fetch_portfolio_greeks():
     except Exception as e:
         logger.error("IBKR fetch_portfolio_greeks failed: %s", e)
         log_error("IBKR_ERROR", f"fetch_portfolio_greeks: {e}", page="Portfolio")
-        return {"positions": [], "totals": {"delta": 0, "theta": 0, "gamma": 0, "vega": 0}}
+        # Opnieuw werpen na het loggen. Een neutrale waarde ({}, 0, []) is
+        # voor de aanroeper niet van een echt antwoord te onderscheiden:
+        # broker_adapter._in_parallel meldt uitval als (broker, False, exc)
+        # en de totalen zeggen dan dat ze incompleet zijn -- maar alleen als
+        # de fout hem bereikt. Tastytrade en T212 raisen al; IBKR was de enige
+        # die een onbereikbare rekening als net liq 0 liet doorgaan.
+        raise
 
 
 def fetch_beta_weighted_delta():
@@ -402,7 +420,13 @@ def fetch_beta_weighted_delta():
     except Exception as e:
         logger.error("IBKR fetch_beta_weighted_delta failed: %s", e)
         log_error("IBKR_ERROR", f"fetch_beta_weighted_delta: {e}", page="Portfolio")
-        return {"positions": [], "portfolio_bwd": 0, "spy_price": 0, "dollar_per_1pct": 0}
+        # Opnieuw werpen na het loggen. Een neutrale waarde ({}, 0, []) is
+        # voor de aanroeper niet van een echt antwoord te onderscheiden:
+        # broker_adapter._in_parallel meldt uitval als (broker, False, exc)
+        # en de totalen zeggen dan dat ze incompleet zijn -- maar alleen als
+        # de fout hem bereikt. Tastytrade en T212 raisen al; IBKR was de enige
+        # die een onbereikbare rekening als net liq 0 liet doorgaan.
+        raise
 
 
 def fetch_greeks_and_bwd():
@@ -438,7 +462,13 @@ def fetch_yearly_transfers():
     except Exception as e:
         logger.error("IBKR fetch_yearly_transfers failed: %s", e)
         log_error("IBKR_ERROR", f"fetch_yearly_transfers: {e}", page="Portfolio")
-        return {}
+        # Opnieuw werpen na het loggen. Een neutrale waarde ({}, 0, []) is
+        # voor de aanroeper niet van een echt antwoord te onderscheiden:
+        # broker_adapter._in_parallel meldt uitval als (broker, False, exc)
+        # en de totalen zeggen dan dat ze incompleet zijn -- maar alleen als
+        # de fout hem bereikt. Tastytrade en T212 raisen al; IBKR was de enige
+        # die een onbereikbare rekening als net liq 0 liet doorgaan.
+        raise
 
 
 def fetch_margin_interest():
@@ -477,7 +507,13 @@ def fetch_margin_interest():
     except Exception as e:
         logger.error("IBKR fetch_margin_interest failed: %s", e)
         log_error("IBKR_ERROR", f"fetch_margin_interest: {e}", page="Portfolio")
-        return {"current_month": 0, "ytd": 0, "total": 0, "monthly": {}}
+        # Opnieuw werpen na het loggen. Een neutrale waarde ({}, 0, []) is
+        # voor de aanroeper niet van een echt antwoord te onderscheiden:
+        # broker_adapter._in_parallel meldt uitval als (broker, False, exc)
+        # en de totalen zeggen dan dat ze incompleet zijn -- maar alleen als
+        # de fout hem bereikt. Tastytrade en T212 raisen al; IBKR was de enige
+        # die een onbereikbare rekening als net liq 0 liet doorgaan.
+        raise
 
 
 def fetch_option_chain(ticker, option_type='Put', min_dte=7, max_dte=60,

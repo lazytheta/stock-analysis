@@ -112,6 +112,10 @@ def _build_dcf_config_impl(ticker, financial_data, company_name,
     if valuation_basis == "real":
         nominal_risk_free_rate = risk_free_rate
         risk_free_rate = gather_data.fetch_tips_yield()
+        if risk_free_rate is None:
+            logger.warning("TIPS-feed onbereikbaar; TIPS_DEFAULT %.2f%% gebruikt",
+                           gather_data.TIPS_DEFAULT * 100)
+            risk_free_rate = gather_data.TIPS_DEFAULT
 
     shares = financial_data.get("shares", [])
     shares_latest = shares[-1] if shares else 0

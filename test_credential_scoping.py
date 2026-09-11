@@ -20,6 +20,11 @@ class _Table:
         self.filters = {}
 
     def select(self, *_a, **_kw):
+        # Een verse builder per query, zoals de echte client. Zonder dit erven
+        # alle queries op één client de filters van de vorige, en slaagt de
+        # test ook als de tweede read de user_id vergeet -- precies het lek
+        # waar dit bestand voor bestaat.
+        self.filters = {}
         return self
 
     def eq(self, col, val):

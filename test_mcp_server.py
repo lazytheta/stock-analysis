@@ -245,13 +245,16 @@ def test_fetch_tips_yield_parses_fred_csv():
     assert rate == pytest.approx(0.019, abs=0.001)
 
 
-def test_fetch_tips_yield_fallback_on_failure():
-    """fetch_tips_yield() should return default 0.02 when FRED fetch fails."""
+def test_fetch_tips_yield_is_none_on_failure():
+    """Een mislukte FRED-fetch levert None, geen 0,02. Een plausibel getal is
+    voor de aanroeper niet van een meting te onderscheiden en ging als
+    discontovoet de config in. De terugval op TIPS_DEFAULT is nu een
+    zichtbare keuze van de aanroeper (_build_dcf_config_impl)."""
     import gather_data
 
     with patch("gather_data._http_get", side_effect=Exception("network error")):
         rate = gather_data.fetch_tips_yield()
-    assert rate == 0.02
+    assert rate is None
 
 
 def _make_test_financials():
