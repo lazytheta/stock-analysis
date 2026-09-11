@@ -359,30 +359,42 @@ def _extract_annual_values(facts, tag, n_years=6, unit_key="USD", taxonomy="us-g
             except ValueError:
                 pass
 
+        # Een ontbrekend cijfer is geen nul. `get("val", 0)` liet het als
+        # jaarwaarde meetellen in groei en marges.
+        val = entry.get("val")
+        if val is None:
+            continue
+
         # Use end date as the unique key for deduplication
         # The end date uniquely identifies which fiscal period this data belongs to
-        annual.append((end, entry.get("val", 0), duration_days))
+        annual.append((end, val, duration_days, entry.get("filed", "")))
 
     if not annual:
         return []
 
-    # For each unique end date, pick the entry with longest duration (prefer full-year)
+    # Per einddatum wint de langste duur (jaar boven kwartaal), en bij gelijke
+    # duur de nieuwste indiening. Dat laatste ontbrak: de strikte `dur >`
+    # hield het eerst geziene record, in EDGAR's volgorde de oudste 10-K,
+    # zodat herzieningen uit het jaar erna stil werden weggegooid. Gemeten
+    # op MSFT: 167 tag/jaar-combinaties met een andere waarde in de latere
+    # indiening (AccountsReceivableNetCurrent FY2017: 19,79 vs 22,43 mrd).
     by_end = {}
-    for end, val, dur in annual:
-        if end not in by_end or dur > by_end[end][1]:
-            by_end[end] = (val, dur)
+    for end, val, dur, filed in annual:
+        rank = (dur, filed)
+        if end not in by_end or rank > by_end[end][2]:
+            by_end[end] = (val, dur, rank)
 
     # For income statement items (duration > 300 days), filter out quarterly snapshots
     # For balance sheet items (duration == 0), keep all
-    has_durations = any(dur > 0 for _, (_, dur) in by_end.items())
+    has_durations = any(dur > 0 for _, (_, dur, _) in by_end.items())
     if has_durations:
         # Income statement: only keep full-year entries (> 300 days)
-        by_end = {end: (val, dur) for end, (val, dur) in by_end.items() if dur > 300}
+        by_end = {end: (val, dur, rank) for end, (val, dur, rank) in by_end.items() if dur > 300}
 
     # Convert end dates to fiscal years
     # Use the year from end date (handles non-calendar fiscal years correctly)
     by_year = {}
-    for end, (val, dur) in by_end.items():
+    for end, (val, dur, _rank) in by_end.items():
         year = int(end[:4])
         # If two end dates map to same year, prefer the later one
         if year not in by_year or end > by_year[year][1]:
@@ -1465,9 +1477,12 @@ def fetch_treasury_yield():
         except Exception:
             pass
 
-        default = 0.04
-        print(f"  WARNING: All Treasury fetches failed. Using default: {default:.2%}")
-        return default
+        # None, geen 0.04. Een plausibel getal is niet te onderscheiden van
+        # een meting: de aanroeper schreef het als risk_free_rate in de
+        # config en toonde "10Y Treasury: 4,00%" alsof het gemeten was. Wie
+        # wil terugvallen kiest dat zelf, zichtbaar, met RISK_FREE_RATE_DEFAULT.
+        print("  WARNING: All Treasury fetches failed. No rate available.")
+        return None
 
 
 TIPS_DEFAULT = 0.02  # 2% real rate fallback
@@ -1508,8 +1523,10 @@ def fetch_tips_yield():
         raise ValueError("No valid TIPS rate found in FRED CSV")
 
     except Exception as e:
-        print(f"  WARNING: TIPS fetch failed: {e}. Using default: {TIPS_DEFAULT:.2%}")
-        return TIPS_DEFAULT
+        # Zelfde regel als bij de Treasury: geen verkleed antwoord. De
+        # aanroeper valt zelf en zichtbaar terug op TIPS_DEFAULT.
+        print(f"  WARNING: TIPS fetch failed: {e}. No rate available.")
+        return None
 
 
 # ── Damodaran Module ──────────────────────────────────────────────────
@@ -2156,6 +2173,14 @@ def fetch_peer_data(peer_tickers):
 
             if not fin["revenue"] or not fin["revenue"][-1]:
                 print(f"  Skipping {pticker}: no revenue data")
+                continue
+
+            # fetch_stock_price geeft (0, 0, 0) bij elke storing. Zonder deze
+            # guard werd dat mkt_cap 0, pe 0.0 en ev = -cash, en die getallen
+            # gingen als `peers` de config in en de peer-lens voedden. Met
+            # Yahoo geblokkeerd op bron-IP was dit het actieve pad.
+            if not price or price <= 0:
+                print(f"  Skipping {pticker}: no quote available")
                 continue
 
             # Latest year values (guard against None from _to_millions)

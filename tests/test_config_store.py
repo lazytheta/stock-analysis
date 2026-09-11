@@ -310,3 +310,47 @@ def test_list_watchlist_leaves_the_isin_empty_when_there_is_none():
          "updated_at": "", "valuation_summary": None, "robustness": None,
          "Scorecard": None}])
     assert config_store.list_watchlist(c, user_id="u")[0]["isin"] is None
+
+
+class _LoadRaisesClient(_CapturingClient):
+    """De merge-read faalt met een echte fout (geen 'geen rij')."""
+
+    def execute(self):
+        if self.saved is not None:
+            return None
+        raise ConnectionError("Server disconnected mid-read")
+
+
+def test_a_failed_merge_read_refuses_to_save_instead_of_wiping():
+    """save_config leest de bestaande config om onaangeroerde velden terug te
+    mergen. Elke fout daarin werd 'existing = None', waarna de merge werd
+    overgeslagen en upsert de hele config verving door de drie velden die de
+    aanroeper meestuurde. Eén Supabase-hik = veertig velden weg, onomkeerbaar.
+
+    'Geen rij' meldt load_config zelf al als None (PGRST116 / '0 rows'), dus
+    een exceptie hier is altijd een storing -- en een storing mag niet als
+    'nieuwe ticker' lezen."""
+    c = _LoadRaisesClient({"margin_of_safety": 0.275, "cash_bridge": 1907})
+    with pytest.raises(ConnectionError):
+        config_store.save_config(c, "TEST", {"margin_of_safety": 0.27}, user_id="u")
+    assert c.saved is None, "er is geüpsert terwijl de merge-read faalde"
+
+
+class _NoRowClient(_CapturingClient):
+    """maybe_single() zonder treffer: data is None, geen rij met config None."""
+
+    def execute(self):
+        if self.saved is not None:
+            return None
+
+        class _Empty:
+            data = None
+        return _Empty()
+
+
+def test_a_genuinely_new_ticker_still_saves():
+    """De tegenproef: load_config geeft None voor een ticker die er niet is,
+    en dat pad moet blijven werken."""
+    c = _NoRowClient(None)
+    config_store.save_config(c, "NEW", {"margin_of_safety": 0.3}, user_id="u")
+    assert c.saved["config"]["margin_of_safety"] == 0.3

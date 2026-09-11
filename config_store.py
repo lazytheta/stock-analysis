@@ -210,18 +210,15 @@ def save_config(client, ticker, cfg, user_id=None):
     # a save that omits a field means "I didn't touch this", not "delete it".
     # The guarded-empty keys additionally recover when present but empty, since
     # for those an empty value is almost always a caller bug rather than intent.
-    # Defensive: load_config may crash on PostgREST PGRST116 in older
-    # postgrest-py versions even though we ask for maybe_single + catch
-    # PGRST116 by string. Treat any failure here as "no existing row"
-    # so brand-new tickers can still be saved.
-    try:
-        existing = load_config(client, ticker, user_id=user_id)
-    except Exception as _e:
-        logger.warning(
-            "save_config(%s): load_config raised during merge; treating as "
-            "new ticker. Error: %s", ticker, _e,
-        )
-        existing = None
+    # Geen try/except hier. load_config meldt "geen rij" zelf al als None
+    # (PGRST116 / "0 rows") en retryt transiënte fouten; wat er dan nog uit
+    # komt is een echte storing. Die werd hier tot 2026-09-11 platgeslagen
+    # tot existing = None, waarna de merge werd overgeslagen en upsert de
+    # hele config verving door de paar velden die de aanroeper meestuurde:
+    # één Supabase-hik tijdens een deel-save wiste veertig velden, met
+    # alleen "treating as new ticker" in de log. Een save die faalt is
+    # herstelbaar; een save die stil afknipt niet.
+    existing = load_config(client, ticker, user_id=user_id)
 
     if existing:
         cfg = dict(cfg)
@@ -306,7 +303,10 @@ def load_config(client, ticker, user_id=None):
                 time.sleep(0.25 * (attempt + 1))
                 continue
             raise
-        if resp and resp.data:
+        # Een rij zonder config is geen config. maybe_single() geeft bij nul
+        # rijen data=None; een rij met config=NULL zou corrupt zijn en mag
+        # als "niets opgeslagen" lezen, zodat een save hem gewoon vult.
+        if resp and resp.data and resp.data.get("config") is not None:
             return _restore_tuples(resp.data["config"])
         return None
     raise last_exc  # unreachable: loop always returns or raises

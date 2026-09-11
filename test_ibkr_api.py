@@ -289,11 +289,12 @@ class TestFetchAccountBalances(unittest.TestCase):
         result = ibkr_api.fetch_account_balances()
         self.assertEqual(result["cash_balance"], 7777)
 
-    def test_error_returns_zeros(self):
+    def test_error_raises_instead_of_reporting_zero(self):
+        """Een net liq van 0 is niet te onderscheiden van een lege rekening;
+        _in_parallel meldt uitval alleen als de fout hem bereikt."""
         _mock_st.session_state = {}  # no cache, no creds → error
-        result = ibkr_api.fetch_account_balances()
-        self.assertEqual(result["net_liquidating_value"], 0)
-        self.assertEqual(result["cash_balance"], 0)
+        with self.assertRaises(RuntimeError):
+            ibkr_api.fetch_account_balances()
 
 
 class TestFetchPortfolioData(unittest.TestCase):
@@ -329,11 +330,10 @@ class TestFetchPortfolioData(unittest.TestCase):
         self.assertIsInstance(cb["trades"], list)
         self.assertIsInstance(cb["wheels"], list)
 
-    def test_error_returns_empty(self):
+    def test_error_raises_instead_of_reporting_empty(self):
         _mock_st.session_state = {}
-        cost_basis, account_id = ibkr_api.fetch_portfolio_data()
-        self.assertEqual(cost_basis, {})
-        self.assertEqual(account_id, "")
+        with self.assertRaises(RuntimeError):
+            ibkr_api.fetch_portfolio_data()
 
 
 class TestFetchNetLiqHistory(unittest.TestCase):
@@ -376,10 +376,10 @@ class TestFetchNetLiqHistory(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["close"], 100000)
 
-    def test_error_returns_empty(self):
+    def test_error_raises_instead_of_reporting_empty(self):
         _mock_st.session_state = {}
-        result = ibkr_api.fetch_net_liq_history()
-        self.assertEqual(result, [])
+        with self.assertRaises(RuntimeError):
+            ibkr_api.fetch_net_liq_history()
 
 
 class TestFetchPortfolioGreeks(unittest.TestCase):
@@ -467,11 +467,10 @@ class TestFetchBetaWeightedDelta(unittest.TestCase):
         expected_bwd = 150 * 1.2 * 200 / spy_price
         self.assertAlmostEqual(aapl_pos["bwd"], expected_bwd)
 
-    def test_error_returns_default(self):
+    def test_error_raises_instead_of_reporting_default(self):
         _mock_st.session_state = {}
-        result = ibkr_api.fetch_beta_weighted_delta()
-        self.assertEqual(result["positions"], [])
-        self.assertEqual(result["portfolio_bwd"], 0)
+        with self.assertRaises(RuntimeError):
+            ibkr_api.fetch_beta_weighted_delta()
 
 
 class TestFetchYearlyTransfers(unittest.TestCase):
@@ -497,10 +496,10 @@ class TestFetchYearlyTransfers(unittest.TestCase):
         self.assertIn(2024, result)
         self.assertAlmostEqual(result[2024]["total"], 2000)
 
-    def test_error_returns_empty(self):
+    def test_error_raises_instead_of_reporting_empty(self):
         _mock_st.session_state = {}
-        result = ibkr_api.fetch_yearly_transfers()
-        self.assertEqual(result, {})
+        with self.assertRaises(RuntimeError):
+            ibkr_api.fetch_yearly_transfers()
 
 
 class TestFetchMarginInterest(unittest.TestCase):
@@ -531,12 +530,10 @@ class TestFetchMarginInterest(unittest.TestCase):
             self.assertAlmostEqual(result["ytd"], -50)
         self.assertAlmostEqual(result["total"], -50 + 10 + (-200))
 
-    def test_error_returns_zeros(self):
+    def test_error_raises_instead_of_reporting_zero(self):
         _mock_st.session_state = {}
-        result = ibkr_api.fetch_margin_interest()
-        self.assertEqual(result["current_month"], 0)
-        self.assertEqual(result["ytd"], 0)
-        self.assertEqual(result["total"], 0)
+        with self.assertRaises(RuntimeError):
+            ibkr_api.fetch_margin_interest()
 
 
 class TestFetchOptionChain(unittest.TestCase):
@@ -701,14 +698,14 @@ class TestDetectWheels(unittest.TestCase):
 class TestFetchGreeksAndBwd(unittest.TestCase):
     """Test the combined greeks+bwd function."""
 
-    def test_returns_tuple(self):
-        # Simple: both sub-functions will hit error path → defaults
+    def test_error_propagates_from_both_halves(self):
+        # Beide deelfuncties raken het foutpad. Vroeger kwamen daar
+        # defaults uit ({positions: [], totals: 0}) die de aanroeper niet
+        # van een lege rekening kon onderscheiden; nu bereikt de fout
+        # _in_parallel, dat hem als uitval meldt.
         _mock_st.session_state = {}
-        greeks, bwd = ibkr_api.fetch_greeks_and_bwd()
-        self.assertIn("positions", greeks)
-        self.assertIn("totals", greeks)
-        self.assertIn("positions", bwd)
-        self.assertIn("portfolio_bwd", bwd)
+        with self.assertRaises(RuntimeError):
+            ibkr_api.fetch_greeks_and_bwd()
 
 
 if __name__ == "__main__":

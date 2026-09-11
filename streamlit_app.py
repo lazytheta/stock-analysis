@@ -32,6 +32,7 @@ from gather_data import (
     fetch_company_facts,
     parse_financials,
     fetch_stock_price,
+    RISK_FREE_RATE_DEFAULT,
     fetch_historical_prices,
     fetch_treasury_yield,
     synthetic_credit_rating,
@@ -8595,7 +8596,14 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
             stock_price, market_cap, shares_yahoo = fetch_stock_price(ticker)
             risk_free_rate = fetch_treasury_yield()
         pos = _flush_clean(buf, pos, status)
-        status.write(f"\u2705 ${stock_price:.2f} per share — 10Y Treasury: {risk_free_rate:.2%}")
+        if risk_free_rate is None:
+            # Zichtbaar terugvallen: deze waarde gaat als discontovoet de
+            # config in, dus de gebruiker moet weten dat hij niet gemeten is.
+            risk_free_rate = RISK_FREE_RATE_DEFAULT
+            status.write(f"\u26a0\ufe0f ${stock_price:.2f} per share — Treasury-feed onbereikbaar, "
+                         f"aanname {risk_free_rate:.2%} gebruikt (RISK_FREE_RATE_DEFAULT)")
+        else:
+            status.write(f"\u2705 ${stock_price:.2f} per share — 10Y Treasury: {risk_free_rate:.2%}")
 
         # ── Step 5: Credit rating + sector margin + consensus ──
         status.write("\u23f3 Analyzing credit, margins & analyst estimates...")
@@ -9367,6 +9375,7 @@ def _aggregate_month_trades(cost_basis, year, month):
     Returns dict with:
         premium_total, premium_trades, leaders_premium, leaders_pl, laggards_pl
     """
+    price_failures = []   # tickers waarvan de koers niet opgehaald kon worden
     from datetime import datetime
 
     ticker_data = defaultdict(lambda: {
@@ -9498,8 +9507,13 @@ def _aggregate_month_trades(cost_basis, year, month):
                         ticker_data[ticker]["equity_pl"] += unrealized
                         ticker_data[ticker]["net_pl"] += unrealized
                         ticker_data[ticker]["has_equity"] = True
-            except Exception:
-                pass
+            except Exception as _e:
+                # Niet stil. equity_pl bleef 0 en has_equity False, en het
+                # rapport rendert dan zonder de aandelenbeen -- de 'net P/L'
+                # telt alleen optiepremie, zonder enig signaal. Wie hier
+                # belandt hoort in het rapport genoemd te worden.
+                price_failures.append(ticker)
+                logger.warning("Koers voor %s niet opgehaald: %s", ticker, _e)
 
     premium_list = []
     for ticker, d in ticker_data.items():
@@ -9527,6 +9541,7 @@ def _aggregate_month_trades(cost_basis, year, month):
 
     return {
         "premium_total": total_premium,
+        "price_failures": price_failures,
         "premium_trades": total_premium_trades,
         "leaders_premium": premium_list[:5],
         "leaders_pl": [x for x in pl_list[:5] if x["net_pl"] > 0],
@@ -9539,6 +9554,7 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
 
     Returns dict with same structure as _aggregate_month_trades.
     """
+    price_failures = []   # tickers waarvan de koers niet opgehaald kon worden
     from datetime import datetime
 
     ticker_data = defaultdict(lambda: {
@@ -9678,8 +9694,13 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
                         ticker_data[ticker]["equity_pl"] += unrealized
                         ticker_data[ticker]["net_pl"] += unrealized
                         ticker_data[ticker]["has_equity"] = True
-            except Exception:
-                pass
+            except Exception as _e:
+                # Niet stil. equity_pl bleef 0 en has_equity False, en het
+                # rapport rendert dan zonder de aandelenbeen -- de 'net P/L'
+                # telt alleen optiepremie, zonder enig signaal. Wie hier
+                # belandt hoort in het rapport genoemd te worden.
+                price_failures.append(ticker)
+                logger.warning("Koers voor %s niet opgehaald: %s", ticker, _e)
 
     premium_list = []
     for ticker, d in ticker_data.items():
@@ -9707,6 +9728,7 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
 
     return {
         "premium_total": total_premium,
+        "price_failures": price_failures,
         "premium_trades": total_premium_trades,
         "leaders_premium": premium_list[:5],
         "leaders_pl": [x for x in pl_list[:5] if x["net_pl"] > 0],
@@ -9724,6 +9746,10 @@ def _show_week_detail(year, iso_wk, wk_start, wk_end, cost_basis, nl_all, transf
     wk_label = f"W{iso_wk} · {wk_start.strftime('%b %d')}–{wk_end.strftime('%b %d, %Y')}"
 
     agg = _aggregate_week_trades(cost_basis, wk_start, wk_end)
+    if agg.get("price_failures"):
+        st.caption("\u26a0\ufe0f Koersen niet opgehaald voor "
+                   + ", ".join(agg["price_failures"])
+                   + " \u2014 ongerealiseerde aandelen-P/L ontbreekt voor die posities.")
 
     # Weekly return %
     _wk_key = (year, wk_start.month)
@@ -9778,7 +9804,12 @@ def _show_week_detail(year, iso_wk, wk_start, wk_end, cost_basis, nl_all, transf
     _bg = T['bg']
 
     def _c(val):
-        return _green if val >= 0 else _red
+        return _muted if val is None else (_green if val >= 0 else _red)
+
+    def _pct(val):
+        # Een ontbrekende meting toont een streep, geen +0.0%. Bij een
+        # geblokkeerde Yahoo las een vlakke index als outperformance.
+        return "\u2014" if val is None else f"{val:+.1f}%"
 
     # Premium table rows
     prem_rows = ""
@@ -9981,9 +10012,14 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
     month_full = f"{MONTH_NAMES_FULL[month]} {year}"
 
     agg = _aggregate_month_trades(cost_basis, year, month)
+    if agg.get("price_failures"):
+        st.caption("\u26a0\ufe0f Koersen niet opgehaald voor "
+                   + ", ".join(agg["price_failures"])
+                   + " \u2014 ongerealiseerde aandelen-P/L ontbreekt voor die posities.")
 
-    # Net P/L from net_liq
-    mo_ret_pct = monthly_returns.get(year, {}).get(month, 0.0)
+    # Net P/L from net_liq. Geen 0.0 als default: een maand zonder meting is
+    # geen maand met 0% rendement, en die twee lazen tot 2026-09-11 identiek.
+    mo_ret_pct = monthly_returns.get(year, {}).get(month)
     net_pl_dollar = 0.0
     _period_capital = 0.0
     if nl_all:
@@ -10021,19 +10057,24 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
     _bg = T['bg']
 
     def _c(val):
-        return _green if val >= 0 else _red
+        return _muted if val is None else (_green if val >= 0 else _red)
+
+    def _pct(val):
+        # Een ontbrekende meting toont een streep, geen +0.0%. Bij een
+        # geblokkeerde Yahoo las een vlakke index als outperformance.
+        return "\u2014" if val is None else f"{val:+.1f}%"
 
     # ── Build entire report as one HTML string ──
     # Benchmark rows
     bench_rows_html = (
         f'<div class="bench-row">'
-        f'<span>Portfolio</span><span style="color:{_c(mo_ret_pct)}">{mo_ret_pct:+.1f}%</span></div>'
+        f'<span>Portfolio</span><span style="color:{_c(mo_ret_pct)}">{_pct(mo_ret_pct)}</span></div>'
     )
     for bname, bdata in bench.items():
-        b_ret = bdata.get((year, month), 0.0)
+        b_ret = bdata.get((year, month))
         bench_rows_html += (
             f'<div class="bench-row">'
-            f'<span>{bname}</span><span style="color:{_c(b_ret)}">{b_ret:+.1f}%</span></div>'
+            f'<span>{bname}</span><span style="color:{_c(b_ret)}">{_pct(b_ret)}</span></div>'
         )
 
     # Premium table rows
