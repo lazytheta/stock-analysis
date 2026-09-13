@@ -215,6 +215,22 @@ def _sec_throttle():
         _sec_last_request = time.monotonic()
 
 
+# Bovengrens op wat we van een Retry-After-header aannemen. `3600` was
+# letterlijk een uur time.sleep in een Streamlit-run. tastytrade_api heeft
+# dezelfde cap (_QUOTE_RETRY_AFTER_CAP); hier ontbrak hij op twee plekken.
+RETRY_AFTER_CAP = 5.0
+
+
+def bounded_retry_after(header_value, fallback: float) -> float:
+    """Seconden om te wachten: de header als die een getal is, begrensd op
+    RETRY_AFTER_CAP; anders `fallback`. Een Retry-After in HTTP-datumformaat
+    laat float() klappen -- dan geldt ook de fallback."""
+    try:
+        return min(float(header_value), RETRY_AFTER_CAP)
+    except (TypeError, ValueError):
+        return fallback
+
+
 def _http_get(url, headers=None, retries=4, delay=1.0):
     """Make an HTTP GET request with retries. Returns bytes.
 
@@ -238,10 +254,7 @@ def _http_get(url, headers=None, retries=4, delay=1.0):
             backoff = delay * (2 ** attempt)
             retry_after = e.headers.get("Retry-After") if e.headers else None
             if retry_after:
-                try:
-                    backoff = max(backoff, float(retry_after))
-                except ValueError:
-                    pass
+                backoff = max(backoff, bounded_retry_after(retry_after, backoff))
             logger.warning("HTTP %s from %s — retry %s/%s in %.1fs",
                            e.code, url, attempt + 1, retries, backoff)
             time.sleep(backoff)

@@ -103,7 +103,8 @@ def _get(path: str, creds: dict, *, min_interval: float = 1.0, max_retries: int 
         resp = requests.get(url, headers=headers, timeout=30)
         _LAST_CALL[path] = time.time()
         if resp.status_code == 429:
-            retry_after = float(resp.headers.get("Retry-After", min_interval))
+            retry_after = gather_data.bounded_retry_after(
+                resp.headers.get("Retry-After"), min_interval)
             # Warning, not debug: this is dead time the user waits through,
             # and it is how the 32-second account/info stall was found.
             logger.warning("T212 429 on %s; retry in %ss", path, retry_after)
