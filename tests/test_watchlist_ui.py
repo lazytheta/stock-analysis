@@ -100,7 +100,7 @@ def test_render_lens_dots_all_active():
     """2026-07-30: the watchlist surfaces ONLY the DCF lens. Even with every
     other lens active, exactly one dot renders and the label reads '1 lens'."""
     lenses = {
-        "dcf": {}, "dividend": {}, "sotp": {},
+        "dcf": {}, "dividend": {},
         "multiples": {}, "historical": {}, "reverse_dcf": {},  # not surfaced
     }
     html = streamlit_app._render_lens_dots(lenses, theme={"text_muted": "#888"})
@@ -112,7 +112,7 @@ def test_render_lens_dots_all_active():
 def test_render_lens_dots_dcf_only():
     """Only DCF active → 1 filled dot, 0 grey dots (DCF is the only surfaced
     lens now), '1 lens' label."""
-    lenses = {"dcf": {}, "dividend": None, "sotp": None,
+    lenses = {"dcf": {}, "dividend": None,
               "multiples": None, "historical": None, "reverse_dcf": None}
     html = streamlit_app._render_lens_dots(lenses, theme={"text_muted": "#888"})
     assert html.count('class="ld-on"') == 1
@@ -124,7 +124,7 @@ def test_render_lens_dots_only_dcf_ever_surfaces():
     """Peers, Historical, Dividend and SOTP are never surfaced on the watchlist
     even when active — only DCF is (2026-07-30 'one lens' request)."""
     lenses = {"dcf": {}, "multiples": {}, "historical": {},
-              "dividend": {}, "sotp": {}, "reverse_dcf": {}}
+              "dividend": {}, "reverse_dcf": {}}
     html = streamlit_app._render_lens_dots(lenses, theme={"text_muted": "#888"})
     assert html.count('class="ld-on"') == 1   # only DCF
     for gone in ("Peers", "Historical", "Dividend", "SOTP"):
@@ -340,7 +340,6 @@ def test_render_football_field_only_dcf_surfaces():
             "multiples":   {"fv_low": 70.0,  "fv_mid": 95.0,  "fv_high": 130.0},
             "historical":  {"fv_low": 95.0,  "fv_mid": 105.0, "fv_high": 115.0},
             "dividend":    {"fv_low": 85.0,  "fv_mid": 95.0,  "fv_high": 105.0},
-            "sotp":        {"fv_low": 88.0,  "fv_mid": 98.0,  "fv_high": 108.0},
             "reverse_dcf": {"fv_low": 100.0, "fv_mid": 100.0, "fv_high": 100.0},
         },
     }

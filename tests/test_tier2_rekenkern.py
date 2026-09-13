@@ -105,7 +105,7 @@ def test_all_weights_zero_does_not_produce_a_fair_value_of_zero():
     genormaliseerde gewichten 0, en de watchlist toonde fv_mid = 0.0 als
     geldige waardering."""
     cfg = _cfg(lens_weights={"dcf": 0.0, "multiples": 0.0, "historical": 0.0,
-                             "dividend": 0.0, "sotp": 0.0, "reverse_dcf": 0.0})
+                             "dividend": 0.0, "reverse_dcf": 0.0})
     out = valuation_lenses.calculate_multi_lens_valuation(cfg)
     assert out["weighted_fv_mid"] > 0
 
