@@ -183,6 +183,20 @@ def compute_intrinsic_value(cfg, wacc=None):
     tv_stc = cfg.get('terminal_stc', stc_list[-1])
     tv_wacc = cfg.get('terminal_wacc', wacc_list[-1])
 
+    # Onmogelijke inputs weigeren in plaats van er een getal van maken.
+    # tv = tv_fcff / (tv_wacc - tg) klapt om bij tg >= tv_wacc (intrinsic
+    # -105,94 zonder melding), en stc = 0 is een ZeroDivisionError die de
+    # watchlist-loop niet opvangt. De dividendlens bewaakt precies dit
+    # (ke <= g_term); de DCF deed het niet.
+    if tg >= tv_wacc:
+        raise ValueError(
+            f"terminal_growth {tg:.4f} >= terminal discount rate {tv_wacc:.4f}: "
+            f"terminal value is onbepaald")
+    _bad_stc = [x for x in [*stc_list, tv_stc] if not x or x <= 0]
+    if _bad_stc:
+        raise ValueError("sales_to_capital (stc) moet > 0 zijn; gevonden "
+                         f"{_bad_stc[0]!r} -- herinvestering is er ongedefinieerd door")
+
     # Project revenues
     revs = [base_rev]
     for g in growth_rates:

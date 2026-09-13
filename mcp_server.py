@@ -256,17 +256,17 @@ def _refresh_all_valuations_impl(force: bool = False,
 
     # Load configs in parallel and decide stale set
     def _load(t):
-        c = config_store.load_config(client, t, user_id=user_id)
-        return (t, c) if c is not None else None
+        return config_store.load_config(client, t, user_id=user_id)
 
     with ThreadPoolExecutor(max_workers=6) as pool:
-        loaded = {r[0]: r[1] for r in pool.map(_load, tickers) if r}
+        results = dict(zip(tickers, pool.map(_load, tickers)))
+    loaded, dropped = _load_watchlist_configs(tickers, results.get)
 
     targets = list(loaded.keys()) if force else [t for t, c in loaded.items() if _is_stale(c)]
     skipped = [t for t in loaded if t not in targets]
 
     computed: list[str] = []
-    errors: list[str] = []
+    errors: list[str] = [f"{t}: config niet laadbaar" for t in dropped]
 
     def _refresh_one(ticker: str) -> str:
         cfg = dict(loaded[ticker])
@@ -356,6 +356,42 @@ def _yahoo_quote(ticker: str):
     """Eén koers via de bestaande Yahoo-route, in het koerscontract."""
     price, _, _ = gather_data.fetch_stock_price(ticker)
     return {"price": price} if price and price > 0 else None
+
+
+def _merge_trailing_multiples(peer: dict, computed: dict) -> dict:
+    """Peer-record bijwerken met vers berekende trailing multiples.
+
+    Een multiple die nu niet berekenbaar is (None) wordt uit het record
+    gehaald, niet met rust gelaten: anders bleef het oude getal in cfg.peers
+    staan en telde het gewoon mee in de peer-mediaan, terwijl de
+    toolbeschrijving belooft dat zo'n peer uit de trailing anchors valt en
+    de respons `null` meldt. Respons en opgeslagen staat zeggen nu hetzelfde.
+    """
+    out = dict(peer)
+    for key in ("trailing_pe", "ev_ebit"):
+        if computed.get(key) is not None:
+            out[key] = computed[key]
+        else:
+            out.pop(key, None)
+    out["_trailing_source"] = "EDGAR compute_trailing_multiples"
+    return out
+
+
+def _load_watchlist_configs(tickers, load):
+    """(loaded, dropped): configs per ticker, plus de tickers zonder config.
+
+    Die laatste vielen tot 2026-09-13 stil uit `loaded` en kwamen daarna in
+    géén van computed/errors/skipped terecht -- refresh_all_valuations gaf
+    een compleet ogend antwoord terwijl een naam niet herrekend was.
+    """
+    loaded, dropped = {}, []
+    for t in tickers:
+        c = load(t)
+        if c is None:
+            dropped.append(t)
+        else:
+            loaded[t] = c
+    return loaded, dropped
 
 
 def _get_watchlist_impl(user_id: str | None = None, live_prices: bool = True):
@@ -989,12 +1025,7 @@ def _refresh_peer_multiples_impl(ticker: str, user_id: str | None = None) -> str
             updated_peers.append(p)
             continue
         m = gather_data.compute_trailing_multiples(pt)
-        np = dict(p)
-        if m.get("trailing_pe") is not None:
-            np["trailing_pe"] = m["trailing_pe"]
-        if m.get("ev_ebit") is not None:
-            np["ev_ebit"] = m["ev_ebit"]
-        np["_trailing_source"] = "EDGAR compute_trailing_multiples"
+        np = _merge_trailing_multiples(p, m)
         updated_peers.append(np)
         computed[pt] = {"trailing_pe": m.get("trailing_pe"), "ev_ebit": m.get("ev_ebit")}
     cfg["peers"] = updated_peers

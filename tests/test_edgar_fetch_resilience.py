@@ -108,24 +108,37 @@ def test_http_get_does_not_retry_a_404(monkeypatch):
     assert len(calls) == 1
 
 
-def test_http_get_honours_retry_after_header(monkeypatch):
+def _http_get_with_retry_after(monkeypatch, header_value):
     slept = []
 
     class _Err(urllib.error.HTTPError):
         def __init__(self):
-            super().__init__("u", 429, "slow down", {"Retry-After": "7"}, None)
+            super().__init__("u", 429, "slow down", {"Retry-After": header_value}, None)
 
     def fake_urlopen(req, **kw):
         raise _Err()
 
     monkeypatch.setattr(g.urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(g.time, "sleep", slept.append)
-
     with pytest.raises(urllib.error.HTTPError):
         g._http_get("https://data.sec.gov/x", {}, retries=2)
+    return slept
+
+
+def test_http_get_honours_retry_after_header(monkeypatch):
     # `slept` also holds the sub-second rate-limiter pauses; the backoff is the
     # one that took the server's Retry-After over our own exponential default.
-    assert 7.0 in slept, f"Retry-After ignored, slept={slept}"
+    slept = _http_get_with_retry_after(monkeypatch, "3")
+    assert 3.0 in slept, f"Retry-After ignored, slept={slept}"
+
+
+def test_http_get_caps_an_absurd_retry_after(monkeypatch):
+    """`Retry-After: 3600` was letterlijk een uur time.sleep in een
+    Streamlit-run. De header wint van onze eigen backoff, maar niet
+    onbegrensd -- dezelfde cap als _QUOTE_RETRY_AFTER_CAP in tastytrade_api."""
+    slept = _http_get_with_retry_after(monkeypatch, "3600")
+    assert 3600.0 not in slept
+    assert g.RETRY_AFTER_CAP in slept, f"cap niet toegepast, slept={slept}"
 
 
 # ── Rate limiting & index caching ─────────────────────────────────────────

@@ -56,6 +56,33 @@ FORWARD_LENSES: tuple[tuple[str, str], ...] = (
 FORWARD_LENS_KEYS: tuple[str, ...] = tuple(k for k, _ in FORWARD_LENSES)
 
 
+def _net_debt_bridge(cfg) -> float:
+    """Netto schuld voor de EV→equity-stap, identiek aan de DCF-bridge.
+
+    Stond drie keer anders in dit bestand: de multiples- en historical-lens
+    trokken alleen cash_bridge en securities af en misten minority, pension
+    en equity_investments -- bij een naam met een materieel minderheids-
+    belang overschatten ze FV/aandeel ten opzichte van de DCF. Eén definitie,
+    gespiegeld aan dcf_calculator.compute_intrinsic_value, zodat de lenzen
+    en de DCF dezelfde equity uit dezelfde EV halen.
+    """
+    g = lambda k: float(cfg.get(k, 0.0) or 0.0)  # noqa: E731
+    return (g("debt_market_value") + g("minority_interest") + g("unfunded_pension")
+            - g("cash_bridge") - g("securities") - g("equity_investments"))
+
+
+def _share_count(cfg):
+    """shares_outstanding, of None als het ontbreekt of 0 is.
+
+    `or 1.0` rekende de totale equity in $M als koers per aandeel (30.000
+    'per aandeel' bij ttm_ebitda 2000 × 15), terwijl de DCF voor dezelfde
+    ontbrekende input 0 zei. Ontbrekend hoort een sub-anchor over te slaan,
+    niet er een fantasiegetal van te maken.
+    """
+    n = cfg.get("shares_outstanding")
+    return float(n) if isinstance(n, (int, float)) and n > 0 else None
+
+
 def compute_dividend_lens(cfg):
     """Hybrid Two-stage DDM + Yield Mean-Reversion lens.
 
@@ -170,10 +197,12 @@ def compute_dcf_lens(cfg, scenario_grid=False):
     base_intrinsic = base["intrinsic_value"]
 
     if not scenario_grid:
+        # sorted(): bij een negatieve basiswaarde gaf ×0.85/×1.15 fv_low > fv_high.
+        lo, hi = sorted((base_intrinsic * 0.85, base_intrinsic * 1.15))
         return {
-            "fv_low": base_intrinsic * 0.85,
+            "fv_low": lo,
             "fv_mid": base_intrinsic,
-            "fv_high": base_intrinsic * 1.15,
+            "fv_high": hi,
             "details": {
                 "wacc": wacc,
                 "base_intrinsic": base_intrinsic,
@@ -354,13 +383,12 @@ def compute_historical_lens(cfg):
     else:
         ev_mult, ev_denom = None, None
 
+    shares = _share_count(cfg)
+    if ev_mult and shares is None:
+        details["skipped"].append("historical_ev (shares_outstanding missing)")
+        ev_mult = None
     if ev_mult:
-        net_debt = (
-            cfg.get("debt_market_value", 0.0)
-            - cfg.get("cash_bridge", 0.0)
-            - cfg.get("securities", 0.0)
-        )
-        shares = cfg.get("shares_outstanding") or 1.0
+        net_debt = _net_debt_bridge(cfg)
         own_ev_fv = (ev_mult * ev_denom - net_debt) / shares
         fv_anchors.append(own_ev_fv)
         details["historical_ev_ebitda_fv"] = own_ev_fv
@@ -464,13 +492,12 @@ def compute_multiples_lens(cfg):
         peer_evs_raw = [v for _, v in ev_pairs]
         peer_evs, removed_idx_ev = _tukey_filter(peer_evs_raw)
         details["peer_ev_ebitda_outliers_removed"] = [ev_pairs[i][0] for i in removed_idx_ev]
+        shares = _share_count(cfg)
+        if peer_evs and shares is None:
+            details["skipped"].append("ev_peer (shares_outstanding missing)")
+            peer_evs = []
         if peer_evs:
-            net_debt = (
-                cfg.get("debt_market_value", 0.0)
-                - cfg.get("cash_bridge", 0.0)
-                - cfg.get("securities", 0.0)
-            )
-            shares = cfg.get("shares_outstanding") or 1.0
+            net_debt = _net_debt_bridge(cfg)
             median_ev = statistics.median(peer_evs)
             fv_anchors.extend([
                 (min(peer_evs) * ev_denom - net_debt) / shares,
@@ -614,7 +641,16 @@ def calculate_multi_lens_valuation(cfg, scenario_grid=False):
     weights_cfg = cfg.get("lens_weights") or DEFAULT_LENS_WEIGHTS
     active_names = [n for n, l in lenses.items() if l is not None]
     raw = {n: weights_cfg.get(n, DEFAULT_LENS_WEIGHTS.get(n, 0.0)) for n in active_names}
-    total = sum(raw.values()) or 1.0
+    total = sum(raw.values())
+    if total <= 0:
+        # `or 1.0` maakte van gewicht-som 0 alle genormaliseerde gewichten 0,
+        # en de watchlist toonde fv_mid = 0.0 als geldige waardering. Geen
+        # enkele lens gewogen is geen waardering; val terug op de defaults
+        # over wat er actief is, en zeg dat.
+        logger.warning("lens_weights sommeren op 0 voor %s; DEFAULT_LENS_WEIGHTS gebruikt",
+                       cfg.get("ticker", "?"))
+        raw = {n: DEFAULT_LENS_WEIGHTS.get(n, 0.0) for n in active_names}
+        total = sum(raw.values()) or 1.0
     norm = {n: w / total for n, w in raw.items()}
 
     for n in active_names:

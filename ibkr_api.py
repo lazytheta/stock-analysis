@@ -368,7 +368,7 @@ def fetch_beta_weighted_delta():
 
         spy_url = "https://query1.finance.yahoo.com/v8/finance/chart/SPY?range=5d&interval=1d"
         req = urllib.request.Request(spy_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, context=ctx) as resp:
+        with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:  # de enige aanroep zonder timeout
             spy_data = json.loads(resp.read())
         spy_price = spy_data["chart"]["result"][0]["meta"]["regularMarketPrice"]
 
