@@ -87,7 +87,6 @@ _GUARDED_KEYS_RESTORE_EMPTY = (
 _GUARDED_KEYS_RESTORE_MISSING_ONLY = (
     "peers",
     "lens_weights",
-    "sotp",
 )
 
 # Backward-compat alias — the union of both sets, used by callers that
