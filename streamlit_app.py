@@ -11188,6 +11188,13 @@ elif page == "Cost Basis":
         wheels = data.get("wheels", [])
         cur_price = data["current_price"]
         prev_close = data.get("previous_close", cur_price)
+        # _load_portfolio_data quotes only what is still held, so a closed
+        # card arrived here with 0.00 under "Current Price" while the same
+        # quote already sat in _closed_prices for the "If I'd held" line.
+        if not cur_price and not _is_active(data):
+            _q = _closed_prices.get(data.get("symbol", ticker)) or {}
+            cur_price = _q.get("price") or 0.0
+            prev_close = _q.get("previousClose") or cur_price
 
         # Buy price and adjusted cost. A cycle is not a wheel — detect_wheels
         # opens one for any share position — so a ticker that never had an
@@ -11256,8 +11263,12 @@ elif page == "Cost Basis":
             + (f'    <p class="tk-sub">(Adjusted: {display_basis(adj_cost):,.2f})</p>'
                if is_wheel else '') +
                 f'    <p class="tk-sub">Current Price</p>'
-                f'    <p class="tk-sub" style="color:{day_color}; font-weight:500">'
-                f'      {cur_price:,.2f} ({day_chg:+.2f}%)</p>'
+                # No quote is a dash, not 0.00: a closed name Yahoo will not
+                # price from this IP is unpriced, not worthless.
+                + (f'    <p class="tk-sub" style="color:{day_color}; font-weight:500">'
+                   f'      {cur_price:,.2f} ({day_chg:+.2f}%)</p>'
+                   if cur_price else
+                   f'    <p class="tk-sub" style="font-weight:500">\u2014</p>') +
                 f'  </div>'
                 f'  <div class="card-center">'
                 f'    <p class="shares-count">{shares}</p>'
