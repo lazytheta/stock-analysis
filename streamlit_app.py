@@ -9180,6 +9180,49 @@ def _fmt_k(val):
     return f"{sign}${av:,.0f}"
 
 
+def _report_yahoo_chart(ticker, data, query):
+    """De Yahoo-chart voor een positie in het week-/maandrapport: (stamps, closes).
+
+    Probeert de namen die t212_history voor de rij afleidt: de kale naam
+    eerst, dan de beurs- en valutasuffixen. "RMS" en "IEQU" bestaan bij Yahoo
+    niet, RMS.PA en IEQU.MI wel -- zonder dit stonden de Trading 212-lijnen
+    elke week opnieuw als "koers niet opgehaald" in het rapport, vanaf elk IP,
+    want dit was geen blokkade maar een verkeerde naam. Een 404 is een
+    antwoord en gaat door naar de volgende kandidaat; wat anders faalt, faalt.
+
+    `symbol` en niet de dict-sleutel: met een naam bij twee brokers heet die
+    "DECK (Trading 212)", en daar heeft Yahoo nooit van gehoord.
+
+    Werpt de laatste fout als geen enkele kandidaat antwoordt, zodat de
+    aanroeper de rij als storing kan noemen in plaats van stil over te slaan.
+    """
+    import json as _json
+    import ssl as _ssl
+    import urllib.error as _urlerror
+    import urllib.request as _urllib
+    from t212_history import yahoo_candidates
+
+    ctx = _ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = _ssl.CERT_NONE
+    symbol = data.get("symbol") or ticker
+    last_error = None
+    for candidate in yahoo_candidates(symbol, data.get("exchange"),
+                                      data.get("native_currency")):
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{candidate}?{query}"
+        req = _urllib.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        try:
+            with _urllib.urlopen(req, context=ctx, timeout=10) as resp:
+                cdata = _json.loads(resp.read())
+            result = cdata["chart"]["result"][0]
+            return result["timestamp"], result["indicators"]["quote"][0]["close"]
+        except _urlerror.HTTPError as e:
+            last_error = e
+            if e.code != 404:
+                raise
+    raise last_error or LookupError(f"geen Yahoo-notering gevonden voor {symbol}")
+
+
 def _aggregate_month_trades(cost_basis, year, month):
     """Aggregate trade data for a specific month from cost_basis.
 
@@ -9276,10 +9319,6 @@ def _aggregate_month_trades(cost_basis, year, month):
                             pass
 
     # ── Unrealized equity P/L for tickers with shares held and NO equity trades this month ──
-    import ssl as _ssl
-    import json as _json
-    import urllib.request as _urllib
-
     # Tickers that had equity (stock buy/sell) trades this month — already have realized P/L
     _equity_traded = {t for t, d in ticker_data.items() if d["has_equity"]}
 
@@ -9290,18 +9329,10 @@ def _aggregate_month_trades(cost_basis, year, month):
             tickers_with_shares[ticker] = current_shares
 
     if tickers_with_shares:
-        ctx = _ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = _ssl.CERT_NONE
         for ticker, shares in tickers_with_shares.items():
             try:
-                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range=5y&interval=1mo"
-                req = _urllib.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-                with _urllib.urlopen(req, context=ctx, timeout=10) as resp:
-                    cdata = _json.loads(resp.read())
-                result = cdata["chart"]["result"][0]
-                timestamps = result["timestamp"]
-                closes = result["indicators"]["quote"][0]["close"]
+                timestamps, closes = _report_yahoo_chart(
+                    ticker, cost_basis[ticker], "range=5y&interval=1mo")
                 month_prices = {}
                 for ts, close in zip(timestamps, closes):
                     if close is None:
@@ -9313,7 +9344,11 @@ def _aggregate_month_trades(cost_basis, year, month):
                 price_start = month_prices.get((prev_year, prev_month))
                 price_end = month_prices.get((year, month))
                 if price_start and price_end:
-                    unrealized = shares * (price_end - price_start)
+                    # Yahoo noteert een Europese lijn in haar eigen valuta;
+                    # het rapport telt in USD. De rij draagt de koers waarmee
+                    # de positie al is omgerekend.
+                    unrealized = (shares * (price_end - price_start)
+                                  * (cost_basis[ticker].get("fx_rate") or 1.0))
                     if abs(unrealized) >= 1.0:
                         ticker_data[ticker]["equity_pl"] += unrealized
                         ticker_data[ticker]["net_pl"] += unrealized
@@ -9457,10 +9492,6 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
                             pass
 
     # ── Unrealized equity P/L for tickers where we hold shares ──
-    import ssl as _ssl
-    import json as _json
-    import urllib.request as _urllib
-
     # Only add unrealized for tickers with shares held and NO equity trades this week
     _equity_traded_wk = {t for t, d in ticker_data.items() if d["has_equity"]}
 
@@ -9473,18 +9504,10 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
     if tickers_with_shares:
         _days_back = (datetime.now() - datetime(wk_start_d.year, wk_start_d.month, wk_start_d.day)).days + 14
         _range = "1mo" if _days_back < 25 else ("3mo" if _days_back < 80 else ("1y" if _days_back < 350 else "5y"))
-        ctx = _ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = _ssl.CERT_NONE
         for ticker, shares in tickers_with_shares.items():
             try:
-                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range={_range}&interval=1d"
-                req = _urllib.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-                with _urllib.urlopen(req, context=ctx, timeout=10) as resp:
-                    cdata = _json.loads(resp.read())
-                result = cdata["chart"]["result"][0]
-                timestamps = result["timestamp"]
-                closes = result["indicators"]["quote"][0]["close"]
+                timestamps, closes = _report_yahoo_chart(
+                    ticker, cost_basis[ticker], f"range={_range}&interval=1d")
                 daily_prices = []
                 for ts, close in zip(timestamps, closes):
                     if close is None:
@@ -9500,7 +9523,9 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
                     if dt <= wk_end_d:
                         price_end = close
                 if price_before and price_end:
-                    unrealized = shares * (price_end - price_before)
+                    # Zelfde omrekening als in het maandrapport hierboven.
+                    unrealized = (shares * (price_end - price_before)
+                                  * (cost_basis[ticker].get("fx_rate") or 1.0))
                     if abs(unrealized) >= 1.0:
                         ticker_data[ticker]["equity_pl"] += unrealized
                         ticker_data[ticker]["net_pl"] += unrealized
