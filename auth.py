@@ -6,6 +6,7 @@ so callers can handle errors consistently.
 """
 
 import json
+from pathlib import Path
 import logging
 import os
 from datetime import date
@@ -161,28 +162,59 @@ def handle_oauth_callback():
         return None, None
 
 
-# Where the refresh token lives between visits. A cookie rather than
-# localStorage because Streamlit can read a cookie server-side, through
-# st.context.cookies, on the same request that renders the page. Reading
-# localStorage takes JavaScript, and the only way to hand its contents back to
-# Python was to put the token in the URL and reload — which meant a long-lived
-# credential sat in the address bar and the browser history on every visit.
-_COOKIE = "lt_refresh_token"
-_COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
+# Where the refresh token lives between visits: localStorage, read back by a
+# tiny component (components/session_store) that hands it to Python over the
+# websocket. Not a cookie, and not the URL.
+#
+# The cookie route (72fed8c) worked locally and never on Streamlit Community
+# Cloud: its proxy filters almost every cookie before the app sees the
+# request, so st.context.cookies was empty there and every visit began at the
+# login form. The route before that read localStorage with JavaScript and
+# handed the value to Python through a query parameter -- a long-lived
+# credential in the address bar and the history. The component channel is
+# the one that is both readable on Cloud and off the URL.
+_STORE_KEY = "lt_refresh_token"
+_COMPONENT_DIR = Path(__file__).resolve().parent / "components" / "session_store"
+_component = None
 
 
-def _write_cookie(value, max_age):
-    """Set or clear the remember-me cookie from the browser.
+def _session_store_component():
+    global _component
+    if _component is None:
+        import streamlit.components.v1 as components
+        _component = components.declare_component(
+            "lt_session_store", path=str(_COMPONENT_DIR))
+    return _component
 
-    Secure only over HTTPS, so this still works against a local http://
-    dev server, where the flag would otherwise stop the cookie being set.
+
+def read_browser_token():
+    """The stored token, "" when nothing is stored, None while the browser
+    has not answered yet (the component answers on its first render, which
+    triggers a rerun)."""
+    try:
+        return _session_store_component()(key="_lt_session_store", default=None)
+    except Exception as e:
+        logger.warning("Session store component unavailable: %s", type(e).__name__)
+        return ""
+
+
+def _write_store(value):
+    """Set or clear the token in localStorage, and drop the old cookie.
+
+    A script in the page, which runs on Cloud (the cookie it used to set
+    showed up in the browser; the proxy only hid it from the server). Caller
+    beware: a st.rerun() right after this cuts the run off before the browser
+    executes the script -- see restore_session_into_state.
     """
+    if value:
+        op = f"localStorage.setItem({json.dumps(_STORE_KEY)}, {json.dumps(value)});"
+    else:
+        op = f"localStorage.removeItem({json.dumps(_STORE_KEY)});"
     st.html(f"""
     <script>
         (function () {{
-            const secure = location.protocol === 'https:' ? '; Secure' : '';
-            document.cookie = {json.dumps(_COOKIE)} + '=' + {json.dumps(value)}
-                + '; Path=/; Max-Age={int(max_age)}; SameSite=Lax' + secure;
+            try {{ {op} }} catch (e) {{}}
+            document.cookie = {json.dumps(_STORE_KEY)} + '=; Path=/; Max-Age=0; SameSite=Lax';
         }})();
     </script>
     """, unsafe_allow_javascript=True)
@@ -201,7 +233,7 @@ def save_session_to_browser(client):
     try:
         session = client.auth.get_session()
         if session and session.refresh_token:
-            _write_cookie(session.refresh_token, _COOKIE_MAX_AGE)
+            _write_store(session.refresh_token)
     except Exception as e:
         # Never the token itself: Supabase puts it in the exception text, and
         # this used to travel into the error_logs table.
@@ -209,29 +241,18 @@ def save_session_to_browser(client):
 
 
 def clear_browser_session():
-    """Drop the stored token. Also clears the localStorage key this used to
-    live in, so a browser carrying one from before does not keep offering it."""
-    _write_cookie("", 0)
-    st.html("""
-    <script>
-        localStorage.removeItem('lt_refresh_token');
-    </script>
-    """, unsafe_allow_javascript=True)
+    """Drop the stored token, in localStorage and in the cookie it used to be."""
+    _write_store(None)
 
 
-def handle_remember_me():
-    """Restore a session from the remember-me cookie.
+def handle_remember_me(token):
+    """Restore a session from a stored refresh token.
 
     Returns (client, user) on success or (None, None) when there is nothing
     stored or the stored token no longer works.
     """
-    try:
-        token = st.context.cookies.get(_COOKIE)
-    except Exception:
-        token = None
     if not token:
         return None, None
-
     try:
         client = init_auth_client()
         client.auth.refresh_session(token)
@@ -248,19 +269,24 @@ def handle_remember_me():
 
 
 def restore_session_into_state():
-    """Vul session_state vanuit de remember-me cookie. True als er nu een sessie staat.
+    """Vul session_state vanuit de opgeslagen token.
 
-    Geen st.rerun() hierna, en dat is het punt. handle_remember_me verbruikt
-    de opgeslagen token, krijgt van Supabase een nieuwe en schrijft die als
-    st.html-script weg. Een rerun direct daarna breekt de run af voordat de
+    True: hersteld. False: niets opgeslagen of token dood -- toon de login.
+    None: de browser heeft nog niet geantwoord; de aanroeper stopt de run en
+    het antwoord start vanzelf een nieuwe.
+
+    Geen st.rerun() na een herstel, en dat is het punt. handle_remember_me
+    verbruikt de opgeslagen token, krijgt van Supabase een nieuwe en schrijft
+    die als script weg. Een rerun direct daarna breekt de run af voordat de
     browser dat script heeft uitgevoerd -- lokaal nagemeten op 2026-09-21:
-    een cookie gezet vlak voor st.rerun() komt bij de volgende lading nooit
-    aan, dezelfde cookie zonder rerun wel. De cookie hield dus de verbruikte
-    token, en de volgende refresh werd geweigerd en logde uit. Daarom valt
-    de aanroeper hierna gewoon door naar de pagina, in dezelfde run als het
-    script.
+    een waarde gezet vlak voor st.rerun() komt bij de volgende lading nooit
+    aan, dezelfde waarde zonder rerun wel. Daarom valt de aanroeper hierna
+    gewoon door naar de pagina, in dezelfde run als het script.
     """
-    client, user = handle_remember_me()
+    token = read_browser_token()
+    if token is None:
+        return None
+    client, user = handle_remember_me(token)
     if not (client and user):
         return False
     st.session_state["supabase_client"] = client

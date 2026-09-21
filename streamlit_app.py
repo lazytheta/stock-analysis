@@ -2061,15 +2061,27 @@ st.set_page_config(
 from auth import (render_login_page, logout, restore_session_into_state,
                   save_session_to_browser)
 
-# The remember-me cookie arrives with the request, so this is decided
-# server-side on the first render — no JavaScript round trip, and no reload
-# with the token pinned to the URL. And no rerun on success: the rotated token
-# is written by a script in this run, and a rerun would cut the run off before
-# the browser ran it (see restore_session_into_state).
-if ("supabase_client" not in st.session_state
-        and not restore_session_into_state()):
-    render_login_page()
-    st.stop()
+# The stored token comes from the browser through a component (see
+# auth.read_browser_token): Streamlit Cloud's proxy strips cookies, and the URL
+# is no place for a credential. The component answers on its first render and
+# that answer starts a new run; until then there is nothing to decide, so the
+# run stops. Bounded, so a browser that never answers still gets the login
+# form. And no rerun on success: the rotated token is written by a script in
+# this run, and a rerun would cut the run off before the browser ran it.
+if "supabase_client" not in st.session_state:
+    _restored = restore_session_into_state()
+    if _restored is None:
+        _waiting_since = st.session_state.get("_lt_store_wait")
+        if not isinstance(_waiting_since, (int, float)):
+            _waiting_since = time.time()
+            st.session_state["_lt_store_wait"] = _waiting_since
+        if time.time() - _waiting_since < 4:
+            st.stop()
+        _restored = False
+    st.session_state.pop("_lt_store_wait", None)
+    if not _restored:
+        render_login_page()
+        st.stop()
 
 # Save remember-me token to browser if flagged during login
 _sb_client = st.session_state["supabase_client"]

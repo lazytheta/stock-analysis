@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>lt session store</title></head>
+<body>
+<script>
+// Leest de remember-me-token uit localStorage en geeft die aan Python via het
+// componentkanaal (de websocket) -- niet via de URL en niet via een cookie.
+//
+// Waarom een component: Streamlit Community Cloud filtert in zijn proxy
+// vrijwel alle cookies weg voordat de app ze ziet, dus st.context.cookies is
+// daar leeg, hoe netjes de cookie ook gezet is. Een component draait in de
+// browser zelf en leest de opslag rechtstreeks.
+//
+// Antwoordt altijd: de token, of "" als er niets staat. Python leest None
+// zolang dit script nog niet heeft geantwoord en kan dat onderscheiden.
+(function () {
+  var KEY = "lt_refresh_token";
+  function send(type, data) {
+    var msg = { isStreamlitMessage: true, type: type };
+    for (var k in data) { msg[k] = data[k]; }
+    window.parent.postMessage(msg, "*");
+  }
+  function onMessage(ev) {
+    var msg = ev.data;
+    if (!msg || msg.type !== "streamlit:render") { return; }
+    var token = "";
+    try { token = window.localStorage.getItem(KEY) || ""; } catch (e) { token = ""; }
+    send("streamlit:setComponentValue", { value: token, dataType: "json" });
+    send("streamlit:setFrameHeight", { height: 0 });
+  }
+  window.addEventListener("message", onMessage);
+  send("streamlit:componentReady", { apiVersion: 1 });
+})();
+</script>
+</body>
+</html>
