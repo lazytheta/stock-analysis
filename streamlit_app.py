@@ -10752,7 +10752,11 @@ elif page == "Portfolio":
             if col == "Margin %":
                 return f"{val:.0f}%", cls
             if col == "Shares":
-                return f"{int(val)}", cls
+                # Trading 212 handelt in fracties: 0,8156 Hermes las als
+                # "0" naast een marktwaarde van $1.259.
+                if float(val).is_integer():
+                    return f"{val:,.0f}", cls
+                return f"{val:,.4f}".rstrip("0"), cls
             if col == "Days":
                 return f"{int(val)}", cls
             return f"{val}", cls
