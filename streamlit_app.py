@@ -2058,21 +2058,18 @@ st.set_page_config(
 )
 
 # ── Authentication gate ──
-from auth import (render_login_page, logout, handle_remember_me,
+from auth import (render_login_page, logout, restore_session_into_state,
                   save_session_to_browser)
 
-if "supabase_client" not in st.session_state:
-    # The remember-me cookie arrives with the request, so this is decided
-    # server-side on the first render — no JavaScript round trip, and no
-    # reload with the token pinned to the URL.
-    client, user = handle_remember_me()
-    if client and user:
-        st.session_state["supabase_client"] = client
-        st.session_state["user"] = {"id": str(user.id), "email": user.email}
-        st.rerun()
-    else:
-        render_login_page()
-        st.stop()
+# The remember-me cookie arrives with the request, so this is decided
+# server-side on the first render — no JavaScript round trip, and no reload
+# with the token pinned to the URL. And no rerun on success: the rotated token
+# is written by a script in this run, and a rerun would cut the run off before
+# the browser ran it (see restore_session_into_state).
+if ("supabase_client" not in st.session_state
+        and not restore_session_into_state()):
+    render_login_page()
+    st.stop()
 
 # Save remember-me token to browser if flagged during login
 _sb_client = st.session_state["supabase_client"]

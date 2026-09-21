@@ -137,3 +137,37 @@ class TestRememberMe(unittest.TestCase):
 
 if __name__ == "__main__":
     sys.exit(unittest.main())
+
+
+class TestRestoreIntoState(unittest.TestCase):
+    """Het tweede uitloggen, na 72fed8c. De geroteerde token werd wel
+    geschreven, maar als st.html-script in een run die de app meteen daarna
+    met st.rerun() afbrak -- en de browser voert het script van een
+    afgebroken run niet uit. De cookie hield de verbruikte token."""
+
+    def setUp(self):
+        import auth
+        self.auth = auth
+        self.st = _fake_st()
+        self.st.rerun = MagicMock(side_effect=AssertionError(
+            "een rerun hier laat het cookie-script vallen"))
+        self._patch = patch.object(auth, "st", self.st)
+        self._patch.start()
+        self.addCleanup(self._patch.stop)
+
+    def test_a_restore_fills_the_session_without_rerunning(self):
+        self.st.context.cookies = {"lt_refresh_token": "R1"}
+        client = _client_with_tokens("R2")
+        with patch.object(self.auth, "init_auth_client", return_value=client):
+            ok = self.auth.restore_session_into_state()
+        assert ok
+        assert self.st.session_state["supabase_client"] is client
+        assert self.st.session_state["user"] == {"id": "u-1", "email": "a@b.nl"}
+        self.st.rerun.assert_not_called()
+        written = [b for b in self.st.html_calls if "R2" in b]
+        assert written, "de geroteerde token moet in deze run geschreven zijn"
+
+    def test_no_cookie_leaves_the_session_empty(self):
+        self.st.context.cookies = {}
+        assert self.auth.restore_session_into_state() is False
+        assert "supabase_client" not in self.st.session_state

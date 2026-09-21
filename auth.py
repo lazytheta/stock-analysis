@@ -247,6 +247,27 @@ def handle_remember_me():
         return None, None
 
 
+def restore_session_into_state():
+    """Vul session_state vanuit de remember-me cookie. True als er nu een sessie staat.
+
+    Geen st.rerun() hierna, en dat is het punt. handle_remember_me verbruikt
+    de opgeslagen token, krijgt van Supabase een nieuwe en schrijft die als
+    st.html-script weg. Een rerun direct daarna breekt de run af voordat de
+    browser dat script heeft uitgevoerd -- lokaal nagemeten op 2026-09-21:
+    een cookie gezet vlak voor st.rerun() komt bij de volgende lading nooit
+    aan, dezelfde cookie zonder rerun wel. De cookie hield dus de verbruikte
+    token, en de volgende refresh werd geweigerd en logde uit. Daarom valt
+    de aanroeper hierna gewoon door naar de pagina, in dezelfde run als het
+    script.
+    """
+    client, user = handle_remember_me()
+    if not (client and user):
+        return False
+    st.session_state["supabase_client"] = client
+    st.session_state["user"] = {"id": str(user.id), "email": user.email}
+    return True
+
+
 def logout():
     """Sign out and clear all session state."""
     client = st.session_state.get("supabase_client")
