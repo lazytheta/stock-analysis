@@ -75,6 +75,20 @@ class TestGet(unittest.TestCase):
             t212_api._get("/equity/positions", _CREDS, max_retries=2)
 
 
+    @patch("t212_api.time.sleep", return_value=None)
+    @patch("t212_api.requests.get")
+    def test_a_next_page_path_carrying_the_api_prefix_is_not_doubled(self, mock_get, _sleep):
+        """T212 geeft nextPagePath sinds 2026-09 mét /api/v0 terug. Daar de
+        basis-URL voor plakken gaf .../api/v0/api/v0/... en een 404 op elke
+        tweede pagina -- en daarmee, via de except, een lege cash-historie:
+        geen Trading 212-stortingen en geen curve op de Results-pagina."""
+        mock_get.return_value = self._resp(200, {"items": []})
+        t212_api._get("/api/v0/equity/history/transactions?limit=50&cursor=abc", _CREDS)
+        (url,), _ = mock_get.call_args
+        self.assertEqual(
+            url, "https://live.trading212.com/api/v0/equity/history/transactions?limit=50&cursor=abc")
+
+
 class TestResolve(unittest.TestCase):
     def setUp(self):
         t212_api._INSTRUMENTS_CACHE = None  # reset module cache between tests

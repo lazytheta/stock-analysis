@@ -92,6 +92,14 @@ def _cached_history(key, build):
 
 def _get(path: str, creds: dict, *, min_interval: float = 1.0, max_retries: int = 3):
     """GET a T212 endpoint with throttling + 429 retry. Returns parsed JSON."""
+    # nextPagePath komt sinds 2026-09 mét het /api/v0-prefix terug dat de
+    # basis-URL al draagt. Ongefilterd werd dat .../api/v0/api/v0/... en een
+    # 404 op elke tweede pagina; de except in de history-lussen maakte daar
+    # een lege lijst van, en de Results-pagina miste stilletjes elke
+    # Trading 212-storting en de hele curve.
+    _prefix = LIVE_BASE_URL[LIVE_BASE_URL.index("/api/"):]
+    if path.startswith(_prefix + "/") or path.startswith(_prefix + "?"):
+        path = path[len(_prefix):]
     url = f"{LIVE_BASE_URL}{path}"
     headers = _auth_header(creds)
     for attempt in range(max_retries):
