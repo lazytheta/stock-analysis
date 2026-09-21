@@ -8747,6 +8747,50 @@ def _broker_view_control(page_key):
     return view
 
 
+def _portfolio_isins(rows):
+    """{symbol: isin} voor de rijen waar de Xetra-bron zin heeft.
+
+    Alleen niet-dollarlijnen met een broker-koers: de Amerikaanse namen kennen
+    Tastytrade en Yahoo al, en een Xetra-notering van een US-aandeel zou een
+    EUR-koers onder een dollarteken zetten. Zonder broker-koers is er niets om
+    de dagbeweging op toe te passen, zie _row_quote. `symbol` en niet de
+    sleutel: met twee brokers heet die "DECK (Trading 212)".
+    """
+    return {
+        d.get("symbol", t): d["isin"] for t, d in rows.items()
+        if d.get("isin") and d.get("broker_price")
+        and (d.get("native_currency") or "USD").upper() != "USD"
+    }
+
+
+def _row_quote(price_data, data):
+    """De quote voor een positierij, in de eenheid van de pagina (USD).
+
+    Een quote met `venue` komt van Xetra en noteert in EUR, terwijl de rij
+    van Trading 212 al een USD-koers draagt. Die blijft de koers; de beurs
+    levert alleen de dagbeweging als verhouding vorige slot / laatste koers,
+    en een verhouding heeft geen valuta. Tot 2026-09-21 kreeg zo'n rij de
+    broker-koers als vorige slot mee en stond Day % op +0,00% -- een storing
+    die als "onveranderd" las.
+
+    Zonder quote van buiten valt de rij terug op de broker-koers zonder
+    dagbeweging. Yahoo zoekt op de kale naam en kent "RMS" of "IEQU" niet, en
+    een Europese ETF viel zo op $0 marktwaarde, met 100% van het gewicht voor
+    de andere posities. Niets van beide: None, en de aanroeper zet 0.
+    """
+    broker_price = data.get("broker_price")
+    if price_data and price_data.get("venue") and broker_price:
+        last = price_data.get("price") or 0
+        prev = price_data.get("previousClose")
+        ratio = prev / last if prev and last else 1.0
+        return {"price": broker_price, "previousClose": broker_price * ratio}
+    if price_data:
+        return price_data
+    if broker_price:
+        return {"price": broker_price, "previousClose": broker_price}
+    return None
+
+
 def _load_portfolio_data():
     """Fetch and enrich portfolio data (cached in session_state, auto-refreshes every 5 min)."""
     # Auto-refresh after 5 minutes
@@ -8820,7 +8864,10 @@ def _load_portfolio_data():
         })
         if active_tickers:
             with st.spinner("Fetching current prices..."):
-                st.session_state.portfolio_prices = fetch_current_prices(active_tickers)
+                # Met de ISIN-kaart: zonder die valt de tweede koersbron voor
+                # de Europese lijnen stil, en RMS en IEQU stonden op +0,00%.
+                st.session_state.portfolio_prices = fetch_current_prices(
+                    active_tickers, _portfolio_isins(cost_basis))
                 st.session_state["portfolio_prices_at"] = time.time()
         else:
             st.session_state.portfolio_prices = {}
@@ -8828,16 +8875,8 @@ def _load_portfolio_data():
     prices = st.session_state.portfolio_prices
 
     for ticker, data in cost_basis.items():
-        price_data = prices.get(data.get("symbol", ticker))
+        price_data = _row_quote(prices.get(data.get("symbol", ticker)), data)
         shares = data["shares_held"]
-
-        # Prefer a quote the broker supplied. Yahoo is looked up on the bare
-        # symbol, which only resolves for US listings — a European ETF like
-        # WEBN (Xetra: WEBN.DE) 404s and the position silently falls to a $0
-        # market value, which then skews every weight in the table.
-        if not price_data and data.get("broker_price"):
-            price_data = {"price": data["broker_price"],
-                          "previousClose": data["broker_price"]}
 
         if price_data and shares > 0:
             price = price_data["price"]
@@ -10422,12 +10461,12 @@ elif page == "Portfolio":
         if _fresh < 20 and st.session_state.get("portfolio_prices"):
             prices = st.session_state["portfolio_prices"]
         else:
-            prices = fetch_current_prices(held_tickers)
+            prices = fetch_current_prices(held_tickers, _portfolio_isins(held))
             st.session_state["portfolio_prices"] = prices
             st.session_state["portfolio_prices_at"] = time.time()
 
         for ticker, data in held.items():
-            price_data = prices.get(data.get("symbol", ticker))
+            price_data = _row_quote(prices.get(data.get("symbol", ticker)), data)
             shares = data["shares_held"]
             if price_data and shares > 0:
                 p = price_data["price"]
