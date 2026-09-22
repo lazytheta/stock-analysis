@@ -370,6 +370,11 @@ def _fill_to_trade(item: dict, creds: dict):
     filled_at = fill.get("filledAt")
     if not qty or price is None or not filled_at:
         return None
+    # T212 geeft de hoeveelheid van een verkoop negatief terug. De richting
+    # komt hieronder uit de orderzijde; ruw overgenomen telde een verkoop als
+    # een extra aankoop en kwamen de verkochte stukken in de curve terug als
+    # een tweede positie.
+    qty = abs(float(qty))
 
     info = _clean(order.get("ticker") or "", creds)
     rate = gather_data.fetch_fx_rate(info["currency"] or "")

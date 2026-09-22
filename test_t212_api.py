@@ -525,6 +525,33 @@ _ORDERS = {
 }
 
 
+class TestSellQuantitySign(unittest.TestCase):
+    """T212 geeft de hoeveelheid van een verkoop negatief terug.
+
+    Ruw overgenomen telde een verkoop als een extra aankoop: CPRT stond op
+    -2.002 in plaats van +111 gerealiseerd, en in de curve gingen de
+    aandelen na de verkoop juist omhoog -- 64 CPRT en 47 WEBN als
+    spookposities, ~$2.800 te veel op de Results-pagina (2026-09-21)."""
+
+    def setUp(self):
+        t212_api._INSTRUMENTS_CACHE = {}
+        gather_data._FX_CACHE.clear()
+
+    def test_a_sell_has_a_positive_quantity_and_brings_cash_in(self):
+        item = {"order": {"ticker": "CPRT_US_EQ", "side": "SELL",
+                          "instrument": {"ticker": "CPRT_US_EQ"}},
+                "fill": {"quantity": -32.0, "price": 33.01,
+                         "filledAt": "2026-09-11T15:30:00.000Z",
+                         "walletImpact": {"currency": "EUR", "netValue": 905.0}}}
+        with patch.object(gather_data, "fetch_fx_rate", return_value=1.0):
+            trade = t212_api._fill_to_trade(item, _CREDS)
+        self.assertEqual(trade["quantity"], 32.0)
+        self.assertAlmostEqual(trade["net_value"], 32 * 33.01)
+        self.assertAlmostEqual(trade["wallet_net_value"], 905.0)
+        self.assertEqual(trade["action"], "Sell to Close")
+        self.assertIn("Sold 32", trade["description"])
+
+
 class TestTrades(unittest.TestCase):
     """T212 fills become the same trade shape Tastytrade produces.
 
