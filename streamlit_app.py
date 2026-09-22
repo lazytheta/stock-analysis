@@ -214,6 +214,64 @@ def _row_currency(ticker: str, cfg: dict | None = None) -> tuple[str, str, float
     return code, _CURRENCY_SYMBOL.get(code, code + " "), scale
 
 
+def _track_record_rows(cost_basis: dict, index_closes: dict, today) -> list:
+    """Track record per naam, met de dollarmaat erbij, of [] zonder index.
+
+    Gedeeld door Holdings (de tabel per naam) en Results (het totaal), zodat
+    de twee pagina's nooit een ander getal noemen voor hetzelfde ding.
+    """
+    if not index_closes:
+        return []
+    rows = []
+    for t, d in cost_basis.items():
+        r = track_record(d.get("trades") or [], d.get("current_price") or 0.0,
+                         index_closes, today,
+                         option_pl=d.get("option_pl") or 0.0,
+                         dividends=d.get("dividends") or 0.0)
+        if r["alpha"] is None:
+            continue
+        r["ticker"] = d.get("symbol", t)
+        r["alpha_usd"] = r["cost"] * r["alpha"] / 100
+        r["total_alpha_usd"] = r["cost"] * r["total_alpha"] / 100
+        rows.append(r)
+    return rows
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_spy_closes(years: int = 5) -> dict:
+    return gather_data.fetch_daily_closes("SPY", years)
+
+
+def _track_record_verdict_html(rows: list, theme: dict) -> str:
+    """De ene zin die iemand wil lezen: wat je had kunnen hebben.
+
+    De strategie-maat is de eerlijke: die telt de premie en het dividend die
+    je werkelijk ontving. De koers-alleen maat staat eronder als uitleg
+    waar het gat vandaan komt, niet als tweede kop.
+    """
+    if not rows:
+        return ""
+    total = sum(r["total_alpha_usd"] for r in rows)
+    stock = sum(r["alpha_usd"] for r in rows)
+    won_back = total - stock
+    color = theme["accent"] if total >= 0 else theme["red"]
+    head = (f"You could have had ${abs(total):,.0f} more"
+            if total < 0 else f"You have ${abs(total):,.0f} more than SPY would have given")
+    return (
+        f'<div style="text-align:center;margin:18px auto 6px;max-width:620px">'
+        f'<div style="font-size:1.5rem;font-weight:700;color:{color}">{head}</div>'
+        f'<div style="font-size:0.9rem;color:{theme["text"]};margin-top:6px">'
+        f'Same money, same days, in SPY instead of what you bought. '
+        f'Your stock picks {"trailed" if stock < 0 else "beat"} SPY by ${abs(stock):,.0f}; '
+        f'option premium and dividends {"won back" if won_back >= 0 else "cost"} '
+        f'${abs(won_back):,.0f} of that.</div>'
+        f'<div style="font-size:0.72rem;color:{theme["text_muted"]};margin-top:6px">'
+        f'Every position you ever held, each lot against SPY over its own days. '
+        f'SPY price return, no dividends; last five years of index history.</div>'
+        f'</div>'
+    )
+
+
 def _resolve_watchlist_price(cfg: dict,
                              live_price: float | None) -> tuple[float, bool]:
     """Return (price, is_stale) for one watchlist row.
@@ -11567,17 +11625,7 @@ elif page == "Holdings":
         _tr_index = _cached_index_closes_h()
     except Exception as e:
         logger.warning("Index history unavailable: %s", e)
-    _tr_rows = []
-    if _tr_index:
-        _tr_today = date.today()
-        for _tk, _d in cost_basis.items():
-            _r = track_record(_d.get("trades") or [], _d.get("current_price") or 0.0,
-                              _tr_index, _tr_today,
-                              option_pl=_d.get("option_pl") or 0.0,
-                              dividends=_d.get("dividends") or 0.0)
-            if _r["alpha"] is None:
-                continue
-            _tr_rows.append({"ticker": _d.get("symbol", _tk), **_r})
+    _tr_rows = _track_record_rows(cost_basis, _tr_index, date.today())
 
     if _tr_rows:
         # Dollars as the headline, points beside it. "-31 pts" on a small
@@ -11588,8 +11636,6 @@ elif page == "Holdings":
         # "since sale" figure the closed cards below already carry.
         import html as _html
         for r in _tr_rows:
-            r["alpha_usd"] = r["cost"] * r["alpha"] / 100
-            r["total_alpha_usd"] = r["cost"] * r["total_alpha"] / 100
             r["since_sale"] = None
             if r["closed"]:
                 _px = (_closed_prices.get(r["ticker"]) or {}).get("price")
@@ -11598,11 +11644,6 @@ elif page == "Holdings":
                 if _hs and _hs["sale_price"]:
                     r["since_sale"] = ((_hs["price_now"] / _hs["sale_price"] - 1) * 100,
                                        _hs["delta"])
-        _tr_cost = sum(r["cost"] for r in _tr_rows)
-        _tr_alpha = sum(r["alpha_usd"] for r in _tr_rows)
-        _tr_total_alpha = sum(r["total_alpha_usd"] for r in _tr_rows)
-        _tr_alpha_pts = _tr_alpha / _tr_cost * 100
-        _tr_total_pts = _tr_total_alpha / _tr_cost * 100
 
         def _money(v):
             return f"{'+' if v >= 0 else '-'}${abs(v):,.0f}"
@@ -11671,15 +11712,6 @@ elif page == "Holdings":
 
         _open = [r for r in _tr_rows if not r["closed"]]
         _closed = [r for r in _tr_rows if r["closed"]]
-        _verb = "trailed" if _tr_alpha < 0 else "beat"
-        _verb2 = "trailed" if _tr_total_alpha < 0 else "beat"
-        _summary = (
-            f'Across everything you ever held, your stock picks {_verb} the S&amp;P 500 by '
-            f'<b style="color:{_col(_tr_alpha)}">{_money(_tr_alpha)}</b> '
-            f'({_tr_alpha_pts:+.0f} pts). With option premium and dividends counted, '
-            f'the strategy {_verb2} it by <b style="color:{_col(_tr_total_alpha)}">'
-            f'{_money(_tr_total_alpha)}</b> ({_tr_total_pts:+.0f} pts).'
-        )
         _tr_note = (
             "Every lot you ever bought, against SPY over that lot's own days: a sold "
             "lot ends on its sale date, a held lot ends today. Dollars are what you "
@@ -11691,7 +11723,8 @@ elif page == "Holdings":
             f'<div class="hero-card" style="margin-bottom:18px">'
             f'<h4>Track record</h4>'
             f'<p style="text-align:center;max-width:560px;margin:4px auto 6px;'
-            f'font-size:0.95rem;line-height:1.5">{_summary}</p>'
+            f'font-size:0.85rem;color:{T["text_muted"]}">Per name, open and closed. '
+            f'The total is on Results.</p>'
             f'<div style="display:flex;flex-direction:column;align-items:center">'
             + (_group("Open", _open, False) if _open else "")
             + (_group("Closed", _closed, True) if _closed else "")
@@ -12261,6 +12294,17 @@ elif page == "Results":
                 )
                 st.plotly_chart(fig_yr, width="stretch")
                 st.markdown(cards_html, unsafe_allow_html=True)
+                # Het totaal van het track record, in dollars: de grafiek
+                # zegt het in procenten per jaar, dit zegt wat het je kostte.
+                try:
+                    _tr_verdict = _track_record_verdict_html(
+                        _track_record_rows(cost_basis, _cached_spy_closes(), date.today()),
+                        T)
+                except Exception as e:
+                    logger.warning("Track record verdict unavailable: %s", e)
+                    _tr_verdict = ""
+                if _tr_verdict:
+                    st.markdown(_tr_verdict, unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
                 st.info("Not enough history for yearly returns.")

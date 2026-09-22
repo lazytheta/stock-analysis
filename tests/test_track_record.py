@@ -73,3 +73,22 @@ def test_a_lot_older_than_the_index_history_is_not_guessed():
 def test_no_trades_is_no_claim():
     r = track_record([], 10.0, INDEX, TODAY)
     assert r["alpha"] is None and r["cost"] == 0.0
+
+
+def test_the_verdict_says_what_you_could_have_had():
+    import streamlit_app
+    theme = {"accent": "#0a0", "red": "#a00", "text": "#000", "text_muted": "#888"}
+    rows = [{"alpha_usd": -49387.0, "total_alpha_usd": -25661.0},
+            {"alpha_usd": 0.0, "total_alpha_usd": 0.0}]
+    html = streamlit_app._track_record_verdict_html(rows, theme)
+    assert "You could have had $25,661 more" in html
+    assert "trailed SPY by $49,387" in html
+    assert "won back $23,726" in html
+
+
+def test_a_winning_record_is_not_phrased_as_a_loss():
+    import streamlit_app
+    theme = {"accent": "#0a0", "red": "#a00", "text": "#000", "text_muted": "#888"}
+    html = streamlit_app._track_record_verdict_html(
+        [{"alpha_usd": 1000.0, "total_alpha_usd": 1500.0}], theme)
+    assert "You have $1,500 more" in html and "beat SPY by $1,000" in html
