@@ -216,6 +216,9 @@ def compute_roce_metric(fund, cfg=None):
 # answer would be stale the moment the price moved or an override changed.
 # Storing the series keeps every calculation exactly where it was.
 WATCHLIST_FUND_KEYS = (
+    # De munt van de cijfers: een IFRS-filer zonder dollarvertaling (Ferrari)
+    # levert EUR, en wie deelt door een dollarkoers moet dat weten.
+    "currency",
     "years",
     # compute_roce_metric
     "operating_income", "total_assets", "current_liabilities",
