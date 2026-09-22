@@ -390,10 +390,18 @@ class TestSignConvention(unittest.TestCase):
 
 
 class TestFxRate(unittest.TestCase):
-    """USD conversion for a multi-currency portfolio."""
+    """USD conversion for a multi-currency portfolio.
+
+    ECB is de eerste bron sinds 2026-09-22; deze tests zetten hem stil zodat
+    de Yahoo-terugval getest wordt. TestFxRateEcb test de voorkeursroute.
+    """
 
     def setUp(self):
         gather_data._FX_CACHE.clear()
+        import fx
+        self._ecb = patch.object(fx, "spot", return_value=None)
+        self._ecb.start()
+        self.addCleanup(self._ecb.stop)
 
     @patch("gather_data.fetch_stock_price")
     def test_usd_needs_no_lookup(self, mock_price):
@@ -422,10 +430,44 @@ class TestFxRate(unittest.TestCase):
         self.assertIsNone(gather_data.fetch_fx_rate("EUR"))
 
 
+class TestFxRateEcb(unittest.TestCase):
+    def setUp(self):
+        gather_data._FX_CACHE.clear()
+
+    def test_the_ecb_answers_first_and_yahoo_is_not_asked(self):
+        import fx
+        with patch.object(fx, "spot", return_value=1.149) as ecb, \
+             patch("gather_data.fetch_stock_price") as yahoo:
+            self.assertAlmostEqual(gather_data.fetch_fx_rate("EUR"), 1.149)
+        ecb.assert_called_once_with("EUR")
+        yahoo.assert_not_called()
+
+    def test_history_prefers_the_ecb_series(self):
+        import fx
+        from datetime import date
+        series = {date(2026, 9, 21): 1.149}
+        with patch.object(fx, "usd_per_unit", return_value=series), \
+             patch("gather_data.fetch_daily_closes") as yahoo:
+            self.assertEqual(gather_data.fetch_fx_history("EUR", 1), series)
+        yahoo.assert_not_called()
+
+    def test_history_falls_back_to_yahoo_when_the_ecb_is_silent(self):
+        import fx
+        with patch.object(fx, "usd_per_unit", return_value={}), \
+             patch("gather_data.fetch_daily_closes", return_value={"x": 1}) as yahoo:
+            self.assertEqual(gather_data.fetch_fx_history("EUR", 1), {"x": 1})
+        yahoo.assert_called_once_with("EURUSD=X", 1)
+
+
 class TestUsdNormalisation(unittest.TestCase):
     """Positions quoted in another currency are converted, not relabelled."""
 
     def setUp(self):
+        # ECB stil: deze tests meten de Yahoo-koers die ze zelf stubben.
+        import fx
+        self._ecb = patch.object(fx, "spot", return_value=None)
+        self._ecb.start()
+        self.addCleanup(self._ecb.stop)
         t212_api._INSTRUMENTS_CACHE = None
         t212_api._clear_history_cache()
         gather_data._FX_CACHE.clear()
@@ -783,11 +825,10 @@ class TestHistoryIntegration(unittest.TestCase):
         def _daily(sym, years):
             return closes if sym == "AAPL" else {}
         with patch("t212_api._get", side_effect=self._router(calls)), \
-             patch("gather_data.fetch_daily_closes",
-                   side_effect=lambda s, y: ({date(2026, 7, 1): 1.0,
-                                              date(2026, 7, 2): 1.0,
-                                              date(2026, 7, 3): 1.0}
-                                             if s == "EURUSD=X" else _daily(s, y))), \
+             patch("gather_data.fetch_daily_closes", side_effect=_daily), \
+             patch("gather_data.fetch_fx_history",
+                   return_value={date(2026, 7, 1): 1.0, date(2026, 7, 2): 1.0,
+                                 date(2026, 7, 3): 1.0}), \
              patch("gather_data.fetch_fx_rate", return_value=1.0):
             # "all": the window must reach back to the first movement, not to
             # a month before today.

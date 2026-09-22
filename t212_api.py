@@ -517,7 +517,7 @@ def fetch_net_liq_history(creds: dict, time_back: str = "1y"):
     end = date.today()
 
     years = max(1, (end - start).days // 365 + 1)
-    fx = gather_data.fetch_daily_closes("EURUSD=X", years)
+    fx = gather_data.fetch_fx_history("EUR", years)
 
     closes = {}
     for symbol in {f["symbol"] for f in fills}:
@@ -572,5 +572,5 @@ def fetch_yearly_transfers(creds: dict) -> dict:
     if not moves:
         return {}
     years = max(1, (moves[-1]["date"] - moves[0]["date"]).days // 365 + 1)
-    fx = gather_data.fetch_daily_closes("EURUSD=X", years)
+    fx = gather_data.fetch_fx_history("EUR", years)
     return yearly_transfers(moves, fx)

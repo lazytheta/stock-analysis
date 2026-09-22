@@ -803,15 +803,41 @@ def fetch_fx_rate(currency: str):
         return 1.0
     if code in _FX_CACHE:
         return _FX_CACHE[code]
-    try:
-        rate, _, _ = fetch_stock_price(f"{code}USD=X")
-    except Exception as e:
-        print(f"  WARNING: FX lookup failed for {code}: {e}")
-        return None
+    # ECB eerst: gratis, zonder sleutel en zonder IP-blokkade. Yahoo alleen
+    # als terugval -- die blokkeert op bron-IP en was tot 2026-09-22 de enige
+    # bron voor elk niet-dollarbedrag in de app. Zie fx.py.
+    import fx
+    rate = fx.spot(code)
+    if not rate:
+        try:
+            rate, _, _ = fetch_stock_price(f"{code}USD=X")
+        except Exception as e:
+            print(f"  WARNING: FX lookup failed for {code}: {e}")
+            return None
     if not rate or rate <= 0:
         return None
     _FX_CACHE[code] = rate
     return rate
+
+
+def fetch_fx_history(currency: str, years: int = 5) -> dict:
+    """{date: dollar per eenheid van `currency`}, ECB eerst, Yahoo als terugval.
+
+    Dezelfde vorm als fetch_daily_closes voor een Yahoo-valutapaar, zodat de
+    Trading 212-reconstructie er niets van merkt. Leeg als beide bronnen
+    zwijgen; de aanroeper slaat dan de dagen zonder koers over.
+    """
+    from datetime import date, timedelta
+
+    import fx
+    code = (currency or "USD").upper()
+    if code in ("", "USD"):
+        return {}
+    start = date.today() - timedelta(days=int(years) * 366)
+    series = fx.usd_per_unit(code, start=start)
+    if series:
+        return series
+    return fetch_daily_closes(f"{code}USD=X", years)
 
 
 def fetch_stock_price(ticker):

@@ -166,13 +166,52 @@ def _render_lens_dots(lenses: dict, theme: dict) -> str:
     )
 
 
-def _fmt_fv_dollar(x: float) -> str:
-    """Format a dollar value for the FV cell — integer if >= 100, else 2dp."""
+def _fmt_fv_dollar(x: float, symbol: str = "$") -> str:
+    """Format a money value for the FV cell — integer if >= 100, else 2dp."""
     if x is None:
         return "—"
     if abs(x) >= 100:
-        return f"${x:.0f}"
-    return f"${x:.2f}"
+        return f"{symbol}{x:.0f}"
+    return f"{symbol}{x:.2f}"
+
+
+# Per rij één munt. Een aandeel wordt gekocht, gewaardeerd en genoteerd in
+# zijn eigen munt: koers, fair value en koopdoel van Hermes staan in euro's,
+# en zo vergelijk je ze ook bij een order. Alleen de totalen op de
+# portfolio- en Results-pagina zijn in dollars, want daar tel je posities uit
+# twee munten bij elkaar op. Tot 2026-09-22 stond hier overal een dollarteken,
+# ook voor "$1351.50" Hermes, wat gewoon euro's waren.
+#
+# De config draagt soms een `currency`; anders zegt het tickersuffix genoeg.
+# Londen noteert in pence: de koers deelt door honderd, want de DCF rekent in
+# ponden en anders staat de upside een factor honderd naast de waarheid.
+_SUFFIX_CURRENCY = {
+    "PA": "EUR", "DE": "EUR", "AS": "EUR", "MI": "EUR", "F": "EUR", "BR": "EUR",
+    "MC": "EUR", "VI": "EUR", "HE": "EUR", "LS": "EUR", "IR": "EUR",
+    "L": "GBp", "SW": "CHF", "ST": "SEK", "CO": "DKK", "OL": "NOK", "TO": "CAD",
+}
+_CURRENCY_SYMBOL = {
+    "USD": "$", "EUR": "€", "GBP": "£", "CHF": "CHF ", "SEK": "kr ", "DKK": "kr ",
+    "NOK": "kr ", "CAD": "C$",
+}
+
+
+def _row_currency(ticker: str, cfg: dict | None = None) -> tuple[str, str, float]:
+    """(valutacode, symbool, koersschaal) voor één watchlistrij.
+
+    De schaal is wat een binnenkomende koers moet vermenigvuldigen om in de
+    munt van de rij te staan: 0,01 voor Londense pence, anders 1.
+    """
+    code = ((cfg or {}).get("currency") or "").upper()
+    suffix = ticker.rsplit(".", 1)[1].upper() if "." in ticker else ""
+    if not code:
+        code = _SUFFIX_CURRENCY.get(suffix, "USD")
+    scale = 1.0
+    # Een config die "GBP" zegt bij een Londense notering: de koers zelf komt
+    # van de beurs nog steeds in pence.
+    if code == "GBX" or (code == "GBP" and suffix == "L"):
+        code, scale = "GBP", 0.01
+    return code, _CURRENCY_SYMBOL.get(code, code + " "), scale
 
 
 def _resolve_watchlist_price(cfg: dict,
@@ -257,7 +296,8 @@ def _apply_wacc_persistence(cfg: dict, wacc_list: list, tv_wacc: float,
 
 
 def _render_fv_cell(price: float, summary: dict | None,
-                    legacy_intrinsic: float | None, theme: dict) -> str:
+                    legacy_intrinsic: float | None, theme: dict,
+                    symbol: str = "$") -> str:
     """Return HTML for the Fair Value cell.
 
     Three render modes:
@@ -285,9 +325,9 @@ def _render_fv_cell(price: float, summary: dict | None,
         # drill into, and the tooltip showed nothing not already in the cell.
         return (
             f'<div>'
-            f'<strong style="color:{text}">{_fmt_fv_dollar(mid)}</strong> '
+            f'<strong style="color:{text}">{_fmt_fv_dollar(mid, symbol)}</strong> '
             f'<span style="color:{muted};font-size:0.78rem">'
-            f'({_fmt_fv_dollar(low)}–{_fmt_fv_dollar(high)})</span>'
+            f'({_fmt_fv_dollar(low, symbol)}–{_fmt_fv_dollar(high, symbol)})</span>'
             f'<div class="range-bar" style="position:relative;height:6px;'
             f'background:linear-gradient(90deg,#6cc07055,#d8a44855,#d96a5a55);'
             f'border-radius:3px;margin:4px 0 2px 0;min-width:110px">'
@@ -301,7 +341,7 @@ def _render_fv_cell(price: float, summary: dict | None,
     if legacy_intrinsic is not None:
         return (
             f'<div>'
-            f'<strong style="color:{text}">{_fmt_fv_dollar(legacy_intrinsic)}</strong> '
+            f'<strong style="color:{text}">{_fmt_fv_dollar(legacy_intrinsic, symbol)}</strong> '
             f'<span style="font-size:0.65rem;color:{muted};background:#33333355;'
             f'padding:1px 5px;border-radius:3px;margin-left:4px">single-lens</span>'
             f'<div style="font-size:0.72rem;color:{muted};margin-top:4px">'
@@ -4292,8 +4332,10 @@ def _watchlist_overview():
     rows = []
     for t, cfg_wl in _wl_configs.items():
         try:
+            _ccy, _sym, _scale = _row_currency(t, cfg_wl)
+            _live = batch_prices.get(t)
             live_price, _price_stale = _resolve_watchlist_price(
-                cfg_wl, batch_prices.get(t))
+                cfg_wl, _live * _scale if _live else _live)
             if not _price_stale:
                 cfg_wl['stock_price'] = live_price
             # Use Valuation Bridge values if available, otherwise compute
@@ -4342,6 +4384,8 @@ def _watchlist_overview():
             'category': cfg_wl.get('category', 'Uncategorized'),
             'price': live_price,
             'price_stale': _price_stale,
+            'currency': _ccy,
+            'symbol': _sym,
             'intrinsic': _wl_intrinsic,
             'buy_price': _wl_buy,
             'upside': upside,
@@ -4505,21 +4549,22 @@ def _watchlist_overview():
                 f'<span title="Live quote unavailable — last stored price" '
                 f'style="color:{T["text_muted"]};border-bottom:1px dotted '
                 f'{T["text_muted"]};cursor:help">'
-                f'${row["price"]:.2f}</span>',
+                f'{row.get("symbol", "$")}{row["price"]:.2f}</span>',
                 unsafe_allow_html=True,
             )
         else:
-            cols[3].markdown(f"${row['price']:.2f}")
+            cols[3].markdown(f"{row.get('symbol', '$')}{row['price']:.2f}")
         cols[4].markdown(
             _render_fv_cell(
                 price=row['price'],
                 summary=row.get('valuation_summary'),
                 legacy_intrinsic=row.get('intrinsic'),
                 theme=T,
+                symbol=row.get('symbol', '$'),
             ),
             unsafe_allow_html=True,
         )
-        cols[5].markdown(f"${row['buy_price']:.2f}")
+        cols[5].markdown(f"{row.get('symbol', '$')}{row['buy_price']:.2f}")
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
         # Capital returns — figure + per-cell "?" tooltip. Cell centered; the
         # fixed-width number box inside keeps the figures aligned under each other.
