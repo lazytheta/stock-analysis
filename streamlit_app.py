@@ -242,34 +242,33 @@ def _cached_spy_closes(years: int = 5) -> dict:
     return gather_data.fetch_daily_closes("SPY", years)
 
 
-def _track_record_verdict_html(rows: list, theme: dict) -> str:
-    """De ene zin die iemand wil lezen: wat je had kunnen hebben.
+def _track_record_pill_html(rows: list, theme: dict) -> str:
+    """De ene stat-pil die zegt wat je had kunnen hebben: "vs SPY -$25,661".
 
-    De strategie-maat is de eerlijke: die telt de premie en het dividend die
-    je werkelijk ontving. De koers-alleen maat staat eronder als uitleg
-    waar het gat vandaan komt, niet als tweede kop.
+    De strategie-maat, want de premie en het dividend zijn werkelijk
+    ontvangen. De opbouw staat in de tooltip: de koers-alleen maat is uitleg
+    waar het gat vandaan komt, geen tweede kop. Hoort in de rij naast
+    Portfolio Value en CAGR; als losse alinea onder een grafiek las het als
+    een voetnoot met een te grote kop.
     """
     if not rows:
         return ""
+    import html as _html
     total = sum(r["total_alpha_usd"] for r in rows)
     stock = sum(r["alpha_usd"] for r in rows)
     won_back = total - stock
     color = theme["accent"] if total >= 0 else theme["red"]
-    head = (f"You could have had ${abs(total):,.0f} more"
-            if total < 0 else f"You have ${abs(total):,.0f} more than SPY would have given")
-    return (
-        f'<div style="text-align:center;margin:18px auto 6px;max-width:620px">'
-        f'<div style="font-size:1.5rem;font-weight:700;color:{color}">{head}</div>'
-        f'<div style="font-size:0.9rem;color:{theme["text"]};margin-top:6px">'
-        f'Same money, same days, in SPY instead of what you bought. '
-        f'Your stock picks {"trailed" if stock < 0 else "beat"} SPY by ${abs(stock):,.0f}; '
-        f'option premium and dividends {"won back" if won_back >= 0 else "cost"} '
-        f'${abs(won_back):,.0f} of that.</div>'
-        f'<div style="font-size:0.72rem;color:{theme["text_muted"]};margin-top:6px">'
-        f'Every position you ever held, each lot against SPY over its own days. '
-        f'SPY price return, no dividends; last five years of index history.</div>'
-        f'</div>'
+    tip = (
+        f"Same money, same days, in SPY instead of what you bought: "
+        f"{'you have' if total >= 0 else 'you could have had'} ${abs(total):,.0f} more. "
+        f"Stock picks alone {'beat' if stock >= 0 else 'trailed'} SPY by ${abs(stock):,.0f}; "
+        f"option premium and dividends {'won back' if won_back >= 0 else 'cost'} "
+        f"${abs(won_back):,.0f}. Every position ever held, each lot over its own days. "
+        f"SPY price return, last five years."
     )
+    sign = "+" if total >= 0 else "-"
+    return (f'<span class="stat-pill" title="{_html.escape(tip, quote=True)}" '
+            f'style="cursor:help">vs SPY <b style="color:{color}">{sign}${abs(total):,.0f}</b></span>')
 
 
 def _resolve_watchlist_price(cfg: dict,
@@ -11724,7 +11723,7 @@ elif page == "Holdings":
             f'<h4>Track record</h4>'
             f'<p style="text-align:center;max-width:560px;margin:4px auto 6px;'
             f'font-size:0.85rem;color:{T["text_muted"]}">Per name, open and closed. '
-            f'The total is on Results.</p>'
+            f'The total is the "vs SPY" figure on Results.</p>'
             f'<div style="display:flex;flex-direction:column;align-items:center">'
             + (_group("Open", _open, False) if _open else "")
             + (_group("Closed", _closed, True) if _closed else "")
@@ -11913,6 +11912,12 @@ elif page == "Results":
     portfolio_val_pill = ""
     total_dep_pill = ""
     ytd_pill = ""
+    try:
+        vs_spy_pill = _track_record_pill_html(
+            _track_record_rows(cost_basis, _cached_spy_closes(), date.today()), T)
+    except Exception as e:
+        logger.warning("Track record pill unavailable: %s", e)
+        vs_spy_pill = ""
     if nl_all_early:
         pv = df_cagr["close"].iloc[-1]
         portfolio_val_pill = f'<span class="stat-pill">Portfolio Value <b>${pv:,.0f}</b></span>'
@@ -11978,6 +11983,7 @@ elif page == "Results":
         f'{total_dep_pill}'
         f'{cagr_pill}'
         f'{ytd_pill}'
+        f'{vs_spy_pill}'
         f'</div>'
         f'</div>',
         unsafe_allow_html=True,
@@ -12294,17 +12300,6 @@ elif page == "Results":
                 )
                 st.plotly_chart(fig_yr, width="stretch")
                 st.markdown(cards_html, unsafe_allow_html=True)
-                # Het totaal van het track record, in dollars: de grafiek
-                # zegt het in procenten per jaar, dit zegt wat het je kostte.
-                try:
-                    _tr_verdict = _track_record_verdict_html(
-                        _track_record_rows(cost_basis, _cached_spy_closes(), date.today()),
-                        T)
-                except Exception as e:
-                    logger.warning("Track record verdict unavailable: %s", e)
-                    _tr_verdict = ""
-                if _tr_verdict:
-                    st.markdown(_tr_verdict, unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
                 st.info("Not enough history for yearly returns.")
