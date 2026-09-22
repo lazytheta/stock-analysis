@@ -140,3 +140,16 @@ def test_the_strategy_window_ignores_deposits_before_it():
     series = [{"time": "2026-07-28", "close": 100.0}, {"time": "2026-09-22", "close": 110.0}]
     transfers = {2026: {"total": 50.0, "months": {3: 50.0}}}
     assert streamlit_app._dietz_return(series, transfers, date(2026, 7, 28)) == pytest.approx(10.0)
+
+
+def test_rows_from_two_brokers_add_up_to_one_line_per_symbol():
+    import streamlit_app
+    rows = [{"ticker": "NVDA", "cost": 1000.0, "alpha_usd": 100.0, "total_alpha_usd": 100.0,
+             "days_held": 40, "closed": False, "since_sale": None},
+            {"ticker": "NVDA", "cost": 3000.0, "alpha_usd": -60.0, "total_alpha_usd": 0.0,
+             "days_held": 80, "closed": False, "since_sale": None}]
+    (m,) = streamlit_app._merge_track_rows(rows)
+    assert m["cost"] == 4000.0 and m["alpha_usd"] == 40.0
+    assert m["alpha"] == pytest.approx(1.0)
+    assert m["days_held"] == 70          # kostengewogen: (1000*40 + 3000*80) / 4000
+    assert m["closed"] is False

@@ -299,6 +299,38 @@ def _cached_spy_closes(years: int = 5) -> dict:
     return gather_data.fetch_daily_closes("SPY", years)
 
 
+def _merge_track_rows(rows: list) -> list:
+    """Eén regel per symbool, uit rijen die per broker zijn gerekend.
+
+    Rekenen gebeurt per brokerrekening, want daar loopt de FIFO: een
+    verkoop bij Tastytrade verbruikt geen lot van Trading 212. Op de
+    samengevoegde rij (NVDA bij twee brokers als één) deed hij dat wel, en
+    Holdings noemde daardoor een ander totaal dan de pil op Results. Optellen
+    kan pas na het rekenen: dollars zijn optelbaar, punten en dagen worden
+    opnieuw op de kosten gewogen.
+    """
+    by = {}
+    for r in rows:
+        m = by.setdefault(r["ticker"], {"ticker": r["ticker"], "cost": 0.0, "alpha_usd": 0.0,
+                                        "total_alpha_usd": 0.0, "_days": 0.0,
+                                        "closed": True, "since_sale": None})
+        m["cost"] += r["cost"]
+        m["alpha_usd"] += r["alpha_usd"]
+        m["total_alpha_usd"] += r["total_alpha_usd"]
+        m["_days"] += r["cost"] * (r["days_held"] or 0)
+        m["closed"] = m["closed"] and r["closed"]
+        m["since_sale"] = m["since_sale"] or r.get("since_sale")
+    out = []
+    for m in by.values():
+        if m["cost"] <= 0:
+            continue
+        m["alpha"] = m["alpha_usd"] / m["cost"] * 100
+        m["total_alpha"] = m["total_alpha_usd"] / m["cost"] * 100
+        m["days_held"] = round(m.pop("_days") / m["cost"])
+        out.append(m)
+    return out
+
+
 def _track_record_pill_html(rows: list, theme: dict, label: str = "vs SPY") -> str:
     """De ene stat-pil die zegt wat je had kunnen hebben: "vs SPY -$25,661".
 
@@ -11337,7 +11369,11 @@ elif page == "Holdings":
         if not cost_basis:
             st.info(f"No positions at {_cb_view}.")
             st.stop()
-    else:
+    # The track record is computed on these, per broker account, before the
+    # symbol merge below: FIFO runs inside one account, and merging first let
+    # a Tastytrade sale consume a Trading 212 lot.
+    _cost_basis_by_broker = dict(cost_basis)
+    if _cb_view == "Overview":
         cost_basis = merge_by_symbol(cost_basis)
 
     def _is_put(t):
@@ -11681,7 +11717,8 @@ elif page == "Holdings":
         _tr_index = _cached_index_closes_h()
     except Exception as e:
         logger.warning("Index history unavailable: %s", e)
-    _tr_rows = _track_record_rows(cost_basis, _tr_index, date.today())
+    _tr_rows = _merge_track_rows(
+        _track_record_rows(_cost_basis_by_broker, _tr_index, date.today()))
 
     if _tr_rows:
         # Dollars as the headline, points beside it. "-31 pts" on a small
@@ -11768,8 +11805,10 @@ elif page == "Holdings":
 
         _strat_h = _strategy_start()
         if _strat_h:
-            _new_rows = _track_record_rows(cost_basis, _tr_index, date.today(), since=_strat_h)
-            _old_rows = _track_record_rows(cost_basis, _tr_index, date.today(), before=_strat_h)
+            _new_rows = _merge_track_rows(_track_record_rows(
+                _cost_basis_by_broker, _tr_index, date.today(), since=_strat_h))
+            _old_rows = _merge_track_rows(_track_record_rows(
+                _cost_basis_by_broker, _tr_index, date.today(), before=_strat_h))
             for _rows in (_new_rows, _old_rows):
                 for r in _rows:
                     r["since_sale"] = next((x["since_sale"] for x in _tr_rows
