@@ -92,3 +92,51 @@ def test_a_winning_record_is_not_phrased_as_a_loss():
     html = streamlit_app._track_record_pill_html(
         [{"alpha_usd": 1000.0, "total_alpha_usd": 1500.0}], theme)
     assert "+$1,500" in html and "beat SPY by $1,000" in html
+
+
+def test_since_keeps_only_the_lots_bought_from_that_day():
+    """MSFT: één stuk in maart, één in juli. Vanaf 28 juli telt alleen de
+    juli-aankoop; de FIFO-loop blijft heel, want er is niets verkocht."""
+    trades = [_buy(date(2026, 3, 30), 1, 359.0), _buy(date(2026, 7, 29), 1, 400.0)]
+    idx = {date(2026, 3, 30): 100.0, date(2026, 7, 29): 120.0, date(2026, 8, 11): 150.0}
+    r = track_record(trades, 480.0, idx, TODAY, since=date(2026, 7, 28))
+    assert r["cost"] == pytest.approx(400.0)
+    assert r["price_return"] == pytest.approx(20.0)
+    assert r["index_return"] == pytest.approx(25.0)
+    r_before = track_record(trades, 480.0, idx, TODAY, before=date(2026, 7, 28))
+    assert r_before["cost"] == pytest.approx(359.0)
+
+
+def test_a_sale_still_consumes_the_oldest_lot_when_filtering():
+    """Tien in januari, tien in augustus, tien verkocht in september. FIFO
+    verkoopt de januari-stukken; de augustus-stukken zijn nog open en horen
+    volledig bij de nieuwe strategie."""
+    trades = [_buy(date(2025, 1, 6), 10, 100.0), _buy(date(2026, 3, 2), 10, 120.0),
+              _sell(date(2026, 8, 11), 10, 150.0)]
+    r = track_record(trades, 150.0, INDEX, TODAY, since=date(2026, 3, 1))
+    assert r["cost"] == pytest.approx(1200.0)
+    assert r["closed"] is False
+
+
+def test_premium_is_prorated_by_the_cost_inside_the_window():
+    trades = [_buy(date(2025, 1, 6), 10, 50.0), _buy(date(2026, 3, 2), 10, 50.0)]
+    r = track_record(trades, 90.0, INDEX, TODAY, option_pl=100.0, since=date(2026, 3, 1))
+    # helft van de kosten in het venster -> helft van de premie
+    assert r["total_return"] == pytest.approx((900 + 50) / 500 * 100 - 100)
+
+
+def test_the_strategy_window_return_is_deposit_adjusted():
+    """Van 100 naar 130 met 20 gestort: (130 - 100 - 20) / (100 + 10) = 9.1%."""
+    import streamlit_app
+    series = [{"time": "2026-07-28", "close": 100.0}, {"time": "2026-08-15", "close": 118.0},
+              {"time": "2026-09-22", "close": 130.0}]
+    transfers = {2026: {"total": 20.0, "months": {8: 20.0}}}
+    out = streamlit_app._dietz_return(series, transfers, date(2026, 7, 28))
+    assert out == pytest.approx(10 / 110 * 100)
+
+
+def test_the_strategy_window_ignores_deposits_before_it():
+    import streamlit_app
+    series = [{"time": "2026-07-28", "close": 100.0}, {"time": "2026-09-22", "close": 110.0}]
+    transfers = {2026: {"total": 50.0, "months": {3: 50.0}}}
+    assert streamlit_app._dietz_return(series, transfers, date(2026, 7, 28)) == pytest.approx(10.0)

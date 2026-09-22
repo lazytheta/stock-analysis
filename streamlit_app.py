@@ -48,6 +48,7 @@ from gather_data import (
     apply_fundamentals_overrides,
 )
 from broker_adapter import (
+    _day_key,
     fetch_current_prices, fetch_account_balances,
     fetch_net_liq_history, fetch_benchmark_returns,
     fetch_ticker_profiles, fetch_yearly_transfers, fetch_margin_requirements,
@@ -214,7 +215,62 @@ def _row_currency(ticker: str, cfg: dict | None = None) -> tuple[str, str, float
     return code, _CURRENCY_SYMBOL.get(code, code + " "), scale
 
 
-def _track_record_rows(cost_basis: dict, index_closes: dict, today) -> list:
+def _strategy_start():
+    """De dag waarop de huidige strategie begon, of None.
+
+    Eén instelling, in user_prefs, die op twee plekken werkt: de periode
+    "Since ..." op Results en de splitsing van het Track record op Holdings.
+    Voor deze gebruiker 2026-07-28: de dag dat de instroom in de huidige
+    namen begon, na de verkoop van de laatste wheel-posities.
+    """
+    if "_strategy_start" not in st.session_state:
+        raw = load_user_prefs(_sb_client).get("strategy_start")
+        try:
+            st.session_state["_strategy_start"] = date.fromisoformat(raw) if raw else None
+        except (TypeError, ValueError):
+            st.session_state["_strategy_start"] = None
+    return st.session_state["_strategy_start"]
+
+
+def _set_strategy_start(day):
+    prefs = load_user_prefs(_sb_client)
+    prefs["strategy_start"] = day.isoformat() if day else None
+    save_user_prefs(_sb_client, prefs)
+    st.session_state["_strategy_start"] = day
+
+
+def _dietz_return(series, transfers, start, end=None):
+    """Stortingsgecorrigeerd rendement over [start, end] in procenten, of None.
+
+    Dezelfde Simple Dietz als de jaar- en maandcijfers: (eind - begin -
+    netto stortingen) / (begin + halve stortingen). Stortingen per maand
+    tellen mee als hun maand in het venster valt, de startmaand alleen als
+    het venster voor de vijftiende begint.
+    """
+    if not series:
+        return None
+    pts = sorted((_day_key(pt["time"]), pt["close"]) for pt in series)
+    in_window = [(d, c) for d, c in pts if d >= start.isoformat()
+                 and (end is None or d <= end.isoformat())]
+    if len(in_window) < 2:
+        return None
+    start_v, end_v = in_window[0][1], in_window[-1][1]
+    net_dep = 0.0
+    for yr, entry in (transfers or {}).items():
+        for mo, amount in ((entry or {}).get("months") or {}).items():
+            first = date(int(yr), int(mo), 1)
+            start_month = date(start.year, start.month, 1)
+            counts = first > start_month or (first == start_month and start.day <= 15)
+            if counts and (end is None or first <= end):
+                net_dep += amount
+    denom = start_v + 0.5 * net_dep
+    if denom <= 0:
+        return None
+    return (end_v - start_v - net_dep) / denom * 100
+
+
+def _track_record_rows(cost_basis: dict, index_closes: dict, today,
+                       since=None, before=None) -> list:
     """Track record per naam, met de dollarmaat erbij, of [] zonder index.
 
     Gedeeld door Holdings (de tabel per naam) en Results (het totaal), zodat
@@ -227,7 +283,8 @@ def _track_record_rows(cost_basis: dict, index_closes: dict, today) -> list:
         r = track_record(d.get("trades") or [], d.get("current_price") or 0.0,
                          index_closes, today,
                          option_pl=d.get("option_pl") or 0.0,
-                         dividends=d.get("dividends") or 0.0)
+                         dividends=d.get("dividends") or 0.0,
+                         since=since, before=before)
         if r["alpha"] is None:
             continue
         r["ticker"] = d.get("symbol", t)
@@ -242,7 +299,7 @@ def _cached_spy_closes(years: int = 5) -> dict:
     return gather_data.fetch_daily_closes("SPY", years)
 
 
-def _track_record_pill_html(rows: list, theme: dict) -> str:
+def _track_record_pill_html(rows: list, theme: dict, label: str = "vs SPY") -> str:
     """De ene stat-pil die zegt wat je had kunnen hebben: "vs SPY -$25,661".
 
     De strategie-maat, want de premie en het dividend zijn werkelijk
@@ -268,7 +325,7 @@ def _track_record_pill_html(rows: list, theme: dict) -> str:
     )
     sign = "+" if total >= 0 else "-"
     return (f'<span class="stat-pill" title="{_html.escape(tip, quote=True)}" '
-            f'style="cursor:help">vs SPY <b style="color:{color}">{sign}${abs(total):,.0f}</b></span>')
+            f'style="cursor:help">{label} <b style="color:{color}">{sign}${abs(total):,.0f}</b></span>')
 
 
 def _resolve_watchlist_price(cfg: dict,
@@ -11709,8 +11766,24 @@ elif page == "Holdings":
                 f'column-gap:16px;align-items:center">{_head}{_cells}</div>'
             )
 
-        _open = [r for r in _tr_rows if not r["closed"]]
-        _closed = [r for r in _tr_rows if r["closed"]]
+        _strat_h = _strategy_start()
+        if _strat_h:
+            _new_rows = _track_record_rows(cost_basis, _tr_index, date.today(), since=_strat_h)
+            _old_rows = _track_record_rows(cost_basis, _tr_index, date.today(), before=_strat_h)
+            for _rows in (_new_rows, _old_rows):
+                for r in _rows:
+                    r["since_sale"] = next((x["since_sale"] for x in _tr_rows
+                                            if x["ticker"] == r["ticker"]), None)
+            _days_new = (date.today() - _strat_h).days
+            _groups = [
+                (f"New strategy · since {_strat_h:%b %d, %Y}"
+                 + (f" · {_days_new} days, too early to judge" if _days_new < 180 else ""),
+                 _new_rows),
+                (f"Before {_strat_h:%b %d, %Y}", _old_rows),
+            ]
+        else:
+            _groups = [("Open", [r for r in _tr_rows if not r["closed"]]),
+                       ("Closed", [r for r in _tr_rows if r["closed"]])]
         _tr_note = (
             "Every lot you ever bought, against SPY over that lot's own days: a sold "
             "lot ends on its sale date, a held lot ends today. Dollars are what you "
@@ -11725,8 +11798,8 @@ elif page == "Holdings":
             f'font-size:0.85rem;color:{T["text_muted"]}">Per name, open and closed. '
             f'The total is the "vs SPY" figure on Results.</p>'
             f'<div style="display:flex;flex-direction:column;align-items:center">'
-            + (_group("Open", _open, False) if _open else "")
-            + (_group("Closed", _closed, True) if _closed else "")
+            + "".join(_group(title, rows, any(r["closed"] for r in rows))
+                      for title, rows in _groups if rows)
             + f'</div>'
             f'<div style="font-size:0.72rem;color:{T["text_muted"]};text-align:center;'
             f'margin-top:14px;max-width:620px;margin-left:auto;margin-right:auto">{_tr_note}</div>'
@@ -11912,9 +11985,15 @@ elif page == "Results":
     portfolio_val_pill = ""
     total_dep_pill = ""
     ytd_pill = ""
+    _strat = _strategy_start()
     try:
+        _spy_closes_now = _cached_spy_closes()
         vs_spy_pill = _track_record_pill_html(
-            _track_record_rows(cost_basis, _cached_spy_closes(), date.today()), T)
+            _track_record_rows(cost_basis, _spy_closes_now, date.today()), T)
+        if _strat:
+            vs_spy_pill += _track_record_pill_html(
+                _track_record_rows(cost_basis, _spy_closes_now, date.today(), since=_strat),
+                T, label=f"vs SPY since {_strat:%b %d}")
     except Exception as e:
         logger.warning("Track record pill unavailable: %s", e)
         vs_spy_pill = ""
@@ -11991,12 +12070,23 @@ elif page == "Results":
 
       # ── Net Liq History chart ──
       period_map = {"1M": "1m", "3M": "3m", "6M": "6m", "YTD": "ytd", "1Y": "1y", "All": "all"}
+      if _strat:
+          period_map[f"Since {_strat:%b %d}"] = "strategy"
       selected_period = st.pills(
           "Period", options=list(period_map.keys()), default="YTD",
       )
       time_back = period_map[selected_period]
-      # YTD uses 1y data filtered client-side to Jan 1 of current year
-      api_time_back = "1y" if time_back == "ytd" else time_back
+      with st.expander("Strategy start", expanded=False):
+          st.caption("The day your current strategy began. Sets the \"Since\" period "
+                     "here and splits the track record on Holdings into new and old.")
+          _new_start = st.date_input("Strategy start", value=_strat, key="_strategy_start_input")
+          if _new_start != _strat:
+              _set_strategy_start(_new_start)
+              st.rerun()
+      # YTD uses 1y data filtered client-side to Jan 1 of current year; the
+      # strategy window is cut out of "all" the same way.
+      api_time_back = ("1y" if time_back == "ytd"
+                       else "all" if time_back == "strategy" else time_back)
       # Follow the tab, exactly like the figures above this chart do. This
       # drew a single broker's curve under an Overview headline: after money
       # moved from Tastytrade to Trading 212 the line fell off a cliff to
@@ -12037,12 +12127,34 @@ elif page == "Results":
           df_liq = df_liq.set_index("time")
           if time_back == "ytd":
               df_liq = df_liq[df_liq.index >= f"{pd.Timestamp.now().year}-01-01"]
+          elif time_back == "strategy":
+              df_liq = df_liq[df_liq.index >= pd.Timestamp(_strat)]
           first_close = df_liq["close"].iloc[0]
           last_close = df_liq["close"].iloc[-1]
           # For YTD, use the deposit-adjusted yearly return (matches hero & Returns)
           _cached_yr = st.session_state.get("_cached_yearly_returns", {})
+          _bench_txt = ""
           if time_back == "ytd" and pd.Timestamp.now().year in _cached_yr:
               pct_change = _cached_yr[pd.Timestamp.now().year]
+          elif time_back == "strategy":
+              # Stortingsgecorrigeerd, want de overstap zelf ging gepaard
+              # met geld dat van de ene broker naar de andere liep. En de
+              # index over precies dezelfde dagen ernaast, anders is het
+              # rendement een getal zonder maatstaf.
+              pct_change = _dietz_return(net_liq_data, transfers_early, _strat)
+              if pct_change is None:
+                  pct_change = ((last_close - first_close) / first_close * 100) if first_close else 0
+              try:
+                  _spy = _cached_spy_closes()
+                  _spy_start = next((_spy[d] for d in sorted(_spy) if d >= _strat), None)
+                  if _spy and _spy_start:
+                      _spy_pct = (_spy[max(_spy)] / _spy_start - 1) * 100
+                      _days = (date.today() - _strat).days
+                      _bench_txt = (f' · SPY {"+" if _spy_pct >= 0 else ""}{_spy_pct:.1f}% '
+                                    f'over the same {_days} days'
+                                    + (" · too early to judge" if _days < 180 else ""))
+              except Exception as e:
+                  logger.debug("SPY window unavailable: %s", e)
           else:
               pct_change = ((last_close - first_close) / first_close * 100) if first_close else 0
           pct_color = T['accent'] if pct_change >= 0 else T['red']
@@ -12050,7 +12162,7 @@ elif page == "Results":
           st.markdown(
               f'<span style="font-size:1.3rem;font-weight:700;color:{pct_color}">'
               f'{pct_sign}{pct_change:.1f}%</span> '
-              f'<span style="color:{T["text_muted"]};font-size:0.85rem">{selected_period}</span>',
+              f'<span style="color:{T["text_muted"]};font-size:0.85rem">{selected_period}{_bench_txt}</span>',
               unsafe_allow_html=True,
           )
           fig_liq = go.Figure()

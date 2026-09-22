@@ -306,7 +306,7 @@ def relative_performance(lots, current_price, index_closes, today):
 
 
 def track_record(trades, current_price, index_closes, today,
-                 option_pl=0.0, dividends=0.0):
+                 option_pl=0.0, dividends=0.0, since=None, before=None):
     """Every lot ever bought, against the index over its own days.
 
     relative_performance stops at the lots still held. That leaves out the
@@ -327,6 +327,14 @@ def track_record(trades, current_price, index_closes, today,
     A piece older than the index history is reported through uncovered_cost
     rather than anchored to the oldest close we have. `closed` is True when
     nothing is held any more.
+
+    `since` / `before` keep only the pieces bought in [since, before): that
+    is how a change of strategy is measured. Filtering at the piece level
+    rather than the lot level keeps the FIFO walk intact -- a sale still
+    consumes the oldest lot, whichever side of the date it fell on -- and
+    lets one name sit on both sides when its lots do. Premium and dividends
+    are prorated by the cost that falls inside the window, since the broker
+    reports them per name, not per lot.
     """
     lots = []       # [remaining_qty, price, date]
     pieces = []     # (cost, start, end, value)
@@ -348,6 +356,15 @@ def track_record(trades, current_price, index_closes, today,
     for qty_left, price, day in lots:
         if qty_left > 0:
             pieces.append((qty_left * price, day, None, qty_left * (current_price or 0.0)))
+
+    all_cost = sum(c for c, _, _, _ in pieces) or 0.0
+    if since or before:
+        pieces = [pc for pc in pieces if pc[1]
+                  and (since is None or pc[1] >= since)
+                  and (before is None or pc[1] < before)]
+    share = (sum(c for c, _, _, _ in pieces) / all_cost) if all_cost else 0.0
+    option_pl = (option_pl or 0.0) * share
+    dividends = (dividends or 0.0) * share
 
     latest_close = index_closes[max(index_closes)] if index_closes else None
     cost = value = index_value = weighted_days = uncovered = 0.0
