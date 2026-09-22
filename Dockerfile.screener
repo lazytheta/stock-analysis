@@ -1,0 +1,15 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+COPY scripts/screener_requirements.txt ./
+RUN pip install --no-cache-dir -r screener_requirements.txt
+
+# De screen leest EDGAR via gather_data en rekent via screener/scorecard_utils;
+# cashflow_champions levert de universum-refresh. Het opgeslagen universum
+# gaat mee als terugval voor als de indexbronnen een cloud-IP weigeren.
+COPY gather_data.py screener.py scorecard_utils.py cashflow_champions.py /app/
+COPY data/champions_universe.json /app/data/
+COPY scripts/run_screener.py /app/scripts/
+
+CMD ["python", "scripts/run_screener.py", "--refresh-universe"]

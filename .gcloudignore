@@ -21,6 +21,8 @@ docs/
 tests/
 test_*.py
 demo_*.py
-scripts/
+scripts/*
+!scripts/run_screener.py
+!scripts/screener_requirements.txt
 *.md
 NOTES*

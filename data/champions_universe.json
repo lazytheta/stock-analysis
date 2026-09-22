@@ -1,41 +1,39 @@
 {
-  "as_of": "2026-08-19",
+  "as_of": "2026-09-22",
   "sources": {
     "sp500": {
       "url": "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv",
-      "as_of": "2026-08-19",
+      "as_of": "2026-09-22",
       "count": 503
     },
     "nasdaq100": {
       "url": "https://stockanalysis.com/list/nasdaq-100-stocks/",
-      "as_of": "2026-08-19",
+      "as_of": "2026-09-22",
       "count": 101
     },
     "dow30": {
       "url": "https://stockanalysis.com/list/dow-jones-stocks/",
-      "as_of": "2026-08-19",
+      "as_of": "2026-09-22",
       "count": 30
     },
     "sp400": {
       "url": "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies",
-      "as_of": "2026-08-19",
+      "as_of": "2026-09-22",
       "count": 400
     },
     "sp600": {
       "url": "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies",
-      "as_of": "2026-08-19",
-      "count": 600
+      "as_of": "2026-09-22",
+      "count": 598
     },
     "sec_exchange": {
       "url": "https://www.sec.gov/files/company_tickers_exchange.json",
-      "as_of": "2026-08-19"
+      "as_of": "2026-09-22"
     }
   },
-  "unresolved": [
-    "AEP"
-  ],
+  "unresolved": [],
   "no_sector": [],
-  "count": 1517,
+  "count": 1514,
   "constituents": [
     {
       "ticker": "A",
@@ -505,6 +503,18 @@
       ],
       "gics_sector": "Consumer Discretionary",
       "gics_sub_industry": "Apparel Retail"
+    },
+    {
+      "ticker": "AEP",
+      "name": "AMERICAN ELECTRIC POWER CO INC",
+      "cik": 4904,
+      "exchange": "Nasdaq",
+      "indices": [
+        "nasdaq100",
+        "sp500"
+      ],
+      "gics_sector": "Utilities",
+      "gics_sub_industry": "Electric Utilities"
     },
     {
       "ticker": "AES",
@@ -1959,8 +1969,19 @@
       "gics_sub_industry": "Health Care Equipment"
     },
     {
+      "ticker": "BE",
+      "name": "Bloom Energy Corp",
+      "cik": 1664703,
+      "exchange": "NYSE",
+      "indices": [
+        "sp500"
+      ],
+      "gics_sector": "Industrials",
+      "gics_sub_industry": "Electrical Components & Equipment"
+    },
+    {
       "ticker": "BEN",
-      "name": "FRANKLIN RESOURCES INC",
+      "name": "FRANKLIN TEMPLETON INC",
       "cik": 38777,
       "exchange": "NYSE",
       "indices": [
@@ -2179,17 +2200,6 @@
       ],
       "gics_sector": "Information Technology",
       "gics_sub_industry": "Application Software"
-    },
-    {
-      "ticker": "BLDR",
-      "name": "Builders FirstSource, Inc.",
-      "cik": 1316835,
-      "exchange": "NYSE",
-      "indices": [
-        "sp500"
-      ],
-      "gics_sector": "Industrials",
-      "gics_sub_industry": "Building Products"
     },
     {
       "ticker": "BLFS",
@@ -5883,7 +5893,7 @@
         "sp500"
       ],
       "gics_sector": "Industrials",
-      "gics_sub_industry": "Building Products"
+      "gics_sub_industry": "Trading Companies & Distributors"
     },
     {
       "ticker": "FFBC",
@@ -7225,17 +7235,6 @@
       "gics_sub_industry": "Hotels, Resorts & Cruise Lines"
     },
     {
-      "ticker": "HLX",
-      "name": "HELIX ENERGY SOLUTIONS GROUP INC",
-      "cik": 866829,
-      "exchange": "NYSE",
-      "indices": [
-        "sp600"
-      ],
-      "gics_sector": "Energy",
-      "gics_sub_industry": "Oil & Gas Equipment & Services"
-    },
-    {
       "ticker": "HMN",
       "name": "HORACE MANN EDUCATORS CORP /DE/",
       "cik": 850141,
@@ -7752,7 +7751,8 @@
       "cik": 1110803,
       "exchange": "Nasdaq",
       "indices": [
-        "sp400"
+        "sp400",
+        "sp500"
       ],
       "gics_sector": "Health Care",
       "gics_sub_industry": "Life Sciences Tools & Services"
@@ -8383,9 +8383,8 @@
       "ticker": "KHC",
       "name": "Kraft Heinz Co",
       "cik": 1637459,
-      "exchange": "Nasdaq",
+      "exchange": "NYSE",
       "indices": [
-        "nasdaq100",
         "sp500"
       ],
       "gics_sector": "Consumer Staples",
@@ -8788,17 +8787,6 @@
       ],
       "gics_sector": "Industrials",
       "gics_sub_industry": "Industrial Machinery & Supplies & Components"
-    },
-    {
-      "ticker": "LEG",
-      "name": "LEGGETT & PLATT INC",
-      "cik": 58492,
-      "exchange": "NYSE",
-      "indices": [
-        "sp600"
-      ],
-      "gics_sector": "Consumer Discretionary",
-      "gics_sub_industry": "Home Furnishings"
     },
     {
       "ticker": "LEN",
@@ -11156,7 +11144,7 @@
     },
     {
       "ticker": "OLED",
-      "name": "UNIVERSAL DISPLAY CORP PA",
+      "name": "UNIVERSAL DISPLAY CORP \\PA\\",
       "cik": 1005284,
       "exchange": "Nasdaq",
       "indices": [
@@ -11414,7 +11402,8 @@
       "cik": 1474432,
       "exchange": "NYSE",
       "indices": [
-        "sp400"
+        "sp400",
+        "sp500"
       ],
       "gics_sector": "Information Technology",
       "gics_sub_industry": "Technology Hardware, Storage & Peripherals"
@@ -12624,7 +12613,7 @@
         "sp500"
       ],
       "gics_sector": "Communication Services",
-      "gics_sub_industry": null
+      "gics_sub_industry": "Interactive Media & Services"
     },
     {
       "ticker": "RDN",
@@ -14230,6 +14219,17 @@
       "gics_sub_industry": "Distillers & Vintners"
     },
     {
+      "ticker": "SUI",
+      "name": "SUN COMMUNITIES INC",
+      "cik": 912593,
+      "exchange": "NYSE",
+      "indices": [
+        "sp400"
+      ],
+      "gics_sector": "Real Estate",
+      "gics_sub_industry": "Single-Family Residential REITs"
+    },
+    {
       "ticker": "SUPN",
       "name": "SUPERNUS PHARMACEUTICALS, INC.",
       "cik": 1356576,
@@ -14371,17 +14371,6 @@
       ],
       "gics_sector": "Energy",
       "gics_sub_industry": "Oil & Gas Exploration & Production"
-    },
-    {
-      "ticker": "TAP",
-      "name": "MOLSON COORS BEVERAGE CO",
-      "cik": 24545,
-      "exchange": "NYSE",
-      "indices": [
-        "sp500"
-      ],
-      "gics_sector": "Consumer Staples",
-      "gics_sub_industry": "Brewers"
     },
     {
       "ticker": "TBBK",
@@ -14991,17 +14980,6 @@
       ],
       "gics_sector": "Industrials",
       "gics_sub_industry": "Agricultural & Farm Machinery"
-    },
-    {
-      "ticker": "TTD",
-      "name": "Trade Desk, Inc.",
-      "cik": 1671933,
-      "exchange": "Nasdaq",
-      "indices": [
-        "sp500"
-      ],
-      "gics_sector": "Communication Services",
-      "gics_sub_industry": "Advertising"
     },
     {
       "ticker": "TTEK",
@@ -16086,17 +16064,6 @@
       ],
       "gics_sector": "Communication Services",
       "gics_sub_industry": "Broadcasting"
-    },
-    {
-      "ticker": "WBS",
-      "name": "WEBSTER FINANCIAL CORP",
-      "cik": 801337,
-      "exchange": "NYSE",
-      "indices": [
-        "sp400"
-      ],
-      "gics_sector": "Financials",
-      "gics_sub_industry": "Regional Banks"
     },
     {
       "ticker": "WCC",

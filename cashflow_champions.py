@@ -50,6 +50,8 @@ SP500_CSV_URL = (
 # tables are all price history, so the parser found a single stray ticker and
 # the floor guard refused to write. Both lists now come from stockanalysis.com,
 # which still publishes them as plain HTML tables.
+_BROWSER_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+               "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36")
 NASDAQ100_URL = "https://stockanalysis.com/list/nasdaq-100-stocks/"
 DOW30_URL = "https://stockanalysis.com/list/dow-jones-stocks/"
 # Mid- and small-cap benches. Unlike the Dow article these pages carry a full
@@ -194,7 +196,11 @@ def refresh_universe(today: str | None = None) -> dict:
     today = today or date.today().isoformat()
 
     def _get(url, headers=None):
-        return gather_data._http_get(url, headers or {"User-Agent": "Mozilla/5.0"})
+        # Een volledige browser-UA: stockanalysis.com geeft de kale
+        # "Mozilla/5.0" een 403, ook vanaf een gewone thuisverbinding
+        # (gemeten 2026-09-22), en dan viel de hele refresh stil terug op
+        # het oude universum.
+        return gather_data._http_get(url, headers or {"User-Agent": _BROWSER_UA})
 
     # SEC exchange file: authoritative ticker → (cik, name, exchange)
     cte = json.loads(_get(SEC_EXCHANGE_URL, gather_data.EDGAR_HEADERS))

@@ -1,0 +1,13 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - Dockerfile.screener
+      - -t
+      - europe-west4-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/screener:latest
+      - .
+images:
+  - europe-west4-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/screener:latest
+options:
+  logging: CLOUD_LOGGING_ONLY

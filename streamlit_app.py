@@ -12425,7 +12425,7 @@ elif page == "Screener":
                 else "computed at unknown time")
     st.caption(f"Universe of {snap.get('universe_as_of', '?')} · {_age_txt} · "
                f"{_sum['passes']} of {_sum['total']} names pass. "
-               f"Refresh locally with `scripts/run_screener.py`.")
+               f"Refreshes on the 1st of each month.")
     if _age_days is not None and _age_days > 45:
         st.warning(f"This snapshot is {_age_days} days old — a new annual "
                    "report may have landed since. Refresh before acting on it.")
