@@ -11603,7 +11603,6 @@ elif page == "Holdings":
         _tr_total_alpha = sum(r["total_alpha_usd"] for r in _tr_rows)
         _tr_alpha_pts = _tr_alpha / _tr_cost * 100
         _tr_total_pts = _tr_total_alpha / _tr_cost * 100
-        _tr_max = max(abs(r["total_alpha_usd"]) for r in _tr_rows) or 1.0
 
         def _money(v):
             return f"{'+' if v >= 0 else '-'}${abs(v):,.0f}"
@@ -11613,10 +11612,11 @@ elif page == "Holdings":
 
         _cell = f'border-top:1px solid {T["divider"]};padding:6px 0'
 
-        def _bar(v):
+        def _bar(v, scale):
             # One bar per row, centred: red grows left, green grows right, so
-            # the eye reads the spread without reading a single number.
-            _w = abs(v) / _tr_max * 50
+            # the eye reads the spread without reading a single number. Scaled
+            # per group: one -$20k closed position made every open bar vanish.
+            _w = abs(v) / scale * 50
             _left = 50 - _w if v < 0 else 50
             return (
                 f'<span style="{_cell}"><span style="display:block;position:relative;'
@@ -11650,11 +11650,12 @@ elif page == "Holdings":
                 f'<span style="font-size:0.68rem;letter-spacing:0.04em;text-transform:uppercase;'
                 f'color:{T["text_muted"]};text-align:{a};padding-top:14px">{h}</span>'
                 for h, a in _hdr)
+            _scale = max(abs(r["total_alpha_usd"]) for r in rows) or 1.0
             _cells = "".join(
                 f'<span style="{_cell};color:{T["text"]};font-weight:600">{_html.escape(r["ticker"])}</span>'
                 f'<span style="{_cell};text-align:right;font-size:0.75rem;'
                 f'font-variant-numeric:tabular-nums;color:{T["text_muted"]}">{r["days_held"]}d</span>'
-                + _bar(r["total_alpha_usd"])
+                + _bar(r["total_alpha_usd"], _scale)
                 + _num(r["alpha_usd"], r["alpha"])
                 + _num(r["total_alpha_usd"], r["total_alpha"])
                 + _since(r)
