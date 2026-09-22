@@ -257,6 +257,16 @@ def _latest_fcf_yield(fund: dict, equity_market_value: float | None,
     # arrived on a 10-Q and never entered the annual series.
     shares_same_year = fund.get("shares_latest") or (
         shares[latest] if latest < len(shares) else None)
+    # Een IFRS-filer zonder dollarvertaling (Ferrari) levert FCF in zijn
+    # eigen munt; de koers en de marktwaarde zijn dollars. Eerst omrekenen,
+    # anders is de yield een factor wisselkoers naast de waarheid.
+    fund_ccy = (fund.get("currency") or "USD").upper()
+    if fund_ccy != "USD":
+        from gather_data import fetch_fx_rate
+        rate = fetch_fx_rate(fund_ccy)
+        if not rate:
+            return None
+        fcf = [v * rate if v is not None else None for v in fcf]
     if live_price and live_price > 0 and shares_same_year:
         # fcf is in $M, shares is a RAW count — fetch_fundamentals says so in
         # its own docstring. parse_financials stores shares in millions and
@@ -2242,11 +2252,11 @@ def _render_welcome_page():
     st.markdown('<div style="height:24px"></div>', unsafe_allow_html=True)
     _, btn1, _, btn2, _ = st.columns([1, 1.2, 0.6, 1.2, 1])
     with btn1:
-        st.button("Connect Account", type="primary", use_container_width=True,
+        st.button("Connect Account", type="primary", width="stretch",
                    key="welcome_connect",
                    on_click=lambda: st.session_state.update({"_account_page": "Connect your Broker"}))
     with btn2:
-        st.button("Explore Watchlist", type="primary", use_container_width=True,
+        st.button("Explore Watchlist", type="primary", width="stretch",
                    key="welcome_watchlist",
                    on_click=lambda: st.session_state.update({"nav_radio": "Watchlist", "_account_page": None}))
 
@@ -2285,7 +2295,7 @@ def _render_connect_prompt():
     )
     _, btn_col, _ = st.columns([1, 1, 1])
     with btn_col:
-        st.button("Connect your Broker", type="primary", use_container_width=True,
+        st.button("Connect your Broker", type="primary", width="stretch",
                    key=f"connect_btn_{st.session_state.get('nav_radio', '')}",
                    on_click=lambda: st.session_state.update({"_account_page": "Connect your Broker"}))
     st.stop()
@@ -4011,7 +4021,7 @@ def _render_notifications_panel():
         r_text = rc2.text_input("Reminder", key="notif_rem_text",
                                 placeholder="New reminder — e.g. Re-check AVGO after earnings",
                                 label_visibility="collapsed")
-        if rc3.button("Add", key="notif_rem_add", use_container_width=True) and r_text:
+        if rc3.button("Add", key="notif_rem_add", width="stretch") and r_text:
             _notif.add_custom_reminder(_sb_client, r_date, r_text)
             st.toast("Reminder added")
             st.rerun()
@@ -4040,7 +4050,7 @@ def _render_notifications_panel():
                                       label_visibility="collapsed")
             _pa_dir = pc3.selectbox("Dir", ["below", "above"], key="pa_dir",
                                     label_visibility="collapsed")
-            if pc4.button("Add", key="pa_add", use_container_width=True) and _pa_tk and _pa_tg > 0:
+            if pc4.button("Add", key="pa_add", width="stretch") and _pa_tk and _pa_tg > 0:
                 _notif.add_price_alert(_sb_client, _pa_tk.strip().upper(), _pa_tg, _pa_dir)
                 st.toast("Price alert added")
                 st.rerun()
@@ -4146,11 +4156,11 @@ def _watchlist_overview():
             key="wl_ticker_input",
         )
     with wl_add_col2:
-        wl_add = st.button("Add to Watchlist", use_container_width=True, type="primary")
+        wl_add = st.button("Add to Watchlist", width="stretch", type="primary")
     with wl_add_col3:
         wl_refresh = st.button(
             "↻ Refresh all",
-            use_container_width=True,
+            width="stretch",
             type="primary",
             key="wl_refresh_button",
             help="Recompute multi-lens fair value for all watchlist tickers.",
@@ -5762,7 +5772,7 @@ def _dcf_editor(ticker):
                     )
                 with _ac2:
                     st.markdown('<div style="height:28px"></div>', unsafe_allow_html=True)
-                    _add_clicked = st.form_submit_button("+ Add", use_container_width=True)
+                    _add_clicked = st.form_submit_button("+ Add", width="stretch")
             if _add_clicked and _new_peer:
                 _new_tickers = [t for t in (sanitize_ticker(t) for t in _new_peer.split(",")) if t]
                 if not _new_tickers:
@@ -6218,7 +6228,7 @@ def _dcf_editor(ticker):
                     )
                 fig.update_yaxes(ticksuffix='%')
                 _base_layout(fig)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
                 with st.expander("Details", expanded=False):
                     _rce_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
@@ -6351,7 +6361,7 @@ def _dcf_editor(ticker):
                 ))
                 fig.update_yaxes(ticksuffix='%')
                 _base_layout(fig, height=250)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
                 with st.expander("Details", expanded=False):
                     _fy_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
@@ -6510,7 +6520,7 @@ def _dcf_editor(ticker):
                     )
                 fig.update_yaxes(ticksuffix='%')
                 _base_layout(fig)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
                 with st.expander("Details", expanded=False):
                     _ey_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
@@ -6615,7 +6625,7 @@ def _dcf_editor(ticker):
                               annotation_text="1.0x", annotation_position="right")
                 fig.update_yaxes(ticksuffix='x')
                 _base_layout(fig)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
                 with st.expander("Details", expanded=False):
                     _tbl_border = f'border-top:1px solid {T["grid"]}'
@@ -6769,7 +6779,7 @@ def _dcf_editor(ticker):
                     ))
                 fig.update_yaxes(ticksuffix='%')
                 _base_layout(fig)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
                 if _gross_dup:
                     st.caption("Gross margin weggelaten: dit bedrijf rapporteert geen aparte COGS, waardoor gross gelijk is aan operating margin.")
 
@@ -6929,7 +6939,7 @@ def _dcf_editor(ticker):
                 )
                 fig.update_yaxes(tickprefix='$', ticksuffix='M')
                 _base_layout(fig)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
                 with st.expander("Details", expanded=False):
                     _nd_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
@@ -7045,7 +7055,7 @@ def _dcf_editor(ticker):
                               annotation_text="5x", annotation_position="top right")
                 fig.update_yaxes(ticksuffix='x')
                 _base_layout(fig)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
                 with st.expander("Details", expanded=False):
                     _df_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
@@ -7190,7 +7200,7 @@ def _dcf_editor(ticker):
                     )
                 fig.update_yaxes(ticksuffix='%')
                 _base_layout(fig)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
                 with st.expander("Details", expanded=False):
                     _rc_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
@@ -7307,7 +7317,7 @@ def _dcf_editor(ticker):
                     ))
                 fig.update_yaxes(ticksuffix='%')
                 _base_layout(fig)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
                 if not _has_shares:
                     st.caption("Rev/Share niet beschikbaar: dit bedrijf rapporteert geen share-counts in EDGAR (bv. V).")
 
@@ -7571,7 +7581,7 @@ def _dcf_editor(ticker):
                         _hcol1, _hcol2, _hcol3 = st.columns([4, 1, 1])
                         _hcol1.markdown("**Edit Scorecard fields**")
                         if _hcol2.button("💾 Save", key=f"sc_form_save_{ticker}",
-                                         use_container_width=True, type="primary"):
+                                         width="stretch", type="primary"):
                             def _g(suffix, default=""):
                                 return st.session_state.get(f"sc_f_{ticker}_{suffix}", default)
 
@@ -7642,7 +7652,7 @@ def _dcf_editor(ticker):
                             st.rerun()
 
                         if _hcol3.button("Cancel", key=f"sc_form_cancel_{ticker}",
-                                         use_container_width=True):
+                                         width="stretch"):
                             _sc_clear_form_state()
                             st.session_state[_sc_form_key] = False
                             st.rerun()
@@ -7770,7 +7780,7 @@ def _dcf_editor(ticker):
                     with _hcol2:
                         if st.button(
                             "✏ Edit fields", key=f"sc_form_edit_btn_{ticker}",
-                            use_container_width=True,
+                            width="stretch",
                         ):
                             _sc_clear_form_state()
                             st.session_state[_sc_form_key] = True
@@ -7938,13 +7948,13 @@ def _dcf_editor(ticker):
                     with _rb1:
                         _run_clicked = st.button(
                             "▶ Run", key=f"ed_ai_run_{_li}",
-                            use_container_width=True, type="primary",
+                            width="stretch", type="primary",
                             disabled=not _gem_ok,
                         )
                     with _rb2:
                         _clear_clicked = st.button(
                             "Clear", key=f"ed_ai_clear_{_li}",
-                            use_container_width=True, type="primary",
+                            width="stretch", type="primary",
                             disabled=not _content,
                         )
                     with _rb3:
@@ -8293,7 +8303,7 @@ def _dcf_editor(ticker):
     st.markdown("---")
     btn1, btn3 = st.columns(2)
     with btn1:
-        if st.button("Save", key="ed_save", use_container_width=True, type="primary"):
+        if st.button("Save", key="ed_save", width="stretch", type="primary"):
             # Pick up any unsubmitted peer ticker from the add-peer text field
             _pending_peer = (st.session_state.get("ed_add_peer") or "").strip()
             if _pending_peer:
@@ -8309,7 +8319,7 @@ def _dcf_editor(ticker):
             st.success(f"{ticker} saved")
             st.rerun()
     with btn3:
-        if st.button("Remove from Watchlist", key="ed_remove", use_container_width=True, type="primary"):
+        if st.button("Remove from Watchlist", key="ed_remove", width="stretch", type="primary"):
             remove_from_watchlist(_sb_client, ticker)
             del st.query_params["edit"]
             st.rerun()
@@ -8703,7 +8713,7 @@ with st.sidebar:
                              or st.session_state.get("_portfolio_view")
                              or "Overview")
         st.markdown(f"### {_broker_label}")
-        if st.button("Refresh Data", use_container_width=True, type="primary"):
+        if st.button("Refresh Data", width="stretch", type="primary"):
             st.session_state.pop("portfolio_data", None)
             st.session_state.pop("portfolio_account", None)
             st.session_state.pop("portfolio_prices", None)
@@ -8716,7 +8726,7 @@ with st.sidebar:
                 st.session_state.pop(k, None)
             st.rerun()
 
-        if st.button("Clear Session Data", use_container_width=True, type="primary"):
+        if st.button("Clear Session Data", width="stretch", type="primary"):
             _preserve = {"dark_mode", "nav_radio", "_account_page",
                          "supabase_client", "user", "_user_id", "tt_refresh_token",
                          "ibkr_credentials", "active_broker"}
@@ -11176,12 +11186,12 @@ elif page == "Portfolio":
                 with tab_sector:
                     labels = [s[0] for s in sector_sorted]
                     values = [s[1] for s in sector_sorted]
-                    st.plotly_chart(_donut_chart(labels, values), use_container_width=True, key="donut_sector")
+                    st.plotly_chart(_donut_chart(labels, values), width="stretch", key="donut_sector")
 
                 with tab_country:
                     labels = [c[0] for c in country_sorted]
                     values = [c[1] for c in country_sorted]
-                    st.plotly_chart(_donut_chart(labels, values), use_container_width=True, key="donut_country")
+                    st.plotly_chart(_donut_chart(labels, values), width="stretch", key="donut_country")
 
         except Exception as e:
             st.warning(f"Could not load portfolio exposure: {e}")
@@ -11878,7 +11888,7 @@ elif page == "Results":
               yaxis=dict(gridcolor=T['chart_grid']),
               showlegend=False,
           )
-          st.plotly_chart(fig_liq, use_container_width=True)
+          st.plotly_chart(fig_liq, width="stretch")
           # Named, because this one cannot be combined: each broker's curve is
           # its own, and in the Overview tab that is not obvious from the tab.
           # Trading 212's is rebuilt from fills and cash movements rather than
@@ -12100,7 +12110,7 @@ elif page == "Results":
                     '<h4>Cumulative Returns vs Benchmarks</h4>',
                     unsafe_allow_html=True,
                 )
-                st.plotly_chart(fig_yr, use_container_width=True)
+                st.plotly_chart(fig_yr, width="stretch")
                 st.markdown(cards_html, unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
@@ -12952,11 +12962,11 @@ elif page == "🔒 Security & Privacy":
     # ── Legal links ──
     _lc, _rc = st.columns(2)
     with _lc:
-        if st.button("Privacy Policy", use_container_width=True, type="primary"):
+        if st.button("Privacy Policy", width="stretch", type="primary"):
             st.session_state["_account_page"] = "Privacy Policy"
             st.rerun()
     with _rc:
-        if st.button("Terms of Service", use_container_width=True, type="primary"):
+        if st.button("Terms of Service", width="stretch", type="primary"):
             st.session_state["_account_page"] = "Terms of Service"
             st.rerun()
 

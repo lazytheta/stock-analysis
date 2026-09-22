@@ -2969,6 +2969,26 @@ _IFRS_CAPEX_TAGS = [
 ]
 
 
+def _ifrs_unit(facts) -> str:
+    """De munt waarin een IFRS-filer zijn omzet tagt: "USD" als die er is,
+    anders de eigen rapportagemunt.
+
+    Ferrari (20-F) rapporteert alleen in EUR, zonder dollarvertaling. Met
+    "USD" hard gecodeerd vond de IFRS-vulling niets en stond de FCF-yield op
+    een streep, terwijl de cijfers gewoon in EDGAR staan. De aanroeper zet de
+    gevonden munt op het resultaat, zodat wie deelt door een dollarkoers weet
+    dat hij eerst moet omrekenen.
+    """
+    try:
+        units = facts["facts"]["ifrs-full"]["Revenue"]["units"]
+    except (KeyError, TypeError):
+        return "USD"
+    if "USD" in units:
+        return "USD"
+    currencies = [u for u in units if len(u) == 3 and u.isupper()]
+    return currencies[0] if currencies else "USD"
+
+
 def latest_cover_page_shares(facts, last_year, ticker=""):
     """Share count from the most recent filing cover page, or None.
 
@@ -3350,16 +3370,18 @@ def fetch_fundamentals(ticker, n_years=10):
     #    ifrs-full with USD convenience translation. Fill anything still
     #    missing from us-gaap. Runs independently so a us-gaap parse failure
     #    doesn't block it. ──
+    fund_currency = "USD"
     try:
         if facts and "ifrs-full" in facts.get("facts", {}):
+            fund_currency = _ifrs_unit(facts)
             for our_key, tags in _IFRS_TAGS.items():
                 for yr_val, val in _try_tags(facts, tags, n_years,
-                                             unit_key="USD", taxonomy="ifrs-full"):
+                                             unit_key=fund_currency, taxonomy="ifrs-full"):
                     d = data_by_year.setdefault(yr_val, {})
                     if d.get(our_key) is None:
                         d[our_key] = round(val / M, 0)
             for yr_val, val in _try_tags(facts, _IFRS_CAPEX_TAGS, n_years,
-                                         unit_key="USD", taxonomy="ifrs-full"):
+                                         unit_key=fund_currency, taxonomy="ifrs-full"):
                 d = data_by_year.setdefault(yr_val, {})
                 if d.get("capex") is None:
                     d["capex"] = -round(val / M, 0)  # outflow → negative
@@ -3377,7 +3399,7 @@ def fetch_fundamentals(ticker, n_years=10):
     if len(all_years) > n_years:
         all_years = all_years[-n_years:]
 
-    result = {"years": all_years}
+    result = {"years": all_years, "currency": fund_currency}
     for key in metrics:
         result[key] = [data_by_year[yr].get(key) for yr in all_years]
 

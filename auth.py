@@ -496,7 +496,7 @@ def render_login_page():
                 email = st.text_input("Email", key="login_email")
                 password = st.text_input("Password", type="password", key="login_password")
                 remember = st.checkbox("Keep me logged in", value=True, key="login_remember")
-                submitted = st.form_submit_button("Sign In", use_container_width=True, type="primary")
+                submitted = st.form_submit_button("Sign In", width="stretch", type="primary")
             if submitted and email and password:
                 with st.spinner("Signing in..."):
                     client, user, error = login_email_password(email, password)
@@ -568,7 +568,7 @@ def render_login_page():
                 email = st.text_input("Email", key="signup_email")
                 password = st.text_input("Password", type="password", key="signup_password")
                 password2 = st.text_input("Confirm password", type="password", key="signup_password2")
-                submitted = st.form_submit_button("Create Account", use_container_width=True, type="primary")
+                submitted = st.form_submit_button("Create Account", width="stretch", type="primary")
             if submitted:
                 if not first_name or not last_name:
                     st.error("Please fill in your name.")

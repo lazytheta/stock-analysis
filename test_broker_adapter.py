@@ -149,6 +149,24 @@ class TestCombinedBalances(unittest.TestCase):
         self.assertEqual([f[0] for f in failures], ["Trading 212"])
 
 
+class TestEarningsProxy(unittest.TestCase):
+    """Een Europese lijn krijgt zijn earnings-datum via de Amerikaanse ADR."""
+
+    def test_a_paris_line_is_looked_up_under_its_adr_and_reported_as_itself(self):
+        with patch.object(broker_adapter, "_fetch_earnings_dates_raw",
+                          return_value={"HESAY": {"date": "2026-10-01"},
+                                        "MSFT": {"date": "2026-10-28"}}) as raw:
+            out = broker_adapter.fetch_earnings_dates(["RMS.PA", "MSFT"])
+        raw.assert_called_once_with(["HESAY", "MSFT"])
+        self.assertEqual(out, {"RMS.PA": {"date": "2026-10-01"},
+                               "MSFT": {"date": "2026-10-28"}})
+
+    def test_a_name_without_a_proxy_passes_through(self):
+        with patch.object(broker_adapter, "_fetch_earnings_dates_raw",
+                          return_value={"AAPL": None}):
+            self.assertEqual(broker_adapter.fetch_earnings_dates(["AAPL"]), {"AAPL": None})
+
+
 if __name__ == "__main__":
     unittest.main()
 

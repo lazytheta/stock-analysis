@@ -230,7 +230,29 @@ def fetch_option_chain(
     )
 
 
+# Tastytrade's market metrics cover US listings only, so a European line
+# looked up under its home ticker (RMS.PA) gets nothing. Its US-listed ADR is
+# the same company with the same report date, and Tastytrade does carry
+# those (checked 2026-09-22: HESAY, EADSY, RNMBY, ATDRY all answer). Looked
+# up under the proxy, reported under the ticker the page asked about.
+EARNINGS_PROXY = {
+    "RMS.PA": "HESAY",   # Hermes
+    "AIR.PA": "EADSY",   # Airbus
+    "RHM.DE": "RNMBY",   # Rheinmetall
+    "AUTO.L": "ATDRY",   # Auto Trader
+    "RMV.L": "RTMVY",    # Rightmove
+    "ENX.PA": "EUXTF",   # Euronext
+}
+
+
 def fetch_earnings_dates(tickers):
+    tickers = list(tickers)
+    proxied = [EARNINGS_PROXY.get(t, t) for t in tickers]
+    raw = _fetch_earnings_dates_raw(proxied)
+    return {t: raw.get(p) for t, p in zip(tickers, proxied)}
+
+
+def _fetch_earnings_dates_raw(tickers):
     if get_active_broker() == "t212":
         return {t: None for t in tickers}
     if get_active_broker() == "ibkr":
