@@ -288,6 +288,7 @@ def _track_record_rows(cost_basis: dict, index_closes: dict, today,
         if r["alpha"] is None:
             continue
         r["ticker"] = d.get("symbol", t)
+        r["isin"] = d.get("isin")
         r["alpha_usd"] = r["cost"] * r["alpha"] / 100
         r["total_alpha_usd"] = r["cost"] * r["total_alpha"] / 100
         rows.append(r)
@@ -311,9 +312,11 @@ def _merge_track_rows(rows: list) -> list:
     """
     by = {}
     for r in rows:
-        m = by.setdefault(r["ticker"], {"ticker": r["ticker"], "cost": 0.0, "alpha_usd": 0.0,
+        m = by.setdefault(r["ticker"], {"ticker": r["ticker"], "isin": r.get("isin"),
+                                        "cost": 0.0, "alpha_usd": 0.0,
                                         "total_alpha_usd": 0.0, "_days": 0.0,
                                         "closed": True, "since_sale": None})
+        m["isin"] = m["isin"] or r.get("isin")
         m["cost"] += r["cost"]
         m["alpha_usd"] += r["alpha_usd"]
         m["total_alpha_usd"] += r["total_alpha_usd"]
@@ -11721,12 +11724,13 @@ elif page == "Holdings":
         _track_record_rows(_cost_basis_by_broker, _tr_index, date.today()))
 
     if _tr_rows:
-        # Dollars as the headline, points beside it. "-31 pts" on a small
-        # AMAT position outranked "-11 pts" on a large AMZN one; money puts
-        # each decision at its true size. Two groups, because the question
-        # differs: an open name asks whether to keep it, a closed one whether
-        # selling was right -- and for that the closed row also gets the
-        # "since sale" figure the closed cards below already carry.
+        # One line per name, one number per line. The first version was a
+        # six-column grid of figures; in the new-strategy group two of those
+        # columns were identical on every row and a third was empty. What a
+        # reader wants is the verdict per name in money, with the context
+        # (how long, open or closed, what the price did after a sale) in a
+        # grey line underneath, and the premium only when it changed the
+        # answer. Same visual language as the position rows on Portfolio.
         import html as _html
         for r in _tr_rows:
             r["since_sale"] = None
@@ -11744,63 +11748,56 @@ elif page == "Holdings":
         def _col(v):
             return T["accent"] if v >= 0 else T["red"]
 
-        _cell = f'border-top:1px solid {T["divider"]};padding:6px 0'
-
-        def _bar(v, scale):
-            # One bar per row, centred: red grows left, green grows right, so
-            # the eye reads the spread without reading a single number. Scaled
-            # per group: one -$20k closed position made every open bar vanish.
-            _w = abs(v) / scale * 50
-            _left = 50 - _w if v < 0 else 50
+        def _row(r, scale):
+            v = r["total_alpha_usd"]
+            w = abs(v) / scale * 50
+            left = 50 - w if v < 0 else 50
+            meta = f'{r["days_held"]}d · {"closed" if r["closed"] else "open"}'
+            if r["since_sale"]:
+                mv, dlt = r["since_sale"]
+                meta += (f' · <span style="color:{T["red"] if dlt > 0 else T["accent"]}">'
+                         f'{mv:+.0f}% since sale</span> (${abs(dlt):,.0f})')
+            extra = ""
+            if abs(r["total_alpha_usd"] - r["alpha_usd"]) >= 1:
+                extra = (f'<div style="font-size:0.7rem;color:{T["text_muted"]}">'
+                         f'of which premium {_money(r["total_alpha_usd"] - r["alpha_usd"])}</div>')
             return (
-                f'<span style="{_cell}"><span style="display:block;position:relative;'
-                f'height:8px;width:120px;background:{T["divider"]};border-radius:4px">'
-                f'<span style="position:absolute;top:0;height:8px;border-radius:4px;'
-                f'left:{_left:.1f}%;width:{_w:.1f}%;background:{_col(v)}"></span>'
-                f'</span></span>'
+                f'<div style="display:grid;grid-template-columns:200px 1fr 150px;'
+                f'align-items:center;column-gap:18px;padding:9px 0;'
+                f'border-top:1px solid {T["divider"]}">'
+                f'<div style="display:flex;align-items:center;gap:10px;min-width:0">'
+                f'{_logo_img(r["ticker"], r.get("isin"), style="width:26px;height:26px;border-radius:50%")}'
+                f'<div style="min-width:0"><div style="font-weight:600;color:{T["text"]}">'
+                f'{_html.escape(r["ticker"])}</div>'
+                f'<div style="font-size:0.72rem;color:{T["text_muted"]};white-space:nowrap">{meta}</div>'
+                f'</div></div>'
+                f'<div style="position:relative;height:10px;background:{T["divider"]};border-radius:5px">'
+                f'<div style="position:absolute;top:-3px;left:50%;width:1px;height:16px;'
+                f'background:{T["text_muted"]};opacity:0.5"></div>'
+                f'<div style="position:absolute;top:0;height:10px;border-radius:5px;'
+                f'left:{left:.1f}%;width:{w:.1f}%;background:{_col(v)}"></div></div>'
+                f'<div style="text-align:right;font-variant-numeric:tabular-nums">'
+                f'<span style="font-weight:700;font-size:1.05rem;color:{_col(v)}">{_money(v)}</span> '
+                f'<span style="font-size:0.72rem;color:{T["text_muted"]}">{r["total_alpha"]:+.0f} pts</span>'
+                f'{extra}</div>'
+                f'</div>'
             )
 
-        def _num(v, pts):
-            return (f'<span style="{_cell};text-align:right;font-variant-numeric:tabular-nums">'
-                    f'<span style="font-weight:600;color:{_col(v)}">{_money(v)}</span> '
-                    f'<span style="font-size:0.7rem;color:{T["text_muted"]}">{pts:+.0f} pts</span></span>')
-
-        def _since(r):
-            if not r["since_sale"]:
-                return f'<span style="{_cell}"></span>'
-            _mv, _d = r["since_sale"]
-            # Sign describes the stock since you sold; colour describes the
-            # outcome for you: it ran on without you is red.
-            _c = T["red"] if _d > 0 else T["accent"]
-            return (f'<span style="{_cell};text-align:right;font-variant-numeric:tabular-nums;'
-                    f'color:{_c}">{_mv:+.0f}% <span style="font-size:0.7rem">'
-                    f'(${abs(_d):,.0f})</span></span>')
-
-        def _group(title, rows, closed):
-            _hdr = (("", "left"), ("held", "right"), ("", "left"),
-                    ("stock vs index", "right"), ("strategy vs index", "right"),
-                    ("since sale" if closed else "", "right"))
-            _head = "".join(
-                f'<span style="font-size:0.68rem;letter-spacing:0.04em;text-transform:uppercase;'
-                f'color:{T["text_muted"]};text-align:{a};padding-top:14px">{h}</span>'
-                for h, a in _hdr)
-            _scale = max(abs(r["total_alpha_usd"]) for r in rows) or 1.0
-            _cells = "".join(
-                f'<span style="{_cell};color:{T["text"]};font-weight:600">{_html.escape(r["ticker"])}</span>'
-                f'<span style="{_cell};text-align:right;font-size:0.75rem;'
-                f'font-variant-numeric:tabular-nums;color:{T["text_muted"]}">{r["days_held"]}d</span>'
-                + _bar(r["total_alpha_usd"], _scale)
-                + _num(r["alpha_usd"], r["alpha"])
-                + _num(r["total_alpha_usd"], r["total_alpha"])
-                + _since(r)
-                for r in sorted(rows, key=lambda r: r["total_alpha_usd"], reverse=True))
-            _sum = sum(r["total_alpha_usd"] for r in rows)
+        def _group(title, caption, rows):
+            total = sum(r["total_alpha_usd"] for r in rows)
+            scale = max(abs(r["total_alpha_usd"]) for r in rows) or 1.0
+            body = "".join(_row(r, scale) for r in
+                           sorted(rows, key=lambda r: r["total_alpha_usd"], reverse=True))
             return (
-                f'<div style="font-size:0.85rem;font-weight:600;margin-top:16px;color:{T["text"]}">'
-                f'{title} <span style="font-weight:400;color:{T["text_muted"]}">· {len(rows)} · '
-                f'strategy {_money(_sum)} vs index</span></div>'
-                f'<div style="display:grid;grid-template-columns:auto auto auto auto auto auto;'
-                f'column-gap:16px;align-items:center">{_head}{_cells}</div>'
+                f'<div style="margin-top:26px">'
+                f'<div style="display:flex;justify-content:space-between;align-items:baseline;'
+                f'margin-bottom:8px">'
+                f'<div><span style="font-weight:700;font-size:1rem;color:{T["text"]}">{title}</span>'
+                + (f'<div style="font-size:0.75rem;color:{T["text_muted"]}">{caption}</div>' if caption else "")
+                + f'</div>'
+                f'<span class="stat-pill">{len(rows)} names <b style="color:{_col(total)}">'
+                f'{_money(total)}</b> vs SPY</span>'
+                f'</div>{body}</div>'
             )
 
         _strat_h = _strategy_start()
@@ -11815,33 +11812,29 @@ elif page == "Holdings":
                                             if x["ticker"] == r["ticker"]), None)
             _days_new = (date.today() - _strat_h).days
             _groups = [
-                (f"New strategy · since {_strat_h:%b %d, %Y}"
-                 + (f" · {_days_new} days, too early to judge" if _days_new < 180 else ""),
+                (f"New strategy · since {_strat_h:%b %d, %Y}",
+                 f"{_days_new} days" + (" · too early to judge" if _days_new < 180 else ""),
                  _new_rows),
-                (f"Before {_strat_h:%b %d, %Y}", _old_rows),
+                (f"Before {_strat_h:%b %d, %Y}", "", _old_rows),
             ]
         else:
-            _groups = [("Open", [r for r in _tr_rows if not r["closed"]]),
-                       ("Closed", [r for r in _tr_rows if r["closed"]])]
+            _groups = [("Open", "", [r for r in _tr_rows if not r["closed"]]),
+                       ("Closed", "", [r for r in _tr_rows if r["closed"]])]
         _tr_note = (
             "Every lot you ever bought, against SPY over that lot's own days: a sold "
-            "lot ends on its sale date, a held lot ends today. Dollars are what you "
-            "got minus what the same money in SPY would have been. 'Stock' is price "
-            "only; 'strategy' adds this name's option premium and dividends. 'Since "
-            "sale' is what the price did after you sold, and the money that moved."
+            "lot ends on its sale date, a held lot ends today. The figure is what the "
+            "strategy earned minus what the same money in SPY would have, with option "
+            "premium and dividends counted; 'of which premium' shows their share. "
+            "'Since sale' is what the price did after you sold."
         )
         st.markdown(
-            f'<div class="hero-card" style="margin-bottom:18px">'
-            f'<h4>Track record</h4>'
-            f'<p style="text-align:center;max-width:560px;margin:4px auto 6px;'
-            f'font-size:0.85rem;color:{T["text_muted"]}">Per name, open and closed. '
-            f'The total is the "vs SPY" figure on Results.</p>'
-            f'<div style="display:flex;flex-direction:column;align-items:center">'
-            + "".join(_group(title, rows, any(r["closed"] for r in rows))
-                      for title, rows in _groups if rows)
-            + f'</div>'
-            f'<div style="font-size:0.72rem;color:{T["text_muted"]};text-align:center;'
-            f'margin-top:14px;max-width:620px;margin-left:auto;margin-right:auto">{_tr_note}</div>'
+            f'<div class="hero-card" style="margin-bottom:18px;padding:32px 40px;text-align:left">'
+            f'<h4 style="text-align:center;margin-bottom:0">Track record</h4>'
+            f'<div style="text-align:center;font-size:0.85rem;color:{T["text_muted"]}">'
+            f'Per name, open and closed. The total is the "vs SPY" figure on Results.</div>'
+            + "".join(_group(t_, c_, rows) for t_, c_, rows in _groups if rows)
+            + f'<div style="font-size:0.72rem;color:{T["text_muted"]};text-align:center;'
+            f'margin-top:22px">{_tr_note}</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
