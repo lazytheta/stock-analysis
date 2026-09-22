@@ -1,7 +1,7 @@
 """
 Streamlit web app for Stock Analysis tools — v2.
 - DCF Valuation Model Generator
-- Portfolio Cost Basis Tracker (Tastytrade)
+- Holdings, results and track record across Tastytrade, IBKR and Trading 212
 """
 
 import streamlit as st
@@ -64,7 +64,7 @@ from portfolio_metrics import (compute_deployment, display_basis, has_option_leg
                                relative_performance,
                                lots_cover,
                                average_buy_price, hindsight,
-                               DEFAULT_TARGET_POS_PCT)
+                               DEFAULT_TARGET_POS_PCT, track_record)
 from prescan_render import parse_verdict_section, gauge_fraction, band_tone
 from scorecard_utils import (compute_roce_metric, capital_employed, roce_for_year,
                              slim_fundamentals, slice_is_usable, window_start,
@@ -2208,7 +2208,7 @@ def _render_welcome_page():
         '<div class="hero-card">'
         '<p class="hero-value" style="font-size:2.4rem;letter-spacing:-0.02em">Welcome to Lazy Theta</p>'
         '<p class="hero-sub" style="font-size:1.05rem;max-width:560px;margin:12px auto 0">'
-        'Track your wheel strategy, analyze positions, and optimize your options income.</p>'
+        'See every holding against its fair value, the index and your own record.</p>'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -2229,7 +2229,7 @@ def _render_welcome_page():
         f'<div style="{_num};background:var(--accent)">1</div>'
         f'<h4 style="margin:0 0 8px 0;font-size:1rem">Connect your Broker</h4>'
         f'<p style="color:var(--text-muted);font-size:0.85rem;margin:0">'
-        f'Link your Tastytrade or Interactive Brokers account to see positions, P&L, and wheel cycles in real-time.</p>'
+        f'Link Tastytrade, Interactive Brokers or Trading 212 to see positions, P&L and your track record in real time.</p>'
         f'<p style="color:var(--accent);font-size:0.8rem;font-weight:600;margin:10px 0 0 0">'
         f'Important: please read below</p>'
         f'</div>'
@@ -2237,13 +2237,13 @@ def _render_welcome_page():
         f'<div style="{_num};background:var(--accent)">2</div>'
         f'<h4 style="margin:0 0 8px 0;font-size:1rem">Track your Portfolio</h4>'
         f'<p style="color:var(--text-muted);font-size:0.85rem;margin:0">'
-        f'Monitor positions, Greeks, margin usage, and wheel progress</p>'
+        f'Positions, day moves, deployment and how each holding does against the index</p>'
         f'</div>'
         f'<div style="{_card}">'
         f'<div style="{_num};background:var(--accent)">3</div>'
         f'<h4 style="margin:0 0 8px 0;font-size:1rem">Build your Watchlist</h4>'
         f'<p style="color:var(--text-muted);font-size:0.85rem;margin:0">'
-        f'Run DCF valuations and find the best options to sell</p>'
+        f'Run DCF valuations, set a buy price and let the quality screen find the next name</p>'
         f'</div>'
         f'</div>',
         unsafe_allow_html=True,
@@ -2288,7 +2288,7 @@ def _render_connect_prompt():
         '<p style="font-size:1.6rem;margin:0 0 8px 0">&#x1f512;</p>'
         '<h3 style="margin:0 0 8px 0">Connect a Broker</h3>'
         '<p style="color:var(--text-muted);font-size:0.9rem;margin:0 0 20px 0">'
-        'This page requires a broker connection (Tastytrade or Interactive Brokers). '
+        'This page requires a broker connection (Tastytrade, Interactive Brokers or Trading 212). '
         'We use <b>read-only</b> access, no trades can be placed through this app.</p>'
         '</div>',
         unsafe_allow_html=True,
@@ -3397,7 +3397,7 @@ st.markdown(f"""
         animation: none;
     }}
 
-    /* ── Ticker cards (Cost Basis) ── */
+    /* ── Ticker cards (Holdings) ── */
     [class*="st-key-wheel_card_"] {{
         background: var(--card);
         border-radius: 24px;
@@ -8636,7 +8636,7 @@ with st.sidebar:
         """Clear account page override when user clicks a main nav item."""
         st.session_state.pop("_account_page", None)
 
-    _all_pages = ["Portfolio", "Cost Basis", "Results", "Watchlist", "Screener"]
+    _all_pages = ["Portfolio", "Holdings", "Results", "Watchlist", "Screener"]
 
     # CSS to add a visual separator after "Results" (3rd item)
     st.markdown(
@@ -8691,7 +8691,7 @@ with st.sidebar:
     if st.session_state.get("t212_credentials"):
         _connected.append(("Trading 212", "t212"))
 
-    # No sidebar switcher any more: Portfolio, Cost Basis and Results each
+    # No sidebar switcher any more: Portfolio, Holdings and Results each
     # carry their own Overview / per-broker tabs, and Watchlist and Cashflow
     # Champions touch no broker data at all. A second control for the same
     # thing only invites picking the one that doesn't apply.
@@ -8700,12 +8700,12 @@ with st.sidebar:
 
     st.markdown("---")
 
-    if page in ("Portfolio", "Cost Basis", "Results"):
+    if page in ("Portfolio", "Holdings", "Results"):
         _broker_label = BROKER_NAMES.get(get_active_broker(), "Tastytrade")
         # The Portfolio page has its own broker view, so name what is actually
         # on screen — the sidebar reading "Tastytrade" above a combined table
         # would be a label that contradicts the page.
-        if page in ("Portfolio", "Cost Basis", "Results") and len(_connected) > 1:
+        if page in ("Portfolio", "Holdings", "Results") and len(_connected) > 1:
             # The widget's own key, not the copy the page writes afterwards:
             # the sidebar renders before the page body, so the copy would show
             # the previous selection for one interaction.
@@ -8791,7 +8791,7 @@ with st.sidebar:
 def _broker_view_control(page_key):
     """Render the Overview / per-broker picker and return the choice.
 
-    Shared by the Portfolio and Cost Basis pages so the two never disagree
+    Shared by the Portfolio and Holdings pages so the two never disagree
     about which account is on screen. It replaced the sidebar's Active Broker
     box entirely — two controls for one thing invites picking the one that
     doesn't apply.
@@ -10631,7 +10631,7 @@ elif page == "Portfolio":
         )
         _wheel_only = ["Break-even", "Ann. %", "Premie", "Days"]
 
-        # "Avg Cost", not "Cost Basis": the figure is a price per share sitting
+        # "Avg Cost", not "Holdings": the figure is a price per share sitting
         # directly beside Current Price, and cost basis normally means the whole
         # position's acquisition value. The old label also read as though it had
         # something to do with the wheel — that one is "Break-even", and it only
@@ -11205,7 +11205,7 @@ elif page == "Portfolio":
 #  COST BASIS PAGE — Per-ticker cost basis and trade history
 # ══════════════════════════════════════════════════════
 
-elif page == "Cost Basis":
+elif page == "Holdings":
     if not has_active_broker():
         _render_connect_prompt()
 
@@ -11216,7 +11216,7 @@ elif page == "Cost Basis":
     # Same picker as the Portfolio page, and the same reason: a card here is
     # meant to be laid next to the broker's own screen, which only works if you
     # can narrow the page to that broker.
-    _cb_view = _broker_view_control("Cost Basis")
+    _cb_view = _broker_view_control("Holdings")
     if _cb_view != "Overview":
         cost_basis = {t: d for t, d in cost_basis.items()
                       if d.get("broker") == _cb_view}
@@ -11553,6 +11553,83 @@ elif page == "Cost Basis":
         {(d.get("symbol") or t) for t, d in closed_tickers.items()}
     )))
 
+    # ── Track record: every position ever held, against the index ──
+    # The Portfolio page's "vs S&P 500" card stops at what is still held.
+    # The sold positions are exactly where a wheel cycle or a change of mind
+    # shows what it cost, so this one counts them too, each lot over its own
+    # days, and adds a second column with the premium and dividends in.
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def _cached_index_closes_h(symbol="SPY", years=5):
+        return gather_data.fetch_daily_closes(symbol, years)
+
+    _tr_index = {}
+    try:
+        _tr_index = _cached_index_closes_h()
+    except Exception as e:
+        logger.warning("Index history unavailable: %s", e)
+    _tr_rows = []
+    if _tr_index:
+        _tr_today = date.today()
+        for _tk, _d in cost_basis.items():
+            _r = track_record(_d.get("trades") or [], _d.get("current_price") or 0.0,
+                              _tr_index, _tr_today,
+                              option_pl=_d.get("option_pl") or 0.0,
+                              dividends=_d.get("dividends") or 0.0)
+            if _r["alpha"] is None:
+                continue
+            _tr_rows.append({"ticker": _d.get("symbol", _tk), **_r})
+
+    if _tr_rows:
+        _tr_cost = sum(r["cost"] for r in _tr_rows)
+        _tr_alpha = sum(r["cost"] * r["alpha"] for r in _tr_rows) / _tr_cost
+        _tr_total_alpha = sum(r["cost"] * r["total_alpha"] for r in _tr_rows) / _tr_cost
+        _tr_cell = f'border-top:1px solid {T["divider"]};padding:5px 0'
+
+        def _tr_num(v):
+            return (f'<span style="{_tr_cell};text-align:right;font-weight:600;'
+                    f'font-variant-numeric:tabular-nums;'
+                    f'color:{T["accent"] if v >= 0 else T["red"]}">{v:+.0f} pts</span>')
+
+        _tr_head = "".join(
+            f'<span style="font-size:0.7rem;letter-spacing:0.04em;text-transform:uppercase;'
+            f'color:{T["text_muted"]};text-align:{a}">{h}</span>'
+            for h, a in (("", "left"), ("held", "right"), ("vs S&amp;P", "right"),
+                         ("incl. premium", "right")))
+        _tr_cells = "".join(
+            f'<span style="{_tr_cell};color:{T["text"]}">{r["ticker"]}'
+            + (f' <span style="font-size:0.7rem;color:{T["text_muted"]}">closed</span>'
+               if r["closed"] else "") + '</span>'
+            f'<span style="{_tr_cell};text-align:right;font-size:0.75rem;'
+            f'font-variant-numeric:tabular-nums;color:{T["text_muted"]}">{r["days_held"]}d</span>'
+            + _tr_num(r["alpha"]) + _tr_num(r["total_alpha"])
+            for r in sorted(_tr_rows, key=lambda r: r["total_alpha"], reverse=True)
+        )
+        _tr_note = (
+            "Every lot you ever bought, against SPY over that lot's own days: a "
+            "sold lot ends on its sale date, a held lot ends today. Money-weighted. "
+            "'vs S&P' is price return on both sides; 'incl. premium' adds this "
+            "name's option premium and dividends to your side."
+        )
+        st.markdown(
+            f'<div class="hero-card" style="margin-bottom:18px">'
+            f'<h4>Track record</h4>'
+            f'<div style="display:flex;justify-content:center;gap:40px;margin-bottom:12px">'
+            f'<div style="text-align:center"><span style="font-size:1.8rem;font-weight:700;'
+            f'color:{T["accent"] if _tr_alpha >= 0 else T["red"]}">{_tr_alpha:+.0f} pts</span>'
+            f'<div style="font-size:0.75rem;color:{T["text_muted"]}">vs S&amp;P 500, price only</div></div>'
+            f'<div style="text-align:center"><span style="font-size:1.8rem;font-weight:700;'
+            f'color:{T["accent"] if _tr_total_alpha >= 0 else T["red"]}">{_tr_total_alpha:+.0f} pts</span>'
+            f'<div style="font-size:0.75rem;color:{T["text_muted"]}">incl. premium and dividends</div></div>'
+            f'</div>'
+            f'<div style="display:grid;grid-template-columns:auto auto auto auto;'
+            f'column-gap:18px;align-items:baseline;justify-content:center">'
+            f'{_tr_head}{_tr_cells}</div>'
+            f'<div style="font-size:0.72rem;color:{T["text_muted"]};text-align:center;'
+            f'margin-top:10px">{len(_tr_rows)} positions ever held · {_tr_note}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
     def _render_grid(tickers):
         items = list(tickers.items())
         for i in range(0, len(items), 2):
@@ -11631,7 +11708,7 @@ elif page == "Results":
     st.markdown("")
     cost_basis = _load_portfolio_data()
 
-    # Same picker as Portfolio and Cost Basis. The P/L totals and the performer
+    # Same picker as Portfolio and Holdings. The P/L totals and the performer
     # cards are built per position, so they narrow cleanly. Net liq history and
     # deposits do not: Trading 212 exposes neither, so those two blocks stay
     # single-broker and say which one they are showing.

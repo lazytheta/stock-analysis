@@ -465,20 +465,20 @@ def render_login_page():
 
 <div class="lt-hero">
     {_logo_html}
-    <h1>Track your options.<br><span class="accent">Optimize your income.</span></h1>
+    <h1>Own quality.<br><span class="accent">Know what it is worth.</span></h1>
     <p class="subtitle">
-        Connect your Tastytrade or IBKR account and get instant insights
-        into your wheel strategy, P&amp;L, and portfolio performance.
+        Connect Tastytrade, IBKR or Trading 212 and see every holding
+        against its fair value, the index and your own track record.
     </p>
     <div class="lt-features">
-        <div class="lt-feat"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span><span class="label">Real-time portfolio</span></div>
-        <div class="lt-feat"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></span><span class="label">Wheel tracking</span></div>
-        <div class="lt-feat"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span class="label">P&amp;L reports</span></div>
-        <div class="lt-feat"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span class="label">DCF valuations</span></div>
+        <div class="lt-feat"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span><span class="label">Live portfolio</span></div>
+        <div class="lt-feat"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></span><span class="label">Track record</span></div>
+        <div class="lt-feat"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span class="label">Quality screener</span></div>
+        <div class="lt-feat"><span class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span class="label">Fair value (DCF)</span></div>
     </div>
     <div class="lt-trust">
         <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Read-only access</span>
-        <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg> Tastytrade &amp; IBKR</span>
+        <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg> Tastytrade, IBKR &amp; Trading 212</span>
         <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#81b29a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Free to use</span>
     </div>
 </div>

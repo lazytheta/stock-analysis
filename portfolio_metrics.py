@@ -305,6 +305,85 @@ def relative_performance(lots, current_price, index_closes, today):
     }
 
 
+def track_record(trades, current_price, index_closes, today,
+                 option_pl=0.0, dividends=0.0):
+    """Every lot ever bought, against the index over its own days.
+
+    relative_performance stops at the lots still held. That leaves out the
+    positions that were sold -- exactly where a wheel cycle or a change of
+    mind shows what it cost. Here every purchase becomes one or more
+    "pieces": the shares sold later end their window on the sale date at the
+    sale price, the shares still held end it today at the current price.
+    Each piece faces the index over the same days, weighted by its cost.
+
+    Two answers, both in percent:
+
+      price      what the shares did, versus what the index did
+      total      the same, but with the option premium and the dividends of
+                 this name added to the position side. That is what the
+                 strategy actually earned on the capital it tied up; the
+                 difference with `price` is what the premium contributed.
+
+    A piece older than the index history is reported through uncovered_cost
+    rather than anchored to the oldest close we have. `closed` is True when
+    nothing is held any more.
+    """
+    lots = []       # [remaining_qty, price, date]
+    pieces = []     # (cost, start, end, value)
+    for t, qty, price, is_buy in _equity_lots(trades):
+        if is_buy:
+            lots.append([qty, price, t.get("date")])
+            continue
+        remaining, matched = qty, 0.0
+        proceeds_total = abs(t.get("net_value") or 0.0)
+        while remaining > 0 and lots:
+            take = min(lots[0][0], remaining)
+            proceeds = proceeds_total * (take / qty) if qty else 0.0
+            pieces.append((take * lots[0][1], lots[0][2], t.get("date"), proceeds))
+            lots[0][0] -= take
+            remaining -= take
+            matched += take
+            if lots[0][0] <= 0:
+                lots.pop(0)
+    for qty_left, price, day in lots:
+        if qty_left > 0:
+            pieces.append((qty_left * price, day, None, qty_left * (current_price or 0.0)))
+
+    latest_close = index_closes[max(index_closes)] if index_closes else None
+    cost = value = index_value = weighted_days = uncovered = 0.0
+    for piece_cost, start, end, piece_value in pieces:
+        idx_start = _close_on_or_before(index_closes, start) if start else None
+        idx_end = (_close_on_or_before(index_closes, end) if end else latest_close)
+        if not idx_start or not idx_end:
+            uncovered += piece_cost
+            continue
+        cost += piece_cost
+        value += piece_value
+        index_value += piece_cost * (idx_end / idx_start)
+        weighted_days += piece_cost * ((end or today) - start).days
+
+    closed = not any(q > 0 for q, _, _ in lots)
+    if cost <= 0:
+        return {"price_return": None, "index_return": None, "alpha": None,
+                "total_return": None, "total_alpha": None, "days_held": None,
+                "closed": closed, "cost": 0.0, "uncovered_cost": uncovered}
+
+    price_return = (value / cost - 1) * 100
+    index_return = (index_value / cost - 1) * 100
+    total_return = ((value + (option_pl or 0.0) + (dividends or 0.0)) / cost - 1) * 100
+    return {
+        "price_return": price_return,
+        "index_return": index_return,
+        "alpha": price_return - index_return,
+        "total_return": total_return,
+        "total_alpha": total_return - index_return,
+        "days_held": round(weighted_days / cost),
+        "closed": closed,
+        "cost": cost,
+        "uncovered_cost": uncovered,
+    }
+
+
 def held_share_cost(trades):
     """FIFO cost of the shares still held: (total_cost, shares).
 
