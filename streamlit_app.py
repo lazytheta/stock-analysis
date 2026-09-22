@@ -2059,7 +2059,7 @@ st.set_page_config(
 
 # ── Authentication gate ──
 from auth import (render_login_page, logout, restore_session_into_state,
-                  save_session_to_browser)
+                  save_session_to_browser, note_session_expiry, session_expiring)
 
 # The stored token comes from the browser through a component (see
 # auth.read_browser_token): Streamlit Cloud's proxy strips cookies, and the URL
@@ -2087,6 +2087,26 @@ if "supabase_client" not in st.session_state:
 _sb_client = st.session_state["supabase_client"]
 if st.session_state.pop("_save_remember_token", False):
     save_session_to_browser(_sb_client)
+    note_session_expiry(_sb_client)
+
+
+def _drop_session_for_restore():
+    """Laat de gate de sessie opnieuw uit de browseropslag herstellen.
+
+    Alleen de sessie zelf; broker-tokens en geladen data blijven staan, want
+    die horen bij de gebruiker en niet bij deze access token.
+    """
+    for key in ("supabase_client", "user", "_lt_expires_at", "_auth_checked_at"):
+        st.session_state.pop(key, None)
+    st.rerun()
+
+
+# Nooit in het geheugen verversen. De token in dit proces kan al verbruikt
+# zijn door een herlaad of een andere tab; de browseropslag heeft altijd de
+# nieuwste. Een refresh met een oude token ziet Supabase als misbruik en dan
+# trekt hij de hele familie in -- dat was het uitloggen van 2026-09-22.
+if session_expiring():
+    _drop_session_for_restore()
 
 # Validate session still active (check at most once per 5 minutes)
 _last_auth_check = st.session_state.get("_auth_checked_at", 0)
@@ -2094,21 +2114,11 @@ if time.time() - _last_auth_check > 300:
     try:
         _sb_client.auth.get_user()
         st.session_state["_auth_checked_at"] = time.time()
-    except Exception:
-        # Try refreshing the session before giving up
-        try:
-            _sb_client.auth.refresh_session()
-            st.session_state["_auth_checked_at"] = time.time()
-            # This refresh rotated the token too. Store the new one, or the
-            # next visit arrives holding the one it just replaced.
-            save_session_to_browser(_sb_client)
-        except Exception as e2:
-            # Type only: the message carries the refresh token.
-            log_error("AUTH_ERROR",
-                      f"Session expired and refresh failed: {type(e2).__name__}")
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
+    except Exception as e:
+        # Type only: the message may carry a token.
+        logger.warning("Session check failed, restoring from browser: %s",
+                       type(e).__name__)
+        _drop_session_for_restore()
 
 
 def _get_tt_token():

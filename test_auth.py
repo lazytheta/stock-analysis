@@ -158,6 +158,18 @@ class TestRestoreIntoState(unittest.TestCase):
             assert self.auth.restore_session_into_state() is False
         assert "supabase_client" not in self.st.session_state
 
+    def test_a_restore_notes_when_the_access_token_expires(self):
+        client = _client_with_tokens("R2")
+        # _client_with_tokens bouwt per get_session() een verse sessie; hier
+        # moet dezelfde sessie ook een vervaltijd dragen.
+        session = types.SimpleNamespace(refresh_token="R2", expires_at=1_800_000_000)
+        client.auth.get_session.side_effect = None
+        client.auth.get_session.return_value = session
+        with patch.object(self.auth, "read_browser_token", return_value="R1"), \
+             patch.object(self.auth, "init_auth_client", return_value=client):
+            self.auth.restore_session_into_state()
+        assert self.st.session_state["_lt_expires_at"] == 1_800_000_000
+
     def test_an_unanswered_browser_is_not_a_no(self):
         """None is 'nog niet': de aanroeper wacht op de volgende run in
         plaats van de login te tonen aan iemand die zo ingelogd blijkt."""
@@ -165,6 +177,38 @@ class TestRestoreIntoState(unittest.TestCase):
              patch.object(self.auth, "init_auth_client") as mk:
             assert self.auth.restore_session_into_state() is None
         mk.assert_not_called()
+
+
+
+class TestNoInMemoryRefresh(unittest.TestCase):
+    """Het uitloggen van 2026-09-22: Supabase meldde refresh_token_already_used
+    vanaf het Streamlit Cloud-IP. De client ververste op de achtergrond met de
+    token in het servergeheugen, terwijl de browser na een herlaad allang een
+    nieuwere had. Hergebruik buiten het venster trekt de hele familie in."""
+
+    def setUp(self):
+        import auth
+        self.auth = auth
+        self.st = _fake_st()
+        self._patch = patch.object(auth, "st", self.st)
+        self._patch.start()
+        self.addCleanup(self._patch.stop)
+
+    def test_the_client_never_refreshes_on_its_own(self):
+        import supabase
+        with patch.object(supabase, "create_client") as mk, \
+             patch.object(self.auth, "_get_secret", return_value="x"):
+            self.auth.init_auth_client()
+        options = mk.call_args.kwargs["options"]
+        assert options.auto_refresh_token is False
+
+    def test_a_session_near_expiry_asks_for_a_restore(self):
+        self.st.session_state["_lt_expires_at"] = 1000
+        assert self.auth.session_expiring(now=1000 - 60) is True
+        assert self.auth.session_expiring(now=1000 - 3600) is False
+
+    def test_an_unknown_expiry_does_not_force_a_restore(self):
+        assert self.auth.session_expiring(now=1000) is False
 
 
 if __name__ == "__main__":

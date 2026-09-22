@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import logging
 import os
+import time
 from datetime import date
 
 import streamlit as st
@@ -31,13 +32,20 @@ def _get_secret(name):
 
 def init_auth_client():
     """Create an anonymous (unauthenticated) Supabase client for login/signup."""
-    from supabase import create_client
+    from supabase import ClientOptions, create_client
 
     url = _get_secret("SUPABASE_URL")
     key = _get_secret("SUPABASE_ANON_KEY")
     if not url or not key:
         raise RuntimeError("SUPABASE_URL and SUPABASE_ANON_KEY must be set")
-    return create_client(url, key)
+    # Geen verversing op de achtergrond. Die timer draait in het serverproces
+    # met de token die dát proces in het geheugen heeft, en na een herlaad in
+    # de browser is die al verbruikt: de browser heeft dan een nieuwere. Een
+    # uur later ververst de oude sessie er toch mee, Supabase ziet hergebruik
+    # ("Possible abuse attempt", 2026-09-22 06:53Z) en trekt de hele
+    # tokenfamilie in -- het volgende bezoek moest opnieuw inloggen. Verversen
+    # gebeurt alleen nog vanuit de browseropslag, zie session_expiring.
+    return create_client(url, key, options=ClientOptions(auto_refresh_token=False))
 
 
 def login_email_password(email, password):
@@ -291,7 +299,40 @@ def restore_session_into_state():
         return False
     st.session_state["supabase_client"] = client
     st.session_state["user"] = {"id": str(user.id), "email": user.email}
+    note_session_expiry(client)
     return True
+
+
+_EXPIRY_MARGIN_S = 120
+
+
+def note_session_expiry(client):
+    """Onthoud wanneer de access token verloopt. Zie session_expiring."""
+    try:
+        session = client.auth.get_session()
+        st.session_state["_lt_expires_at"] = (
+            int(session.expires_at) if session and session.expires_at else None)
+    except Exception as e:
+        logger.warning("Could not read session expiry: %s", type(e).__name__)
+        st.session_state["_lt_expires_at"] = None
+
+
+def session_expiring(now=None):
+    """True als de access token binnen twee minuten verloopt.
+
+    Dan moet de sessie opnieuw uit de browseropslag worden hersteld, in
+    plaats van in het geheugen ververst. De opslag draagt altijd de nieuwste
+    token, ook als een andere tab intussen heeft ververst; het geheugen van
+    deze sessie niet. Een refresh met een verouderde token is precies wat
+    Supabase als misbruik ziet en met het intrekken van de hele familie
+    beantwoordt. Onbekende vervaltijd telt als niet-verlopend: dan blijft de
+    vijfminutencheck de vangnet.
+    """
+    expires_at = st.session_state.get("_lt_expires_at")
+    if not isinstance(expires_at, (int, float)):
+        return False
+    now = time.time() if now is None else now
+    return now >= expires_at - _EXPIRY_MARGIN_S
 
 
 def logout():
