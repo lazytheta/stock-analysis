@@ -11576,6 +11576,30 @@ elif page == "Holdings":
                 unsafe_allow_html=True,
             )
 
+            # The verdict against the index, on the card it belongs to: what
+            # this name earned minus what the same money in SPY would have,
+            # over each lot's own days, premium and dividends counted.
+            _tr = _tr_by_ticker.get(_card_symbol)
+            if _tr:
+                _v = _tr["total_alpha_usd"]
+                _c = T["accent"] if _v >= 0 else T["red"]
+                _prem = _tr["total_alpha_usd"] - _tr["alpha_usd"]
+                _tag = ""
+                if _tr_new_share.get(_card_symbol, 0.0) >= 0.5:
+                    _tag = (f' <span style="font-size:0.68rem;padding:1px 7px;border-radius:9px;'
+                            f'background:{T["accent"]}22;color:{T["accent"]};font-weight:600">'
+                            f'new strategy</span>')
+                st.markdown(
+                    f'<div style="font-size:0.85rem;margin:-6px 0 10px 0;color:{T["text_muted"]}">'
+                    f'vs S&amp;P&nbsp; <b style="color:{_c};font-variant-numeric:tabular-nums">'
+                    f'{"+" if _v >= 0 else "-"}${abs(_v):,.0f}</b> '
+                    f'<span style="font-size:0.75rem">({_tr["total_alpha"]:+.0f} pts · {_tr["days_held"]}d'
+                    + (f' · of which premium {"+" if _prem >= 0 else "-"}${abs(_prem):,.0f}'
+                       if abs(_prem) >= 1 else "")
+                    + f')</span>{_tag}</div>',
+                    unsafe_allow_html=True,
+                )
+
             if not all_trades:
                 return
 
@@ -11723,119 +11747,42 @@ elif page == "Holdings":
     _tr_rows = _merge_track_rows(
         _track_record_rows(_cost_basis_by_broker, _tr_index, date.today()))
 
-    if _tr_rows:
-        # One line per name, one number per line. The first version was a
-        # six-column grid of figures; in the new-strategy group two of those
-        # columns were identical on every row and a third was empty. What a
-        # reader wants is the verdict per name in money, with the context
-        # (how long, open or closed, what the price did after a sale) in a
-        # grey line underneath, and the premium only when it changed the
-        # answer. Same visual language as the position rows on Portfolio.
-        import html as _html
-        for r in _tr_rows:
-            r["since_sale"] = None
-            if r["closed"]:
-                _px = (_closed_prices.get(r["ticker"]) or {}).get("price")
-                _hs = hindsight(next((d.get("trades") or [] for t, d in cost_basis.items()
-                                      if d.get("symbol", t) == r["ticker"]), []), _px or 0)
-                if _hs and _hs["sale_price"]:
-                    r["since_sale"] = ((_hs["price_now"] / _hs["sale_price"] - 1) * 100,
-                                       _hs["delta"])
+    # Into the cards, not a block of its own. The card is already where a
+    # position is judged -- price, P/L, transactions, "If I'd held" -- so the
+    # verdict against the index belongs on it as one line, and the two
+    # strategy totals as pills above the cards.
+    _tr_by_ticker = {r["ticker"]: r for r in _tr_rows}
+    _tr_new_share = {}
+    _strat_h = _strategy_start()
+    _tr_pills = ""
+    if _tr_rows and _strat_h:
+        _new_rows = _merge_track_rows(_track_record_rows(
+            _cost_basis_by_broker, _tr_index, date.today(), since=_strat_h))
+        _old_rows = _merge_track_rows(_track_record_rows(
+            _cost_basis_by_broker, _tr_index, date.today(), before=_strat_h))
+        for r in _new_rows:
+            _all_cost = _tr_by_ticker.get(r["ticker"], {}).get("cost") or r["cost"]
+            _tr_new_share[r["ticker"]] = r["cost"] / _all_cost if _all_cost else 0.0
+        _days_new = (date.today() - _strat_h).days
 
-        def _money(v):
-            return f"{'+' if v >= 0 else '-'}${abs(v):,.0f}"
-
-        def _col(v):
-            return T["accent"] if v >= 0 else T["red"]
-
-        def _row(r, scale):
-            v = r["total_alpha_usd"]
-            w = abs(v) / scale * 50
-            left = 50 - w if v < 0 else 50
-            meta = f'{r["days_held"]}d · {"closed" if r["closed"] else "open"}'
-            if r["since_sale"]:
-                mv, dlt = r["since_sale"]
-                meta += (f' · <span style="color:{T["red"] if dlt > 0 else T["accent"]}">'
-                         f'{mv:+.0f}% since sale</span> (${abs(dlt):,.0f})')
-            extra = ""
-            if abs(r["total_alpha_usd"] - r["alpha_usd"]) >= 1:
-                extra = (f'<div style="font-size:0.7rem;color:{T["text_muted"]}">'
-                         f'of which premium {_money(r["total_alpha_usd"] - r["alpha_usd"])}</div>')
-            return (
-                f'<div style="display:grid;grid-template-columns:200px 1fr 150px;'
-                f'align-items:center;column-gap:18px;padding:9px 0;'
-                f'border-top:1px solid {T["divider"]}">'
-                f'<div style="display:flex;align-items:center;gap:10px;min-width:0">'
-                f'{_logo_img(r["ticker"], r.get("isin"), style="width:26px;height:26px;border-radius:50%")}'
-                f'<div style="min-width:0"><div style="font-weight:600;color:{T["text"]}">'
-                f'{_html.escape(r["ticker"])}</div>'
-                f'<div style="font-size:0.72rem;color:{T["text_muted"]};white-space:nowrap">{meta}</div>'
-                f'</div></div>'
-                f'<div style="position:relative;height:10px;background:{T["divider"]};border-radius:5px">'
-                f'<div style="position:absolute;top:-3px;left:50%;width:1px;height:16px;'
-                f'background:{T["text_muted"]};opacity:0.5"></div>'
-                f'<div style="position:absolute;top:0;height:10px;border-radius:5px;'
-                f'left:{left:.1f}%;width:{w:.1f}%;background:{_col(v)}"></div></div>'
-                f'<div style="text-align:right;font-variant-numeric:tabular-nums">'
-                f'<span style="font-weight:700;font-size:1.05rem;color:{_col(v)}">{_money(v)}</span> '
-                f'<span style="font-size:0.72rem;color:{T["text_muted"]}">{r["total_alpha"]:+.0f} pts</span>'
-                f'{extra}</div>'
-                f'</div>'
-            )
-
-        def _group(title, caption, rows):
+        def _pill(label, rows, note=""):
             total = sum(r["total_alpha_usd"] for r in rows)
-            scale = max(abs(r["total_alpha_usd"]) for r in rows) or 1.0
-            body = "".join(_row(r, scale) for r in
-                           sorted(rows, key=lambda r: r["total_alpha_usd"], reverse=True))
-            return (
-                f'<div style="margin-top:26px">'
-                f'<div style="display:flex;justify-content:space-between;align-items:baseline;'
-                f'margin-bottom:8px">'
-                f'<div><span style="font-weight:700;font-size:1rem;color:{T["text"]}">{title}</span>'
-                + (f'<div style="font-size:0.75rem;color:{T["text_muted"]}">{caption}</div>' if caption else "")
-                + f'</div>'
-                f'<span class="stat-pill">{len(rows)} names <b style="color:{_col(total)}">'
-                f'{_money(total)}</b> vs SPY</span>'
-                f'</div>{body}</div>'
-            )
-
-        _strat_h = _strategy_start()
-        if _strat_h:
-            _new_rows = _merge_track_rows(_track_record_rows(
-                _cost_basis_by_broker, _tr_index, date.today(), since=_strat_h))
-            _old_rows = _merge_track_rows(_track_record_rows(
-                _cost_basis_by_broker, _tr_index, date.today(), before=_strat_h))
-            for _rows in (_new_rows, _old_rows):
-                for r in _rows:
-                    r["since_sale"] = next((x["since_sale"] for x in _tr_rows
-                                            if x["ticker"] == r["ticker"]), None)
-            _days_new = (date.today() - _strat_h).days
-            _groups = [
-                (f"New strategy · since {_strat_h:%b %d, %Y}",
-                 f"{_days_new} days" + (" · too early to judge" if _days_new < 180 else ""),
-                 _new_rows),
-                (f"Before {_strat_h:%b %d, %Y}", "", _old_rows),
-            ]
-        else:
-            _groups = [("Open", "", [r for r in _tr_rows if not r["closed"]]),
-                       ("Closed", "", [r for r in _tr_rows if r["closed"]])]
-        _tr_note = (
-            "Every lot you ever bought, against SPY over that lot's own days: a sold "
-            "lot ends on its sale date, a held lot ends today. The figure is what the "
-            "strategy earned minus what the same money in SPY would have, with option "
-            "premium and dividends counted; 'of which premium' shows their share. "
-            "'Since sale' is what the price did after you sold."
+            c = T["accent"] if total >= 0 else T["red"]
+            return (f'<span class="stat-pill">{label} '
+                    f'<b style="color:{c}">{"+" if total >= 0 else "-"}${abs(total):,.0f}</b> vs SPY'
+                    + (f' <span style="color:{T["text_muted"]}">· {note}</span>' if note else "")
+                    + '</span>')
+        _tr_pills = (
+            _pill(f"New strategy · since {_strat_h:%b %d}", _new_rows,
+                  f"{_days_new} days" + (", too early to judge" if _days_new < 180 else ""))
+            + _pill(f"Before {_strat_h:%b %d}", _old_rows)
         )
+    elif _tr_rows:
+        _tr_pills = ""
+    if _tr_pills:
         st.markdown(
-            f'<div class="hero-card" style="margin-bottom:18px;padding:32px 40px;text-align:left">'
-            f'<h4 style="text-align:center;margin-bottom:0">Track record</h4>'
-            f'<div style="text-align:center;font-size:0.85rem;color:{T["text_muted"]}">'
-            f'Per name, open and closed. The total is the "vs SPY" figure on Results.</div>'
-            + "".join(_group(t_, c_, rows) for t_, c_, rows in _groups if rows)
-            + f'<div style="font-size:0.72rem;color:{T["text_muted"]};text-align:center;'
-            f'margin-top:22px">{_tr_note}</div>'
-            f'</div>',
+            f'<div class="stat-row" style="justify-content:center;margin:6px 0 18px">'
+            f'{_tr_pills}</div>',
             unsafe_allow_html=True,
         )
 
