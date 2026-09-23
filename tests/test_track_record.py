@@ -78,10 +78,11 @@ def test_no_trades_is_no_claim():
 def test_the_pill_says_what_you_could_have_had():
     import streamlit_app
     theme = {"accent": "#0a0", "red": "#a00", "text": "#000", "text_muted": "#888"}
-    rows = [{"alpha_usd": -49387.0, "total_alpha_usd": -25661.0},
-            {"alpha_usd": 0.0, "total_alpha_usd": 0.0}]
+    rows = [{"alpha_usd": -49387.0, "total_alpha_usd": -25661.0, "cost": 200000.0},
+            {"alpha_usd": 0.0, "total_alpha_usd": 0.0, "cost": 13805.0}]
     html = streamlit_app._track_record_pill_html(rows, theme)
     assert "vs SPY" in html and "-$25,661" in html
+    assert "(-12 pts)" in html          # geldgewogen: -25661 / 213805
     assert "you could have had $25,661 more" in html
     assert "trailed SPY by $49,387" in html and "won back $23,726" in html
 
@@ -90,8 +91,8 @@ def test_a_winning_record_is_not_phrased_as_a_loss():
     import streamlit_app
     theme = {"accent": "#0a0", "red": "#a00", "text": "#000", "text_muted": "#888"}
     html = streamlit_app._track_record_pill_html(
-        [{"alpha_usd": 1000.0, "total_alpha_usd": 1500.0}], theme)
-    assert "+$1,500" in html and "beat SPY by $1,000" in html
+        [{"alpha_usd": 1000.0, "total_alpha_usd": 1500.0, "cost": 10000.0}], theme)
+    assert "+$1,500" in html and "(+15 pts)" in html and "beat SPY by $1,000" in html
 
 
 def test_since_keeps_only_the_lots_bought_from_that_day():

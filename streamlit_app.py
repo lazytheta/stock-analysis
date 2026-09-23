@@ -348,6 +348,8 @@ def _track_record_pill_html(rows: list, theme: dict, label: str = "vs SPY") -> s
     import html as _html
     total = sum(r["total_alpha_usd"] for r in rows)
     stock = sum(r["alpha_usd"] for r in rows)
+    cost = sum(r["cost"] for r in rows) or 1.0
+    pts = total / cost * 100
     won_back = total - stock
     color = theme["accent"] if total >= 0 else theme["red"]
     tip = (
@@ -360,7 +362,8 @@ def _track_record_pill_html(rows: list, theme: dict, label: str = "vs SPY") -> s
     )
     sign = "+" if total >= 0 else "-"
     return (f'<span class="stat-pill" title="{_html.escape(tip, quote=True)}" '
-            f'style="cursor:help">{label} <b style="color:{color}">{sign}${abs(total):,.0f}</b></span>')
+            f'style="cursor:help">{label} <b style="color:{color}">{sign}${abs(total):,.0f}</b> '
+            f'<span style="color:{color}">({pts:+.0f} pts)</span></span>')
 
 
 def _resolve_watchlist_price(cfg: dict,
