@@ -315,12 +315,15 @@ def _merge_track_rows(rows: list) -> list:
         m = by.setdefault(r["ticker"], {"ticker": r["ticker"], "isin": r.get("isin"),
                                         "cost": 0.0, "alpha_usd": 0.0,
                                         "total_alpha_usd": 0.0, "_days": 0.0,
+                                        "_ret": 0.0, "_idx": 0.0,
                                         "closed": True, "since_sale": None})
         m["isin"] = m["isin"] or r.get("isin")
         m["cost"] += r["cost"]
         m["alpha_usd"] += r["alpha_usd"]
         m["total_alpha_usd"] += r["total_alpha_usd"]
         m["_days"] += r["cost"] * (r["days_held"] or 0)
+        m["_ret"] += r["cost"] * (r.get("total_return") or 0.0)
+        m["_idx"] += r["cost"] * (r.get("index_return") or 0.0)
         m["closed"] = m["closed"] and r["closed"]
         m["since_sale"] = m["since_sale"] or r.get("since_sale")
     out = []
@@ -330,6 +333,8 @@ def _merge_track_rows(rows: list) -> list:
         m["alpha"] = m["alpha_usd"] / m["cost"] * 100
         m["total_alpha"] = m["total_alpha_usd"] / m["cost"] * 100
         m["days_held"] = round(m.pop("_days") / m["cost"])
+        m["total_return"] = m.pop("_ret") / m["cost"]
+        m["index_return"] = m.pop("_idx") / m["cost"]
         out.append(m)
     return out
 
@@ -3591,52 +3596,61 @@ st.markdown(f"""
         font-weight: 600;
         white-space: nowrap;
     }}
-    /* Four labelled figures instead of loose lines: what each number is
-       sits above it, the detail that qualifies it sits under it. */
-    .tk-stats {{
+    .card-left .tk-sub {{
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        font-variant-numeric: tabular-nums;
+        margin: 2px 0 0 36px;
+    }}
+    /* You against the S&P over the same days: two bars on one scale. */
+    .tk-bars {{
+        margin: 4px 0 14px 0;
+        cursor: help;
+    }}
+    .tk-bar-row {{
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        border-top: 1px solid var(--divider);
-        border-bottom: 1px solid var(--divider);
-        margin-bottom: 12px;
+        grid-template-columns: 38px 1fr 58px 34px;
+        align-items: center;
+        gap: 8px;
+        margin: 5px 0;
     }}
-    .tk-stat {{
-        padding: 10px 12px;
-        min-width: 0;
-    }}
-    .tk-stat + .tk-stat {{ border-left: 1px solid var(--divider); }}
-    .tk-stat:first-child {{ padding-left: 0; }}
-    .tk-stat-label {{
-        font-size: 0.68rem;
+    .tk-bar-label {{
+        font-size: 0.75rem;
         font-weight: 600;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
         color: var(--text-muted);
-        margin: 0 0 2px 0;
     }}
-    .tk-stat-value {{
-        font-size: 1.02rem;
+    .tk-bar-track {{
+        position: relative;
+        height: 8px;
+        border-radius: 4px;
+        background: var(--divider);
+    }}
+    .tk-bar-track::after {{
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: -3px;
+        bottom: -3px;
+        width: 1px;
+        background: var(--text-muted);
+        opacity: 0.6;
+    }}
+    .tk-bar {{
+        position: absolute;
+        top: 0;
+        height: 100%;
+        border-radius: 4px;
+    }}
+    .tk-bar-pct {{
+        font-size: 0.85rem;
         font-weight: 600;
-        color: var(--text);
+        text-align: right;
         font-variant-numeric: tabular-nums;
-        margin: 0;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
     }}
-    .tk-stat-sub {{
-        font-size: 0.76rem;
+    .tk-bar-extra {{
+        font-size: 0.72rem;
         color: var(--text-muted);
-        font-variant-numeric: tabular-nums;
-        margin: 1px 0 0 0;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }}
-    @media (max-width: 640px) {{
-        .tk-stats {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
-        .tk-stat:nth-child(3) {{ border-left: none; padding-left: 0; }}
-        .tk-stat:nth-child(n+3) {{ border-top: 1px solid var(--divider); }}
+        text-align: right;
     }}
     [class*="st-key-wheel_toggle_"] p {{ white-space: nowrap; }}
     .pl-badge {{
@@ -11598,48 +11612,58 @@ elif page == "Holdings":
             _tag = ('<span class="tk-tag">new strategy</span>'
                     if _tr and _tr_new_share.get(_card_symbol, 0.0) >= 0.5 else "")
 
-            def _stat(label, value, sub="", sub_style="", title=""):
-                _t = f' title="{title}"' if title else ""
-                return (f'<div class="tk-stat"{_t}>'
-                        f'<p class="tk-stat-label">{label}</p>'
-                        f'<p class="tk-stat-value">{value}</p>'
-                        f'<p class="tk-stat-sub" style="{sub_style}">{sub or "&nbsp;"}</p>'
-                        f'</div>')
-
+            # One question per card: did this beat the index? Your return
+            # and the S&P's over the same days, as two bars. Buy price,
+            # adjusted basis and the dollar split sit in the details.
+            _shares_txt = f"{shares:,.4f}".rstrip("0").rstrip(".") or "0"
             # No quote is a dash, not 0.00: a closed name Yahoo will not
             # price from this IP is unpriced, not worthless.
-            _price_cell = (_stat("Price", f"{cur_price:,.2f}", f"{day_chg:+.2f}%",
-                                 f"color:{day_color};font-weight:500")
-                           if cur_price else _stat("Price", "\u2014"))
-            # The adjusted basis only where an option was actually written:
-            # for an outright purchase it IS the purchase price, and printing
-            # it twice implies a premium that was never collected.
-            _buy_cell = _stat("Buy", f"{buy_price:,.2f}",
-                              f"adj {display_basis(adj_cost):,.2f}" if is_wheel else "")
-            _shares_txt = f"{shares:,.4f}".rstrip("0").rstrip(".") or "0"
-            _shares_cell = _stat("Shares", _shares_txt)
-            if _tr:
+            _px_txt = f"{cur_price:,.2f}" if cur_price else "\u2014"
+            _sub = (f"{_shares_txt} \u00d7 {_px_txt}" if shares > 0
+                    else f"closed \u00b7 {_px_txt}")
+            _day = (f'<span style="color:{day_color}">{day_chg:+.1f}% today</span>'
+                    if cur_price and shares > 0 else "")
+
+            _bars = ""
+            if _tr and _tr.get("total_return") is not None:
+                _you, _idx = _tr["total_return"], _tr["index_return"]
+                _scale = max(abs(_you), abs(_idx)) or 1.0
+                _beat = _you >= _idx
+                _you_c = T["accent"] if _beat else T["red"]
+
+                # Zero in the middle: a loss runs left, a gain right, so a
+                # -1.8% bar can never read as bigger than a +0.8% one.
+                def _bar(label, pct, color, extra=""):
+                    w = max(abs(pct) / _scale * 50, 0.8)
+                    side = "left:50%" if pct >= 0 else "right:50%"
+                    return (f'<div class="tk-bar-row">'
+                            f'<span class="tk-bar-label">{label}</span>'
+                            f'<span class="tk-bar-track"><span class="tk-bar" '
+                            f'style="{side};width:{w:.1f}%;background:{color}"></span></span>'
+                            f'<span class="tk-bar-pct" style="color:{color}">{pct:+.1f}%</span>'
+                            f'<span class="tk-bar-extra">{extra}</span>'
+                            f'</div>')
+
                 _v = _tr["total_alpha_usd"]
                 _prem = _tr["total_alpha_usd"] - _tr["alpha_usd"]
-                _vs_cell = _stat(
-                    "vs S&amp;P",
-                    f'<span style="color:{T["accent"] if _v >= 0 else T["red"]}">'
-                    f'{"+" if _v >= 0 else "-"}${abs(_v):,.0f}</span>',
-                    f'{_tr["total_alpha"]:+.0f} pts · {_tr["days_held"]}d',
-                    title=(f'of which premium {"+" if _prem >= 0 else "-"}${abs(_prem):,.0f}'
-                           if abs(_prem) >= 1 else ""),
-                )
-            else:
-                _vs_cell = _stat("vs S&amp;P", "\u2014")
+                _tip = (f'{"+" if _v >= 0 else "-"}${abs(_v):,.0f} vs the same money in SPY'
+                        + (f', of which premium {"+" if _prem >= 0 else "-"}${abs(_prem):,.0f}'
+                           if abs(_prem) >= 1 else ""))
+                _bars = (f'<div class="tk-bars" title="{_tip}">'
+                         + _bar("You", _you, _you_c)
+                         + _bar("S&amp;P", _idx, T["text_muted"], f'{_tr["days_held"]}d')
+                         + '</div>')
 
             st.markdown(
                 f'<div class="card-header">'
                 f'  <div class="card-left"><div class="tk-title">'
                 f'    {_logo_tag}<p class="tk-name">{_card_symbol}</p>{_tag}'
-                f'  </div></div>'
+                f'  </div>'
+                f'  <p class="tk-sub">{_sub}'
+                + (f' &nbsp;\u00b7&nbsp; {_day}' if _day else '')
+                + f'</p></div>'
                 f'  <span class="pl-badge {pl_badge}">{pl_sign}{abs(display_pl):,.2f}</span>'
-                f'</div>'
-                f'<div class="tk-stats">{_price_cell}{_buy_cell}{_shares_cell}{_vs_cell}</div>',
+                f'</div>{_bars}',
                 unsafe_allow_html=True,
             )
 
@@ -11674,7 +11698,20 @@ elif page == "Holdings":
                             _render_tabs(wheel["trades"], f"{ticker}_w{i}")
                 else:
                     n_total = len(all_trades)
-                    with st.expander(f"Transactions ({n_total})"):
+                    with st.expander(f"Details & transactions ({n_total})"):
+                        _det = [f"Bought at {buy_price:,.2f}"]
+                        # The adjusted basis only where an option was written:
+                        # for an outright purchase it IS the purchase price.
+                        if is_wheel:
+                            _det.append(f"adjusted {display_basis(adj_cost):,.2f}")
+                        if _tr:
+                            _v = _tr["total_alpha_usd"]
+                            _prem = _tr["total_alpha_usd"] - _tr["alpha_usd"]
+                            _det.append(
+                                f'vs S&P {"+" if _v >= 0 else "-"}${abs(_v):,.0f}'
+                                + (f' (premium {"+" if _prem >= 0 else "-"}${abs(_prem):,.0f})'
+                                   if abs(_prem) >= 1 else ""))
+                        st.caption(" \u00b7 ".join(_det))
                         _render_tabs(all_trades, f"{ticker}_all")
 
                 # ── What holding on would have been worth ──

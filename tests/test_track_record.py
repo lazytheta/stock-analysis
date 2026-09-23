@@ -154,3 +154,18 @@ def test_rows_from_two_brokers_add_up_to_one_line_per_symbol():
     assert m["alpha"] == pytest.approx(1.0)
     assert m["days_held"] == 70          # kostengewogen: (1000*40 + 3000*80) / 4000
     assert m["closed"] is False
+
+
+def test_merged_rows_carry_both_returns_for_the_card_bars():
+    """De balken op de kaart: jouw rendement en de index, kostengewogen."""
+    import streamlit_app
+    rows = [{"ticker": "NVDA", "cost": 1000.0, "alpha_usd": 0.0, "total_alpha_usd": 100.0,
+             "total_return": 20.0, "index_return": 10.0,
+             "days_held": 40, "closed": False, "since_sale": None},
+            {"ticker": "NVDA", "cost": 3000.0, "alpha_usd": 0.0, "total_alpha_usd": 0.0,
+             "total_return": 4.0, "index_return": 4.0,
+             "days_held": 80, "closed": False, "since_sale": None}]
+    (m,) = streamlit_app._merge_track_rows(rows)
+    assert m["total_return"] == pytest.approx(8.0)    # (200 + 120) / 4000
+    assert m["index_return"] == pytest.approx(5.5)    # (100 + 120) / 4000
+    assert m["total_return"] - m["index_return"] == pytest.approx(m["total_alpha"])
