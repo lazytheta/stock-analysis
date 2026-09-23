@@ -169,3 +169,18 @@ def test_merged_rows_carry_both_returns_for_the_card_bars():
     assert m["total_return"] == pytest.approx(8.0)    # (200 + 120) / 4000
     assert m["index_return"] == pytest.approx(5.5)    # (100 + 120) / 4000
     assert m["total_return"] - m["index_return"] == pytest.approx(m["total_alpha"])
+
+
+def test_position_start_is_the_first_buy_of_the_current_position():
+    from portfolio_metrics import position_start
+    trades = [_buy(date(2024, 3, 1), 10, 50.0), _sell(date(2024, 6, 1), 10, 60.0),
+              _buy(date(2026, 8, 20), 5, 70.0), _buy(date(2026, 9, 1), 5, 72.0)]
+    # de round trip van 2024 was een andere positie
+    assert position_start(trades) == (date(2026, 8, 20), 2)
+
+
+def test_position_start_of_a_closed_position_is_its_last_opening():
+    from portfolio_metrics import position_start
+    trades = [_buy(date(2026, 8, 20), 5, 70.0), _sell(date(2026, 9, 10), 5, 75.0)]
+    assert position_start(trades) == (date(2026, 8, 20), 1)
+    assert position_start([]) == (None, 0)

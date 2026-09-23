@@ -226,6 +226,26 @@ def hindsight(trades, current_price):
     }
 
 
+def position_start(trades):
+    """When the current position was opened, and in how many buys: (date, n).
+
+    The first buy after the holding was last flat, so an old round trip in
+    the same name does not date a position opened this year. For a closed
+    position, the opening of the last one. (None, 0) without any buy.
+    """
+    shares = 0.0
+    start, buys = None, 0
+    for t, qty, _price, is_buy in _equity_lots(trades):
+        if is_buy:
+            if shares <= 0:
+                start, buys = t.get("date"), 0
+            buys += 1
+            shares += qty
+        else:
+            shares -= qty
+    return start, buys
+
+
 def open_lots(trades):
     """The share lots still held, oldest first: [{quantity, price, date}].
 

@@ -64,7 +64,7 @@ from portfolio_metrics import (compute_deployment, display_basis, has_option_leg
                                held_share_cost, fifo_realized, open_lots,
                                relative_performance,
                                lots_cover,
-                               average_buy_price, hindsight,
+                               average_buy_price, hindsight, position_start,
                                DEFAULT_TARGET_POS_PCT, track_record)
 from prescan_render import parse_verdict_section, gauge_fraction, band_tone
 from scorecard_utils import (compute_roce_metric, capital_employed, roce_for_year,
@@ -3596,61 +3596,39 @@ st.markdown(f"""
         font-weight: 600;
         white-space: nowrap;
     }}
-    .card-left .tk-sub {{
+    .tk-pl {{
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 3px;
+    }}
+    .tk-pl-pct {{
         font-size: 0.8rem;
+        font-weight: 600;
         color: var(--text-muted);
         font-variant-numeric: tabular-nums;
-        margin: 2px 0 0 36px;
     }}
-    /* You against the S&P over the same days: two bars on one scale. */
-    .tk-bars {{
-        margin: 4px 0 14px 0;
-        cursor: help;
+    /* The basics as label / value rows. */
+    .tk-rows {{
+        margin: 0 0 14px 0;
     }}
-    .tk-bar-row {{
+    .tk-row {{
         display: grid;
-        grid-template-columns: 38px 1fr 58px 34px;
-        align-items: center;
-        gap: 8px;
-        margin: 5px 0;
+        grid-template-columns: 72px 1fr;
+        gap: 12px;
+        padding: 5px 0;
+        border-top: 1px solid var(--divider);
+        font-size: 0.86rem;
+        line-height: 1.35;
     }}
-    .tk-bar-label {{
-        font-size: 0.75rem;
-        font-weight: 600;
+    .tk-row:last-child {{ border-bottom: 1px solid var(--divider); }}
+    .tk-row-label {{
         color: var(--text-muted);
+        font-size: 0.8rem;
     }}
-    .tk-bar-track {{
-        position: relative;
-        height: 8px;
-        border-radius: 4px;
-        background: var(--divider);
-    }}
-    .tk-bar-track::after {{
-        content: "";
-        position: absolute;
-        left: 50%;
-        top: -3px;
-        bottom: -3px;
-        width: 1px;
-        background: var(--text-muted);
-        opacity: 0.6;
-    }}
-    .tk-bar {{
-        position: absolute;
-        top: 0;
-        height: 100%;
-        border-radius: 4px;
-    }}
-    .tk-bar-pct {{
-        font-size: 0.85rem;
-        font-weight: 600;
-        text-align: right;
+    .tk-row-value {{
+        color: var(--text);
         font-variant-numeric: tabular-nums;
-    }}
-    .tk-bar-extra {{
-        font-size: 0.72rem;
-        color: var(--text-muted);
-        text-align: right;
     }}
     [class*="st-key-wheel_toggle_"] p {{ white-space: nowrap; }}
     .pl-badge {{
@@ -11612,58 +11590,91 @@ elif page == "Holdings":
             _tag = ('<span class="tk-tag">new strategy</span>'
                     if _tr and _tr_new_share.get(_card_symbol, 0.0) >= 0.5 else "")
 
-            # One question per card: did this beat the index? Your return
-            # and the S&P's over the same days, as two bars. Buy price,
-            # adjusted basis and the dollar split sit in the details.
+            # The basics as labelled rows: how many, bought at what and
+            # when, where it is now, and how that compares to the S&P.
+            def _fmt_day(d):
+                if not d:
+                    return ""
+                if isinstance(d, str):
+                    try:
+                        d = datetime.fromisoformat(d[:10])
+                    except ValueError:
+                        return d[:10]
+                return f"{d:%d %b %Y}"
+
+            def _row(label, value):
+                return (f'<div class="tk-row"><span class="tk-row-label">{label}</span>'
+                        f'<span class="tk-row-value">{value}</span></div>')
+
+            _muted = f'color:{T["text_muted"]}'
+            _is_open = shares > 0
+            _start, _n_buys = position_start(_card_trades)
             _shares_txt = f"{shares:,.4f}".rstrip("0").rstrip(".") or "0"
+            _rows = [_row("Position", f"{_shares_txt} shares" if _is_open
+                          else '<span style="' + _muted + '">closed</span>')]
+
+            _bought = f"{buy_price:,.2f}"
+            if _start:
+                _bought += (f' <span style="{_muted}">on {_fmt_day(_start)}</span>'
+                            if _n_buys <= 1 else
+                            f' <span style="{_muted}">avg · since {_fmt_day(_start)}'
+                            f' · {_n_buys} buys</span>')
+            # The adjusted basis only where an option was actually written:
+            # for an outright purchase it IS the purchase price, and printing
+            # it twice implies a premium that was never collected.
+            if is_wheel and _is_open:
+                _bought += (f' <span style="{_muted}">· adjusted '
+                            f'{display_basis(adj_cost):,.2f}</span>')
+            _rows.append(_row("Bought", _bought))
+
+            if not _is_open:
+                # Only the exit price and date are read here, which do not
+                # depend on today's quote; hindsight() just refuses a zero.
+                _hs_sold = hindsight(_card_trades, cur_price or 1.0)
+                if _hs_sold:
+                    _rows.append(_row(
+                        "Sold",
+                        f'{_hs_sold["sale_price"]:,.2f}'
+                        + (f' <span style="{_muted}">on {_fmt_day(_hs_sold["closed_on"])}</span>'
+                           if _hs_sold.get("closed_on") else "")))
+
             # No quote is a dash, not 0.00: a closed name Yahoo will not
             # price from this IP is unpriced, not worthless.
-            _px_txt = f"{cur_price:,.2f}" if cur_price else "\u2014"
-            _sub = (f"{_shares_txt} \u00d7 {_px_txt}" if shares > 0
-                    else f"closed \u00b7 {_px_txt}")
-            _day = (f'<span style="color:{day_color}">{day_chg:+.1f}% today</span>'
-                    if cur_price and shares > 0 else "")
+            if cur_price:
+                _rows.append(_row(
+                    "Now", f'{cur_price:,.2f} <span style="color:{day_color}">'
+                           f'({day_chg:+.1f}% today)</span>'))
+            else:
+                _rows.append(_row("Now", "\u2014"))
 
-            _bars = ""
-            if _tr and _tr.get("total_return") is not None:
-                _you, _idx = _tr["total_return"], _tr["index_return"]
-                _scale = max(abs(_you), abs(_idx)) or 1.0
-                _beat = _you >= _idx
-                _you_c = T["accent"] if _beat else T["red"]
-
-                # Zero in the middle: a loss runs left, a gain right, so a
-                # -1.8% bar can never read as bigger than a +0.8% one.
-                def _bar(label, pct, color, extra=""):
-                    w = max(abs(pct) / _scale * 50, 0.8)
-                    side = "left:50%" if pct >= 0 else "right:50%"
-                    return (f'<div class="tk-bar-row">'
-                            f'<span class="tk-bar-label">{label}</span>'
-                            f'<span class="tk-bar-track"><span class="tk-bar" '
-                            f'style="{side};width:{w:.1f}%;background:{color}"></span></span>'
-                            f'<span class="tk-bar-pct" style="color:{color}">{pct:+.1f}%</span>'
-                            f'<span class="tk-bar-extra">{extra}</span>'
-                            f'</div>')
-
+            if _tr:
                 _v = _tr["total_alpha_usd"]
                 _prem = _tr["total_alpha_usd"] - _tr["alpha_usd"]
-                _tip = (f'{"+" if _v >= 0 else "-"}${abs(_v):,.0f} vs the same money in SPY'
-                        + (f', of which premium {"+" if _prem >= 0 else "-"}${abs(_prem):,.0f}'
-                           if abs(_prem) >= 1 else ""))
-                _bars = (f'<div class="tk-bars" title="{_tip}">'
-                         + _bar("You", _you, _you_c)
-                         + _bar("S&amp;P", _idx, T["text_muted"], f'{_tr["days_held"]}d')
-                         + '</div>')
+                _rows.append(_row(
+                    "vs S&amp;P",
+                    f'<span style="color:{T["accent"] if _v >= 0 else T["red"]};font-weight:600">'
+                    f'${abs(_v):,.0f} {"ahead" if _v >= 0 else "behind"}'
+                    f'</span> <span style="{_muted}">· {_tr["days_held"]} days'
+                    + (f' · premium {"+" if _prem >= 0 else "-"}${abs(_prem):,.0f}'
+                       if abs(_prem) >= 1 else "")
+                    + '</span>'))
+
+            # The percentage on the same basis as the S&P line: every lot
+            # over its own days, premium and dividends in. Not for a single
+            # wheel, whose dollar figure has no matching base here.
+            _pct = ""
+            if _tr and _tr.get("total_return") is not None and not per_wheel:
+                _pct = f'<span class="tk-pl-pct">{_tr["total_return"]:+.1f}%</span>'
 
             st.markdown(
                 f'<div class="card-header">'
                 f'  <div class="card-left"><div class="tk-title">'
                 f'    {_logo_tag}<p class="tk-name">{_card_symbol}</p>{_tag}'
-                f'  </div>'
-                f'  <p class="tk-sub">{_sub}'
-                + (f' &nbsp;\u00b7&nbsp; {_day}' if _day else '')
-                + f'</p></div>'
-                f'  <span class="pl-badge {pl_badge}">{pl_sign}{abs(display_pl):,.2f}</span>'
-                f'</div>{_bars}',
+                f'  </div></div>'
+                f'  <div class="tk-pl"><span class="pl-badge {pl_badge}">'
+                f'{pl_sign}{abs(display_pl):,.2f}</span>{_pct}</div>'
+                f'</div>'
+                f'<div class="tk-rows">{"".join(_rows)}</div>',
                 unsafe_allow_html=True,
             )
 
@@ -11698,20 +11709,7 @@ elif page == "Holdings":
                             _render_tabs(wheel["trades"], f"{ticker}_w{i}")
                 else:
                     n_total = len(all_trades)
-                    with st.expander(f"Details & transactions ({n_total})"):
-                        _det = [f"Bought at {buy_price:,.2f}"]
-                        # The adjusted basis only where an option was written:
-                        # for an outright purchase it IS the purchase price.
-                        if is_wheel:
-                            _det.append(f"adjusted {display_basis(adj_cost):,.2f}")
-                        if _tr:
-                            _v = _tr["total_alpha_usd"]
-                            _prem = _tr["total_alpha_usd"] - _tr["alpha_usd"]
-                            _det.append(
-                                f'vs S&P {"+" if _v >= 0 else "-"}${abs(_v):,.0f}'
-                                + (f' (premium {"+" if _prem >= 0 else "-"}${abs(_prem):,.0f})'
-                                   if abs(_prem) >= 1 else ""))
-                        st.caption(" \u00b7 ".join(_det))
+                    with st.expander(f"Transactions ({n_total})"):
                         _render_tabs(all_trades, f"{ticker}_all")
 
                 # ── What holding on would have been worth ──
