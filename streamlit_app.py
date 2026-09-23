@@ -11749,42 +11749,16 @@ elif page == "Holdings":
 
     # Into the cards, not a block of its own. The card is already where a
     # position is judged -- price, P/L, transactions, "If I'd held" -- so the
-    # verdict against the index belongs on it as one line, and the two
-    # strategy totals as pills above the cards.
+    # verdict against the index belongs on it as one line. The totals per
+    # strategy are portfolio figures and live in the Results header.
     _tr_by_ticker = {r["ticker"]: r for r in _tr_rows}
     _tr_new_share = {}
     _strat_h = _strategy_start()
-    _tr_pills = ""
     if _tr_rows and _strat_h:
-        _new_rows = _merge_track_rows(_track_record_rows(
-            _cost_basis_by_broker, _tr_index, date.today(), since=_strat_h))
-        _old_rows = _merge_track_rows(_track_record_rows(
-            _cost_basis_by_broker, _tr_index, date.today(), before=_strat_h))
-        for r in _new_rows:
+        for r in _merge_track_rows(_track_record_rows(
+                _cost_basis_by_broker, _tr_index, date.today(), since=_strat_h)):
             _all_cost = _tr_by_ticker.get(r["ticker"], {}).get("cost") or r["cost"]
             _tr_new_share[r["ticker"]] = r["cost"] / _all_cost if _all_cost else 0.0
-        _days_new = (date.today() - _strat_h).days
-
-        def _pill(label, rows, note=""):
-            total = sum(r["total_alpha_usd"] for r in rows)
-            c = T["accent"] if total >= 0 else T["red"]
-            return (f'<span class="stat-pill">{label} '
-                    f'<b style="color:{c}">{"+" if total >= 0 else "-"}${abs(total):,.0f}</b> vs SPY'
-                    + (f' <span style="color:{T["text_muted"]}">· {note}</span>' if note else "")
-                    + '</span>')
-        _tr_pills = (
-            _pill(f"New strategy · since {_strat_h:%b %d}", _new_rows,
-                  f"{_days_new} days" + (", too early to judge" if _days_new < 180 else ""))
-            + _pill(f"Before {_strat_h:%b %d}", _old_rows)
-        )
-    elif _tr_rows:
-        _tr_pills = ""
-    if _tr_pills:
-        st.markdown(
-            f'<div class="stat-row" style="justify-content:center;margin:6px 0 18px">'
-            f'{_tr_pills}</div>',
-            unsafe_allow_html=True,
-        )
 
     def _render_grid(tickers):
         items = list(tickers.items())
