@@ -3561,9 +3561,8 @@ st.markdown(f"""
     .card-header {{
         display: flex;
         justify-content: space-between;
-        align-items: flex-start;
-        margin-bottom: 16px;
-        max-width: 700px;
+        align-items: center;
+        margin-bottom: 14px;
     }}
     .card-left .tk-title {{
         display: flex;
@@ -3583,23 +3582,63 @@ st.markdown(f"""
         color: var(--text);
         margin: 0;
     }}
-    .card-left .tk-sub {{
-        font-size: 0.8rem;
+    .tk-tag {{
+        font-size: 0.68rem;
+        padding: 1px 7px;
+        border-radius: 9px;
+        background: color-mix(in srgb, var(--accent) 14%, transparent);
+        color: var(--accent);
+        font-weight: 600;
+        white-space: nowrap;
+    }}
+    /* Four labelled figures instead of loose lines: what each number is
+       sits above it, the detail that qualifies it sits under it. */
+    .tk-stats {{
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        border-top: 1px solid var(--divider);
+        border-bottom: 1px solid var(--divider);
+        margin-bottom: 12px;
+    }}
+    .tk-stat {{
+        padding: 10px 12px;
+        min-width: 0;
+    }}
+    .tk-stat + .tk-stat {{ border-left: 1px solid var(--divider); }}
+    .tk-stat:first-child {{ padding-left: 0; }}
+    .tk-stat-label {{
+        font-size: 0.68rem;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
         color: var(--text-muted);
-        margin: 2px 0;
+        margin: 0 0 2px 0;
     }}
-    .card-center {{
-        text-align: center;
-    }}
-    .card-center .shares-count {{
-        font-size: 1.05rem;
+    .tk-stat-value {{
+        font-size: 1.02rem;
         font-weight: 600;
         color: var(--text);
+        font-variant-numeric: tabular-nums;
+        margin: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }}
-    .card-center .shares-label {{
-        font-size: 0.78rem;
+    .tk-stat-sub {{
+        font-size: 0.76rem;
         color: var(--text-muted);
+        font-variant-numeric: tabular-nums;
+        margin: 1px 0 0 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }}
+    @media (max-width: 640px) {{
+        .tk-stats {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+        .tk-stat:nth-child(3) {{ border-left: none; padding-left: 0; }}
+        .tk-stat:nth-child(n+3) {{ border-top: 1px solid var(--divider); }}
+    }}
+    [class*="st-key-wheel_toggle_"] p {{ white-space: nowrap; }}
     .pl-badge {{
         display: inline-block;
         padding: 6px 16px;
@@ -11528,8 +11567,11 @@ elif page == "Holdings":
         with st.container(key=f"wheel_card_{ticker}"):
             all_trades = data.get("trades", [])
 
-            # Toggle: per wheel vs all transactions
-            per_wheel = st.toggle("Per wheel", key=f"wheel_toggle_{ticker}") if all_trades else False
+            # The toggle is drawn beside the transactions, below the figures
+            # it changes, so its value is read from session state here.
+            _toggle_key = f"wheel_toggle_{ticker}"
+            per_wheel = (bool(all_trades) and is_wheel
+                         and st.session_state.get(_toggle_key, False))
 
             # P/L: last wheel only when toggled, otherwise total
             if per_wheel and last_wheel:
@@ -11548,153 +11590,162 @@ elif page == "Holdings":
             # ETF show a logo at all.
             _card_symbol = data.get("symbol", ticker)
             _logo_tag = _logo_img(_card_symbol, data.get("isin"), "tk-logo")
-            st.markdown(
-                f'<div class="card-header">'
-                f'  <div class="card-left">'
-                f'    <div class="tk-title">'
-                f'      {_logo_tag}'
-                f'      <p class="tk-name">{_card_symbol} @ {buy_price:,.2f}</p>'
-                f'    </div>'
-                # Only where an option was actually written: for an outright
-            # purchase the adjusted basis IS the purchase price, and printing
-            # it twice implies a premium that was never collected.
-            + (f'    <p class="tk-sub">(Adjusted: {display_basis(adj_cost):,.2f})</p>'
-               if is_wheel else '') +
-                f'    <p class="tk-sub">Current Price</p>'
-                # No quote is a dash, not 0.00: a closed name Yahoo will not
-                # price from this IP is unpriced, not worthless.
-                + (f'    <p class="tk-sub" style="color:{day_color}; font-weight:500">'
-                   f'      {cur_price:,.2f} ({day_chg:+.2f}%)</p>'
-                   if cur_price else
-                   f'    <p class="tk-sub" style="font-weight:500">\u2014</p>') +
-                f'  </div>'
-                f'  <div class="card-center">'
-                f'    <p class="shares-count">{shares}</p>'
-                f'    <p class="shares-label">shares held</p>'
-                f'  </div>'
-                f'  <div>'
-                f'    <span class="pl-badge {pl_badge}">{pl_sign}{abs(display_pl):,.2f}</span>'
-                f'  </div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
 
-            # The verdict against the index, on the card it belongs to: what
-            # this name earned minus what the same money in SPY would have,
-            # over each lot's own days, premium and dividends counted.
+            # The verdict against the index: what this name earned minus what
+            # the same money in SPY would have, over each lot's own days,
+            # premium and dividends counted.
             _tr = _tr_by_ticker.get(_card_symbol)
+            _tag = ('<span class="tk-tag">new strategy</span>'
+                    if _tr and _tr_new_share.get(_card_symbol, 0.0) >= 0.5 else "")
+
+            def _stat(label, value, sub="", sub_style="", title=""):
+                _t = f' title="{title}"' if title else ""
+                return (f'<div class="tk-stat"{_t}>'
+                        f'<p class="tk-stat-label">{label}</p>'
+                        f'<p class="tk-stat-value">{value}</p>'
+                        f'<p class="tk-stat-sub" style="{sub_style}">{sub or "&nbsp;"}</p>'
+                        f'</div>')
+
+            # No quote is a dash, not 0.00: a closed name Yahoo will not
+            # price from this IP is unpriced, not worthless.
+            _price_cell = (_stat("Price", f"{cur_price:,.2f}", f"{day_chg:+.2f}%",
+                                 f"color:{day_color};font-weight:500")
+                           if cur_price else _stat("Price", "\u2014"))
+            # The adjusted basis only where an option was actually written:
+            # for an outright purchase it IS the purchase price, and printing
+            # it twice implies a premium that was never collected.
+            _buy_cell = _stat("Buy", f"{buy_price:,.2f}",
+                              f"adj {display_basis(adj_cost):,.2f}" if is_wheel else "")
+            _shares_txt = f"{shares:,.4f}".rstrip("0").rstrip(".") or "0"
+            _shares_cell = _stat("Shares", _shares_txt)
             if _tr:
                 _v = _tr["total_alpha_usd"]
-                _c = T["accent"] if _v >= 0 else T["red"]
                 _prem = _tr["total_alpha_usd"] - _tr["alpha_usd"]
-                _tag = ""
-                if _tr_new_share.get(_card_symbol, 0.0) >= 0.5:
-                    _tag = (f' <span style="font-size:0.68rem;padding:1px 7px;border-radius:9px;'
-                            f'background:{T["accent"]}22;color:{T["accent"]};font-weight:600">'
-                            f'new strategy</span>')
-                st.markdown(
-                    f'<div style="font-size:0.85rem;margin:-6px 0 10px 0;color:{T["text_muted"]}">'
-                    f'vs S&amp;P&nbsp; <b style="color:{_c};font-variant-numeric:tabular-nums">'
-                    f'{"+" if _v >= 0 else "-"}${abs(_v):,.0f}</b> '
-                    f'<span style="font-size:0.75rem">({_tr["total_alpha"]:+.0f} pts · {_tr["days_held"]}d'
-                    + (f' · of which premium {"+" if _prem >= 0 else "-"}${abs(_prem):,.0f}'
-                       if abs(_prem) >= 1 else "")
-                    + f')</span>{_tag}</div>',
-                    unsafe_allow_html=True,
+                _vs_cell = _stat(
+                    "vs S&amp;P",
+                    f'<span style="color:{T["accent"] if _v >= 0 else T["red"]}">'
+                    f'{"+" if _v >= 0 else "-"}${abs(_v):,.0f}</span>',
+                    f'{_tr["total_alpha"]:+.0f} pts · {_tr["days_held"]}d',
+                    title=(f'of which premium {"+" if _prem >= 0 else "-"}${abs(_prem):,.0f}'
+                           if abs(_prem) >= 1 else ""),
                 )
+            else:
+                _vs_cell = _stat("vs S&amp;P", "\u2014")
+
+            st.markdown(
+                f'<div class="card-header">'
+                f'  <div class="card-left"><div class="tk-title">'
+                f'    {_logo_tag}<p class="tk-name">{_card_symbol}</p>{_tag}'
+                f'  </div></div>'
+                f'  <span class="pl-badge {pl_badge}">{pl_sign}{abs(display_pl):,.2f}</span>'
+                f'</div>'
+                f'<div class="tk-stats">{_price_cell}{_buy_cell}{_shares_cell}{_vs_cell}</div>',
+                unsafe_allow_html=True,
+            )
 
             if not all_trades:
                 return
 
-            if per_wheel:
-                for i, wheel in reversed(list(enumerate(wheels))):
-                    status = wheel["status"]
-                    w_pl = wheel["pl"]
-                    w_pl_sign = "+$" if w_pl >= 0 else "-$"
-                    w_start = wheel['start'].strftime("%d-%m-%Y") if hasattr(wheel['start'], 'strftime') else wheel['start']
-                    w_end = wheel['end'].strftime("%d-%m-%Y") if hasattr(wheel['end'], 'strftime') else wheel['end']
-                    if status == "completed":
-                        label = f"Wheel {i + 1} — {w_start} \u2192 {w_end}"
-                    elif status == "active":
-                        label = f"Wheel {i + 1} (active) — {w_start} \u2192 now"
-                    else:
-                        label = f"CSP Income — {w_start} \u2192 {w_end}"
-                    with st.expander(f"{label}  —  {w_pl_sign}{abs(w_pl):,.2f}"):
-                        _render_tabs(wheel["trades"], f"{ticker}_w{i}")
+            # The expanders and the switch that decides what they list, on
+            # one row: the toggle belongs with the transactions, not above
+            # the figures. Without an option ever written there is no wheel
+            # to split by, so no switch.
+            if is_wheel:
+                _tx_col, _tg_col = st.columns([3, 1], vertical_alignment="center")
+                with _tg_col:
+                    st.toggle("Per wheel", key=_toggle_key)
             else:
-                n_total = len(all_trades)
-                with st.expander(f"Transactions ({n_total})"):
-                    _render_tabs(all_trades, f"{ticker}_all")
+                _tx_col = st.container()
+            with _tx_col:
+                if per_wheel:
+                    for i, wheel in reversed(list(enumerate(wheels))):
+                        status = wheel["status"]
+                        w_pl = wheel["pl"]
+                        w_pl_sign = "+$" if w_pl >= 0 else "-$"
+                        w_start = wheel['start'].strftime("%d-%m-%Y") if hasattr(wheel['start'], 'strftime') else wheel['start']
+                        w_end = wheel['end'].strftime("%d-%m-%Y") if hasattr(wheel['end'], 'strftime') else wheel['end']
+                        if status == "completed":
+                            label = f"Wheel {i + 1} — {w_start} \u2192 {w_end}"
+                        elif status == "active":
+                            label = f"Wheel {i + 1} (active) — {w_start} \u2192 now"
+                        else:
+                            label = f"CSP Income — {w_start} \u2192 {w_end}"
+                        with st.expander(f"{label}  —  {w_pl_sign}{abs(w_pl):,.2f}"):
+                            _render_tabs(wheel["trades"], f"{ticker}_w{i}")
+                else:
+                    n_total = len(all_trades)
+                    with st.expander(f"Transactions ({n_total})"):
+                        _render_tabs(all_trades, f"{ticker}_all")
 
-            # ── What holding on would have been worth ──
-            # Only for closed positions: the question a closed card exists to
-            # answer is whether selling was right, and that needs today's price
-            # against what you actually got.
-            if shares == 0 and not _has_open_options(data):
-                _px = (_closed_prices.get(_card_symbol) or {}).get("price")
-                _hs = hindsight(_card_trades, _px or 0)
-                if _hs:
-                    _d = _hs["delta"]
-                    _c = T["red"] if _d > 0 else T["accent"]
-                    _move = ((_hs["price_now"] / _hs["sale_price"] - 1) * 100
-                             if _hs["sale_price"] else 0.0)
-                    # Percentage first, amount beside it. The percentage is
-                    # what the price did since the sale, so its sign describes
-                    # the stock rather than the outcome and stops fighting the
-                    # colour: +222% in red is "it ran on without you". The
-                    # amount stays because a percentage alone flatters small
-                    # positions — BYND's -30% is $9 against GOOGL's +93% at
-                    # $16,604.
-                    # A decimal while it still tells you something, none once
-                    # the number is big enough not to need one, and no sign at
-                    # all on a move that rounds to nothing — TTD came out as
-                    # "-0%", which reads as a rounding artefact rather than the
-                    # flat result it is.
-                    if abs(_move) < 0.05:
-                        _pct = "0%"
-                    elif abs(_move) < 10:
-                        _pct = f"{_move:+.1f}%"
-                    else:
-                        _pct = f"{_move:+.0f}%"
-                    _label = (f'If I\'d held  ·  :{"red" if _d > 0 else "green"}'
-                              f'[{_pct} (${abs(_d):,.0f})]')
-                    with st.expander(_label):
-                        if _hs.get("closed_on"):
-                            st.caption(
-                                f'Sold {_hs["closed_on"]:%d %b %Y} · '
-                                f'{_hs["shares_sold"]:,.0f} shares'
+                # ── What holding on would have been worth ──
+                # Only for closed positions: the question a closed card exists to
+                # answer is whether selling was right, and that needs today's price
+                # against what you actually got.
+                if shares == 0 and not _has_open_options(data):
+                    _px = (_closed_prices.get(_card_symbol) or {}).get("price")
+                    _hs = hindsight(_card_trades, _px or 0)
+                    if _hs:
+                        _d = _hs["delta"]
+                        _c = T["red"] if _d > 0 else T["accent"]
+                        _move = ((_hs["price_now"] / _hs["sale_price"] - 1) * 100
+                                 if _hs["sale_price"] else 0.0)
+                        # Percentage first, amount beside it. The percentage is
+                        # what the price did since the sale, so its sign describes
+                        # the stock rather than the outcome and stops fighting the
+                        # colour: +222% in red is "it ran on without you". The
+                        # amount stays because a percentage alone flatters small
+                        # positions — BYND's -30% is $9 against GOOGL's +93% at
+                        # $16,604.
+                        # A decimal while it still tells you something, none once
+                        # the number is big enough not to need one, and no sign at
+                        # all on a move that rounds to nothing — TTD came out as
+                        # "-0%", which reads as a rounding artefact rather than the
+                        # flat result it is.
+                        if abs(_move) < 0.05:
+                            _pct = "0%"
+                        elif abs(_move) < 10:
+                            _pct = f"{_move:+.1f}%"
+                        else:
+                            _pct = f"{_move:+.0f}%"
+                        _label = (f'If I\'d held  ·  :{"red" if _d > 0 else "green"}'
+                                  f'[{_pct} (${abs(_d):,.0f})]')
+                        with st.expander(_label):
+                            if _hs.get("closed_on"):
+                                st.caption(
+                                    f'Sold {_hs["closed_on"]:%d %b %Y} · '
+                                    f'{_hs["shares_sold"]:,.0f} shares'
+                                )
+                            _th = (f'padding:4px 8px;text-align:right;'
+                                   f'color:{T["text_muted"]};font-weight:600')
+                            _td = ('padding:4px 8px;text-align:right;'
+                                   'font-variant-numeric:tabular-nums')
+                            _bd = f'border-top:1px solid {T["divider"]}'
+                            st.markdown(
+                                f'<table style="width:100%;border-collapse:collapse;'
+                                f'font-size:0.85rem">'
+                                f'<thead><tr>'
+                                f'<th style="{_th};text-align:left"></th>'
+                                f'<th style="{_th}">Price</th>'
+                                f'<th style="{_th}">Value</th>'
+                                f'</tr></thead><tbody>'
+                                f'<tr>'
+                                f'<td style="{_td};{_bd};text-align:left">Sold at</td>'
+                                f'<td style="{_td};{_bd}">${_hs["sale_price"]:,.2f}</td>'
+                                f'<td style="{_td};{_bd}">${_hs["proceeds"]:,.0f}</td>'
+                                f'</tr><tr>'
+                                f'<td style="{_td};{_bd};text-align:left">Today</td>'
+                                f'<td style="{_td};{_bd}">${_hs["price_now"]:,.2f}</td>'
+                                f'<td style="{_td};{_bd}">${_hs["value_now"]:,.0f}</td>'
+                                f'</tr><tr>'
+                                f'<td style="{_td};{_bd};text-align:left;'
+                                f'font-weight:600">Difference</td>'
+                                f'<td style="{_td};{_bd};color:{_c};font-weight:600">'
+                                f'{_move:+.1f}%</td>'
+                                f'<td style="{_td};{_bd};color:{_c};font-weight:600">'
+                                f'${_d:+,.0f}</td>'
+                                f'</tr></tbody></table>',
+                                unsafe_allow_html=True,
                             )
-                        _th = (f'padding:4px 8px;text-align:right;'
-                               f'color:{T["text_muted"]};font-weight:600')
-                        _td = ('padding:4px 8px;text-align:right;'
-                               'font-variant-numeric:tabular-nums')
-                        _bd = f'border-top:1px solid {T["divider"]}'
-                        st.markdown(
-                            f'<table style="width:100%;border-collapse:collapse;'
-                            f'font-size:0.85rem">'
-                            f'<thead><tr>'
-                            f'<th style="{_th};text-align:left"></th>'
-                            f'<th style="{_th}">Price</th>'
-                            f'<th style="{_th}">Value</th>'
-                            f'</tr></thead><tbody>'
-                            f'<tr>'
-                            f'<td style="{_td};{_bd};text-align:left">Sold at</td>'
-                            f'<td style="{_td};{_bd}">${_hs["sale_price"]:,.2f}</td>'
-                            f'<td style="{_td};{_bd}">${_hs["proceeds"]:,.0f}</td>'
-                            f'</tr><tr>'
-                            f'<td style="{_td};{_bd};text-align:left">Today</td>'
-                            f'<td style="{_td};{_bd}">${_hs["price_now"]:,.2f}</td>'
-                            f'<td style="{_td};{_bd}">${_hs["value_now"]:,.0f}</td>'
-                            f'</tr><tr>'
-                            f'<td style="{_td};{_bd};text-align:left;'
-                            f'font-weight:600">Difference</td>'
-                            f'<td style="{_td};{_bd};color:{_c};font-weight:600">'
-                            f'{_move:+.1f}%</td>'
-                            f'<td style="{_td};{_bd};color:{_c};font-weight:600">'
-                            f'${_d:+,.0f}</td>'
-                            f'</tr></tbody></table>',
-                            unsafe_allow_html=True,
-                        )
 
     # ── Two-column card layout ──
     st.markdown(
