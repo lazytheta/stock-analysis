@@ -3647,40 +3647,36 @@ st.markdown(f"""
     .pl-badge-red {{ background: var(--red); }}
 
     .trade-row {{
-        display: flex;
-        align-items: baseline;
-        gap: 28px;
-        padding: 12px 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 16px;
+        padding: 10px 0;
         border-bottom: 1px solid var(--divider);
     }}
     .trade-row:last-child {{ border-bottom: none; }}
-    .trade-row .tr-desc {{
-        min-width: 160px;
-    }}
+    .trade-row .tr-desc {{ min-width: 0; }}
     .trade-row .tr-desc .tr-label {{
         font-weight: 600;
-        font-size: 0.92rem;
+        font-size: 0.9rem;
         color: var(--text);
         margin: 0;
+    }}
+    .trade-row .tr-detail {{
+        font-weight: 400;
+        color: var(--text-muted);
+        font-variant-numeric: tabular-nums;
     }}
     .trade-row .tr-desc .tr-date {{
-        font-size: 0.78rem;
+        font-size: 0.76rem;
         color: var(--text-muted);
         margin: 0;
     }}
-    .trade-row .tr-cell {{
-        text-align: left;
-        min-width: 70px;
-    }}
-    .trade-row .tr-cell .tr-val {{
-        font-size: 0.92rem;
-        font-weight: 500;
-        color: var(--text);
-        margin: 0;
-    }}
-    .trade-row .tr-cell .tr-lbl {{
-        font-size: 0.72rem;
-        color: var(--text-muted);
+    .trade-row .tr-amt {{
+        font-size: 0.9rem;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
         margin: 0;
     }}
     .trade-row .status-badge {{
@@ -11456,7 +11452,7 @@ elif page == "Holdings":
             price_str = f'{t["price"]:,.2f}' if t["price"] else "—"
             net = t["net_value"]
             net_color = T['accent'] if net >= 0 else T['red']
-            trade_date = t["date"].strftime("%d-%m-%Y") if hasattr(t["date"], "strftime") else t["date"]
+            trade_date = t["date"].strftime("%d %b %Y") if hasattr(t["date"], "strftime") else t["date"]
 
             # Friendly labels for equity trades
             label_raw = t["label"]
@@ -11477,24 +11473,26 @@ elif page == "Holdings":
                 label_str = label_raw
                 date_str = trade_date
 
+            # One line per trade: what and when on the left, the cash on the
+            # right with its sign. A share purchase is money moved into the
+            # position, not a loss, so it stays uncoloured; colour is kept for
+            # what was earned or paid away -- premium, dividend, tax.
+            if label_raw == "Dividend" and net < 0:
+                label_str = "Dividend tax"
+            if t["quantity"] and t["price"]:
+                label_str += (f' <span class="tr-detail">· {qty_val} \u00d7 '
+                              f'{price_str}</span>')
+            amt_sign = "+" if net >= 0 else "\u2212"
+            amt_color = (T["text"] if t.get("instrument_type") == "Equity"
+                         and label_raw != "Dividend" else net_color)
             html += (
                 f'<div class="trade-row">'
                 f'  <div class="tr-desc">'
                 f'    <p class="tr-label">{label_str}</p>'
                 f'    <p class="tr-date">{date_str}</p>'
                 f'  </div>'
-                f'  <div class="tr-cell">'
-                f'    <p class="tr-val">{qty_val}</p>'
-                f'    <p class="tr-lbl">Qty</p>'
-                f'  </div>'
-                f'  <div class="tr-cell">'
-                f'    <p class="tr-val">{price_str}</p>'
-                f'    <p class="tr-lbl">Fill</p>'
-                f'  </div>'
-                f'  <div class="tr-cell">'
-                f'    <p class="tr-val" style="color:{net_color}">${abs(net):,.2f}</p>'
-                f'    <p class="tr-lbl">P/L</p>'
-                f'  </div>'
+                f'  <p class="tr-amt" style="color:{amt_color}">'
+                f'{amt_sign}${abs(net):,.2f}</p>'
                 f'</div>'
             )
         st.markdown(html, unsafe_allow_html=True)
@@ -11502,6 +11500,11 @@ elif page == "Holdings":
     # ── Helper: render tabs per trade category ──
     def _render_tabs(trades, key_suffix):
         csp, cc, sh = _categorize(trades)
+        # Buy and hold: nothing was ever written, so CSP and CC would be two
+        # empty tabs. Show the one list.
+        if not has_option_legs(trades):
+            _render_trades(sh)
+            return
         tab_csp, tab_cc, tab_shares = st.tabs([
             f"CSP ({len(csp)})",
             f"CC ({len(cc)})",
