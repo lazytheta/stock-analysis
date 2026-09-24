@@ -25,6 +25,7 @@ blijft maandelijks draaien als Cloud Run Job `screener`.
 | Waar | Claude Code cloud-routine (`/schedule`), abonnement, geen API-tegoed |
 | Hoe vaak | Wekelijks, maandag 07:00 Europe/Amsterdam |
 | Doorzetten | Automatisch bij Wide moat; label "by Claude" zodat de gebruiker ziet wat hij nog niet zelf bekeek |
+| Afwijzen | Knop **NO**: naam gaat de gewone watchlist in met verdict `pass` ("No — Pass"), wordt niet verwijderd |
 
 ## 1. Data: de status "aspirant"
 
@@ -33,13 +34,22 @@ blijft maandelijks draaien als Cloud Run Job `screener`.
   Geen schemamigratie: `config` is al jsonb.
 - Doorzetten verwijdert `watchlist_status` en zet
   `"promoted_by": "claude"`, `"promoted_at": "<ISO-datum>"`.
+- Afwijzen zet `"watchlist_status": "rejected"` en `"rejected_at"`, en het
+  Scorecard-verdict op `"pass"` (het bestaande "No — Pass", rood in de lijst).
+  Als er een robustness-tabel is, wint die in `resolve_verdict`; bij afwijzen
+  wordt daarom ook `robustness.verdict_mapped` op `"pass"` gezet.
 - Afwezigheid van `watchlist_status` betekent een gewone watchlistnaam. Alle
   bestaande configs blijven dus ongewijzigd geldig.
 
-### Aspiranten blijven buiten alles wat met reële waarde rekent
+### Aspiranten en afgewezen namen blijven buiten alles wat met reële waarde rekent
 
-Een aspirant heeft een basisconfig met vlakke placeholder-aannames. Een reële
-waarde daaruit is betekenisloos en mag nergens als oordeel verschijnen.
+Een aspirant of afgewezen naam heeft een basisconfig met vlakke
+placeholder-aannames. Een reële waarde daaruit is betekenisloos en mag nergens
+als oordeel verschijnen.
+
+- `rejected` staat wél in de gewone watchlist (met NO-verdict), maar met "—"
+  voor fair value, buy price en upside, en zonder `calculate_multi_lens_valuation`.
+- De uitsluitingen hieronder gelden voor beide statussen.
 
 - `config_store.list_watchlist(..., include_aspirants=False)`: nieuwe parameter,
   standaard uit. Leest `config->watchlist_status` mee in de select.
@@ -108,7 +118,10 @@ routine kan geen bestaande config overschrijven en geen niet-wide naam doorzette
   Per rij: logo, ticker, bedrijf, ROCE, moat-verdict (uit de Moat-sectie, of
   "—" als die nog leeg is), datum toegevoegd.
 - Per rij twee knoppen: **Promote** (handmatig doorzetten, zonder de
-  Wide-controle: de gebruiker mag zelf afwijken) en **Remove**.
+  Wide-controle: de gebruiker mag zelf afwijken) en **NO** (afwijzen: status
+  `rejected`, verdict `pass`, naam verschijnt in de gewone lijst als NO).
+- Een afgewezen naam komt terug in het normale leven zodra de gebruiker hem in
+  de editor een DCF geeft en opslaat: dan verdwijnt `watchlist_status`.
 - In de gewone lijst krijgen namen met `promoted_by = "claude"` een klein label
   "by Claude · 2 Oct". Het label verdwijnt zodra de gebruiker de config zelf
   opslaat in de editor.
@@ -154,7 +167,10 @@ routine kan geen bestaande config overschrijven en geen niet-wide naam doorzette
   meegegeven `stock_price`, zet status en datum.
 - `promote_aspirant`: weigert bij Narrow/None/geen verdict, weigert bij
   placeholder-curves of ontbrekende summary, slaagt bij volledige config.
-- `list_watchlist` / `load_all_configs`: aspiranten standaard weg, met vlag erbij.
+- `list_watchlist` / `load_all_configs`: aspiranten standaard weg, met vlag erbij;
+  `rejected` wel in de lijst, zonder fair value.
+- Afwijzen: zet status, verdict `pass` (ook via robustness), en de routine pakt
+  de naam niet opnieuw op.
 - Refresh-all en `notify` slaan aspiranten over.
 - Alles offline met mocks, zoals de bestaande suites.
 
