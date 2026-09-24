@@ -153,7 +153,7 @@ routine kan geen bestaande config overschrijven en geen niet-wide naam doorzette
 - `add_aspirant`: weigert bij bestaande config (ook aspirant), gebruikt
   meegegeven `stock_price`, zet status en datum.
 - `promote_aspirant`: weigert bij Narrow/None/geen verdict, weigert bij
-  placeholder-curves of ontbrekende peers/summary, slaagt bij volledige config.
+  placeholder-curves of ontbrekende summary, slaagt bij volledige config.
 - `list_watchlist` / `load_all_configs`: aspiranten standaard weg, met vlag erbij.
 - Refresh-all en `notify` slaan aspiranten over.
 - Alles offline met mocks, zoals de bestaande suites.
