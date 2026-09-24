@@ -3602,12 +3602,16 @@ st.markdown(f"""
         align-items: flex-end;
         gap: 3px;
     }}
-    .tk-pl-pct {{
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: var(--text-muted);
-        font-variant-numeric: tabular-nums;
+    .pl-toggle {{
+        cursor: pointer;
+        user-select: none;
+        margin: 0;
     }}
+    .pl-toggle .pl-badge {{ min-width: 96px; text-align: center; }}
+    .pl-toggle-cb {{ display: none; }}
+    .pl-toggle .pl-pct {{ display: none; }}
+    .pl-toggle-cb:checked ~ .pl-usd {{ display: none; }}
+    .pl-toggle-cb:checked ~ .pl-pct {{ display: inline-block; }}
     /* The basics as label / value rows. */
     .tk-rows {{
         margin: 0 0 14px 0;
@@ -11654,7 +11658,8 @@ elif page == "Holdings":
                     "vs S&amp;P",
                     f'<span style="color:{T["accent"] if _v >= 0 else T["red"]};font-weight:600">'
                     f'${abs(_v):,.0f} {"ahead" if _v >= 0 else "behind"}'
-                    f'</span> <span style="{_muted}">· {_tr["days_held"]} days'
+                    f'</span> <span style="{_muted}">· {_tr["total_alpha"]:+.0f} pts'
+                    f' · {_tr["days_held"]} days'
                     + (f' · premium {"+" if _prem >= 0 else "-"}${abs(_prem):,.0f}'
                        if abs(_prem) >= 1 else "")
                     + '</span>'))
@@ -11662,17 +11667,27 @@ elif page == "Holdings":
             # The percentage on the same basis as the S&P line: every lot
             # over its own days, premium and dividends in. Not for a single
             # wheel, whose dollar figure has no matching base here.
-            _pct = ""
+            # Click the badge to switch between dollars and percent. A hidden
+            # checkbox inside the label carries the state, so it flips in the
+            # browser without a rerun.
+            _usd_badge = (f'<span class="pl-badge {pl_badge} pl-usd">'
+                          f'{pl_sign}{abs(display_pl):,.2f}</span>')
             if _tr and _tr.get("total_return") is not None and not per_wheel:
-                _pct = f'<span class="tk-pl-pct">{_tr["total_return"]:+.1f}%</span>'
+                _r = _tr["total_return"]
+                _pl_html = (
+                    f'<label class="pl-toggle" title="Click to switch $ / %">'
+                    f'<input type="checkbox" class="pl-toggle-cb">{_usd_badge}'
+                    f'<span class="pl-badge {"pl-badge-green" if _r >= 0 else "pl-badge-red"} pl-pct">'
+                    f'{_r:+.1f}%</span></label>')
+            else:
+                _pl_html = _usd_badge
 
             st.markdown(
                 f'<div class="card-header">'
                 f'  <div class="card-left"><div class="tk-title">'
                 f'    {_logo_tag}<p class="tk-name">{_card_symbol}</p>{_tag}'
                 f'  </div></div>'
-                f'  <div class="tk-pl"><span class="pl-badge {pl_badge}">'
-                f'{pl_sign}{abs(display_pl):,.2f}</span>{_pct}</div>'
+                f'  <div class="tk-pl">{_pl_html}</div>'
                 f'</div>'
                 f'<div class="tk-rows">{"".join(_rows)}</div>',
                 unsafe_allow_html=True,
