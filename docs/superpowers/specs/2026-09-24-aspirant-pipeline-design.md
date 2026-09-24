@@ -1,17 +1,18 @@
 # Aspirant-pijplijn: van Screener naar watchlist, wekelijks en zonder toezicht
 
-Datum: 2026-09-24 · Status: ontwerp, goedgekeurd in chat, wacht op review van deze spec
+Datum: 2026-09-24 · Status: ontwerp, goedgekeurd in chat
 
 ## Doel
 
 Een wekelijkse cloud-routine die namen die door de Screener komen automatisch
 beoordeelt en in LazyTheta zet:
 
-1. Elke nieuwe Screener-geslaagde naam komt als **aspirant** in de lijst, met de
-   volledige pre-scan ingevuld door Claude.
-2. Alleen bij een **Wide moat** mag hij door naar de gewone watchlist, met een
+1. Elke nieuwe Screener-geslaagde naam komt in de watchlist-categorie
+   **Aspirant**, met de volledige pre-scan ingevuld door Claude.
+2. Alleen bij een **Wide moat** mag hij door naar **Uncategorized**, met een
    **volledig door Claude ingevulde DCF**.
 3. Een bestaande config wordt **nooit** overschreven.
+4. Afkeuren = categorie **No**, de bestaande groep in de watchlist.
 
 De Screener zelf (ROCE ≥ 20% gemiddeld, geen netto schuld) verandert niet; hij
 blijft maandelijks draaien als Cloud Run Job `screener`.
@@ -20,172 +21,165 @@ blijft maandelijks draaien als Cloud Run Job `screener`.
 
 | Vraag | Besluit |
 |---|---|
-| Moat niet wide | Blijft aspirant, met analyse; niet verwijderen, niet opnieuw beoordelen |
+| Moat niet wide | Blijft Aspirant, met analyse; niet opnieuw beoordelen |
+| Afkeuren | Categorie **No** (bestaande watchlistgroep); naam wordt niet verwijderd |
+| Doorzetten (routine) | Categorie **Uncategorized**, label "by Claude" |
 | Aantal per run | Maximaal 5 nieuwe namen |
 | Waar | Claude Code cloud-routine (`/schedule`), abonnement, geen API-tegoed |
 | Hoe vaak | Wekelijks, maandag 07:00 Europe/Amsterdam |
-| Doorzetten | Automatisch bij Wide moat; label "by Claude" zodat de gebruiker ziet wat hij nog niet zelf bekeek |
-| Afwijzen | Knop **NO**: naam gaat de gewone watchlist in met verdict `pass` ("No — Pass"), wordt niet verwijderd |
+| Peers/multiples | Geen: de watchlist-fair-value is sinds 2026-07-30 puur de DCF |
 
-## 1. Data: de status "aspirant"
+## 1. Data
 
-- Een aspirant is een gewone rij in `watchlist_configs` met in de config
-  `"watchlist_status": "aspirant"` en `"aspirant_added": "<ISO-datum>"`.
-  Geen schemamigratie: `config` is al jsonb.
-- Doorzetten verwijdert `watchlist_status` en zet
-  `"promoted_by": "claude"`, `"promoted_at": "<ISO-datum>"`.
-- Afwijzen zet `"watchlist_status": "rejected"` en `"rejected_at"`, en het
-  Scorecard-verdict op `"pass"` (het bestaande "No — Pass", rood in de lijst).
-  Als er een robustness-tabel is, wint die in `resolve_verdict`; bij afwijzen
-  wordt daarom ook `robustness.verdict_mapped` op `"pass"` gezet.
-- Afwezigheid van `watchlist_status` betekent een gewone watchlistnaam. Alle
-  bestaande configs blijven dus ongewijzigd geldig.
+De watchlist kent al categorieën via `config["category"]`
+(`Uncategorized`, `Yes`, `Maybe`, `Watch Later`, `No`), getoond als inklapbare
+groepen en gezet met de Status-pills in de editor. Daar komt er één bij.
 
-### Aspiranten en afgewezen namen blijven buiten alles wat met reële waarde rekent
+- **Nieuwe categorie `Aspirant`.** Toegevoegd aan de categorielijst van de
+  watchlist-groepen én aan de Status-pills in de editor.
+- **Nieuwe markering `dcf_placeholder: true`.** Zegt: deze config heeft nog
+  geen echte DCF, alleen de basisconfig met vlakke placeholder-aannames van
+  `build_config`. Gezet door `add_aspirant`; verwijderd door
+  `save_to_watchlist` zodra de groei- of margecurve niet meer vlak is.
+  Onafhankelijk van de categorie, zodat een afgekeurde naam in No ook geen
+  nep-fair-value krijgt.
+- Verder in de config: `aspirant_added` (ISO-datum), en bij doorzetten
+  `promoted_by: "claude"` en `promoted_at`.
+- Geen schemamigratie: `config` is al jsonb. Bestaande configs hebben geen
+  `dcf_placeholder` en blijven ongewijzigd geldig.
 
-Een aspirant of afgewezen naam heeft een basisconfig met vlakke
-placeholder-aannames. Een reële waarde daaruit is betekenisloos en mag nergens
-als oordeel verschijnen.
+### Geen fair value uit een placeholder-DCF
 
-- `rejected` staat wél in de gewone watchlist (met NO-verdict), maar met "—"
-  voor fair value, buy price en upside, en zonder `calculate_multi_lens_valuation`.
-- De uitsluitingen hieronder gelden voor beide statussen.
-
-- `config_store.list_watchlist(..., include_aspirants=False)`: nieuwe parameter,
-  standaard uit. Leest `config->watchlist_status` mee in de select.
-- `config_store.load_all_configs(..., include_aspirants=False)`: idem; gebruikt
-  door "Refresh all".
-- `mcp_server._refresh_all_valuations_impl`: slaat aspiranten over.
-- `supabase/functions/notify/index.ts`: filtert rijen met
-  `config->>watchlist_status = 'aspirant'` weg (geen prijsmeldingen).
-- Portfolio-pagina (fair-value-kolom) gebruikt `list_watchlist` met
-  `tickers=`, dus valt vanzelf onder de standaard.
-- De duplicate-check bij "Add to Watchlist" (`streamlit_app.py`, rond regel 4353)
-  moet aspiranten **wel** meetellen: `include_aspirants=True`.
+- `mcp_server._refresh_all_valuations_impl` en de "↻ Refresh all"-handler in
+  `streamlit_app.py` slaan configs met `dcf_placeholder` over.
+- `_calculate_multi_lens_valuation_impl` weigert bij `dcf_placeholder` met een
+  duidelijke fout. Omdat `save_to_watchlist` de markering weghaalt zodra de DCF
+  is ingevuld, werkt de waardering daarna gewoon.
+- In de watchlistrij tonen fair value, buy price en upside "—" zolang er geen
+  `valuation_summary` is. Dat gebeurt al; aspiranten krijgen er dus vanzelf
+  geen.
+- Prijsmeldingen (`supabase/functions/notify`) gaan al alleen uit voor
+  `category === "Yes"`; geen wijziging nodig.
 
 ## 2. MCP-tools (`mcp_server.py`)
 
-De beveiliging zit in de server, niet in de routine-prompt: een fout van de
-routine kan geen bestaande config overschrijven en geen niet-wide naam doorzetten.
+De beveiliging zit in de server, niet in de routine-prompt.
 
 ### `get_screener_candidates(limit: int = 5) -> str`
 
-- Leest de nieuwste rij uit `screener_snapshots`.
+- Leest de nieuwste rij uit `screener_snapshots` (`rows`, elk met `ticker`,
+  `avg_roce`, `net_debt`, `passes`).
 - Neemt de rijen met `passes = true`.
-- Haalt alle tickers uit de lijst van de gebruiker weg, **in welke status ook**
-  (`list_watchlist(include_aspirants=True)`).
-- Sorteert op gemiddeld ROCE, aflopend; geeft de eerste `limit` terug met
-  ticker, bedrijf, ROCE, netto schuld en `computed_at` van de snapshot.
+- Haalt alle tickers weg die al in de lijst van de gebruiker staan, in welke
+  categorie ook.
+- Sorteert op `avg_roce` aflopend; geeft de eerste `limit` terug met ticker,
+  bedrijf, `avg_roce`, `net_debt` en `computed_at` van de snapshot.
 
 ### `add_aspirant(ticker: str, stock_price: float = 0) -> str`
 
-- **Weigert** met een fout als `load_config(ticker)` al iets teruggeeft.
-- Bouwt de basisconfig via dezelfde EDGAR-route als `run_analysis` in de app
-  (CIK, submissions, sector betas, `parse_financials`, `build_config`), maar
-  zonder Streamlit. Die route wordt daarvoor uit `streamlit_app.py` gehaald naar
-  een functie in `gather_data.py` die beide aanroepen.
-- **Koers:** Yahoo is vanaf Cloud Run geblokkeerd (zie geheugennotitie
-  `lazytheta-cloudrun-yfinance-blocked`). Daarom `stock_price` als parameter:
-  als die > 0 is wordt hij gebruikt, anders een poging via Yahoo, en bij
-  mislukking een duidelijke fout ("geef stock_price mee"). De routine haalt de
-  koers uit een andere connector (SEC-MCP `GetLiveQuote`).
-- Slaat op met `watchlist_status = "aspirant"` en `aspirant_added`.
+- **Weigert** als `load_config(ticker)` al iets teruggeeft.
+- Bouwt de basisconfig via dezelfde EDGAR-route als `run_analysis` in de app,
+  zonder Streamlit: `gather_data.build_base_config(ticker, stock_price=0)`.
+  `run_analysis` blijft zoals hij is (hij toont voortgang per stap); de nieuwe
+  functie herhaalt dezelfde stappen zonder UI.
+- **Koers:** Yahoo is vanaf Cloud Run geblokkeerd. `stock_price > 0` wordt
+  gebruikt; anders een poging via Yahoo; lukt dat niet, dan een fout
+  ("geef stock_price mee"). De routine haalt de koers uit SEC-MCP
+  `GetLiveQuote`.
+- Slaat op met `category: "Aspirant"`, `dcf_placeholder: true`,
+  `aspirant_added`.
 
 ### `promote_aspirant(ticker: str) -> str`
 
-- Weigert als de config geen aspirant is.
+- Weigert als `category != "Aspirant"`.
 - Weigert tenzij de pre-scan-sectie `Moat` een verdictregel heeft die als
-  **Wide** parset. Parser: dezelfde vorm die `prescan_render.py` al leest
-  (`**Moat: Wide 🛡️ · Stable ➡️ · 4/5**`).
-- Weigert als de DCF niet is ingevuld. Minimumcontrole:
+  **Wide** parset (via `prescan_render.parse_verdict_section`, label
+  `Wide`; vorm: `**Moat: Wide 🛡️ · Stable ➡️ · 4/5**`).
+- Weigert als de DCF niet is ingevuld:
+  - `dcf_placeholder` is weg;
   - `equity_market_value` > 0 en `sector_betas`-gewichten tellen op tot 1,0;
-  - groei- en margecurves zijn niet meer de vlakke placeholders van
-    `build_config` (niet elk jaar gelijk aan terminal growth / laatste marge);
-  - `valuation_summary` aanwezig (dus `calculate_multi_lens_valuation` gedraaid).
-- Bij succes: status weg, `promoted_by` / `promoted_at` gezet.
+  - `valuation_summary` aanwezig.
+- Bij succes: `category: "Uncategorized"`, `promoted_by: "claude"`,
+  `promoted_at`.
+
+### `set_category(ticker: str, category: str) -> str`
+
+- Zet één van de categorieën (`Uncategorized`, `Yes`, `Maybe`,
+  `Watch Later`, `No`, `Aspirant`). Weigert onbekende. Zo kan de gebruiker ook
+  via Claude afkeuren ("zet XYZ op No").
 
 ### Bestaande tools
 
-- `get_watchlist`: geeft voortaan ook `status` terug (`"aspirant"` of `null`),
-  en toont aspiranten alleen met een nieuwe parameter `include_aspirants=True`.
-- `save_to_watchlist` blijft zoals hij is (handmatig gebruik moet kunnen
-  overschrijven). De routine-prompt verbiedt hem op namen die niet in deze run
-  via `add_aspirant` zijn toegevoegd.
+- `save_to_watchlist`: haalt `dcf_placeholder` weg zodra `revenue_growth` of
+  `op_margins` niet meer vlak is (niet elk jaar gelijk). Overschrijven blijft
+  mogelijk voor handmatig gebruik; de routine-prompt verbiedt hem op namen die
+  niet in deze run via `add_aspirant` zijn toegevoegd.
+- `get_watchlist` / `config_store.list_watchlist`: geven ook `category` terug.
 
 ## 3. App (Watchlist-pagina)
 
-- Onder de gewone lijst een blok **"Aspirants (n)"**, alleen als n > 0.
-  Per rij: logo, ticker, bedrijf, ROCE, moat-verdict (uit de Moat-sectie, of
-  "—" als die nog leeg is), datum toegevoegd.
-- Per rij twee knoppen: **Promote** (handmatig doorzetten, zonder de
-  Wide-controle: de gebruiker mag zelf afwijken) en **NO** (afwijzen: status
-  `rejected`, verdict `pass`, naam verschijnt in de gewone lijst als NO).
-- Een afgewezen naam blijft NO totdat de gebruiker in de editor zelf het
-  verdict wijzigt (weg van `pass`); pas dan verdwijnt `watchlist_status`. Alleen
-  een DCF opslaan verandert de status niet.
-- In de gewone lijst krijgen namen met `promoted_by = "claude"` een klein label
-  "by Claude · 2 Oct". Het label verdwijnt zodra de gebruiker de config zelf
-  opslaat in de editor.
+- `Aspirant` als groep in de watchlist, na `Yes` (standaard ingeklapt), en als
+  optie in de Status-pills van de editor.
+- In de rijen van de Aspirant-groep een kleine knop **NO**: zet `category` op
+  `No`. Doorzetten doet de gebruiker met de bestaande Status-pills.
+- Namen met `promoted_by = "claude"` in categorie Uncategorized krijgen een
+  klein label "by Claude · 2 Oct" in de rij. Het label verdwijnt zodra de
+  gebruiker de categorie zelf wijzigt (de pills wissen `promoted_by`).
+- De "↻ Refresh all"-handler slaat `dcf_placeholder`-configs over.
 
 ## 4. De routine
 
 - Aangemaakt met `/schedule`, repo `lazytheta/stock-analysis`, wekelijks
   maandag 07:00 Europe/Amsterdam, connectors: LazyTheta Remote MCP en SEC-MCP.
-- Prompt (vastgelegd in `docs/routines/aspirant-weekly.md` in de repo, zodat
-  hij versiebeheerd is):
-  1. `get_screener_candidates(5)`. Leeg → `add_reminder` overslaan en stoppen.
+- Prompt vastgelegd in `docs/routines/aspirant-weekly.md` (versiebeheerd):
+  1. `get_screener_candidates(5)`. Leeg → stoppen, geen reminder.
   2. Per naam: koers via `GetLiveQuote`, dan `add_aspirant(ticker, stock_price)`.
      Faalt die → naam overslaan, reden noteren.
   3. `get_prescan_prompts` → elke sectie beantwoorden →
      `save_prescan_section`. De Moat-sectie moet de vaste verdictregel bevatten.
-  4. Moat niet Wide → klaar met deze naam (blijft aspirant).
+  4. Moat niet Wide → klaar met deze naam (blijft Aspirant).
   5. Moat Wide → DCF volledig invullen: groei- en margecurves met onderbouwing,
      `sector_betas` met gewichten die optellen tot 1,0, `equity_market_value`,
      scenario-aanpassingen, `set_robustness`, `set_premortem`. Opslaan via
      `save_to_watchlist`, dan `calculate_multi_lens_valuation`, dan
-     `promote_aspirant`. Weigert die → reden noteren, naam blijft aspirant.
+     `promote_aspirant`. Weigert die → reden noteren, naam blijft Aspirant.
   6. Eén `add_reminder` met de samenvatting: toegevoegd, doorgezet,
      overgeslagen met reden.
-- Afspraken voor de DCF volgen de bestaande regels: nominal basis, CAPM/WACC,
-  geen SBC, marge of safety 20%.
-- Geen peers of multiples: sinds 2026-07-30 is de watchlist-fair-value puur de
-  DCF (multiples-lenzen op gewicht 0, alleen nog referentie op de tickerpagina).
-  De routine vult geen peers in.
+- DCF-regels: nominal basis, CAPM/WACC, geen SBC, margin of safety 20%, geen
+  peers.
 
 ## Foutafhandeling
 
-- Elke stap per naam is onafhankelijk: een fout bij naam 2 stopt naam 3 niet.
-- `add_aspirant` is idempotent in de zin dat een tweede aanroep weigert in
-  plaats van te overschrijven; een half ingevulde aspirant uit een mislukte run
-  wordt de week erna niet opnieuw opgepakt (hij staat al in de lijst). Hij blijft
-  zichtbaar met een lege of halve pre-scan, zodat de gebruiker het ziet.
+- Elke naam is onafhankelijk: een fout bij naam 2 stopt naam 3 niet.
+- Een half ingevulde aspirant uit een mislukte run wordt de week erna niet
+  opnieuw opgepakt (hij staat al in de lijst) en blijft zichtbaar in de groep
+  Aspirant met een lege of halve pre-scan.
 
 ## Testen
 
-- `get_screener_candidates`: filtert bestaande tickers (gewoon én aspirant),
-  respecteert `limit`, sorteert op ROCE, lege snapshot → lege lijst.
-- `add_aspirant`: weigert bij bestaande config (ook aspirant), gebruikt
-  meegegeven `stock_price`, zet status en datum.
-- `promote_aspirant`: weigert bij Narrow/None/geen verdict, weigert bij
-  placeholder-curves of ontbrekende summary, slaagt bij volledige config.
-- `list_watchlist` / `load_all_configs`: aspiranten standaard weg, met vlag erbij;
-  `rejected` wel in de lijst, zonder fair value.
-- Afwijzen: zet status, verdict `pass` (ook via robustness), en de routine pakt
-  de naam niet opnieuw op.
-- Refresh-all en `notify` slaan aspiranten over.
+- `get_screener_candidates`: filtert bestaande tickers (elke categorie),
+  respecteert `limit`, sorteert op ROCE, geen snapshot → lege lijst.
+- `add_aspirant`: weigert bij bestaande config, gebruikt meegegeven
+  `stock_price`, zet categorie, markering en datum.
+- `promote_aspirant`: weigert bij andere categorie, bij Narrow/None/geen
+  verdict, bij `dcf_placeholder`, bij ontbrekende `valuation_summary`; slaagt
+  bij volledige config en zet Uncategorized.
+- `save_to_watchlist`: haalt `dcf_placeholder` weg bij niet-vlakke curves,
+  laat hem staan bij vlakke.
+- Refresh-all slaat `dcf_placeholder` over; calculate weigert erop.
+- `set_category`: weigert onbekende categorie.
 - Alles offline met mocks, zoals de bestaande suites.
 
 ## Uitrol
 
-1. App en `config_store` → `main` (Streamlit Cloud; `config_store` is een
-   module buiten `streamlit_app.py`, dus na de push **Manage app → Reboot**).
+1. App → `main` (Streamlit Cloud). `gather_data.py`/`config_store.py` zijn
+   modules buiten `streamlit_app.py`: na de push **Manage app → Reboot**.
 2. MCP → `gcloud run deploy lazytheta-mcp --source .` vanaf de repo-root.
-3. `notify` edge function herdeployen.
-4. Routine aanmaken, één keer handmatig laten draaien en het resultaat samen
+3. Routine aanmaken, één keer handmatig laten draaien en het resultaat samen
    nakijken vóór de eerste geplande run.
 
 ## Buiten scope
 
-- De Screener wekelijks laten draaien (jaarcijfers veranderen per kwartaal).
-- Een andere koersbron voor de hele app (de Yahoo-blokkade in het algemeen).
+- De Screener wekelijks laten draaien.
+- Een andere koersbron voor de hele app.
 - Financials/REITs in de Screener (eerder gemeten en verworpen).
