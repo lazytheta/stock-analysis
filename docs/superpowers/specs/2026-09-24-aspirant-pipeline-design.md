@@ -93,8 +93,8 @@ De beveiliging zit in de server, niet in de routine-prompt.
 
 - Weigert als `category != "Aspirant"`.
 - Weigert tenzij de pre-scan-sectie `Moat` een verdictregel heeft die als
-  **Wide** parset (via `prescan_render.parse_verdict_section`, label
-  `Wide`; vorm: `**Moat: Wide 🛡️ · Stable ➡️ · 4/5**`).
+  **Wide** parset (via `aspirant.moat_label`, dat alleen de verdictregel leest,
+  label `Wide`; vorm: `**Moat: Wide 🛡️ · Stable ➡️ · 4/5**`).
 - Weigert als de DCF niet is ingevuld:
   - `dcf_placeholder` is weg;
   - `equity_market_value` > 0 en `sector_betas`-gewichten tellen op tot 1,0;
