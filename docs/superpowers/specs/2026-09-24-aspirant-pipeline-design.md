@@ -120,8 +120,9 @@ routine kan geen bestaande config overschrijven en geen niet-wide naam doorzette
 - Per rij twee knoppen: **Promote** (handmatig doorzetten, zonder de
   Wide-controle: de gebruiker mag zelf afwijken) en **NO** (afwijzen: status
   `rejected`, verdict `pass`, naam verschijnt in de gewone lijst als NO).
-- Een afgewezen naam komt terug in het normale leven zodra de gebruiker hem in
-  de editor een DCF geeft en opslaat: dan verdwijnt `watchlist_status`.
+- Een afgewezen naam blijft NO totdat de gebruiker in de editor zelf het
+  verdict wijzigt (weg van `pass`); pas dan verdwijnt `watchlist_status`. Alleen
+  een DCF opslaan verandert de status niet.
 - In de gewone lijst krijgen namen met `promoted_by = "claude"` een klein label
   "by Claude · 2 Oct". Het label verdwijnt zodra de gebruiker de config zelf
   opslaat in de editor.
