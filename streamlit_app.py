@@ -3634,7 +3634,6 @@ st.markdown(f"""
         color: var(--text);
         font-variant-numeric: tabular-nums;
     }}
-    [class*="st-key-wheel_toggle_"] p {{ white-space: nowrap; }}
     .pl-badge {{
         display: inline-block;
         padding: 6px 16px;
@@ -11566,11 +11565,12 @@ elif page == "Holdings":
         with st.container(key=f"wheel_card_{ticker}"):
             all_trades = data.get("trades", [])
 
-            # The toggle is drawn beside the transactions, below the figures
-            # it changes, so its value is read from session state here.
-            _toggle_key = f"wheel_toggle_{ticker}"
+            # The view switch is drawn above the transactions, below the
+            # figures it also changes, so its value is read from session
+            # state here.
+            _view_key = f"wheel_view_{ticker}"
             per_wheel = (bool(all_trades) and is_wheel
-                         and st.session_state.get(_toggle_key, False))
+                         and st.session_state.get(_view_key) == "Per wheel")
 
             # P/L: last wheel only when toggled, otherwise total
             if per_wheel and last_wheel:
@@ -11702,16 +11702,15 @@ elif page == "Holdings":
             if not all_trades:
                 return
 
-            # The expanders and the switch that decides what they list, on
-            # one row: the toggle belongs with the transactions, not above
-            # the figures. Without an option ever written there is no wheel
-            # to split by, so no switch.
+            # "All | Per wheel" sits directly above the lists it switches,
+            # on its own line, so the expanders keep the card's full width.
+            # Without an option ever written there is no wheel to split by,
+            # so no switch.
             if is_wheel:
-                _tx_col, _tg_col = st.columns([3, 1], vertical_alignment="center")
-                with _tg_col:
-                    st.toggle("Per wheel", key=_toggle_key)
-            else:
-                _tx_col = st.container()
+                st.segmented_control("Transactions view", ["All", "Per wheel"],
+                                     default="All", key=_view_key,
+                                     label_visibility="collapsed")
+            _tx_col = st.container()
             with _tx_col:
                 if per_wheel:
                     for i, wheel in reversed(list(enumerate(wheels))):
