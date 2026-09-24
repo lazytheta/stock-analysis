@@ -91,7 +91,6 @@ routine kan geen bestaande config overschrijven en geen niet-wide naam doorzette
   - `equity_market_value` > 0 en `sector_betas`-gewichten tellen op tot 1,0;
   - groei- en margecurves zijn niet meer de vlakke placeholders van
     `build_config` (niet elk jaar gelijk aan terminal growth / laatste marge);
-  - minstens één peer met `fwd_pe`;
   - `valuation_summary` aanwezig (dus `calculate_multi_lens_valuation` gedraaid).
 - Bij succes: status weg, `promoted_by` / `promoted_at` gezet.
 
@@ -127,8 +126,6 @@ routine kan geen bestaande config overschrijven en geen niet-wide naam doorzette
      `save_prescan_section`. De Moat-sectie moet de vaste verdictregel bevatten.
   4. Moat niet Wide → klaar met deze naam (blijft aspirant).
   5. Moat Wide → DCF volledig invullen: groei- en margecurves met onderbouwing,
-     peers met expliciete `fwd_pe` en `ev_ebitda` (uit SEC-MCP
-     `GetValuationMultiples`; niet vertrouwen op Yahoo-autofill),
      `sector_betas` met gewichten die optellen tot 1,0, `equity_market_value`,
      scenario-aanpassingen, `set_robustness`, `set_premortem`. Opslaan via
      `save_to_watchlist`, dan `calculate_multi_lens_valuation`, dan
@@ -137,6 +134,9 @@ routine kan geen bestaande config overschrijven en geen niet-wide naam doorzette
      overgeslagen met reden.
 - Afspraken voor de DCF volgen de bestaande regels: nominal basis, CAPM/WACC,
   geen SBC, marge of safety 20%.
+- Geen peers of multiples: sinds 2026-07-30 is de watchlist-fair-value puur de
+  DCF (multiples-lenzen op gewicht 0, alleen nog referentie op de tickerpagina).
+  De routine vult geen peers in.
 
 ## Foutafhandeling
 
