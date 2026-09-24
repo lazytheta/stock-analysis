@@ -11611,13 +11611,15 @@ elif page == "Holdings":
                         f'<span class="tk-row-value">{value}</span></div>')
 
             _muted = f'color:{T["text_muted"]}'
+            _ccy = (data.get("currency") or "USD").upper()
+            _cs = _CURRENCY_SYMBOL.get(_ccy, _ccy + " ")
             _is_open = shares > 0
             _start, _n_buys = position_start(_card_trades)
             _shares_txt = f"{shares:,.4f}".rstrip("0").rstrip(".") or "0"
             _rows = [_row("Position", f"{_shares_txt} shares" if _is_open
                           else '<span style="' + _muted + '">closed</span>')]
 
-            _bought = f"{buy_price:,.2f}"
+            _bought = f"{_cs}{buy_price:,.2f}"
             if _start:
                 _bought += (f' <span style="{_muted}">on {_fmt_day(_start)}</span>'
                             if _n_buys <= 1 else
@@ -11628,7 +11630,7 @@ elif page == "Holdings":
             # it twice implies a premium that was never collected.
             if is_wheel and _is_open:
                 _bought += (f' <span style="{_muted}">· adjusted '
-                            f'{display_basis(adj_cost):,.2f}</span>')
+                            f'{_cs}{display_basis(adj_cost):,.2f}</span>')
             _rows.append(_row("Bought", _bought))
 
             if not _is_open:
@@ -11638,7 +11640,7 @@ elif page == "Holdings":
                 if _hs_sold:
                     _rows.append(_row(
                         "Sold",
-                        f'{_hs_sold["sale_price"]:,.2f}'
+                        f'{_cs}{_hs_sold["sale_price"]:,.2f}'
                         + (f' <span style="{_muted}">on {_fmt_day(_hs_sold["closed_on"])}</span>'
                            if _hs_sold.get("closed_on") else "")))
 
@@ -11646,7 +11648,8 @@ elif page == "Holdings":
             # price from this IP is unpriced, not worthless.
             if cur_price:
                 _rows.append(_row(
-                    "Now", f'{cur_price:,.2f} <span style="color:{day_color}">'
+                    "Now", f'{_cs}{cur_price:,.2f} '
+                           f'<span style="color:{day_color}">'
                            f'({day_chg:+.1f}% today)</span>'))
             else:
                 _rows.append(_row("Now", "\u2014"))
