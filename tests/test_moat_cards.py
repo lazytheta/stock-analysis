@@ -1,8 +1,11 @@
 import json
+import sys
 
 import pytest
 
 import moat_cards
+
+THEME = {"text": "#222", "text_muted": "#888", "divider": "#ddd", "bg_secondary": "#f5f3ee"}
 
 
 def _card(source, pick=2, direction="stable"):
@@ -11,10 +14,13 @@ def _card(source, pick=2, direction="stable"):
             "points": [{"label": f"L{i}", "text": f"T{i}"} for i in range(3)]}
 
 
-def _payload(**over):
+def _payload(over=None):
+    # over maps a card index (int) to field overrides. Not **kwargs: dict
+    # unpacking into keyword arguments requires string keys, but the index
+    # here is an int, so the overrides are passed as one positional dict.
     cards = [_card(k) for k, *_ in moat_cards.SOURCES]
     for i, c in enumerate(cards):
-        c.update(over.get(i, {}))
+        c.update((over or {}).get(i, {}))
     return {"cards": cards}
 
 
@@ -142,3 +148,49 @@ def test_should_write_refuses_missing_or_empty_prompt_library():
     assert should_write({}) is False
     assert should_write({"ai_prompts": None}) is False
     assert should_write({"ai_prompts": "not-a-list"}) is False
+
+
+def test_flip_card_shows_pick_direction_and_three_points_on_the_back():
+    card = moat_cards.parse_moat_cards(json.dumps(_payload({0: {"pick": 1, "direction": "widening"}})))["cards"][0]
+    html = moat_cards.flip_card_html(card, THEME)
+    assert 'type="checkbox"' in html and 'class="mc-flip"' in html
+    assert "How hard is it to switch?" in html
+    assert html.count('data-active="1"') == 1           # one lit answer
+    assert "MODERATE" in html.upper() and "widening" in html.lower()
+    assert all(f"L{i}" in html and f"T{i}" in html for i in range(3))
+    assert "Back to summary" in html
+
+
+def test_sources_row_has_a_dot_per_source():
+    cards = moat_cards.parse_moat_cards(json.dumps(_payload()))["cards"]
+    html = moat_cards.sources_row_html(cards, THEME)
+    for _key, name, *_ in moat_cards.SOURCES:
+        assert name.upper() in html.upper()
+
+
+def test_direction_card_reads_the_verdict_line():
+    text = ("**Moat: Wide 🛡️ · Narrowing ↘️ · 4/5**\n\nX has a **wide moat**.\n\n"
+            "- **A**: one\n- **B**: two\n- **C**: three\n\n**Weakest link:** pricing.")
+    html = moat_cards.direction_card_html(text, THEME)
+    assert "NARROWING" in html.upper() and "pricing" in html
+    assert moat_cards.direction_card_html("free text", THEME) is None
+
+
+def test_cards_section_without_data_shows_a_notice_not_a_crash():
+    for content in (None, "", "not json"):
+        html = moat_cards.cards_section_html(content, THEME)
+        assert "Moat Cards" in html and "mc-card" not in html
+
+
+def test_cards_section_with_data_renders_five_cards_and_the_style():
+    html = moat_cards.cards_section_html(json.dumps(_payload()), THEME)
+    assert html.count('class="mc-card"') == 5 and "<style>" in html
+
+
+def test_moat_cards_does_not_import_prescan_render_at_module_load():
+    for name in ("moat_cards", "prescan_render"):
+        sys.modules.pop(name, None)
+    import importlib
+    fresh = importlib.import_module("moat_cards")
+    importlib.reload(fresh)
+    assert "prescan_render" not in sys.modules
