@@ -34,6 +34,7 @@ vandaan komt in plaats van het af te leiden.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -150,6 +151,99 @@ def quote_age_minutes(quote: dict | None, now: datetime | None = None):
         parsed = parsed.replace(tzinfo=UTC)
     now = now or datetime.now(UTC)
     return (now - parsed).total_seconds() / 60.0
+
+
+NASDAQ_URL = "https://api.nasdaq.com/api/quote/{symbol}/info?assetclass={cls}"
+_NASDAQ_HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+_NASDAQ_TIMEOUT = 5
+_NASDAQ_SYMBOL = re.compile(r"^[A-Z]{1,5}$")
+
+
+def _nasdaq_symbol_ok(ticker) -> bool:
+    """Alleen gewone VS-tickers. ENX.PA, BRK-B, EURUSD=X en ^GSPC kent Nasdaq
+    niet (of onder een andere naam); daar gaat geen verzoek voor uit."""
+    return isinstance(ticker, str) and bool(_NASDAQ_SYMBOL.match(ticker))
+
+
+def _nasdaq_get(url: str) -> dict:
+    """Eén verzoek, korte timeout en geen retries.
+
+    Niet gather_data._http_get: die wacht 30 s en probeert vier keer, prima voor
+    EDGAR maar te traag voor een koers die op een pagina moet staan. De
+    SSL-context komt wel uit gather_data, om dezelfde reden als _http_get_json
+    hierboven.
+    """
+    import json
+    import urllib.request
+
+    from gather_data import _ssl_ctx
+    req = urllib.request.Request(url, headers=_NASDAQ_HEADERS)
+    with urllib.request.urlopen(req, timeout=_NASDAQ_TIMEOUT,
+                                context=_ssl_ctx) as resp:
+        return json.loads(resp.read())
+
+
+def _money(text) -> float | None:
+    """'$5,123.40' / '+12.10' / '-0.02' naar float; alles anders None."""
+    if not isinstance(text, str):
+        return None
+    cleaned = text.replace("$", "").replace(",", "").strip()
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _nasdaq_one(payload) -> dict | None:
+    """Nasdaq-antwoord naar het koerscontract, of None."""
+    data = (payload or {}).get("data") if isinstance(payload, dict) else None
+    primary = (data or {}).get("primaryData") if isinstance(data, dict) else None
+    if not isinstance(primary, dict):
+        return None
+    price = _money(primary.get("lastSalePrice"))
+    if price is None or price <= 0:
+        return None
+    change = _money(primary.get("netChange"))
+    return {
+        "price": price,
+        "previousClose": price - change if change is not None else None,
+        "asof": primary.get("lastTradeTimestamp"),
+        "venue": "Nasdaq",
+    }
+
+
+def fetch_nasdaq_quotes(tickers, fetch=None, max_workers: int = 8) -> dict:
+    """{ticker: {"price","previousClose","asof","venue"} | None} per ticker.
+
+    Waarom Nasdaq: Yahoo blokkeert op user-agent en bron-IP (2026-09-25: 429
+    vanaf Google Cloud), en de broker-feed werkt alleen voor wie met
+    Tastytrade is ingelogd -- niet voor de MCP op Cloud Run en niet voor
+    gebruikers zonder Tastytrade. Nasdaq geeft zonder sleutel een realtime
+    koers en antwoordt vanaf Google Cloud.
+
+    Eerst als aandeel, dan als ETF (SPY staat alleen onder etf). Elke
+    gevraagde ticker staat in het antwoord, ook als hij niets opleverde.
+    """
+    tickers = list(dict.fromkeys(t for t in tickers if t))
+    if not tickers:
+        return {}
+    fetch = fetch or _nasdaq_get
+
+    def one(ticker):
+        if not _nasdaq_symbol_ok(ticker):
+            return ticker, None
+        try:
+            for cls in ("stocks", "etf"):
+                quote = _nasdaq_one(fetch(NASDAQ_URL.format(symbol=ticker, cls=cls)))
+                if quote is not None:
+                    return ticker, quote
+        except Exception as e:
+            logger.warning("Nasdaq-koers voor %s mislukt: %s: %s",
+                           ticker, type(e).__name__, e)
+        return ticker, None
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        return dict(pool.map(one, tickers))
 
 
 def _live_price(quote) -> float | None:
