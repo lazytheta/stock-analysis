@@ -129,6 +129,29 @@ def test_prompt_uses_all_three_priors_and_names_every_item_and_region():
         assert region in business_cards.PROMPT
 
 
+def test_americas_is_a_valid_region_between_latin_america_and_europe():
+    assert "Americas" in business_cards.REGIONS
+    assert business_cards.REGIONS.index("Latin America") \
+        < business_cards.REGIONS.index("Americas") < business_cards.REGIONS.index("Europe")
+
+
+def test_parse_accepts_americas_as_a_region():
+    p = _payload()
+    p["revenue"]["regions"] = [{"region": "Americas", "label": "Americas", "share_pct": 100.0}]
+    parsed = business_cards.parse_business_cards(json.dumps(p))
+    assert parsed["revenue"]["regions"][0]["region"] == "Americas"
+
+
+def test_prompt_tells_the_model_to_omit_revenue_rather_than_estimate():
+    assert "omit the" in business_cards.PROMPT and "revenue" in business_cards.PROMPT
+    assert "Never estimate numbers" in business_cards.PROMPT
+
+
+def test_prompt_covers_eliminations_and_combining_duplicate_regions():
+    assert "eliminations" in business_cards.PROMPT.lower()
+    assert "combine" in business_cards.PROMPT.lower()
+
+
 def test_dollar_signs_and_newlines_cannot_break_streamlit_markdown():
     p = _payload()
     p["cards"][0]["summary"] = "Grew from $608M to $1.43B."

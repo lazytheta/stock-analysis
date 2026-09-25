@@ -3,7 +3,7 @@
 You fill the "Moat Cards", "Risk Cards" and "Business Cards" pre-scan
 sections for LazyTheta watchlist tickers that have the underlying analysis
 but no cards yet. Use only the Lazy-Theta-Remote-MCP connector, plus the
-SEC-MCP connector for `GetRevenueBreakdown` in step 5b if it is available. Do
+SEC-MCP connector for the "revenue" block in step 5b if it is available. Do
 not modify, commit or push anything in the repository.
 
 Before enabling: the "Moat Cards", "Risk Cards" and "Business Cards" prompts
@@ -51,20 +51,27 @@ Risk Cards / Business Cards save validation. Without all of this, step 2a (or
    continue to step 6. For each ticker returned:
    a. Call `get_prescan_prompts(ticker)` and take the prompt titled "Business
       Cards" (its {prior:Business Analysis}, {prior:Moat Analysis} and
-      {prior:Key Metrics} are already filled in). The prompt itself lists the
-      fixed region vocabulary the "revenue.regions" entries must map onto —
-      do not invent region names outside that list.
-   b. If the SEC-MCP connector is available, call `GetRevenueBreakdown` for
-      the ticker once and use it for the "revenue" segment/geography figures;
-      otherwise pull the latest 10-K's segment and geography note via
-      `ListFilings` / the filing text.
+      {prior:Key Metrics} are already filled in when those pre-scan sections
+      exist for the ticker; Moat Analysis and Key Metrics feed the "overview"
+      and "profile" text and the four cards when present, and a missing one
+      shows as "(no prior Moat Analysis available)" or similar in the
+      prompt — that is acceptable, answer with what is there). The prompt
+      itself lists the fixed region vocabulary the "revenue.regions" entries
+      must map onto — do not invent region names outside that list.
+   b. SEC-MCP (`GetRevenueBreakdown`, or `ListFilings` / `ReadDocumentLines`
+      to read the latest 10-K's segment and geography note directly) is the
+      source for the "revenue" block. If the SEC-MCP connector is available,
+      use it to fill "revenue" from real filing numbers. If SEC-MCP is
+      unavailable, omit the "revenue" key entirely — per the prompt's own
+      instruction, never estimate the numbers by hand.
    c. Call `get_fundamentals(ticker)` for the numbers you cite elsewhere in
       the cards.
    d. Answer the prompt exactly as it asks: one fenced JSON block, with the
       overview/profile/revenue blocks and four cards in the listed order.
       The real "segments" must sum to total_musd and the real "regions"
       shares must sum to 100 — the prompt's own example shows only one entry
-      of each.
+      of each; combine any of the company's own regions that map onto the
+      same fixed region into one entry instead of listing it twice.
    e. Save with `save_prescan_section(ticker, "Business Cards", <the JSON
       block>)`. If the server refuses, fix what the error names and save
       once more; if it refuses again, note the ticker and the reason and

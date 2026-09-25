@@ -2827,6 +2827,23 @@ st.markdown(f"""
         padding: 20px 24px 24px;
         margin: 0 0 18px;
     }}
+    /* Business tab: the "BY GEOGRAPHY" column (header + Plotly map + legend)
+       as one continuous flat panel, matching the segment panel's own flat
+       background instead of three separately-rounded pieces with a seam
+       around the chart. business_revenue.geography_header_html/
+       geography_legend_html render transparent so this is the only
+       background. The inner-block gap is tightened so the header, chart and
+       legend sit close together like one panel. */
+    .st-key-qc_geo_panel {{
+        background: color-mix(in srgb, var(--text) 4%, var(--card));
+        border-radius: 16px;
+        padding: 16px 18px;
+        min-height: 470px;
+        box-sizing: border-box;
+    }}
+    .st-key-qc_geo_panel [data-testid="stVerticalBlock"] {{
+        gap: .25rem !important;
+    }}
     .qc-label {{
         font-size: .72rem;
         font-weight: 700;
@@ -5160,16 +5177,21 @@ def _dcf_editor(ticker):
                     st.markdown(business_revenue.segments_panel_html(_brev, T),
                                 unsafe_allow_html=True)
                 with _rr:
-                    st.markdown(business_revenue.geography_header_html(_brev, T),
-                                unsafe_allow_html=True)
-                    _fig = business_revenue.geography_figure(_brev, T)
-                    if _fig is not None:
-                        st.plotly_chart(_fig, use_container_width=True,
-                                        config={"displayModeBar": False})
-                        st.markdown(business_revenue.geography_legend_html(_brev, T),
+                    # One continuous flat panel (header + map + legend), not
+                    # three stacked pieces with a seam around the chart.
+                    with st.container(key="qc_geo_panel"):
+                        st.markdown(business_revenue.geography_header_html(_brev, T),
                                     unsafe_allow_html=True)
-                    else:
-                        st.caption("No geographic split reported.")
+                        _fig = business_revenue.geography_figure(_brev, T)
+                        if _fig is not None:
+                            st.plotly_chart(_fig, width="stretch",
+                                            config={"displayModeBar": False})
+                            st.markdown(business_revenue.geography_legend_html(_brev, T),
+                                        unsafe_allow_html=True)
+                        else:
+                            st.caption("No geographic split reported.")
+                st.markdown(business_revenue.revenue_caption_html(_brev["period"], T),
+                            unsafe_allow_html=True)
             else:
                 st.caption("No revenue breakdown yet. It comes with the \"Business Cards\" section.")
         st.markdown(business_cards.quality_section_html(_bcontent, T), unsafe_allow_html=True)

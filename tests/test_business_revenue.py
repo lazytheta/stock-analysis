@@ -46,6 +46,23 @@ def test_latin_america_excludes_us_and_canada():
     assert "BRA" in out["Latin America"]
 
 
+def test_americas_covers_the_whole_continent_minus_greenland():
+    out = br.countries_by_region(["Americas"])
+    assert {"USA", "CAN", "BRA", "MEX"} <= set(out["Americas"])
+    assert "GRL" not in out["Americas"]
+
+
+def test_more_specific_americas_regions_take_precedence_when_also_listed():
+    out = br.countries_by_region(["US", "Canada", "Latin America", "Americas"])
+    assert out["Americas"] == []
+    assert "USA" in out["US"] and "CAN" in out["Canada"] and "BRA" in out["Latin America"]
+
+
+def test_americas_sits_after_latin_america_and_before_europe_in_region_order():
+    assert br.REGION_ORDER.index("Latin America") < br.REGION_ORDER.index("Americas") \
+        < br.REGION_ORDER.index("Europe")
+
+
 # ── segments_panel_html ─────────────────────────────────────────────────
 
 def test_segments_panel_shows_total_growth_and_every_segment():
@@ -65,6 +82,34 @@ def test_segments_panel_marks_negative_and_missing_growth():
     assert "&#8212;" in html  # Licensing has no growth figure
 
 
+def test_segments_panel_shows_the_period_in_small_caps_under_the_total():
+    html = br.segments_panel_html(_revenue(), THEME)
+    assert "FY2026" in html
+    assert "text-transform:uppercase" in html
+
+
+# ── _fmt_musd ────────────────────────────────────────────────────────────
+
+def test_fmt_musd_billions_keep_two_decimals():
+    assert br._fmt_musd(3195.0) == "$3.20B"
+    assert br._fmt_musd(1000.0) == "$1.00B"
+
+
+def test_fmt_musd_below_a_billion_is_whole_millions():
+    assert br._fmt_musd(510.0) == "$510M"
+    assert br._fmt_musd(510.6) == "$511M"
+    assert br._fmt_musd(999.0) == "$999M"
+
+
+def test_fmt_musd_below_ten_million_keeps_one_decimal():
+    assert br._fmt_musd(4.2) == "$4.2M"
+    assert br._fmt_musd(0.5) == "$0.5M"
+
+
+def test_fmt_musd_none_is_an_em_dash():
+    assert br._fmt_musd(None) == "—"
+
+
 # ── geography_figure ────────────────────────────────────────────────────
 
 def test_geography_figure_has_one_trace_per_listed_region():
@@ -78,7 +123,19 @@ def test_geography_figure_none_when_no_regions():
     assert br.geography_figure(rev, THEME) is None
 
 
+def test_geography_figure_hover_uses_a_literal_middot_not_an_entity():
+    fig = br.geography_figure(_revenue(), THEME)
+    assert any("·" in (ht[0] if ht else "") for ht in (t.hovertext for t in fig.data))
+    assert all("&#183;" not in (ht[0] if ht else "") for ht in (t.hovertext for t in fig.data))
+
+
 # ── geography_header_html / geography_legend_html ──────────────────────
+
+def test_geography_header_shows_the_period_in_small_caps_under_the_total():
+    html = br.geography_header_html(_revenue(), THEME)
+    assert "FY2026" in html
+    assert "text-transform:uppercase" in html
+
 
 def test_geography_header_shows_total():
     html = br.geography_header_html(_revenue(), THEME)
@@ -90,6 +147,22 @@ def test_geography_legend_shows_each_label_with_share():
     html = br.geography_legend_html(_revenue(), THEME)
     for label, share in (("UCAN", "44%"), ("EMEA", "32%"), ("LATAM", "12%"), ("APAC", "12%")):
         assert label in html and share in html
+
+
+def test_geography_header_and_legend_have_no_background_of_their_own():
+    """They sit inside the streamlit_app.py qc_geo_panel container, which now
+    supplies the one continuous background."""
+    bg = "color-mix(in srgb, var(--text) 4%, var(--card))"
+    assert bg not in br.geography_header_html(_revenue(), THEME)
+    assert bg not in br.geography_legend_html(_revenue(), THEME)
+
+
+# ── revenue_caption_html ─────────────────────────────────────────────────
+
+def test_revenue_caption_names_the_period_and_is_dollar_safe():
+    html = br.revenue_caption_html("FY2026", THEME)
+    assert "FY2026" in html and "10-K" in html and "transcribed by Claude" in html
+    assert "$" not in html and "\n" not in html
 
 
 # ── module import ────────────────────────────────────────────────────────

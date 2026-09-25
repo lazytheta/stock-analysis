@@ -14,10 +14,12 @@ from decimal import ROUND_HALF_UP, Decimal
 import question_cards as qc
 
 # Specific -> broad. A country is assigned to the FIRST of these (that the
-# caller actually listed) whose membership contains it.
+# caller actually listed) whose membership contains it. "Americas" sits after
+# "North America"/"Latin America" so those more specific regions, when also
+# listed, claim their countries first.
 REGION_ORDER = ("US", "Canada", "China", "Japan", "India", "North America",
-                 "Latin America", "Europe", "Middle East & Africa", "EMEA",
-                 "Asia Pacific", "Rest of world")
+                 "Latin America", "Americas", "Europe", "Middle East & Africa",
+                 "EMEA", "Asia Pacific", "Rest of world")
 
 # Countries plotly's gapminder dataset is missing, keyed to a continent.
 _EXTRA = {"RUS": "Europe", "UKR": "Europe", "BLR": "Europe", "KAZ": "Asia",
@@ -81,6 +83,8 @@ def _region_membership(region, continents):
         return {"USA", "CAN"}
     if region == "Latin America":
         return americas - {"USA", "CAN", "GRL"}
+    if region == "Americas":
+        return americas - {"GRL"}
     if region == "Europe":
         return europe - _MIDDLE_EAST
     if region == "Middle East & Africa":
@@ -112,13 +116,17 @@ def countries_by_region(regions):
 def _fmt_musd(value):
     """">= 1000 -> "$x.xxB" (decimal, half-up, so 3195.0 reads "$3.20B" rather
     than the "$3.19B" plain float division gives via round-half-even on
-    3.194999999999999...); else "$x.xM"."""
+    3.194999999999999...); >= 10 and < 1000 -> whole millions ("$510M");
+    else -> one decimal ("$4.2M")."""
     if value is None:
         return "—"
     if abs(value) >= 1000:
         billions = (Decimal(str(value)) / Decimal(1000)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         return f"${billions}B"
-    return f"${value:.1f}M"
+    if abs(value) < 10:
+        return f"${value:.1f}M"
+    millions = Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    return f"${millions}M"
 
 
 def _fmt_pct(value):
@@ -136,10 +144,11 @@ def _growth_html(growth_pct, theme):
     return f'<span style="color:{color};font-weight:700">{arrow} {abs(growth_pct):.1f}%</span>'
 
 
-def _panel_style(theme, radius):
+def _panel_style(theme, radius, min_height=None):
     bg = "var(--qc-inner, color-mix(in srgb, var(--text) 4%, var(--card)))"
+    extra = f';min-height:{min_height}' if min_height else ''
     return (f'background:{bg};color:{theme.get("text", "#1d1d1f")};border-radius:{radius};'
-            f'padding:18px 22px;box-sizing:border-box')
+            f'padding:18px 22px;box-sizing:border-box{extra}')
 
 
 def _panel_title_html(text, theme):
@@ -147,9 +156,31 @@ def _panel_title_html(text, theme):
             f'text-transform:uppercase;color:{theme.get("text_muted", "#86868b")}">{qc.esc(text)}</span>')
 
 
+def _period_html(period, theme):
+    """Small-caps period line (e.g. "TTM", "FY2026") shown under a panel's
+    total, same spot as the screenshot's "TTM"."""
+    if not period:
+        return ""
+    muted = theme.get("text_muted", "#86868b")
+    return (f'<div style="font-size:.66rem;font-weight:700;letter-spacing:.08em;'
+            f'text-transform:uppercase;color:{muted};margin-top:2px">{qc.esc(period)}</div>')
+
+
+def revenue_caption_html(period, theme):
+    """Muted one-line caption meant to sit below both revenue panels,
+    crediting the filing source; qc.esc keeps the whole line $-safe
+    (Streamlit reads a "$...$" pair as LaTeX) even though `period` is
+    normally a plain string like "FY2026"."""
+    muted = theme.get("text_muted", "#86868b")
+    text = qc.esc(f"From the {period} 10-K segment note, transcribed by Claude.")
+    return f'<div style="font-size:.78rem;color:{muted};margin-top:12px">{text}</div>'
+
+
 def segments_panel_html(revenue, theme):
-    """Flat "BY SEGMENT" panel: total + 1-yr growth top-right, a stacked bar
-    of segment shares, and a segment/share/revenue/growth table."""
+    """Flat "BY SEGMENT" panel: total + 1-yr growth + period top-right, a
+    stacked bar of segment shares, and a segment/share/revenue/growth table.
+    `min-height` matches the geography panel so the two Revenue columns read
+    as one row of equal height."""
     total = revenue.get("total_musd")
     segments = revenue.get("segments") or []
     muted = theme.get("text_muted", "#86868b")
@@ -157,10 +188,11 @@ def segments_panel_html(revenue, theme):
 
     growth_html = _growth_html(revenue.get("growth_pct"), theme)
     growth_part = f'<div style="font-size:.78rem;margin-top:2px">{growth_html} &#183; 1-YR</div>' if growth_html else ""
+    period_part = _period_html(revenue.get("period"), theme)
     header = (f'<div style="display:flex;justify-content:space-between;align-items:flex-start;'
               f'gap:12px;margin-bottom:14px">{_panel_title_html("BY SEGMENT", theme)}'
               f'<div style="text-align:right"><div style="font-size:1.3rem;font-weight:700">'
-              f'{qc.esc(_fmt_musd(total))}</div>{growth_part}</div></div>')
+              f'{qc.esc(_fmt_musd(total))}</div>{growth_part}{period_part}</div></div>')
 
     bar_parts = []
     rows = []
@@ -196,7 +228,7 @@ def segments_panel_html(revenue, theme):
               f'text-transform:uppercase;color:{muted};padding:0 0 8px;border-bottom:1px solid {divider}">1-YR Growth</th></tr>')
     table_html = f'<table style="width:100%;border-collapse:collapse;font-size:.84rem">{thead}{"".join(rows)}</table>'
 
-    style = _panel_style(theme, "16px")
+    style = _panel_style(theme, "16px", min_height="470px")
     return f'<div style="{style}">{header}{bar_html}{table_html}</div>'
 
 
@@ -214,7 +246,10 @@ def geography_figure(revenue, theme):
     for i, r in enumerate(regions):
         codes = by_region.get(r["region"], [])
         color = REGION_COLORS[i % len(REGION_COLORS)]
-        hover = f'{r["label"]} &#183; {_fmt_pct(r["share_pct"])}'
+        # Literal middot, not the &#183; entity: Plotly's hover tooltip
+        # renders hovertext as plain text, so an HTML entity shows up
+        # un-decoded ("&#183;") instead of "·".
+        hover = f'{r["label"]} · {_fmt_pct(r["share_pct"])}'
         fig.add_trace(go.Choropleth(
             locations=codes,
             z=[1] * len(codes),
@@ -237,20 +272,25 @@ def geography_figure(revenue, theme):
 
 
 def geography_header_html(revenue, theme):
-    """Top half of the "BY GEOGRAPHY" panel: label + total, meant to sit above
-    the Plotly chart (a Streamlit container, not this HTML, holds the chart)."""
+    """Header row for the "BY GEOGRAPHY" panel: label + total + period, meant
+    to sit above the Plotly chart. Transparent background: streamlit_app.py
+    wraps this header, the chart and the legend together inside a single
+    `qc_geo_panel` container that already supplies one continuous flat
+    background, so this (and `geography_legend_html`) must not paint their
+    own — two stacked panels around the chart used to leave a visible seam."""
     total = revenue.get("total_musd")
-    style = _panel_style(theme, "16px 16px 0 0")
-    return (f'<div style="{style};padding-bottom:6px">'
+    period_part = _period_html(revenue.get("period"), theme)
+    return (f'<div style="color:{theme.get("text", "#1d1d1f")}">'
             f'<div style="display:flex;justify-content:space-between;align-items:flex-start">'
             f'{_panel_title_html("BY GEOGRAPHY", theme)}'
-            f'<span style="font-size:1.3rem;font-weight:700">{qc.esc(_fmt_musd(total))}</span>'
-            f'</div></div>')
+            f'<div style="text-align:right"><div style="font-size:1.3rem;font-weight:700">'
+            f'{qc.esc(_fmt_musd(total))}</div>{period_part}</div></div></div>')
 
 
 def geography_legend_html(revenue, theme):
-    """Bottom half of the "BY GEOGRAPHY" panel: one coloured dot + "label ·
-    share%" per listed region, same colours as `geography_figure`."""
+    """Legend row for the "BY GEOGRAPHY" panel: one coloured dot + "label ·
+    share%" per listed region, same colours as `geography_figure`.
+    Transparent background — see `geography_header_html`."""
     regions = revenue.get("regions") or []
     items = []
     for i, r in enumerate(regions):
@@ -259,6 +299,5 @@ def geography_legend_html(revenue, theme):
             f'<span style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem">'
             f'<span style="display:inline-block;width:9px;height:9px;border-radius:50%;'
             f'background:{color}"></span>{qc.esc(r["label"])} &#183; {_fmt_pct(r["share_pct"])}</span>')
-    style = _panel_style(theme, "0 0 16px 16px")
-    return (f'<div style="{style};padding-top:10px">'
-            f'<div style="display:flex;flex-wrap:wrap;gap:10px 18px">{"".join(items)}</div></div>')
+    return (f'<div style="display:flex;flex-wrap:wrap;gap:10px 18px;margin-top:8px">'
+            f'{"".join(items)}</div>')

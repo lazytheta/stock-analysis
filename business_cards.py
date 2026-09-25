@@ -33,8 +33,12 @@ BUSINESS = qc.CardSet(TITLE, ITEMS, directions=None, blocks=(("overview", 4), ("
 
 # Fixed region vocabulary: the model maps a company's own geography names
 # (UCAN, APAC, International, ...) onto these before the shares are checked.
-REGIONS = ("US", "Canada", "North America", "Latin America", "Europe", "EMEA",
-           "Middle East & Africa", "Asia Pacific", "China", "Japan", "India",
+# "Americas" sits after "Latin America" and before "Europe": it exists for
+# companies that report a single combined North+South America region, while
+# the more specific "US"/"Canada"/"North America"/"Latin America" still take
+# precedence when a company lists those separately.
+REGIONS = ("US", "Canada", "North America", "Latin America", "Americas", "Europe",
+           "EMEA", "Middle East & Africa", "Asia Pacific", "China", "Japan", "India",
            "Rest of world")
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
@@ -59,21 +63,29 @@ profile: ONE sentence on who the buyer is and what budget they pay from, plus
 EXACTLY four points on customer types: who they are, where they are, and why
 they buy.
 
-revenue: from the latest 10-K's segment and geography note, in USD millions:
+revenue: from the latest 10-K's segment and geography note, in USD millions.
+If you cannot read the segment/geography note from the filing, omit the
+"revenue" key entirely. Never estimate numbers.
 - period: the fiscal period, e.g. "FY2026"
 - total_musd: total revenue
 - growth_pct: year-over-year growth versus the prior year, or null if not disclosed
 - segments: EXACTLY the company's reporting segments, each {"name",
   "revenue_musd", "growth_pct"} (growth_pct null if not disclosed); must sum
-  to total_musd
+  to total_musd. If intersegment eliminations or an unallocated corporate
+  amount keep the segments from summing to total_musd, either add a positive
+  "Other / eliminations" segment for the gap, or net a negative elimination
+  into the largest segment, so the segments sum to total_musd within 3%.
 - regions: the company's own geographic breakdown, each mapped onto the
   closest one of these fixed regions (e.g. UCAN -> "North America",
   APAC -> "Asia Pacific", "International" -> "Rest of world"):
-  US, Canada, North America, Latin America, Europe, EMEA,
+  US, Canada, North America, Latin America, Americas, Europe, EMEA,
   Middle East & Africa, Asia Pacific, China, Japan, India, Rest of world.
   Each entry is {"region": one of the list above, "label": the company's own
   name for it, "share_pct": percent of total revenue}; shares must sum to
-  100%. If the company reports no geography split, use regions: [].
+  100%. If several of the company's own regions map onto the same fixed
+  region, combine them into ONE entry instead of listing it twice: sum their
+  shares and join their labels (e.g. "Germany, UK & Other Europe"). If the
+  company reports no geography split, use regions: [].
 
 For each of the four questions, in exactly this order, pick an answer
 (0 = worst, 2 = best):

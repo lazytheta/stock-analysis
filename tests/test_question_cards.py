@@ -91,3 +91,15 @@ def test_text_row_has_two_panels_with_bullets_and_is_markdown_safe():
     html = qc.text_row_html(left, left)
     assert html.count('class="tp-panel"') == 2 and html.count("<li") == 8
     assert "<b>bold</b>" in html and "$" not in html and "\n" not in html
+
+
+def test_text_panel_adds_a_dot_after_a_plain_label():
+    html = qc.text_panel_html("T", "lead", [{"label": "Pricing power", "text": "Can raise."}])
+    assert "<b>Pricing power.</b>" in html
+
+
+@pytest.mark.parametrize("label", ["Growing?", "Margin:", "Strong!", "50/50."])
+def test_text_panel_does_not_double_up_on_existing_punctuation(label):
+    html = qc.text_panel_html("T", "lead", [{"label": label, "text": "x"}])
+    assert f"<b>{label}</b>" in html
+    assert f"{label}." not in html

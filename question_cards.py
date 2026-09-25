@@ -267,14 +267,21 @@ def summary_row_html(left_html, right_html):
     return f'{css(STYLE, SUMMARY_STYLE)}<div class="ms-row">{left_html}{right_html}</div>'
 
 
+_END_PUNCT = (".", ":", "!", "?")
+
+
 def text_panel_html(title, lead_html, points):
     """A flat text panel: small-caps title, one lead paragraph, a bullet list
-    of "label. text" items. Not height-fixed; text_row_html stretches a pair
-    of these to equal height."""
-    items = "".join(
-        f'<li><b>{esc(p["label"])}.</b> {esc(p["text"])}</li>' for p in points)
+    of "label. text" items (no extra "." when the label already ends with
+    punctuation, e.g. "Growing?" or "50/50:"). Not height-fixed;
+    text_row_html stretches a pair of these to equal height."""
+    items = []
+    for p in points:
+        raw_label = str(p["label"]).strip()
+        suffix = "" if raw_label.endswith(_END_PUNCT) else "."
+        items.append(f'<li><b>{esc(raw_label)}{suffix}</b> {esc(p["text"])}</li>')
     return (f'<div class="tp-panel"><div class="tp-title">{esc(title)}</div>'
-            f'<p>{lead_html}</p><ul>{items}</ul></div>')
+            f'<p>{lead_html}</p><ul>{"".join(items)}</ul></div>')
 
 
 def text_row_html(left_html, right_html):
