@@ -30,14 +30,17 @@ the next.
       before answering "Moat Cards", "Investment Summary" and "Scorecard",
       after saving "Risk Analysis" and "SaaSpocalypse Resistance" and before
       answering "Risk Cards", and after saving "Business Analysis", "Moat
-      Analysis" and "Key Metrics" and before answering "Business Cards" —
-      library order now already places Risk Cards directly after both of its
-      priors and Business Cards directly after Key Metrics (its last prior),
-      but the re-fetch is still required so every `{prior:…}` in the prompt
-      you are about to answer is actually filled in, not still a bare
-      placeholder. If `save_prescan_section` refuses "Moat Cards", "Risk
-      Cards" or "Business Cards", fix what the error names and save once
-      more; if it refuses again, note it and move on.
+      Analysis" and "Key Metrics" and before answering "Business Cards" and
+      "Company Profile" — library order now already places Risk Cards
+      directly after both of its priors and Business Cards directly after
+      Key Metrics (its last prior), with Company Profile right after
+      Business Cards (its own priors, Business Analysis and Moat Analysis,
+      are the same ones already re-fetched for Business Cards), but the
+      re-fetch is still required so every `{prior:…}` in the prompt you are
+      about to answer is actually filled in, not still a bare placeholder.
+      If `save_prescan_section` refuses "Moat Cards", "Risk Cards",
+      "Business Cards" or "Company Profile", fix what the error names and
+      save once more; if it refuses again, note it and move on.
    c. If the Moat verdict is not Wide, the name stays an Aspirant. Move on.
    d. If the Moat verdict is Wide, fill in the full DCF: `get_config(ticker)`,
       then set revenue_growth and op_margins year by year with a short

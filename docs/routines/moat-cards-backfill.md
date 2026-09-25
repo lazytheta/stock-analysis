@@ -1,19 +1,20 @@
 # Question cards backfill — routine prompt
 
-You fill the "Moat Cards", "Risk Cards" and "Business Cards" pre-scan
-sections for LazyTheta watchlist tickers that have the underlying analysis
-but no cards yet. Use only the Lazy-Theta-Remote-MCP connector, plus the
-SEC-MCP connector for the "revenue" block in step 5b if it is available. Do
-not modify, commit or push anything in the repository.
+You fill the "Moat Cards", "Risk Cards", "Business Cards" and "Company
+Profile" pre-scan sections for LazyTheta watchlist tickers that have the
+underlying analysis but no cards yet. Use only the Lazy-Theta-Remote-MCP
+connector, plus the SEC-MCP connector for the "revenue" block in step 5b if
+it is available. Do not modify, commit or push anything in the repository.
 
-Before enabling: the "Moat Cards", "Risk Cards" and "Business Cards" prompts
-must already be in the user's prompt library. `scripts/add_moat_cards_prompt.py`
-only adds "Moat Cards" — "Risk Cards" and "Business Cards" come from the
-app's own `DEFAULT_AI_PROMPTS` (added the first time the user opens the
-prompt editor) or are added directly by the maintainer. The Cloud Run MCP
-must also be redeployed with `tickers_missing_section` and the Moat Cards /
-Risk Cards / Business Cards save validation. Without all of this, step 2a (or
-5a) finds no matching prompt to answer.
+Before enabling: the "Moat Cards", "Risk Cards", "Business Cards" and
+"Company Profile" prompts must already be in the user's prompt library.
+`scripts/add_moat_cards_prompt.py` only adds "Moat Cards" — "Risk Cards",
+"Business Cards" and "Company Profile" come from the app's own
+`DEFAULT_AI_PROMPTS` (added the first time the user opens the prompt editor)
+or are added directly by the maintainer. The Cloud Run MCP must also be
+redeployed with `tickers_missing_section` and the Moat Cards / Risk Cards /
+Business Cards / Company Profile save validation. Without all of this, step
+2a (or 5a, or 7a) finds no matching prompt to answer.
 
 1. Call `tickers_missing_section(title="Moat Cards", requires="Moat Analysis", limit=10)`.
 2. For each ticker:
@@ -47,8 +48,8 @@ Risk Cards / Business Cards save validation. Without all of this, step 2a (or
    filled or skipped in steps 1-4), call `tickers_missing_section(title=
    "Business Cards", requires="Business Analysis", limit=<remaining>)`. If
    that remaining budget is 0, skip step 5 entirely — do not call it with
-   limit 0 — and go straight to step 6. If `tickers` is empty, note that and
-   continue to step 6. For each ticker returned:
+   limit 0 — and go straight to step 7. If `tickers` is empty, note that and
+   continue to step 7. For each ticker returned:
    a. Call `get_prescan_prompts(ticker)` and take the prompt titled "Business
       Cards" (its {prior:Business Analysis}, {prior:Moat Analysis} and
       {prior:Key Metrics} are already filled in when those pre-scan sections
@@ -76,6 +77,27 @@ Risk Cards / Business Cards save validation. Without all of this, step 2a (or
       block>)`. If the server refuses, fix what the error names and save
       once more; if it refuses again, note the ticker and the reason and
       move on.
-6. If all three `tickers` lists from steps 1, 3 and 5 were empty, print
+6. With whatever remains of the same budget of 10 (10 minus every ticker
+   filled or skipped in steps 1-5), call `tickers_missing_section(title=
+   "Company Profile", requires="Business Analysis", limit=<remaining>)` —
+   the same `requires` as step 5's Business Cards set. If that remaining
+   budget is 0, skip step 6 entirely — do not call it with limit 0 — and go
+   straight to step 8. If `tickers` is empty, note that and continue to
+   step 8.
+7. For each ticker from step 6:
+   a. Call `get_prescan_prompts(ticker)` and take the prompt titled "Company
+      Profile" (its {prior:Business Analysis} and {prior:Moat Analysis} are
+      already filled in when those pre-scan sections exist for the ticker;
+      a missing one shows as "(no prior Moat Analysis available)" or
+      similar in the prompt — that is acceptable, answer with what is
+      there).
+   b. Answer the prompt exactly as it asks: one fenced JSON block with the
+      eight fields. Never estimate — use null for founded/employees when the
+      filing doesn't state them.
+   c. Save with `save_prescan_section(ticker, "Company Profile", <the JSON
+      block>)`. If the server refuses, fix what the error names and save
+      once more; if it refuses again, note the ticker and the reason and
+      move on.
+8. If all four `tickers` lists from steps 1, 3, 5 and 6 were empty, print
    "Nothing left to backfill." Otherwise print a summary: tickers filled (per
    card set), tickers skipped with reasons, and `remaining` for each.

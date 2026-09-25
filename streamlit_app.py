@@ -23,6 +23,7 @@ import aspirant
 import moat_cards
 import risk_cards
 import business_cards
+import company_profile
 import business_revenue
 from error_logger import log_error, log_error_with_trace
 from dcf_calculator import (compute_wacc, compute_intrinsic_value, compute_reverse_dcf,
@@ -1847,6 +1848,13 @@ the level at which it would. This line is mandatory even when all five pass.]
         # Moat Analysis and Key Metrics.
         "title": business_cards.TITLE,
         "prompt": business_cards.PROMPT,
+    },
+    {
+        # Sector/industry, capital type, difficulty and a few quick facts
+        # for the Overview tab's profile panel, built on Business Analysis
+        # and Moat Analysis.
+        "title": company_profile.TITLE,
+        "prompt": company_profile.PROMPT,
     },
     {
         "title": "Risk Analysis",
@@ -8393,15 +8401,17 @@ def _dcf_editor(ticker):
 
                     if _content.strip():
                         with st.container(key=f"ai_out_{_li}"):
-                            # Moat Cards / Risk Cards / Business Cards are JSON
-                            # for their tabs; shown as raw text they read as a
-                            # code dump. Draw the cards.
+                            # Moat Cards / Risk Cards / Business Cards / Company
+                            # Profile are JSON for their tabs; shown as raw text
+                            # they read as a code dump. Draw the cards.
                             if _title == moat_cards.TITLE:
                                 _card = moat_cards.cards_section_html(_content, T)
                             elif _title == risk_cards.TITLE:
                                 _card = risk_cards.cards_section_html(_content, T)
                             elif _title == business_cards.TITLE:
                                 _card = business_cards.quality_section_html(_content, T)
+                            elif _title == company_profile.TITLE:
+                                _card = company_profile.profile_list_html(_content, T)
                             else:
                                 _card = _verdict_card_html(_content, _title)
                             if _card:

@@ -72,13 +72,15 @@ import aspirant
 import moat_cards
 import risk_cards
 import business_cards
+import company_profile
 
 # Structured pre-scan sections: a malformed block would render as a broken
 # tab, so it is refused in _save_prescan_section_impl with the reason rather
 # than stored.
 _CARD_PARSERS = {moat_cards.TITLE: moat_cards.parse_moat_cards,
                   risk_cards.TITLE: risk_cards.parse_risk_cards,
-                  business_cards.TITLE: business_cards.parse_business_cards}
+                  business_cards.TITLE: business_cards.parse_business_cards,
+                  company_profile.TITLE: company_profile.parse_company_profile}
 
 
 # ---------------------------------------------------------------------------
