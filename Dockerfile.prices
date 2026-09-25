@@ -1,0 +1,13 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+COPY scripts/screener_requirements.txt ./
+RUN pip install --no-cache-dir -r screener_requirements.txt
+
+# price_history leest Nasdaq (via quotes._nasdaq_get) en schrijft naar
+# Supabase price_history; gather_data levert alleen de gedeelde SSL-context.
+COPY gather_data.py quotes.py price_history.py /app/
+COPY scripts/run_price_history.py /app/scripts/
+
+CMD ["python", "scripts/run_price_history.py"]
