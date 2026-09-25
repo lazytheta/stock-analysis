@@ -93,5 +93,5 @@ def test_default_prompts_put_risk_cards_right_after_saaspocalypse_resistance():
 
 def test_ticker_page_has_a_risk_tab_after_moat():
     src = open("streamlit_app.py", encoding="utf-8").read()
-    assert '["Pre-Scan", "Business", "Moat", "Risk", "Fundamentals", "DCF"' in src
+    assert '["Overview", "Pre-Scan", "Business", "Moat", "Risk", "Fundamentals", "DCF"' in src
     assert "risk_cards.summary_row_html(" in src and "risk_cards.cards_section_html(" in src

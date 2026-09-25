@@ -25,6 +25,10 @@ import risk_cards
 import business_cards
 import company_profile
 import business_revenue
+import overview_chart
+import overview_metrics
+import overview_page
+import price_history
 from error_logger import log_error, log_error_with_trace
 from dcf_calculator import (compute_wacc, compute_intrinsic_value, compute_reverse_dcf,
                             DEFAULT_DISCOUNT_MODE, DEFAULT_HURDLE_RATE)
@@ -52,6 +56,8 @@ from gather_data import (
     MARGIN_OF_SAFETY_DEFAULT,
     fetch_fundamentals,
     apply_fundamentals_overrides,
+    fetch_income_statement,
+    fetch_cashflow_statement,
 )
 from broker_adapter import (
     _day_key,
@@ -304,6 +310,37 @@ def _track_record_rows(cost_basis: dict, index_closes: dict, today,
 @st.cache_data(ttl=3600, show_spinner=False)
 def _cached_spy_closes(years: int = 5) -> dict:
     return gather_data.fetch_daily_closes("SPY", years)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _overview_statements(ticker):
+    """Income and cash-flow statements for the Overview tab's key figures;
+    either is None when EDGAR has nothing usable."""
+    try:
+        inc = fetch_income_statement(ticker, n_years=11)
+    except Exception as e:
+        logger.warning("income statement for %s failed: %s", ticker, e)
+        inc = None
+    try:
+        cf = fetch_cashflow_statement(ticker, n_years=11)
+    except Exception as e:
+        logger.warning("cash flow statement for %s failed: %s", ticker, e)
+        cf = None
+    return inc, cf
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _overview_prices(ticker, since_iso):
+    """Daily closes for the ticker and SPY from the price_history table, keyed
+    on (ticker, since); {} on any failure so the chart just shows its caption.
+    The Supabase client is not hashable, so it is read from session state."""
+    try:
+        client = st.session_state["supabase_client"]
+        return price_history.load_series(client, [ticker, "SPY"],
+                                         date.fromisoformat(since_iso))
+    except Exception as e:
+        logger.warning("price history for %s failed: %s", ticker, e)
+        return {}
 
 
 def _merge_track_rows(rows: list) -> list:
@@ -2835,6 +2872,18 @@ st.markdown(f"""
         padding: 20px 24px 24px;
         margin: 0 0 18px;
     }}
+    /* Overview tab: the whole tab is one qc-section-styled card (built with
+       st.columns because the price chart is a Plotly widget). --qc-inner
+       gives the profile chips the same flat inner background as .qc-section. */
+    .st-key-qc_overview_section {{
+        background: var(--card);
+        border-top: 3px solid var(--accent);
+        border-radius: 24px;
+        box-shadow: var(--shadow);
+        padding: 20px 24px 24px;
+        margin: 0 0 18px;
+        --qc-inner: color-mix(in srgb, var(--text) 4%, var(--card));
+    }}
     /* Business tab: the "BY GEOGRAPHY" column (header + Plotly map + legend)
        as one continuous flat panel, matching the segment panel's own flat
        background instead of three separately-rounded pieces with a seam
@@ -5164,10 +5213,102 @@ def _dcf_editor(ticker):
     margins = list(cfg.get('op_margins', []))
 
     # ── Tabs: DCF / Reverse DCF / Peer Comparison / Dividend / Fundamentals ──
-    (_tab_notes, _tab_business, _tab_moat, _tab_risk, _tab_fundamentals, _tab_dcf, _tab_rdcf,
-     _tab_peers, _tab_dividend, _tab_history) = st.tabs(
-        ["Pre-Scan", "Business", "Moat", "Risk", "Fundamentals", "DCF", "Reverse DCF",
-         "Peer Comparison", "Dividend", "History"])
+    # Fundamentals are shared by Overview and the Fundamentals tab: one cached
+    # fetch, per-year overrides applied once, so both tabs see the same data.
+    # A fetch error (SEC outage) is held and re-raised inside the Fundamentals
+    # tab, where it surfaced before; here it would blank every tab.
+    @st.cache_data(ttl=300, show_spinner="Loading fundamentals...")
+    def _cached_fundamentals(t):
+        return fetch_fundamentals(t, n_years=11)
+
+    _fund_error = None
+    try:
+        fund = _cached_fundamentals(ticker)
+        # Apply per-year overrides silently so every section below uses
+        # corrected values for tickers with broken EDGAR tagging.
+        _fund_overrides = cfg.get('fundamentals_overrides') or {}
+        if _fund_overrides:
+            fund = apply_fundamentals_overrides(fund, _fund_overrides)
+    except Exception as e:
+        logger.warning("fundamentals for %s failed: %s", ticker, e)
+        _fund_error, fund = e, {}
+
+    (_tab_overview, _tab_notes, _tab_business, _tab_moat, _tab_risk, _tab_fundamentals,
+     _tab_dcf, _tab_rdcf, _tab_peers, _tab_dividend, _tab_history) = st.tabs(
+        ["Overview", "Pre-Scan", "Business", "Moat", "Risk", "Fundamentals", "DCF",
+         "Reverse DCF", "Peer Comparison", "Dividend", "History"])
+
+    # Overview: company profile, price vs the S&P 500, mission and key
+    # figures. Read-only; the profile comes from the "Company Profile" section.
+    with _tab_overview:
+        with st.container(key="qc_overview_section"):
+            st.markdown('<div class="qc-label">Overview</div>', unsafe_allow_html=True)
+            _onotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
+            _oprofile_raw = _onotes.get(company_profile.TITLE)
+            try:
+                _oprofile = (company_profile.parse_company_profile(_oprofile_raw)
+                             if _oprofile_raw else None)
+            except ValueError as e:
+                logger.debug("Company Profile for %s is invalid: %s", ticker, e)
+                _oprofile = None
+            _oshares = next((s for s in reversed(fund.get('shares') or []) if s), None)
+            _omcap = (live_price * _oshares / 1e6
+                      if live_price and live_price > 0 and _oshares else None)
+
+            _ol, _or = st.columns([2, 3])
+            with _ol:
+                st.markdown(overview_page.profile_panel_html(_oprofile, _omcap),
+                            unsafe_allow_html=True)
+            with _or:
+                _orng = st.segmented_control(
+                    "Range", overview_chart.RANGES, default=overview_chart.DEFAULT_RANGE,
+                    key=f"ov_range_{ticker}", label_visibility="collapsed",
+                ) or overview_chart.DEFAULT_RANGE
+                _ochart = None
+                try:
+                    _otoday = date.today()
+                    _osince = overview_chart.range_start("10Y", _otoday)
+                    _oseries = _overview_prices(ticker, _osince.isoformat())
+                    _ostock = overview_chart.with_live_point(
+                        _oseries.get(ticker) or [], live_price, _otoday)
+                    # SPY gets its live point too: the chart inner-joins the
+                    # two series on day, so a stock-only point for today
+                    # would be dropped.
+                    _obench = overview_chart.with_live_point(
+                        _oseries.get("SPY") or [], _price("SPY"), _otoday)
+                    if _ostock:
+                        _olast = date.fromisoformat(_ostock[-1][0])
+                        _odays, _ospct, _obpct = overview_chart.aligned_pct(
+                            _ostock, _obench, overview_chart.range_start(_orng, _olast))
+                        if _odays:
+                            _os_tot, _os_cagr = overview_chart.total_and_cagr(_ospct, _odays)
+                            _ob_tot, _ob_cagr = overview_chart.total_and_cagr(_obpct, _odays)
+                            _ochart = (
+                                overview_chart.header_html(ticker, _orng, _os_tot, _os_cagr,
+                                                           _ob_tot, _ob_cagr),
+                                overview_chart.figure(_odays, _ospct, _obpct, ticker,
+                                                      {"accent": T["accent"],
+                                                       "bench": "#5b6cff"}),
+                            )
+                except Exception as e:
+                    logger.warning("Overview chart for %s failed: %s", ticker, e)
+                    _ochart = None
+                if _ochart:
+                    st.markdown(_ochart[0], unsafe_allow_html=True)
+                    st.plotly_chart(_ochart[1], width="stretch",
+                                    config={"displayModeBar": False})
+                else:
+                    st.caption("No price history for this listing yet.")
+
+            _omission = overview_page.mission_html(_oprofile)
+            if _omission:
+                st.markdown(_omission, unsafe_allow_html=True)
+            # live_price is 0.0 when every price source failed; None keeps
+            # P/E and the yields at a dash instead of 0.0x.
+            _oinc, _ocf = _overview_statements(ticker)
+            st.markdown(overview_page.metrics_html(overview_metrics.compute(
+                fund, _oinc, _ocf, live_price if live_price > 0 else None)),
+                unsafe_allow_html=True)
 
     # Business: overview and customer profile, revenue by segment and region,
     # then the four business-quality cards. Read-only, like Moat and Risk.
@@ -6391,16 +6532,8 @@ def _dcf_editor(ticker):
     with _tab_fundamentals:
         st.markdown("#### Fundamentals")
 
-        @st.cache_data(ttl=300, show_spinner="Loading fundamentals...")
-        def _cached_fundamentals(t):
-            return fetch_fundamentals(t, n_years=11)
-
-        fund = _cached_fundamentals(ticker)
-        # Apply per-year overrides silently so every section below uses
-        # corrected values for tickers with broken EDGAR tagging.
-        _fund_overrides = cfg.get('fundamentals_overrides') or {}
-        if _fund_overrides:
-            fund = apply_fundamentals_overrides(fund, _fund_overrides)
+        if _fund_error is not None:
+            raise _fund_error
         _yrs = fund['years']
         _n = len(_yrs)
 

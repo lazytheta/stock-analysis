@@ -196,7 +196,7 @@ def test_default_prompts_put_business_cards_right_after_key_metrics():
 
 def test_ticker_page_has_a_business_tab_before_moat():
     src = open("streamlit_app.py", encoding="utf-8").read()
-    assert '["Pre-Scan", "Business", "Moat", "Risk", "Fundamentals", "DCF"' in src
+    assert '["Overview", "Pre-Scan", "Business", "Moat", "Risk", "Fundamentals", "DCF"' in src
     assert "business_cards.overview_section_html(" in src
     assert "business_cards.quality_section_html(" in src
     assert "business_revenue.geography_figure(" in src
