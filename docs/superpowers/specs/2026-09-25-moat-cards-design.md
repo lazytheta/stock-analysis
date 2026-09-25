@@ -40,7 +40,7 @@ tabs de Pre-Scan-tab helemaal; voorlopig blijft Pre-Scan staan. Dit is deel 2 va
 - Boven: twee kaarten uit de bestaande Moat Analysis — **Moat size** (bestaande
   `_verdict_card_html`) en **Moat direction** (richting uit de verdictregel +
   "Weakest link"). Werkt voor alle namen zonder nieuwe data.
-- Rij "Moat sources": één stip per bron in de kleur van `pick`.
+- Rij "Moat sources": één stip per bron, gevuld in de kleur van `pick` (geel/groen); bij `pick` 0 (bron afwezig) een lege stip. De rij verschijnt alleen als alle vijf kaarten bestaan, dus leeg betekent altijd "afwezig", nooit "geen data".
 - Vijf vraagkaarten in twee kolommen. Voorkant: vraag, richtinglabel, drie rondjes
   (`prescan_render.three_state_html`), één zin, "Details →". Achterkant (donker): drie
   punten, gekozen optie als label, "Back to summary ↩". Omdraaien met verborgen checkbox
