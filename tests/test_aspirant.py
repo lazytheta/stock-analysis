@@ -56,7 +56,7 @@ def _cfg(**over):
         "revenue_growth": [0.12, 0.10, 0.08, 0.06, 0.04],
         "op_margins": [0.30, 0.31, 0.32, 0.32, 0.32],
         "valuation_summary": {"weighted_fv_mid": 100.0},
-        "ai_notes": {"Moat": "**Moat: Wide 🛡️ · Stable ➡️ · 4/5**\n\nText."},
+        "ai_notes": {"Moat Analysis": "**Moat: Wide 🛡️ · Stable ➡️ · 4/5**\n\nText."},
     }
     cfg.update(over)
     return cfg
@@ -75,21 +75,49 @@ def test_flat_curves_are_the_build_config_placeholders():
 
 
 def test_moat_label_reads_the_verdict_line():
-    assert aspirant.moat_label({"Moat": "**Moat: Wide 🛡️ · Stable ➡️ · 4/5**\n\nx"}) == "Wide"
-    assert aspirant.moat_label({"Moat": "**Moat: Narrow · Eroding · 2/5**\n\nx"}) == "Narrow"
-    assert aspirant.moat_label({"Moat": "Some old free-form report"}) is None
+    assert aspirant.moat_label({"Moat Analysis": "**Moat: Wide 🛡️ · Stable ➡️ · 4/5**\n\nx"}) == "Wide"
+    assert aspirant.moat_label({"Moat Analysis": "**Moat: Narrow · Eroding · 2/5**\n\nx"}) == "Narrow"
+    assert aspirant.moat_label({"Moat Analysis": "Some old free-form report"}) is None
     assert aspirant.moat_label(None) is None
+
+
+def test_moat_label_still_reads_the_legacy_moat_key():
+    # Configs saved before the prompt library's title became "Moat Analysis"
+    # stored the section under the bare "Moat" key; that must keep working.
+    assert aspirant.moat_label({"Moat": "**Moat: Wide 🛡️ · Stable ➡️ · 4/5**\n\nx"}) == "Wide"
+
+
+def test_is_placeholder_requires_both_the_flag_and_flat_curves():
+    # Flag set, curves still flat -> a real placeholder.
+    assert aspirant.is_placeholder({"dcf_placeholder": True,
+                                     "revenue_growth": [0.03] * 5, "op_margins": [0.2] * 5})
+    # Flag set but curves filled in by hand (e.g. via the Streamlit editor,
+    # which never clears the flag) -> not a placeholder.
+    assert not aspirant.is_placeholder({"dcf_placeholder": True,
+                                         "revenue_growth": [0.12, 0.10, 0.08, 0.06, 0.04],
+                                         "op_margins": [0.30, 0.31, 0.32, 0.32, 0.32]})
+    # Flag not set at all, regardless of the curves.
+    assert not aspirant.is_placeholder({"dcf_placeholder": False,
+                                         "revenue_growth": [0.03] * 5, "op_margins": [0.2] * 5})
+    assert not aspirant.is_placeholder({})
 
 
 def test_a_complete_wide_aspirant_has_no_blockers():
     assert aspirant.promotion_blockers(_cfg()) == []
 
 
+def test_promotion_not_blocked_by_placeholder_flag_alone_when_curves_vary():
+    # _cfg()'s default curves already vary; setting the flag on top of that
+    # must not resurrect the placeholder blocker.
+    blockers = aspirant.promotion_blockers(_cfg(dcf_placeholder=True))
+    assert not any("placeholder" in b for b in blockers), blockers
+
+
 @pytest.mark.parametrize("over, fragment", [
     ({"category": "Maybe"}, "not an Aspirant"),
-    ({"ai_notes": {"Moat": "**Moat: Narrow · Stable · 3/5**"}}, "Wide"),
+    ({"ai_notes": {"Moat Analysis": "**Moat: Narrow · Stable · 3/5**"}}, "Wide"),
     ({"ai_notes": {}}, "Wide"),
-    ({"dcf_placeholder": True}, "placeholder"),
+    ({"dcf_placeholder": True, "revenue_growth": [0.03] * 5, "op_margins": [0.2] * 5}, "placeholder"),
     ({"equity_market_value": 0}, "equity_market_value"),
     ({"sector_betas": [["A", 1.1, 1.1]]}, "sector_betas"),
     ({"valuation_summary": None}, "valuation_summary"),
@@ -145,6 +173,21 @@ def test_candidates_skip_names_already_listed_and_sort_by_roce(mcp):
     assert [c["ticker"] for c in out["candidates"]] == ["CCC", "AAA"]
 
 
+def test_candidates_limit_none_from_cloud_run_json_falls_back_to_five(mcp):
+    # Cloud Run's JSON-RPC arguments send an omitted optional int as
+    # explicit `null`, which arrives here as limit=None — int(None) would
+    # raise. Must fall back to the same default of 5 as an omitted arg.
+    m, client, _store = mcp
+    snap = MagicMock()
+    snap.data = [{"computed_at": "2026-09-22", "rows": [
+        {"ticker": t, "name": t, "avg_roce": 0.5 - i * 0.01, "net_debt": -1, "passes": True}
+        for i, t in enumerate(["A", "B", "C", "D", "E", "F"])
+    ]}]
+    client.table.return_value.select.return_value.order.return_value.limit.return_value.execute.return_value = snap
+    out = json.loads(m._get_screener_candidates_impl(limit=None))
+    assert len(out["candidates"]) == 5
+
+
 def test_add_aspirant_refuses_an_existing_config(mcp, monkeypatch):
     m, _, store = mcp
     store["MSFT"] = {"category": "Yes", "revenue_growth": [0.1, 0.08]}
@@ -183,6 +226,32 @@ def test_calculate_refuses_a_placeholder(mcp):
     assert "placeholder" in m._calculate_multi_lens_valuation_impl("X")
 
 
+def test_calculate_proceeds_past_the_guard_when_flag_set_but_curves_vary(mcp, monkeypatch):
+    # dcf_placeholder can go stale True once curves are filled in through the
+    # Streamlit editor (which never clears it) — the guard must judge the
+    # curves, not the flag alone.
+    m, _, store = mcp
+    store["X"] = {"dcf_placeholder": True,
+                  "revenue_growth": [0.12, 0.10, 0.08, 0.06, 0.04],
+                  "op_margins": [0.30, 0.31, 0.32, 0.32, 0.32]}
+    monkeypatch.setattr(m.valuation_lenses, "calculate_multi_lens_valuation",
+                        lambda cfg, scenario_grid=False: {"weighted_fv_mid": 42.0})
+    out = m._calculate_multi_lens_valuation_impl("X")
+    assert "placeholder" not in out
+    assert store["X"]["valuation_summary"]["weighted_fv_mid"] == 42.0
+
+
+def test_refresh_all_includes_a_ticker_whose_flag_is_stale_but_curves_vary(mcp, monkeypatch):
+    m, _, store = mcp
+    store["X"] = {"dcf_placeholder": True,
+                  "revenue_growth": [0.12, 0.10, 0.08, 0.06, 0.04],
+                  "op_margins": [0.30, 0.31, 0.32, 0.32, 0.32]}
+    monkeypatch.setattr(m.valuation_lenses, "calculate_multi_lens_valuation",
+                        lambda cfg, scenario_grid=False: {"weighted_fv_mid": 42.0})
+    out = json.loads(m._refresh_all_valuations_impl(force=True))
+    assert "X" in out["computed"]
+
+
 def test_promote_refuses_until_complete_then_moves_to_uncategorized(mcp):
     m, _, store = mcp
     store["X"] = {"category": "Aspirant", "dcf_placeholder": True, "ai_notes": {}}
@@ -190,11 +259,24 @@ def test_promote_refuses_until_complete_then_moves_to_uncategorized(mcp):
     store["X"] = {"category": "Aspirant", "dcf_placeholder": False,
                   "equity_market_value": 5.0, "sector_betas": [["S", 1.0, 1.0]],
                   "valuation_summary": {"weighted_fv_mid": 1},
-                  "ai_notes": {"Moat": "**Moat: Wide · Stable · 4/5**\n\nx"}}
+                  "ai_notes": {"Moat Analysis": "**Moat: Wide · Stable · 4/5**\n\nx"}}
     out = m._promote_aspirant_impl("X")
     assert "Uncategorized" in out
     assert store["X"]["category"] == "Uncategorized"
     assert store["X"]["promoted_by"] == "claude"
+
+
+def test_promote_not_blocked_by_a_stale_placeholder_flag_when_curves_vary(mcp):
+    m, _, store = mcp
+    store["X"] = {"category": "Aspirant", "dcf_placeholder": True,
+                  "equity_market_value": 5.0, "sector_betas": [["S", 1.0, 1.0]],
+                  "valuation_summary": {"weighted_fv_mid": 1},
+                  "revenue_growth": [0.12, 0.10, 0.08, 0.06, 0.04],
+                  "op_margins": [0.30, 0.31, 0.32, 0.32, 0.32],
+                  "ai_notes": {"Moat Analysis": "**Moat: Wide · Stable · 4/5**\n\nx"}}
+    out = m._promote_aspirant_impl("X")
+    assert "Uncategorized" in out
+    assert store["X"]["category"] == "Uncategorized"
 
 
 def test_set_category_refuses_unknown(mcp):
@@ -254,4 +336,8 @@ def test_watchlist_page_uses_the_shared_category_list():
     src = open("streamlit_app.py", encoding="utf-8").read()
     assert "_categories = list(aspirant.CATEGORIES)" in src
     assert "_cat_options = [\"Uncategorized\", *[c for c in aspirant.CATEGORIES" in src
-    assert "if not c.get(\"dcf_placeholder\")" in src   # Refresh all skips placeholders
+    assert "if not aspirant.is_placeholder(c)" in src   # Refresh all skips placeholders
+    # Aspirant rows hide the X (delete): rejecting is No, not delete — a
+    # deleted Aspirant would just get re-added by next week's routine.
+    assert "row.get('category') != 'Aspirant' and st.button(" in src
+    assert 'key=f"wl_rm_row_{t}"' in src

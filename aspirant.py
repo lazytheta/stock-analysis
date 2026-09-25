@@ -31,15 +31,34 @@ _MOAT_LINE = re.compile(r"^\*\*Moat:\s*([A-Za-z]+)", re.M)
 
 
 def moat_label(ai_notes):
-    """"Wide" / "Narrow" / "None" from the Moat section's verdict line, else None."""
+    """"Wide" / "Narrow" / "None" from the Moat section's verdict line, else None.
+
+    The pre-scan section is saved under the prompt library's title, "Moat
+    Analysis" (streamlit_app.py's prescan prompts, ~line 1523) — that's the
+    key real configs carry. "Moat" is kept as a fallback for older configs
+    saved before that title existed.
+    """
     if not isinstance(ai_notes, dict):
         return None
-    text = ai_notes.get("Moat") or ""
+    text = ai_notes.get("Moat Analysis") or ai_notes.get("Moat") or ""
     m = _MOAT_LINE.search(text)
     if not m or m.start() > 400:   # the verdict opens the section
         return None
     label = m.group(1).title()
     return label if label in ("Wide", "Narrow", "None") else None
+
+
+def is_placeholder(cfg):
+    """True while cfg's DCF is still build_config's placeholder curves.
+
+    The dcf_placeholder flag alone isn't trustworthy: the Streamlit editor
+    lets someone fill in revenue_growth/op_margins by hand without ever
+    clearing it (save_to_watchlist only clears it on that same save — a
+    config edited through a different path can carry a stale True flag
+    forever). Require the flag AND flat curves, so a filled-in DCF is never
+    mistaken for a placeholder just because the flag was never flipped.
+    """
+    return bool(cfg.get("dcf_placeholder")) and curves_are_flat(cfg)
 
 
 def promotion_blockers(cfg):
@@ -49,7 +68,7 @@ def promotion_blockers(cfg):
         out.append("not an Aspirant")
     if moat_label(cfg.get("ai_notes")) != "Wide":
         out.append("Moat verdict is not Wide")
-    if cfg.get("dcf_placeholder"):
+    if is_placeholder(cfg):
         out.append("DCF is still the placeholder (growth/margin curves are flat)")
     try:
         emv = float(cfg.get("equity_market_value") or 0)

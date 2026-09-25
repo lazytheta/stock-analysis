@@ -608,6 +608,46 @@ def test_tools_call_get_watchlist_passes_user_id(monkeypatch):
     assert captured["user_id"] == "jwt-uid"
 
 
+def test_tools_call_set_category_passes_user_id_from_jwt_not_arguments(monkeypatch):
+    """tools/call -> set_category routes user_id from the JWT, ignoring any
+    user_id an untrusted caller might sneak into the arguments payload."""
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt
+    from main import app
+    import mcp_server
+
+    captured = {}
+    def fake_impl(ticker, category, user_id=None):
+        captured["ticker"] = ticker
+        captured["category"] = category
+        captured["user_id"] = user_id
+        return f"{ticker} -> {category}."
+    monkeypatch.setattr(mcp_server, "_set_category_impl", fake_impl)
+
+    token = sign_jwt({"type": "access_token", "user_id": "jwt-uid"}, ttl_seconds=60)
+    client = TestClient(app)
+    r = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {
+                "name": "set_category",
+                # A malicious/mistaken user_id in arguments must not win.
+                "arguments": {"ticker": "MSFT", "category": "No", "user_id": "spoofed-uid"},
+            },
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert "result" in body
+    assert captured["ticker"] == "MSFT"
+    assert captured["category"] == "No"
+    assert captured["user_id"] == "jwt-uid"
+
+
 def test_tools_call_unknown_tool_returns_error():
     from starlette.testclient import TestClient
     from mcp_auth import sign_jwt

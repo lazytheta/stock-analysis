@@ -4412,7 +4412,7 @@ def _watchlist_overview():
 
         # An aspirant's config is facts plus flat placeholder curves; a fair value
         # from it would read as a verdict. Its DCF gets filled in first.
-        _refresh_cfgs = {t: c for t, c in _refresh_cfgs.items() if not c.get("dcf_placeholder")}
+        _refresh_cfgs = {t: c for t, c in _refresh_cfgs.items() if not aspirant.is_placeholder(c)}
 
         if not _refresh_cfgs:
             st.info("Watchlist is empty — nothing to refresh.")
@@ -4832,7 +4832,11 @@ def _watchlist_overview():
                 _reject_aspirant(_sb_client, t)
                 st.cache_data.clear()
                 st.rerun()
-            if st.button("", key=f"wl_rm_row_{t}", icon=":material/close:"):
+            # An Aspirant has no delete: removing it would let the weekly
+            # routine re-add the same name next run. Reject via the No
+            # button above instead — that's a durable "No", not a no-op.
+            if row.get('category') != 'Aspirant' and st.button(
+                "", key=f"wl_rm_row_{t}", icon=":material/close:"):
                 remove_from_watchlist(_sb_client, t)
                 st.cache_data.clear()      # the watchlist listing is cached
                 st.rerun()

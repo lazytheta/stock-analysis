@@ -208,7 +208,7 @@ def _calculate_multi_lens_valuation_impl(ticker, scenario_grid=False,
     cfg = config_store.load_config(client, ticker, user_id=user_id)
     if cfg is None:
         return json.dumps({"error": f"{ticker.upper()} not on watchlist"})
-    if cfg.get("dcf_placeholder"):
+    if aspirant.is_placeholder(cfg):
         return json.dumps({"error": f"{ticker.upper()} still has the placeholder "
                                     f"DCF (flat curves); fill it in and save first"})
 
@@ -266,7 +266,7 @@ def _refresh_all_valuations_impl(force: bool = False,
         results = dict(zip(tickers, pool.map(_load, tickers)))
     loaded, dropped = _load_watchlist_configs(tickers, results.get)
 
-    loaded = {t: c for t, c in loaded.items() if not c.get("dcf_placeholder")}
+    loaded = {t: c for t, c in loaded.items() if not aspirant.is_placeholder(c)}
     targets = list(loaded.keys()) if force else [t for t, c in loaded.items() if _is_stale(c)]
     skipped = [t for t in loaded if t not in targets]
 
@@ -1367,7 +1367,7 @@ def _get_screener_candidates_impl(limit=5, user_id: str | None = None):
         "candidates": [{"ticker": r["ticker"], "company": r.get("name"),
                         "sector": r.get("sector"), "avg_roce": r.get("avg_roce"),
                         "net_debt": r.get("net_debt")}
-                       for r in rows[:max(int(limit), 0)]],
+                       for r in rows[:max(int(limit or 5), 0)]],
     }, default=str)
 
 
