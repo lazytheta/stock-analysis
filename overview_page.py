@@ -28,8 +28,15 @@ PROFILE_STYLE = f"""<style>
 .ov-chip{{display:inline-block;padding:3px 10px;border-radius:8px;background:{_INNER};
   color:var(--text);font-size:13px}}
 .ov-empty{{margin-top:14px;font-size:13px;color:var(--text-muted);line-height:1.45}}
-.ov-mission{{margin:18px 0 4px}}
-.ov-mission p{{margin:0;font-size:15px;font-style:italic;color:var(--text);line-height:1.5}}
+</style>"""
+
+# The mission renders in its own st.markdown after the profile panel; its own
+# small style keeps PROFILE_STYLE from being emitted twice on the page.
+MISSION_STYLE = """<style>
+.ov-mission{margin:18px 0 4px}
+.ov-mission .ov-mlbl{font-size:11px;font-weight:700;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--text-muted);margin:0 0 3px}
+.ov-mission p{margin:0;font-size:15px;font-style:italic;color:var(--text);line-height:1.5}
 </style>"""
 
 METRICS_STYLE = f"""<style>
@@ -78,10 +85,13 @@ def profile_panel_html(profile, market_cap_m) -> str:
         return (f'{css}<div class="ov-profile">{_pair("Market cap", mcap)}</div>'
                 f'<div class="ov-empty">{qc.esc(_EMPTY_NOTE)}</div>')
     employees = profile.get("employees")
+    # Rows: Sector | Industry; Market cap alone; Capital type | Difficulty;
+    # Founded | Employees. The empty cell keeps Market cap on its own row.
     pairs = [
         _pair("Sector", _text(profile.get("sector"))),
         _pair("Industry", _text(profile.get("industry"))),
         _pair("Market cap", mcap),
+        "<div></div>",
         _pair("Capital type", _text(profile.get("capital_type"))),
         _pair("Difficulty", _difficulty_html(profile.get("difficulty"))),
         _pair("Founded", _text(profile.get("founded"))),
@@ -101,7 +111,7 @@ def mission_html(profile) -> str:
     mission = (profile or {}).get("mission")
     if not mission:
         return ""
-    return (f'{qc.css(PROFILE_STYLE)}<div class="ov-mission"><div class="ov-lbl">MISSION</div>'
+    return (f'{qc.css(MISSION_STYLE)}<div class="ov-mission"><div class="ov-mlbl">MISSION</div>'
             f'<p>{qc.esc(mission)}</p></div>')
 
 

@@ -312,35 +312,28 @@ def _cached_spy_closes(years: int = 5) -> dict:
     return gather_data.fetch_daily_closes("SPY", years)
 
 
+# Overview tab loaders. Exceptions propagate on purpose: st.cache_data never
+# caches a raised exception, so an EDGAR or Supabase hiccup retries on the
+# next rerun instead of blanking the figures for the whole TTL. The Overview
+# block catches them at the call site.
 @st.cache_data(ttl=86400, show_spinner=False)
-def _overview_statements(ticker):
-    """Income and cash-flow statements for the Overview tab's key figures;
-    either is None when EDGAR has nothing usable."""
-    try:
-        inc = fetch_income_statement(ticker, n_years=11)
-    except Exception as e:
-        logger.warning("income statement for %s failed: %s", ticker, e)
-        inc = None
-    try:
-        cf = fetch_cashflow_statement(ticker, n_years=11)
-    except Exception as e:
-        logger.warning("cash flow statement for %s failed: %s", ticker, e)
-        cf = None
-    return inc, cf
+def _overview_income(ticker):
+    return fetch_income_statement(ticker, n_years=11)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _overview_cashflow(ticker):
+    return fetch_cashflow_statement(ticker, n_years=11)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _overview_prices(ticker, since_iso):
     """Daily closes for the ticker and SPY from the price_history table, keyed
-    on (ticker, since); {} on any failure so the chart just shows its caption.
-    The Supabase client is not hashable, so it is read from session state."""
-    try:
-        client = st.session_state["supabase_client"]
-        return price_history.load_series(client, [ticker, "SPY"],
-                                         date.fromisoformat(since_iso))
-    except Exception as e:
-        logger.warning("price history for %s failed: %s", ticker, e)
-        return {}
+    on (ticker, since). The Supabase client is not hashable, so it is read
+    from session state (KeyError when it is missing)."""
+    client = st.session_state["supabase_client"]
+    return price_history.load_series(client, [ticker, "SPY"],
+                                     date.fromisoformat(since_iso))
 
 
 def _merge_track_rows(rows: list) -> list:
@@ -5248,7 +5241,7 @@ def _dcf_editor(ticker):
             try:
                 _oprofile = (company_profile.parse_company_profile(_oprofile_raw)
                              if _oprofile_raw else None)
-            except ValueError as e:
+            except Exception as e:
                 logger.debug("Company Profile for %s is invalid: %s", ticker, e)
                 _oprofile = None
             _oshares = next((s for s in reversed(fund.get('shares') or []) if s), None)
@@ -5281,8 +5274,13 @@ def _dcf_editor(ticker):
                         _odays, _ospct, _obpct = overview_chart.aligned_pct(
                             _ostock, _obench, overview_chart.range_start(_orng, _olast))
                         if _odays:
-                            _os_tot, _os_cagr = overview_chart.total_and_cagr(_ospct, _odays)
-                            _ob_tot, _ob_cagr = overview_chart.total_and_cagr(_obpct, _odays)
+                            # 0.95: a 1Y window starts on the first trading day
+                            # on/after the anniversary, often a few days short
+                            # of 365, and would otherwise lose its CAGR.
+                            _os_tot, _os_cagr = overview_chart.total_and_cagr(
+                                _ospct, _odays, min_years=0.95)
+                            _ob_tot, _ob_cagr = overview_chart.total_and_cagr(
+                                _obpct, _odays, min_years=0.95)
                             _ochart = (
                                 overview_chart.header_html(ticker, _orng, _os_tot, _os_cagr,
                                                            _ob_tot, _ob_cagr),
@@ -5303,12 +5301,28 @@ def _dcf_editor(ticker):
             _omission = overview_page.mission_html(_oprofile)
             if _omission:
                 st.markdown(_omission, unsafe_allow_html=True)
+            try:
+                _oinc = _overview_income(ticker)
+            except Exception as e:
+                logger.warning("income statement for %s failed: %s", ticker, e)
+                _oinc = None
+            try:
+                _ocf = _overview_cashflow(ticker)
+            except Exception as e:
+                logger.warning("cash flow statement for %s failed: %s", ticker, e)
+                _ocf = None
             # live_price is 0.0 when every price source failed; None keeps
             # P/E and the yields at a dash instead of 0.0x.
-            _oinc, _ocf = _overview_statements(ticker)
-            st.markdown(overview_page.metrics_html(overview_metrics.compute(
-                fund, _oinc, _ocf, live_price if live_price > 0 else None)),
-                unsafe_allow_html=True)
+            try:
+                _ometrics_html = overview_page.metrics_html(overview_metrics.compute(
+                    fund, _oinc, _ocf, live_price if live_price > 0 else None))
+            except Exception as e:
+                logger.warning("Overview key figures for %s failed: %s", ticker, e)
+                _ometrics_html = None
+            if _ometrics_html:
+                st.markdown(_ometrics_html, unsafe_allow_html=True)
+            else:
+                st.caption("Key figures unavailable right now.")
 
     # Business: overview and customer profile, revenue by segment and region,
     # then the four business-quality cards. Read-only, like Moat and Risk.

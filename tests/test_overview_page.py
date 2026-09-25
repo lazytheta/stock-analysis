@@ -125,3 +125,26 @@ def test_ticker_page_has_overview_tab_first():
     assert ".st-key-qc_overview_section" in src
     assert "overview_page.metrics_html(" in src
     assert "overview_page.profile_panel_html(" in src
+
+
+def test_profile_panel_order_market_cap_alone_on_its_row():
+    html = op.profile_panel_html(GOOD_PROFILE, 343190.0)
+    order = ["SECTOR", "INDUSTRY", "MARKET CAP", "CAPITAL TYPE", "DIFFICULTY",
+             "FOUNDED", "EMPLOYEES", "TAGS"]
+    positions = [html.index(label) for label in order]
+    assert positions == sorted(positions)
+    between = html[html.index("MARKET CAP"):html.index("CAPITAL TYPE")]
+    assert "<div></div>" in between
+
+
+def test_mission_does_not_repeat_profile_style():
+    profile = op.profile_panel_html(GOOD_PROFILE, None)
+    mission = op.mission_html(GOOD_PROFILE)
+    assert ".ov-profile{" in profile and ".ov-profile{" not in mission
+    assert all("\n" not in s for s in _styles(mission))
+
+
+def test_overview_tab_wiring_guards():
+    src = open("streamlit_app.py", encoding="utf-8").read()
+    assert src.count("min_years=0.95") == 2
+    assert 'st.caption("Key figures unavailable right now.")' in src

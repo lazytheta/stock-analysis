@@ -159,3 +159,50 @@ def test_formatters():
     assert om.fmt_money_m(9120.0) == "$9.1B"
     assert om.fmt_money_m(510.4) == "$510M"
     assert om.fmt_pct(None) == om.fmt_mult(None) == om.fmt_money_m(None) == "—"
+
+
+def test_fcf_falls_back_to_cfo_when_capex_untagged():
+    n = len(YEARS)
+    f = _fund(fcf=[25.0 * 1.1 ** i for i in range(n - 1)] + [None],
+              cfo=[30.0 * 1.1 ** i for i in range(n)], capex=[None] * n)
+    out = om.compute(f, _income(), _cash(), 100.0)
+    cfo = 30.0 * 1.1 ** 10
+    assert abs(_get(out["profitability"], "FCF margin") - cfo / (100.0 * 1.1 ** 10)) < 1e-9
+    assert abs(_get(out["valuation"], "P/FCF") - 100.0 / cfo) < 1e-9
+    g = {(lab, h): v for lab, h, v in out["growth"]}
+    assert abs(g[("FCF", 3)] - ((cfo / (25.0 * 1.1 ** 7)) ** (1 / 3) - 1)) < 1e-9
+
+
+def test_fcf_stays_none_when_capex_tagged_or_no_cfo():
+    n = len(YEARS)
+    no_fcf = [None] * n
+    tagged = _fund(fcf=no_fcf, cfo=[30.0] * n, capex=[-5.0] * n)
+    out = om.compute(tagged, _income(), _cash(), 100.0)
+    assert _get(out["profitability"], "FCF margin") is None
+    no_cfo = _fund(fcf=no_fcf, capex=[None] * n)
+    out = om.compute(no_cfo, _income(), _cash(), 100.0)
+    assert _get(out["valuation"], "P/FCF") is None
+
+
+def test_untagged_debt_in_fiscal_year_is_zero():
+    f = _fund(total_debt=[60.0] * (len(YEARS) - 1) + [None])
+    out = om.compute(f, _income(), _cash(), 100.0)
+    assert _get(out["health"], "Total debt") == 0.0
+    assert _get(out["health"], "Debt / Equity") == 0.0
+    out = om.compute({}, None, None, 100.0)
+    assert _get(out["health"], "Total debt") is None
+
+
+def test_untagged_cash_flow_lines_count_as_zero_when_year_present():
+    cash = {"years": YEARS, "stock_buybacks": [-6.0] * len(YEARS)}
+    out = om.compute(_fund(), _income(), cash, 100.0)
+    r = out["returns"]
+    assert _get(r, "Dividend yield") == 0.0
+    assert _get(r, "Debt paydown yield") == 0.0
+    assert abs(_get(r, "Total shareholder yield") - 0.06) < 1e-9
+
+
+def test_cash_flow_lacking_the_year_keeps_none():
+    cash = {"years": YEARS[:-1], "dividends_paid": [-3.0] * (len(YEARS) - 1)}
+    out = om.compute(_fund(), _income(), cash, 100.0)
+    assert all(v is None for _, v in out["returns"])

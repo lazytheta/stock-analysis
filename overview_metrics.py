@@ -30,9 +30,23 @@ def _div(a, b, positive_b=False):
     return a / b
 
 
-def _cagr(series: dict, key: str, year: int, n: int):
-    end = _at(series, key, year)
-    start = _at(series, key, year - n)
+def _fcf_at(fund: dict, year):
+    """FCF for a year; when it is missing but CFO is reported and capex is not
+    tagged at all, capex is immaterial and FCF = CFO (VEEV stopped tagging
+    capex after FY2020)."""
+    fcf = _at(fund, "fcf", year)
+    if fcf is not None:
+        return fcf
+    cfo = _at(fund, "cfo", year)
+    if cfo is not None and _at(fund, "capex", year) is None:
+        return cfo
+    return None
+
+
+def _cagr(series: dict, key: str, year: int, n: int, get=None):
+    get = get or (lambda y: _at(series, key, y))
+    end = get(year)
+    start = get(year - n)
     if end is None or start is None or start <= 0 or end <= 0:
         return None
     return (end / start) ** (1.0 / n) - 1.0
@@ -56,7 +70,7 @@ def compute(fund: dict, income: dict | None, cashflow: dict | None,
 
     revenue = f("revenue")
     op_income = f("operating_income")
-    fcf = f("fcf")
+    fcf = _fcf_at(fund, fy)
     equity = f("total_equity")
     shares = f("shares")
     eps = f("eps")
@@ -64,6 +78,10 @@ def compute(fund: dict, income: dict | None, cashflow: dict | None,
     sti = f("short_term_investments")
 
     cash_inv = None if cash is None else cash + (sti or 0.0)
+    # A fiscal year that is present but has no debt tagged carries no debt.
+    total_debt = f("total_debt")
+    if total_debt is None and fy is not None:
+        total_debt = 0.0
     interest = _at(income, "interest_expense", fy)
     ebit_int = (_div(op_income, abs(interest))
                 if interest not in (None, 0) else None)
@@ -71,14 +89,22 @@ def compute(fund: dict, income: dict | None, cashflow: dict | None,
     mcap = (price * shares / 1e6
             if price and price > 0 and shares and shares > 0 else None)
 
-    def yield_of(key):
+    # When the cash-flow statement covers the fiscal year, an untagged
+    # dividend/buyback/debt line means none was paid: 0.0, not unknown.
+    cf_has_year = bool(cashflow) and fy is not None and fy in (cashflow.get("years") or [])
+
+    def cf(key):
         amount = _at(cashflow, key, fy)
+        return 0.0 if amount is None and cf_has_year else amount
+
+    def yield_of(key):
+        amount = cf(key)
         if mcap is None or amount is None:
             return None
         return abs(amount) / mcap
 
-    repay = _at(cashflow, "debt_repayment", fy)
-    issue = _at(cashflow, "debt_issuance", fy)
+    repay = cf("debt_repayment")
+    issue = cf("debt_issuance")
     paydown = (None if mcap is None or repay is None
                else (abs(repay) - (issue or 0.0)) / mcap)
     div_y, buy_y = yield_of("dividends_paid"), yield_of("stock_buybacks")
@@ -95,13 +121,14 @@ def compute(fund: dict, income: dict | None, cashflow: dict | None,
         ],
         "health": [
             ("Cash & investments", cash_inv),
-            ("Total debt", f("total_debt")),
-            ("Debt / Equity", _div(f("total_debt"), equity, True)),
+            ("Total debt", total_debt),
+            ("Debt / Equity", _div(total_debt, equity, True)),
             ("EBIT / Interest", ebit_int),
         ],
-        "growth": [(label, n, _cagr(fund, key, fy, n) if fy else None)
-                   for label, key in (("Revenue", "revenue"), ("EPS", "eps"),
-                                      ("FCF", "fcf"))
+        "growth": [(label, n, _cagr(fund, key, fy, n, get) if fy else None)
+                   for label, key, get in (
+                       ("Revenue", "revenue", None), ("EPS", "eps", None),
+                       ("FCF", "fcf", lambda y: _fcf_at(fund, y)))
                    for n in HORIZONS],
         "valuation": [
             ("P/S", _div(mcap, revenue, True)),
