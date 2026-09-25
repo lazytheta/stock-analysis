@@ -194,22 +194,102 @@ def _money(text) -> float | None:
         return None
 
 
-def _nasdaq_one(payload) -> dict | None:
-    """Nasdaq-antwoord naar het koerscontract, of None."""
-    data = (payload or {}).get("data") if isinstance(payload, dict) else None
-    primary = (data or {}).get("primaryData") if isinstance(data, dict) else None
-    if not isinstance(primary, dict):
-        return None
-    price = _money(primary.get("lastSalePrice"))
+def _nasdaq_block(block) -> tuple:
+    """(price, netChange, asof) uit één data-blok (primary/secondaryData).
+
+    None-tuple als het blok ontbreekt of geen bruikbare koers draagt --
+    secondaryData is null zolang de gewone sessie nog loopt, en dat moet als
+    "geen koers" lezen, niet als een crash op .get() van None."""
+    if not isinstance(block, dict):
+        return None, None, None
+    price = _money(block.get("lastSalePrice"))
     if price is None or price <= 0:
+        return None, None, None
+    return price, _money(block.get("netChange")), block.get("lastTradeTimestamp")
+
+
+def _nasdaq_one(payload) -> dict | None:
+    """Nasdaq-antwoord naar het koerscontract, of None.
+
+    Buiten de reguliere sessie is primaryData de laatste print van de
+    pre-market/after-hours-handel, niet de koers van de vorige sluiting --
+    en dat is dan precies de gevraagde koers. secondaryData draagt in dat
+    geval de laatste koers van de reguliere sessie zelf, in dezelfde velden,
+    en kan null zijn zolang die sessie nog bezig is. Bij "Market Open" (of een
+    ontbrekende marketStatus, voor oudere/andere antwoorden) is primaryData
+    juist de koers van de lopende sessie.
+    """
+    data = (payload or {}).get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
         return None
-    change = _money(primary.get("netChange"))
+    primary = data.get("primaryData")
+    secondary = data.get("secondaryData")
+    status = data.get("marketStatus")
+
+    if status and status != "Market Open":
+        price, change, asof = _nasdaq_block(secondary)
+        if price is None:
+            price, change, asof = _nasdaq_block(primary)
+    else:
+        price, change, asof = _nasdaq_block(primary)
+
+    if price is None:
+        return None
     return {
         "price": price,
         "previousClose": price - change if change is not None else None,
-        "asof": primary.get("lastTradeTimestamp"),
+        "asof": asof,
         "venue": "Nasdaq",
     }
+
+
+# ---------------------------------------------------------------------------
+# Breaker: Nasdaq drie minuten overslaan na drie storingen op rij
+# ---------------------------------------------------------------------------
+#
+# Nasdaq kan blijven hangen of ons blokkeren zonder dat de timeout dat meteen
+# laat merken; elke aanvraag betaalt dan zijn eigen _NASDAQ_TIMEOUT seconden
+# voor niets, voor iedere ticker op de watchlist. Drie storingen op rij zijn
+# geen toeval meer -- daarna wordt Nasdaq voor even overgeslagen in plaats van
+# elke ticker opnieuw te laten wachten en falen.
+_NASDAQ_BREAKER_THRESHOLD = 3
+_NASDAQ_BREAKER_COOLDOWN = 300.0  # seconden
+
+_nasdaq_breaker_lock = threading.Lock()
+_nasdaq_breaker_fail_count = 0
+_nasdaq_breaker_opened_at: float | None = None
+_nasdaq_clock = time.monotonic  # injecteerbaar voor tests, geen sleep nodig
+
+
+def _nasdaq_breaker_reset() -> None:
+    """Teller en open-status terugzetten. Voor tests, zodat de storingen van
+    de ene test de volgende niet in stilte meenemen."""
+    global _nasdaq_breaker_fail_count, _nasdaq_breaker_opened_at
+    with _nasdaq_breaker_lock:
+        _nasdaq_breaker_fail_count = 0
+        _nasdaq_breaker_opened_at = None
+
+
+def _nasdaq_breaker_is_open() -> bool:
+    with _nasdaq_breaker_lock:
+        if _nasdaq_breaker_opened_at is None:
+            return False
+        return _nasdaq_clock() - _nasdaq_breaker_opened_at < _NASDAQ_BREAKER_COOLDOWN
+
+
+def _nasdaq_breaker_record(ok: bool) -> None:
+    """Eén ruw fetch-antwoord boeken. `ok` is of het verzoek is beantwoord --
+    ook data:null telt als beantwoord, alleen een exceptie (timeout, verbroken
+    verbinding) is een storing."""
+    global _nasdaq_breaker_fail_count, _nasdaq_breaker_opened_at
+    with _nasdaq_breaker_lock:
+        if ok:
+            _nasdaq_breaker_fail_count = 0
+            _nasdaq_breaker_opened_at = None
+            return
+        _nasdaq_breaker_fail_count += 1
+        if _nasdaq_breaker_fail_count >= _NASDAQ_BREAKER_THRESHOLD:
+            _nasdaq_breaker_opened_at = _nasdaq_clock()
 
 
 def fetch_nasdaq_quotes(tickers, fetch=None, max_workers: int = 8) -> dict:
@@ -223,21 +303,32 @@ def fetch_nasdaq_quotes(tickers, fetch=None, max_workers: int = 8) -> dict:
 
     Eerst als aandeel, dan als ETF (SPY staat alleen onder etf). Elke
     gevraagde ticker staat in het antwoord, ook als hij niets opleverde.
+
+    Staat de breaker open (drie storingen op rij, zie hierboven) dan gaat er
+    geen verzoek uit en komt elke ticker als None terug.
     """
     tickers = list(dict.fromkeys(t for t in tickers if t))
     if not tickers:
         return {}
     fetch = fetch or _nasdaq_get
 
+    if _nasdaq_breaker_is_open():
+        logger.warning("Nasdaq overgeslagen: breaker open na %d storingen op rij",
+                       _NASDAQ_BREAKER_THRESHOLD)
+        return dict.fromkeys(tickers)
+
     def one(ticker):
         if not _nasdaq_symbol_ok(ticker):
             return ticker, None
         try:
             for cls in ("stocks", "etf"):
-                quote = _nasdaq_one(fetch(NASDAQ_URL.format(symbol=ticker, cls=cls)))
+                payload = fetch(NASDAQ_URL.format(symbol=ticker, cls=cls))
+                _nasdaq_breaker_record(True)
+                quote = _nasdaq_one(payload)
                 if quote is not None:
                     return ticker, quote
         except Exception as e:
+            _nasdaq_breaker_record(False)
             logger.warning("Nasdaq-koers voor %s mislukt: %s: %s",
                            ticker, type(e).__name__, e)
         return ticker, None
@@ -251,14 +342,25 @@ def _default_yahoo(tickers):
     return tastytrade_api.fetch_current_prices(tickers)
 
 
+def _broker_symbol_ok(ticker) -> bool:
+    """Alleen gewone VS-stijl tickers gaan naar de broker.
+
+    Tastytrade kent Europese lijnen (RMS.PA), forex (EURUSD=X) en indices
+    (^GSPC) niet onder die naam; ze zouden er alleen de volle 10s-timeout van
+    de broker-feed voor betalen zonder ooit een koers terug te krijgen. Ze
+    gaan gewoon door naar Nasdaq/Yahoo/Frankfurt, zoals daarvoor."""
+    return isinstance(ticker, str) and not any(c in ticker for c in ".=^")
+
+
 def live_quotes(tickers, broker=None, isin_by_ticker=None,
                 nasdaq=None, yahoo=None, frankfurt=None) -> dict:
     """{ticker: quote | None}: de hele keten, elke bron alleen voor de gaten.
 
     Volgorde: broker-feed (alleen als meegegeven -- geauthenticeerd, dus niet
-    aan een IP gebonden) -> Nasdaq (VS-tickers, zonder sleutel) -> Yahoo (vangt
-    wat Nasdaq niet kent, zolang hij ons nog bedient) -> Frankfurt (alleen
-    tickers met een ISIN, in de praktijk de Europese lijnen).
+    aan een IP gebonden -- en alleen voor VS-stijl tickers) -> Nasdaq
+    (VS-tickers, zonder sleutel) -> Yahoo (vangt wat Nasdaq niet kent, zolang
+    hij ons nog bedient) -> Frankfurt (alleen tickers met een ISIN, in de
+    praktijk de Europese lijnen).
 
     Een bron die omvalt telt als "niets gevonden" en wordt gelogd; de keten
     zelf gooit nooit. Een koers van 0 telt niet als koers.
@@ -274,6 +376,8 @@ def live_quotes(tickers, broker=None, isin_by_ticker=None,
     out = dict.fromkeys(tickers)
     for name, source in steps:
         missing = [t for t in tickers if _live_price(out[t]) is None]
+        if name == "broker":
+            missing = [t for t in missing if _broker_symbol_ok(t)]
         if not missing or source is None:
             continue
         found = _ask(source, missing, name)

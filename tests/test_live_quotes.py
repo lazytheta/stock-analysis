@@ -32,7 +32,10 @@ def test_each_step_only_gets_what_the_previous_missed():
     out = quotes.live_quotes(["MSFT", "NFLX", "RMS.PA"], broker=broker,
                              nasdaq=nasdaq, yahoo=yahoo, frankfurt=frank,
                              isin_by_ticker={"RMS.PA": "FR0000052292"})
-    assert broker.calls == [["MSFT", "NFLX", "RMS.PA"]]
+    # RMS.PA is not US-style, so the broker step never sees it (see
+    # test_broker_only_asked_for_us_style_tickers) -- it goes to Nasdaq/Yahoo
+    # like the rest.
+    assert broker.calls == [["MSFT", "NFLX"]]
     assert nasdaq.calls == [["NFLX", "RMS.PA"]]
     assert yahoo.calls == [["RMS.PA"]]
     assert frank.calls == []
@@ -75,3 +78,16 @@ def test_no_broker_starts_at_nasdaq():
     yahoo = Source()
     quotes.live_quotes(["NFLX"], nasdaq=nasdaq, yahoo=yahoo, frankfurt=Source())
     assert nasdaq.calls == [["NFLX"]] and yahoo.calls == []
+
+
+def test_broker_only_asked_for_us_style_tickers():
+    # RMS.PA is a Paris line; Tastytrade's broker feed doesn't carry it and
+    # asking anyway would cost its full 10s timeout for nothing. It should
+    # still reach Nasdaq/Yahoo/Frankfurt like any other ticker.
+    broker = Source({"MSFT": q(451)})
+    nasdaq = Source({"RMS.PA": q(1412)})
+    out = quotes.live_quotes(["MSFT", "RMS.PA"], broker=broker, nasdaq=nasdaq,
+                             yahoo=Source(), frankfurt=Source())
+    assert broker.calls == [["MSFT"]]
+    assert nasdaq.calls == [["RMS.PA"]]
+    assert out["MSFT"]["price"] == 451 and out["RMS.PA"]["price"] == 1412
