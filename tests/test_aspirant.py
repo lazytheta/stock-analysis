@@ -1,6 +1,49 @@
+from unittest.mock import patch
+
 import pytest
 
 import aspirant
+
+
+def _patch_edgar(gd, price=0.0):
+    fin = {"years": [2021, 2022, 2023, 2024, 2025], "shares": [100.0] * 5,
+           "operating_income": [50.0] * 5, "interest_expense_latest": 1.0}
+    return [
+        patch.object(gd, "get_cik", return_value="0000000001"),
+        patch.object(gd, "fetch_company_submissions",
+                     return_value={"name": "Test Corp", "sic": "7372",
+                                   "sicDescription": "Software"}),
+        patch.object(gd, "resolve_sector_betas", return_value=[("Software", 1.1, 1.0)]),
+        patch.object(gd, "fetch_company_facts", return_value={}),
+        patch.object(gd, "parse_financials", return_value=fin),
+        patch.object(gd, "fetch_stock_price", return_value=(price, 0, 0)),
+        patch.object(gd, "synthetic_credit_rating", return_value=("AA", 0.01)),
+        patch.object(gd, "build_config", side_effect=lambda **kw: {
+            "stock_price": kw["stock_price"], "base_revenue": 10.0,
+            "base_year": 2025, "company": kw["company_name"]}),
+        patch.object(gd, "fetch_fundamentals", return_value={}),
+    ]
+
+
+def test_build_base_config_uses_the_given_price_and_skips_yahoo():
+    import contextlib
+    import gather_data as gd
+    with contextlib.ExitStack() as stack:
+        mocks = [stack.enter_context(p) for p in _patch_edgar(gd, price=0.0)]
+        cfg = gd.build_base_config("TST", stock_price=42.0)
+    assert cfg["stock_price"] == 42.0
+    yahoo = mocks[5]
+    yahoo.assert_not_called()
+
+
+def test_build_base_config_without_any_price_says_so():
+    import contextlib
+    import gather_data as gd
+    with contextlib.ExitStack() as stack:
+        for p in _patch_edgar(gd, price=0.0):
+            stack.enter_context(p)
+        with pytest.raises(ValueError, match="stock_price"):
+            gd.build_base_config("TST")
 
 
 def _cfg(**over):

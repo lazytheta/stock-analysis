@@ -3695,3 +3695,62 @@ Examples:
 
 if __name__ == "__main__":
     main()
+
+
+def build_base_config(ticker, stock_price=0):
+    """The watchlist's add-a-ticker route without Streamlit: facts only.
+
+    Same steps as run_analysis in streamlit_app.py (EDGAR lookup, sector betas,
+    financials, price, credit spread, build_config, fund_slice), minus the
+    progress UI and minus a live Treasury fetch: the rate is the harmonised
+    RISK_FREE_RATE_DEFAULT, as in the MCP's build_dcf_config.
+
+    stock_price > 0 is used as given. The MCP runs on Cloud Run, where Yahoo
+    blocks the IP range, so the caller brings the price from another source;
+    Yahoo is only the fallback.
+    """
+    ticker = ticker.upper()
+    cik = get_cik(ticker)
+    submissions = fetch_company_submissions(cik)
+    company_name = submissions.get("name", ticker)
+    sic_code = int(submissions.get("sic", 0) or 0)
+    sic_desc = submissions.get("sicDescription", "")
+    sector_betas = resolve_sector_betas(sic_code, sic_desc)
+
+    financials = parse_financials(fetch_company_facts(cik), n_years=6, ticker=ticker)
+    if financials.get("shares"):
+        financials["shares"] = apply_adr_share_ratio(financials["shares"], ticker)
+
+    if not stock_price or stock_price <= 0:
+        stock_price, _, _ = fetch_stock_price(ticker)
+    if not stock_price or stock_price <= 0:
+        raise ValueError(f"No price for {ticker}: pass stock_price (Yahoo is "
+                          f"unreachable from this server)")
+
+    oi = financials["operating_income"][-1] if financials.get("operating_income") else 0
+    credit_rating, credit_spread = synthetic_credit_rating(
+        oi, financials.get("interest_expense_latest", 0))
+    shares = financials.get("shares") or []
+    market_cap = round(stock_price * shares[-1], 0) if shares and shares[-1] else 0
+
+    cfg = build_config(
+        ticker=ticker, financials=financials, stock_price=stock_price,
+        market_cap=market_cap, shares_yahoo=0,
+        risk_free_rate=RISK_FREE_RATE_DEFAULT, sector_betas=sector_betas,
+        credit_spread=credit_spread, credit_rating=credit_rating, peers=[],
+        company_name=company_name, margin_of_safety=MARGIN_OF_SAFETY_DEFAULT,
+        terminal_growth=TERMINAL_GROWTH_DEFAULT, sector_margin=None,
+    )
+    if (cfg.get("base_revenue") or 0) <= 0:
+        raise ValueError(f"{company_name} has no revenue data; no DCF possible")
+    if (cfg.get("base_year") or 0) < 2018:
+        raise ValueError(f"{company_name}'s latest filing is too old for a DCF")
+
+    try:
+        from scorecard_utils import slim_fundamentals
+        _slice = slim_fundamentals(fetch_fundamentals(ticker, n_years=10))
+        if _slice:
+            cfg["fund_slice"] = _slice
+    except Exception as e:  # the slice is a cache; never cost the add for it
+        print(f"  WARNING: fund_slice for {ticker} failed: {e}")
+    return cfg
