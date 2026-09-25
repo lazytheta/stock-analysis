@@ -111,4 +111,4 @@ def test_tickers_missing_section(mcp):
     })
     out = json.loads(m._tickers_missing_section_impl(
         "Moat Cards", requires="Moat Analysis", limit=1))
-    assert out == {"tickers": ["AAA"], "remaining": 2}
+    assert out == {"tickers": ["AAA"], "remaining": 1}

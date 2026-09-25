@@ -1357,12 +1357,8 @@ def _save_prescan_section_impl(ticker, title, content,
 
 def _tickers_missing_section_impl(title, requires="", limit=10,
                                   user_id: str | None = None):
-    """Watchlist tickers without pre-scan section `title`, alphabetical.
-    `remaining` counts the whole backlog of tickers lacking `title` (so it
-    still reflects names blocked on `requires`, not only what was
-    returned); `tickers` is that backlog filtered to the ones that, when
-    `requires` is given, already have that section too — i.e. are actually
-    ready to backfill — capped at `limit`."""
+    """Watchlist tickers without pre-scan section `title` (and, when
+    `requires` is given, that do have that section), alphabetical."""
     user_id = user_id or USER_ID
     client = get_supabase_client()
     cfgs = config_store.load_all_configs(client, user_id=user_id)
@@ -1371,12 +1367,11 @@ def _tickers_missing_section_impl(title, requires="", limit=10,
         notes = cfg.get("ai_notes") if isinstance(cfg.get("ai_notes"), dict) else {}
         if str(notes.get(title) or "").strip():
             continue
-        missing.append((t, notes))
+        if requires and not str(notes.get(requires) or "").strip():
+            continue
+        missing.append(t)
     n = max(int(limit or 10), 0)
-    eligible = [t for t, notes in missing
-                if not requires or str(notes.get(requires) or "").strip()]
-    tickers = eligible[:n]
-    return json.dumps({"tickers": tickers, "remaining": len(missing) - len(tickers)})
+    return json.dumps({"tickers": missing[:n], "remaining": len(missing) - len(missing[:n])})
 
 
 def _get_screener_candidates_impl(limit=5, user_id: str | None = None):
