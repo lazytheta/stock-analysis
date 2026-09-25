@@ -63,3 +63,20 @@ def test_mcp_validates_company_profile():
 def test_default_prompt_after_business_cards():
     src = Path(__file__).resolve().parent.parent.joinpath("streamlit_app.py").read_text()
     assert src.index("business_cards.TITLE") < src.index("company_profile.TITLE")
+
+
+def test_profile_list_html_label_is_company_snapshot_not_title():
+    # The Pre-Scan expander already shows "Company Profile" as its own
+    # header, so the inner qc-section must use a distinct label -- otherwise
+    # it repeats, like the sibling card modules ("Moat sources", "Risk
+    # questions", "Business quality") avoid for their sets.
+    html = cp.profile_list_html(_md(GOOD), {"text_muted": "#888"})
+    assert 'qc-label">Company snapshot</div>' in html
+    assert 'qc-label">Company Profile</div>' not in html
+
+
+def test_profile_list_html_empty_still_uses_company_snapshot_label():
+    html = cp.profile_list_html("", {"text_muted": "#888"})
+    assert 'qc-label">Company snapshot</div>' in html
+    assert 'qc-label">Company Profile</div>' not in html
+    assert cp.TITLE in html  # the "No ... yet" notice still names the section

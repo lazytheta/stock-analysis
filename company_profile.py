@@ -138,7 +138,7 @@ def profile_list_html(content, theme):
     except ValueError:
         data = None
     if not data:
-        return qc.section_html(TITLE, qc.notice_html(TITLE, theme))
+        return qc.section_html("Company snapshot", qc.notice_html(TITLE, theme))
     rows = [
         ("Sector", data["sector"]),
         ("Industry", data["industry"]),
@@ -150,4 +150,4 @@ def profile_list_html(content, theme):
         ("Mission", data["mission"]),
     ]
     items = "".join(f"<li><b>{qc.esc(label)}</b>: {qc.esc(value)}</li>" for label, value in rows)
-    return qc.section_html(TITLE, f"<ul>{items}</ul>")
+    return qc.section_html("Company snapshot", f"<ul>{items}</ul>")
