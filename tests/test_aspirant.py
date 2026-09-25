@@ -248,3 +248,10 @@ def test_save_to_watchlist_refuses_category_change_on_an_aspirant(mcp):
     out = m._save_to_watchlist_impl("Z", payload)
     assert "promote_aspirant" in out or "set_category" in out
     assert store["Z"]["category"] == "Aspirant"
+
+
+def test_watchlist_page_uses_the_shared_category_list():
+    src = open("streamlit_app.py", encoding="utf-8").read()
+    assert "_categories = list(aspirant.CATEGORIES)" in src
+    assert "_cat_options = [\"Uncategorized\", *[c for c in aspirant.CATEGORIES" in src
+    assert "if not c.get(\"dcf_placeholder\")" in src   # Refresh all skips placeholders

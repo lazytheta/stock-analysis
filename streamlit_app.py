@@ -19,6 +19,7 @@ import re
 
 logger = logging.getLogger(__name__)
 
+import aspirant
 from error_logger import log_error, log_error_with_trace
 from dcf_calculator import (compute_wacc, compute_intrinsic_value, compute_reverse_dcf,
                             DEFAULT_DISCOUNT_MODE, DEFAULT_HURDLE_RATE)
@@ -4294,6 +4295,21 @@ def _render_notifications_panel():
                 unsafe_allow_html=True)
 
 
+def _reject_aspirant(sb_client, ticker):
+    """Human veto on an AI-proposed aspirant: send it straight to No.
+
+    Kept as its own function, outside the watchlist render block below —
+    test_fund_slice.TestSlimConfigLoad.test_the_watchlist_rows_never_write_a_config
+    pins that block against any save_config call (a partial config handed to
+    save_config from there wiped prescan sections once). This loads the full
+    config first, so the merge is safe either way, but the write lives here.
+    """
+    cfg_no = load_config(sb_client, ticker)
+    if cfg_no is not None:
+        cfg_no['category'] = 'No'
+        save_config(sb_client, ticker, cfg_no)
+
+
 def _watchlist_overview():
     st.markdown("## Watchlist")
     st.markdown(
@@ -4393,6 +4409,10 @@ def _watchlist_overview():
         # One query rather than a pool of per-ticker loads — same reason as the
         # watchlist's own load, and this one runs on every Refresh All click.
         _refresh_cfgs = load_all_configs(_sb_client)
+
+        # An aspirant's config is facts plus flat placeholder curves; a fair value
+        # from it would read as a verdict. Its DCF gets filled in first.
+        _refresh_cfgs = {t: c for t, c in _refresh_cfgs.items() if not c.get("dcf_placeholder")}
 
         if not _refresh_cfgs:
             st.info("Watchlist is empty — nothing to refresh.")
@@ -4574,6 +4594,8 @@ def _watchlist_overview():
             'ticker': t,
             'company': _prettify_company(cfg_wl.get('company', t)),
             'category': cfg_wl.get('category', 'Uncategorized'),
+            'promoted_by': cfg_wl.get('promoted_by'),
+            'promoted_at': cfg_wl.get('promoted_at'),
             'price': live_price,
             'price_stale': _price_stale,
             'currency': _ccy,
@@ -4620,8 +4642,8 @@ def _watchlist_overview():
     prewarm_logos(wl_tickers)
 
     # ── Category definitions ──
-    _categories = ["Yes", "Maybe", "Watch Later", "No", "Uncategorized"]
-    _cat_icons = {"Yes": "✅", "Maybe": "🤔", "Watch Later": "⏳", "No": "❌", "Uncategorized": ""}
+    _categories = list(aspirant.CATEGORIES)
+    _cat_icons = {"Yes": "✅", "Aspirant": "🌱", "Maybe": "🤔", "Watch Later": "⏳", "No": "❌", "Uncategorized": ""}
 
     # Per-phase definitions for the inline "?" tooltip on each Capital cell.
     _CAP_DEFS = {
@@ -4734,6 +4756,8 @@ def _watchlist_overview():
             unsafe_allow_html=True,
         )
         cols[2].markdown(row['company'])
+        if row.get('promoted_by') == 'claude' and row.get('promoted_at'):
+            cols[2].caption(f"by Claude · {date.fromisoformat(row['promoted_at']):%-d %b}")
         if row.get('price_stale'):
             # Grey and dotted-underlined so a stored price can never be
             # mistaken for a live one at a glance.
@@ -4799,6 +4823,15 @@ def _watchlist_overview():
         else:
             cols[9].markdown("—")
         with cols[10]:
+            # Aspirant is the only pile the MCP won't let the AI clear out on its
+            # own (it can only promote or set No) — the human veto lives here.
+            if row.get('category') == 'Aspirant' and st.button(
+                "", key=f"wl_no_row_{t}", icon=":material/block:",
+                help="Reject: move to No",
+            ):
+                _reject_aspirant(_sb_client, t)
+                st.cache_data.clear()
+                st.rerun()
             if st.button("", key=f"wl_rm_row_{t}", icon=":material/close:"):
                 remove_from_watchlist(_sb_client, t)
                 st.cache_data.clear()      # the watchlist listing is cached
@@ -4947,7 +4980,7 @@ def _watchlist_overview():
 
     # Yes is the active-decision pile → open by default. Other categories
     # collapse so they don't push the must-look-at items below the fold.
-    _default_open = {"Yes": True}
+    _default_open = {"Yes": True, "Aspirant": True}
 
     for _cat in _active_cats:
         _cat_rows = _grouped[_cat]
@@ -5013,7 +5046,7 @@ def _dcf_editor(ticker):
     _hero_placeholder = st.empty()
 
     # ── Status pills (inside hero card area) ──
-    _cat_options = ["Uncategorized", "Yes", "Maybe", "Watch Later", "No"]
+    _cat_options = ["Uncategorized", *[c for c in aspirant.CATEGORIES if c != "Uncategorized"]]
     _cur_cat = cfg.get('category', 'Uncategorized')
     _cat_idx = _cat_options.index(_cur_cat) if _cur_cat in _cat_options else 0
     _new_cat = st.pills(
@@ -5022,6 +5055,9 @@ def _dcf_editor(ticker):
     )
     if _new_cat and _new_cat != _cur_cat:
         cfg['category'] = _new_cat
+        # A manual move off Aspirant is a human override of the AI's pick —
+        # the "by Claude" label no longer applies once the human decided.
+        cfg['promoted_by'] = None
         save_config(_sb_client, ticker, cfg)
         st.rerun()
 
