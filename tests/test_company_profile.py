@@ -33,7 +33,9 @@ def test_nulls_allowed_for_founded_and_employees():
     ("founded", "1997"), ("founded", True), ("employees", 0),
     ("employees", 12.5), ("tags", []), ("tags", ["a", "b", "c", "d", "e"]),
     ("tags", ["dup", "dup"]), ("tags", ["x" * 25]), ("tags", [""]),
-    ("mission", ""), ("mission", "x" * 201)])
+    ("mission", ""), ("mission", "x" * 201),
+    ("sector", 123), ("industry", 4.5), ("mission", 7), ("tags", [42]),
+    ("tags", ["ok", True])])
 def test_invalid_fields_raise(field, value):
     with pytest.raises(ValueError):
         cp.parse_company_profile(_md(dict(GOOD, **{field: value})))

@@ -148,3 +148,21 @@ def test_overview_tab_wiring_guards():
     src = open("streamlit_app.py", encoding="utf-8").read()
     assert src.count("min_years=0.95") == 2
     assert 'st.caption("Key figures unavailable right now.")' in src
+
+
+def test_overview_statement_loaders_refuse_empty_results():
+    src = open("streamlit_app.py", encoding="utf-8").read()
+    assert ("overview_metrics.require_years(\n        fetch_income_statement(ticker, n_years=11)"
+            in src)
+    assert ("overview_metrics.require_years(\n        fetch_cashflow_statement(ticker, n_years=11)"
+            in src)
+
+
+def test_overview_cagr_only_for_year_ranges():
+    src = open("streamlit_app.py", encoding="utf-8").read()
+    assert 'if _orng not in ("1Y", "3Y", "5Y", "10Y"):' in src
+
+
+def test_overview_market_cap_uses_fiscal_year_shares():
+    src = open("streamlit_app.py", encoding="utf-8").read()
+    assert "_oshares = overview_metrics.shares_at_fiscal_year(fund)" in src

@@ -73,7 +73,7 @@ def test_update_ticker_nothing_new_when_up_to_date():
 class FakeTable:
     def __init__(self, db, name):
         self.db, self.name, self.filters, self._order, self._limit = db, name, [], None, None
-        self._payload, self._select = None, None
+        self._payload, self._select, self._range = None, None, None
 
     def select(self, cols):
         self._select = cols
@@ -124,11 +124,16 @@ class FakeClient:
         return FakeTable(self.db, name)
 
 
+def _first_page(rows):
+    """Data lambda that serves `rows` on the first .range() page only."""
+    return lambda t: rows if t._range is None or t._range[0] == 0 else []
+
+
 def test_run_collects_tickers_skips_non_us_and_continues_on_error():
     db = {
-        ("data", "watchlist_configs"): lambda t: [
+        ("data", "watchlist_configs"): _first_page([
             {"ticker": "NFLX"}, {"ticker": "RMS.PA"}, {"ticker": "NFLX"},
-            {"ticker": "BOOM"}],
+            {"ticker": "BOOM"}]),
         ("data", "price_history"): lambda t: [],
     }
 
@@ -145,3 +150,79 @@ def test_run_collects_tickers_skips_non_us_and_continues_on_error():
     written = [recs[0]["ticker"] for name, recs, oc in db["upserts"]]
     assert sorted(written) == ["NFLX", "SPY"]
     assert all(oc == "ticker,day" for _, _, oc in db["upserts"])
+
+
+def test_update_ticker_no_split_writes_only_new_days():
+    stored = {"2026-09-21": 100.0, "2026-09-22": 101.0}
+    calls, written = [], []
+
+    def fetch(symbol, start, end):
+        calls.append((start, end))
+        return [("2026-09-21", 100.2), ("2026-09-22", 101.0),
+                ("2026-09-23", 102.0), ("2026-09-24", 103.0)]
+
+    n = ph.update_ticker("NFLX", date(2026, 9, 25), date(2026, 9, 22), fetch,
+                         lambda recs: written.extend(recs), stored=stored)
+    assert calls == [(date(2026, 9, 15), date(2026, 9, 25))]
+    assert n == 2
+    assert [r["day"] for r in written] == ["2026-09-23", "2026-09-24"]
+
+
+def test_update_ticker_split_refetches_full_window_and_overwrites():
+    stored = {"2026-09-21": 100.0, "2026-09-22": 100.0}
+    full = [("2016-09-26", 10.0), ("2026-09-21", 50.0), ("2026-09-22", 50.0),
+            ("2026-09-23", 51.0)]
+    calls, written = [], []
+
+    def fetch(symbol, start, end):
+        calls.append((start, end))
+        if start == date(2016, 9, 25):
+            return full
+        return full[1:]
+
+    n = ph.update_ticker("NFLX", date(2026, 9, 25), date(2026, 9, 22), fetch,
+                         lambda recs: written.extend(recs), stored=stored)
+    assert calls == [(date(2026, 9, 15), date(2026, 9, 25)),
+                     (date(2016, 9, 25), date(2026, 9, 25))]
+    assert n == 4
+    assert [(r["day"], r["close"]) for r in written] == full
+
+
+def test_run_passes_stored_closes_and_detects_split():
+    stored_rows = [{"day": "2026-09-22", "close": 100.0},
+                   {"day": "2026-09-21", "close": 100.0}]
+    db = {
+        ("data", "watchlist_configs"): _first_page([{"ticker": "NFLX"}]),
+        ("data", "price_history"): lambda t: (
+            stored_rows if ("eq", "ticker", "NFLX") in t.filters else []),
+    }
+    calls = []
+
+    def fetch(symbol, start, end):
+        calls.append((symbol, start))
+        if symbol == "NFLX" and start == date(2026, 9, 15):
+            return [("2026-09-22", 50.0), ("2026-09-23", 51.0)]
+        return [("2016-09-26", 5.0), ("2026-09-22", 50.0), ("2026-09-23", 51.0)]
+
+    out = ph.run(FakeClient(db), today=date(2026, 9, 25), fetch=fetch,
+                 sleep=lambda s: None)
+    assert ("NFLX", date(2026, 9, 15)) in calls           # overlap check
+    assert ("NFLX", date(2016, 9, 25)) in calls           # split -> full re-fetch
+    nflx = [r for name, recs, oc in db["upserts"] for r in recs
+            if r["ticker"] == "NFLX"]
+    assert len(nflx) == 3
+    assert out["errors"] == []
+
+
+def test_load_series_pages_until_empty():
+    pages = {0: [{"day": "2026-01-01", "close": 1.0}, {"day": "2026-01-02", "close": 2.0}],
+             2: [{"day": "2026-01-03", "close": 3.0}]}
+    db = {("data", "price_history"): lambda t: pages.get(t._range[0], [])}
+    out = ph.load_series(FakeClient(db), ["NFLX"], date(2026, 1, 1))
+    assert [d for d, _ in out["NFLX"]] == ["2026-01-01", "2026-01-02", "2026-01-03"]
+
+
+def test_tickers_pages_past_first_page():
+    pages = {0: [{"ticker": "NFLX"}], 1: [{"ticker": "MSFT"}, {"ticker": "NFLX"}]}
+    db = {("data", "watchlist_configs"): lambda t: pages.get(t._range[0], [])}
+    assert ph._tickers(FakeClient(db)) == ["NFLX", "MSFT", "SPY"]

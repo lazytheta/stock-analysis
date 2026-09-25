@@ -314,16 +314,19 @@ def _cached_spy_closes(years: int = 5) -> dict:
 
 # Overview tab loaders. Exceptions propagate on purpose: st.cache_data never
 # caches a raised exception, so an EDGAR or Supabase hiccup retries on the
-# next rerun instead of blanking the figures for the whole TTL. The Overview
-# block catches them at the call site.
+# next rerun instead of blanking the figures for the whole TTL. The EDGAR
+# fetchers swallow their own errors into {'years': []}, so require_years turns
+# that back into an exception. The Overview block catches them at the call site.
 @st.cache_data(ttl=86400, show_spinner=False)
 def _overview_income(ticker):
-    return fetch_income_statement(ticker, n_years=11)
+    return overview_metrics.require_years(
+        fetch_income_statement(ticker, n_years=11), "income statement")
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def _overview_cashflow(ticker):
-    return fetch_cashflow_statement(ticker, n_years=11)
+    return overview_metrics.require_years(
+        fetch_cashflow_statement(ticker, n_years=11), "cash flow statement")
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -5244,7 +5247,7 @@ def _dcf_editor(ticker):
             except Exception as e:
                 logger.debug("Company Profile for %s is invalid: %s", ticker, e)
                 _oprofile = None
-            _oshares = next((s for s in reversed(fund.get('shares') or []) if s), None)
+            _oshares = overview_metrics.shares_at_fiscal_year(fund)
             _omcap = (live_price * _oshares / 1e6
                       if live_price and live_price > 0 and _oshares else None)
 
@@ -5281,6 +5284,9 @@ def _dcf_editor(ticker):
                                 _ospct, _odays, min_years=0.95)
                             _ob_tot, _ob_cagr = overview_chart.total_and_cagr(
                                 _obpct, _odays, min_years=0.95)
+                            # CAGR only means something over whole years.
+                            if _orng not in ("1Y", "3Y", "5Y", "10Y"):
+                                _os_cagr = _ob_cagr = None
                             _ochart = (
                                 overview_chart.header_html(ticker, _orng, _os_tot, _os_cagr,
                                                            _ob_tot, _ob_cagr),

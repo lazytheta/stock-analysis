@@ -21,6 +21,9 @@ HISTORY_URL = ("https://api.nasdaq.com/api/quote/{symbol}/historical"
 TABLE = "price_history"
 YEARS = 10
 BENCHMARK = "SPY"
+PAGE = 1000
+OVERLAP_DAYS = 7          # re-fetched days compared against stored closes
+SPLIT_TOLERANCE = 0.01    # relative close difference that means a split
 
 
 def _close(text):
@@ -69,11 +72,33 @@ def start_date(last_day, today, years: int = YEARS):
     return last_day + timedelta(days=1)
 
 
-def update_ticker(ticker, today, last_day, fetch, upsert, batch=500) -> int:
-    start = start_date(last_day, today)
-    if start > today:
-        return 0
-    rows = fetch(ticker, start, today)
+def _split_suspected(rows, stored) -> bool:
+    """True when a fetched close differs >1% from the stored close for the
+    same day. Nasdaq history is split-adjusted, so after a split every stored
+    close is stale and the overlap shows it."""
+    for day, close in rows:
+        old = (stored or {}).get(day)
+        if old and abs(close - old) / old > SPLIT_TOLERANCE:
+            return True
+    return False
+
+
+def update_ticker(ticker, today, last_day, fetch, upsert, batch=500,
+                  stored=None) -> int:
+    """Fetch and upsert new closes. With a last_day, the fetch overlaps the
+    last OVERLAP_DAYS so a split (stored closes no longer matching) triggers a
+    full re-fetch that overwrites the whole window."""
+    if last_day is None:
+        rows = fetch(ticker, start_date(None, today), today)
+    else:
+        if last_day >= today:
+            return 0
+        rows = fetch(ticker, last_day - timedelta(days=OVERLAP_DAYS), today)
+        if _split_suspected(rows, stored):
+            logger.info("price history for %s: stored closes differ, re-fetching", ticker)
+            rows = fetch(ticker, start_date(None, today), today)
+        else:
+            rows = [(d, c) for d, c in rows if d > last_day.isoformat()]
     records = [{"ticker": ticker, "day": d, "close": c} for d, c in rows]
     for i in range(0, len(records), batch):
         upsert(records[i:i + batch])
@@ -81,16 +106,26 @@ def update_ticker(ticker, today, last_day, fetch, upsert, batch=500) -> int:
 
 
 def _tickers(client) -> list:
-    rows = client.table("watchlist_configs").select("ticker").execute().data or []
-    names = [r.get("ticker") for r in rows]
+    names, start = [], 0
+    while True:
+        rows = (client.table("watchlist_configs").select("ticker")
+                .range(start, start + PAGE - 1).execute().data or [])
+        if not rows:
+            break
+        names.extend(r.get("ticker") for r in rows)
+        start += len(rows)
     us = [t for t in dict.fromkeys(names) if quotes._nasdaq_symbol_ok(t)]
     return [t for t in us if t != BENCHMARK] + [BENCHMARK]
 
 
-def _last_day(client, ticker):
-    rows = (client.table(TABLE).select("day").eq("ticker", ticker)
-            .order("day", desc=True).limit(1).execute().data or [])
-    return date.fromisoformat(rows[0]["day"]) if rows else None
+def _recent(client, ticker):
+    """(last stored day or None, {iso_day: close} for the last stored rows)."""
+    rows = (client.table(TABLE).select("day, close").eq("ticker", ticker)
+            .order("day", desc=True).limit(OVERLAP_DAYS).execute().data or [])
+    if not rows:
+        return None, {}
+    return (date.fromisoformat(rows[0]["day"]),
+            {r["day"]: float(r["close"]) for r in rows})
 
 
 def run(client, today=None, fetch=None, sleep=time.sleep) -> dict:
@@ -106,8 +141,9 @@ def run(client, today=None, fetch=None, sleep=time.sleep) -> dict:
         if i:
             sleep(0.3)
         try:
-            total += update_ticker(ticker, today, _last_day(client, ticker),
-                                   fetch, upsert)
+            last_day, stored = _recent(client, ticker)
+            total += update_ticker(ticker, today, last_day, fetch, upsert,
+                                   stored=stored)
         except Exception as e:
             logger.warning("price history for %s failed: %s: %s",
                            ticker, type(e).__name__, e)
@@ -116,16 +152,17 @@ def run(client, today=None, fetch=None, sleep=time.sleep) -> dict:
 
 
 def load_series(client, tickers, since) -> dict:
-    """{ticker: [(iso_day, close), ...]} ascending, paging past the 1000-row cap."""
+    """{ticker: [(iso_day, close), ...]} ascending, paging until an empty page
+    (the server's row cap may be below the page size)."""
     out = {t: [] for t in tickers}
     for ticker in tickers:
         start = 0
         while True:
             data = (client.table(TABLE).select("day, close").eq("ticker", ticker)
                     .gte("day", since.isoformat()).order("day")
-                    .range(start, start + 999).execute().data or [])
-            out[ticker].extend((r["day"], float(r["close"])) for r in data)
-            if len(data) < 1000:
+                    .range(start, start + PAGE - 1).execute().data or [])
+            if not data:
                 break
-            start += 1000
+            out[ticker].extend((r["day"], float(r["close"])) for r in data)
+            start += len(data)
     return out

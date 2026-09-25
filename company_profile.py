@@ -63,6 +63,15 @@ def _is_int(x):
     return isinstance(x, int) and not isinstance(x, bool)
 
 
+def _text(value, name):
+    """A stripped string; None/empty passes through as "", non-strings raise."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a string")
+    return value.strip()
+
+
 def _load_json(content):
     text = (content or "").strip()
     fenced = _FENCE.search(text)
@@ -81,11 +90,11 @@ def parse_company_profile(content):
     if not isinstance(data, dict):
         raise ValueError("expected a JSON object")
 
-    sector = str(data.get("sector") or "").strip()
+    sector = _text(data.get("sector"), "sector")
     if not sector or len(sector) > 60:
         raise ValueError("sector must be 1-60 characters")
 
-    industry = str(data.get("industry") or "").strip()
+    industry = _text(data.get("industry"), "industry")
     if not industry or len(industry) > 60:
         raise ValueError("industry must be 1-60 characters")
 
@@ -111,7 +120,7 @@ def parse_company_profile(content):
         raise ValueError("tags needs 1-4 entries")
     out_tags, seen = [], set()
     for t in tags:
-        tag = str(t or "").strip()
+        tag = _text(t, "each tag")
         if not tag or len(tag) > 24:
             raise ValueError("each tag must be 1-24 characters")
         key = tag.lower()
@@ -120,7 +129,7 @@ def parse_company_profile(content):
         seen.add(key)
         out_tags.append(tag)
 
-    mission = str(data.get("mission") or "").strip()
+    mission = _text(data.get("mission"), "mission")
     if not mission or len(mission) > 200:
         raise ValueError("mission must be 1-200 characters")
 

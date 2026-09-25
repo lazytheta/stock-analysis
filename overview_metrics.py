@@ -61,6 +61,25 @@ def _fiscal_year(fund: dict):
     return None
 
 
+def shares_at_fiscal_year(fund: dict):
+    """Shares at the fiscal year compute() uses (the last year with revenue),
+    else the latest non-null count, so both market caps agree."""
+    fund = fund or {}
+    shares = _at(fund, "shares", _fiscal_year(fund))
+    if shares:
+        return shares
+    return next((s for s in reversed(fund.get("shares") or []) if s), None)
+
+
+def require_years(statement, name: str):
+    """The statement unchanged, or RuntimeError when it has no years. The
+    EDGAR fetchers swallow errors into {'years': []}; raising keeps a caching
+    caller from storing that failure."""
+    if not statement or not statement.get("years"):
+        raise RuntimeError(f"{name} has no fiscal years")
+    return statement
+
+
 def compute(fund: dict, income: dict | None, cashflow: dict | None,
             price: float | None) -> dict:
     fy = _fiscal_year(fund or {})
@@ -78,10 +97,11 @@ def compute(fund: dict, income: dict | None, cashflow: dict | None,
     sti = f("short_term_investments")
 
     cash_inv = None if cash is None else cash + (sti or 0.0)
-    # A fiscal year that is present but has no debt tagged carries no debt.
-    total_debt = f("total_debt")
-    if total_debt is None and fy is not None:
-        total_debt = 0.0
+    # Long-term plus short-term debt. A fiscal year that is present but has
+    # a line untagged carries none of it.
+    long_debt, short_debt = f("total_debt"), f("short_term_debt")
+    total_debt = (None if fy is None
+                  else (long_debt or 0.0) + (short_debt or 0.0))
     interest = _at(income, "interest_expense", fy)
     ebit_int = (_div(op_income, abs(interest))
                 if interest not in (None, 0) else None)

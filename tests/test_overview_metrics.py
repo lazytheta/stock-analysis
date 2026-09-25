@@ -206,3 +206,36 @@ def test_cash_flow_lacking_the_year_keeps_none():
     cash = {"years": YEARS[:-1], "dividends_paid": [-3.0] * (len(YEARS) - 1)}
     out = om.compute(_fund(), _income(), cash, 100.0)
     assert all(v is None for _, v in out["returns"])
+
+
+def test_total_debt_includes_short_term_debt():
+    n = len(YEARS)
+    out = om.compute(_fund(short_term_debt=[15.0] * n), _income(), _cash(), 100.0)
+    h = out["health"]
+    assert _get(h, "Total debt") == 75.0
+    assert abs(_get(h, "Debt / Equity") - 75.0 / 120.0) < 1e-9
+    # Only short-term debt tagged in the fiscal year: long-term counts as 0.
+    f = _fund(total_debt=[None] * n, short_term_debt=[15.0] * n)
+    assert _get(om.compute(f, _income(), _cash(), 100.0)["health"], "Total debt") == 15.0
+
+
+def test_shares_at_fiscal_year_prefers_the_revenue_year():
+    n = len(YEARS)
+    shares = [1_000_000.0] * (n - 1) + [2_000_000.0]
+    # FY2026 has no revenue: fiscal year is 2025, whose shares win over 2026's.
+    f = _fund(revenue=[100.0] * (n - 1) + [None], shares=shares)
+    assert om.shares_at_fiscal_year(f) == 1_000_000.0
+    # No shares at the fiscal year: fall back to the latest non-null.
+    f = _fund(shares=[3.0] * (n - 1) + [None])
+    assert om.shares_at_fiscal_year(f) == 3.0
+    assert om.shares_at_fiscal_year({}) is None
+
+
+def test_require_years_rejects_an_empty_statement():
+    import pytest
+    with pytest.raises(RuntimeError):
+        om.require_years({"years": []}, "income statement")
+    with pytest.raises(RuntimeError):
+        om.require_years(None, "cash flow statement")
+    stmt = {"years": [2025]}
+    assert om.require_years(stmt, "income statement") is stmt

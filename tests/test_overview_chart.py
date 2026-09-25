@@ -160,3 +160,10 @@ def test_figure_returns_two_traces_with_expected_y():
     assert len(fig.data) == 2
     assert list(fig.data[0].y) == stock_pcts
     assert list(fig.data[1].y) == bench_pcts
+
+
+def test_figure_hover_shows_signed_percent_and_series_name():
+    fig = oc.figure(["2026-01-01", "2026-01-02"], [0.0, 0.05], [0.0, 0.03],
+                    "NFLX", {"accent": "#2f7d4f"})
+    assert fig.data[0].hovertemplate == "%{y:+.1%}<extra>NFLX</extra>"
+    assert fig.data[1].hovertemplate == "%{y:+.1%}<extra>S&P 500</extra>"

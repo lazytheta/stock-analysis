@@ -110,6 +110,7 @@ def figure(dates, stock_pcts, bench_pcts, ticker: str, theme: dict) -> go.Figure
         x=dates, y=stock_pcts, mode="lines", name=ticker,
         line=dict(color=accent, width=2.5),
         fill="tozeroy",
+        hovertemplate=f"%{{y:+.1%}}<extra>{ticker}</extra>",
     )
     if fill_color:
         stock_trace["fillcolor"] = fill_color
@@ -117,6 +118,7 @@ def figure(dates, stock_pcts, bench_pcts, ticker: str, theme: dict) -> go.Figure
     fig.add_trace(go.Scatter(
         x=dates, y=bench_pcts, mode="lines", name="S&P 500",
         line=dict(color=bench_color, width=2),
+        hovertemplate="%{y:+.1%}<extra>S&P 500</extra>",
     ))
     fig.update_layout(
         height=360,
