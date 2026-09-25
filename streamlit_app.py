@@ -5093,16 +5093,19 @@ def _dcf_editor(ticker):
         st.rerun()
 
     # ── Live price ──
+    # Dezelfde keten als de watchlist (broker -> Nasdaq -> Yahoo -> Frankfurt).
+    # Dit vroeg eerst alleen Yahoo, en dat blokkeert Streamlit Cloud: de pagina
+    # viel dan stil terug op de koers van de laatste config-schrijfbeurt.
     @st.cache_data(ttl=30)
-    def _price(t):
+    def _price(t, isin=None):
         try:
-            p, _, _ = fetch_stock_price(t)
-            return p
+            q = fetch_current_prices([t], {t: isin} if isin else None).get(t)
+            return float(q["price"]) if q and q.get("price") else 0.0
         except Exception as e:
             logger.debug("Stock price fetch failed for %s: %s", t, e)
             return 0.0
 
-    live_price = _price(ticker)
+    live_price = _price(ticker, cfg.get("isin"))
     if live_price > 0:
         cfg['stock_price'] = live_price
 

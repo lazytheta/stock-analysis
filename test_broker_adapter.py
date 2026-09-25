@@ -380,6 +380,15 @@ class TestFetchCurrentPricesLayering(unittest.TestCase):
     so both paths have to work, and the split has to be by symbol.
     """
 
+    def setUp(self):
+        # Nasdaq zit nu tussen broker en Yahoo; deze tests gaan over de
+        # broker/Yahoo-splitsing, dus Nasdaq levert hier niets (en gaat niet
+        # het net op).
+        patcher = patch.object(broker_adapter.quotes, "fetch_nasdaq_quotes",
+                               return_value={})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _st(self, connected=True):
         return types.SimpleNamespace(
             session_state={"tt_refresh_token": "rt"} if connected else {})
@@ -449,3 +458,16 @@ class TestFetchCurrentPricesLayering(unittest.TestCase):
             out = broker_adapter.fetch_current_prices(["MSFT", "RMS.PA"])
         self.assertEqual(set(out), {"MSFT", "RMS.PA"})
         self.assertIsNone(out["MSFT"])
+
+    def test_nasdaq_fills_before_yahoo(self):
+        with patch.object(broker_adapter, "st", self._st(connected=False)), \
+             patch.object(broker_adapter.quotes, "fetch_nasdaq_quotes",
+                          return_value={"NFLX": {"price": 72.0,
+                                                 "previousClose": 71.0,
+                                                 "asof": None,
+                                                 "venue": "Nasdaq"}}), \
+             patch.object(broker_adapter.tastytrade_api,
+                          "fetch_current_prices") as yahoo:
+            out = broker_adapter.fetch_current_prices(["NFLX"])
+        yahoo.assert_not_called()
+        self.assertAlmostEqual(out["NFLX"]["price"], 72.0)

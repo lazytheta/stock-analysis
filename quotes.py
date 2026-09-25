@@ -246,6 +246,53 @@ def fetch_nasdaq_quotes(tickers, fetch=None, max_workers: int = 8) -> dict:
         return dict(pool.map(one, tickers))
 
 
+def _default_yahoo(tickers):
+    import tastytrade_api  # laat: zwaar pakket, en de tests hebben het niet nodig
+    return tastytrade_api.fetch_current_prices(tickers)
+
+
+def live_quotes(tickers, broker=None, isin_by_ticker=None,
+                nasdaq=None, yahoo=None, frankfurt=None) -> dict:
+    """{ticker: quote | None}: de hele keten, elke bron alleen voor de gaten.
+
+    Volgorde: broker-feed (alleen als meegegeven -- geauthenticeerd, dus niet
+    aan een IP gebonden) -> Nasdaq (VS-tickers, zonder sleutel) -> Yahoo (vangt
+    wat Nasdaq niet kent, zolang hij ons nog bedient) -> Frankfurt (alleen
+    tickers met een ISIN, in de praktijk de Europese lijnen).
+
+    Een bron die omvalt telt als "niets gevonden" en wordt gelogd; de keten
+    zelf gooit nooit. Een koers van 0 telt niet als koers.
+    """
+    tickers = list(dict.fromkeys(t for t in tickers if t))
+    if not tickers:
+        return {}
+    isin_by_ticker = isin_by_ticker or {}
+    steps = [("broker", broker),
+             ("nasdaq", nasdaq or fetch_nasdaq_quotes),
+             ("yahoo", yahoo or _default_yahoo)]
+
+    out = dict.fromkeys(tickers)
+    for name, source in steps:
+        missing = [t for t in tickers if _live_price(out[t]) is None]
+        if not missing or source is None:
+            continue
+        found = _ask(source, missing, name)
+        for t in missing:
+            if _live_price(found.get(t)) is not None:
+                out[t] = found[t]
+
+    gaps = {t: isin_by_ticker[t] for t in tickers
+            if _live_price(out[t]) is None and isin_by_ticker.get(t)}
+    if gaps:
+        found = _ask(frankfurt or fetch_frankfurt_quotes, gaps, "frankfurt")
+        for t in gaps:
+            if _live_price(found.get(t)) is not None:
+                out[t] = found[t]
+
+    return {t: (out[t] if _live_price(out[t]) is not None else None)
+            for t in tickers}
+
+
 def _live_price(quote) -> float | None:
     """De koers uit een bronantwoord, of None. Nul telt niet als koers."""
     if not isinstance(quote, dict):

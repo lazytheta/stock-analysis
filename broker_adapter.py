@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import streamlit as st
 
+import quotes
 import t212_api
 import tastytrade_api
 
@@ -588,32 +589,26 @@ def fetch_current_prices(tickers, isin_by_ticker=None):
     Deutsche Boerse is that second source, for any ticker whose config carries
     an ISIN — pass `isin_by_ticker` to enable it. It runs only on what the
     first two missed, so from an IP Yahoo still serves this never fires.
+
+    Nasdaq now sits between the broker feed and Yahoo, answering without a
+    key and from Google Cloud, so it catches most US names before Yahoo is
+    even asked.
     """
     tickers = list(tickers)
     if not tickers:
         return {}
 
-    out = {}
+    broker = None
     if st.session_state.get("tt_refresh_token"):
-        try:
-            out = tastytrade_api.fetch_quotes_via_broker(
-                tickers, refresh_token=_get_refresh_token())
-        except Exception as e:
-            logger.warning("Broker quotes failed, falling back to Yahoo: %s", e)
+        def broker(ts):
+            return tastytrade_api.fetch_quotes_via_broker(
+                ts, refresh_token=_get_refresh_token())
 
-    missing = [t for t in tickers if not out.get(t)]
-    if missing:
-        out.update(tastytrade_api.fetch_current_prices(missing))
-
-    # Wat na broker én Yahoo nog ontbreekt: in de praktijk de Europese lijnen.
-    # Alleen namen met een ISIN, want de beurs kent geen tickers.
-    still_missing = {t: (isin_by_ticker or {}).get(t) for t in tickers
-                     if not out.get(t) and (isin_by_ticker or {}).get(t)}
-    if still_missing:
-        import quotes
-        out.update({t: q for t, q
-                    in quotes.fetch_frankfurt_quotes(still_missing).items() if q})
-    return {t: out.get(t) for t in tickers}
+    # Yahoo via een lambda, zodat de lookup van tastytrade_api.fetch_current_prices
+    # pas bij de aanroep gebeurt (tests patchen dat attribuut).
+    return quotes.live_quotes(
+        tickers, broker=broker, isin_by_ticker=isin_by_ticker,
+        yahoo=lambda ts: tastytrade_api.fetch_current_prices(ts))
 
 
 def fetch_ticker_profiles(tickers):
