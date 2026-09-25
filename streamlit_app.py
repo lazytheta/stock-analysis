@@ -20,6 +20,7 @@ import re
 logger = logging.getLogger(__name__)
 
 import aspirant
+import moat_cards
 from error_logger import log_error, log_error_with_trace
 from dcf_calculator import (compute_wacc, compute_intrinsic_value, compute_reverse_dcf,
                             DEFAULT_DISCOUNT_MODE, DEFAULT_HURDLE_RATE)
@@ -1633,6 +1634,11 @@ with nothing against it has not been done.]
   still assess all five sources — you just report the ones that decide it.
 
 """,
+    },
+    {
+        # Five question cards for the Moat tab, built on the analysis above.
+        "title": moat_cards.TITLE,
+        "prompt": moat_cards.PROMPT,
     },
     {
         "title": "Long-Term Potential",

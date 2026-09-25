@@ -112,3 +112,33 @@ def test_tickers_missing_section(mcp):
     out = json.loads(m._tickers_missing_section_impl(
         "Moat Cards", requires="Moat Analysis", limit=1))
     assert out == {"tickers": ["AAA"], "remaining": 1}
+
+
+def test_default_prompts_put_moat_cards_right_after_moat_analysis():
+    import streamlit_app
+    titles = [p["title"] for p in streamlit_app.DEFAULT_AI_PROMPTS]
+    assert titles[titles.index("Moat Analysis") + 1] == "Moat Cards"
+    entry = streamlit_app.DEFAULT_AI_PROMPTS[titles.index("Moat Cards")]
+    assert entry["prompt"] is moat_cards.PROMPT
+
+
+def test_insert_prompt_is_idempotent_and_keeps_the_rest():
+    from scripts.add_moat_cards_prompt import insert_prompt
+    lib = [{"title": "Business Analysis", "prompt": "a"},
+           {"title": "Moat Analysis", "prompt": "b"},
+           {"title": "Risk Analysis", "prompt": "c"}]
+    new, changed = insert_prompt(lib)
+    assert changed and [p["title"] for p in new] == [
+        "Business Analysis", "Moat Analysis", "Moat Cards", "Risk Analysis"]
+    again, changed2 = insert_prompt(new)
+    assert not changed2 and again == new
+    assert lib[1]["prompt"] == "b"            # input untouched
+
+
+def test_should_write_refuses_missing_or_empty_prompt_library():
+    from scripts.add_moat_cards_prompt import should_write
+    assert should_write({"ai_prompts": [{"title": "x", "prompt": "y"}]}) is True
+    assert should_write({"ai_prompts": []}) is False
+    assert should_write({}) is False
+    assert should_write({"ai_prompts": None}) is False
+    assert should_write({"ai_prompts": "not-a-list"}) is False
