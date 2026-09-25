@@ -129,6 +129,28 @@ def test_missing_statements_are_tolerated():
     assert _get(out["returns"], "Total shareholder yield") is None
 
 
+def test_pe_independent_of_mcap_when_shares_missing():
+    f = _fund(shares=[None] * len(YEARS))
+    out = om.compute(f, _income(), _cash(), 100.0)
+    v = out["valuation"]
+    eps_value = 2.0 * 1.2 ** 10
+    assert abs(_get(v, "P/E") - 100.0 / eps_value) < 1e-9
+    assert _get(v, "P/S") is None
+    assert _get(v, "P/B") is None
+    assert _get(v, "P/FCF") is None
+
+
+def test_pe_independent_of_mcap_when_shares_zero():
+    f = _fund(shares=[0.0] * len(YEARS))
+    out = om.compute(f, _income(), _cash(), 100.0)
+    v = out["valuation"]
+    eps_value = 2.0 * 1.2 ** 10
+    assert abs(_get(v, "P/E") - 100.0 / eps_value) < 1e-9
+    assert _get(v, "P/S") is None
+    assert _get(v, "P/B") is None
+    assert _get(v, "P/FCF") is None
+
+
 def test_formatters():
     assert om.fmt_pct(0.4851) == "48.5%"
     assert om.fmt_pct(0.126, signed=True) == "+12.6%"

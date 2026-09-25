@@ -105,7 +105,7 @@ def compute(fund: dict, income: dict | None, cashflow: dict | None,
                    for n in HORIZONS],
         "valuation": [
             ("P/S", _div(mcap, revenue, True)),
-            ("P/E", _div(price, eps, True) if mcap is not None else None),
+            ("P/E", _div(price, eps, True)),
             ("P/B", _div(mcap, equity, True)),
             ("P/FCF", _div(mcap, fcf, True)),
         ],
