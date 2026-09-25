@@ -703,8 +703,11 @@ TOOLS: list[dict] = [
     },
     {
         "name": "set_category",
-        "description": ("Set a watchlist category: Yes, Aspirant, Maybe, Watch Later, "
-                        "No, Uncategorized. 'No' rejects an aspirant."),
+        "description": ("Set a watchlist category: Yes, Maybe, Watch Later, No or "
+                        "Uncategorized. 'No' rejects an Aspirant. An Aspirant may only "
+                        "leave that category via promote_aspirant or 'No' here; any "
+                        "other target is refused. 'Aspirant' itself is only set by "
+                        "add_aspirant, not this tool."),
         "inputSchema": {"type": "object",
                         "properties": {"ticker": {"type": "string"},
                                        "category": {"type": "string"}},

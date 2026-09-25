@@ -203,3 +203,48 @@ def test_set_category_refuses_unknown(mcp):
     assert "Unknown category" in m._set_category_impl("X", "Nope")
     m._set_category_impl("X", "No")
     assert store["X"]["category"] == "No"
+
+
+def test_save_to_watchlist_lifts_placeholder_from_stored_flag_even_when_payload_omits_it(mcp):
+    m, _, store = mcp
+    store["Y"] = {"dcf_placeholder": True, "category": "Uncategorized",
+                  "equity_market_value": 1.0, "sector_betas": [["S", 1.0, 1.0]],
+                  "revenue_growth": [0.03, 0.03], "op_margins": [0.2, 0.2]}
+    payload = {"equity_market_value": 1.0, "sector_betas": [["S", 1.0, 1.0]],
+               "revenue_growth": [0.1, 0.05], "op_margins": [0.2, 0.2]}
+    m._save_to_watchlist_impl("Y", payload)
+    assert store["Y"]["dcf_placeholder"] is False
+
+
+def test_set_category_aspirant_to_yes_is_refused(mcp):
+    m, _, store = mcp
+    store["X"] = {"category": "Aspirant"}
+    out = m._set_category_impl("X", "Yes")
+    assert "promote_aspirant" in out
+    assert store["X"]["category"] == "Aspirant"
+
+
+def test_set_category_aspirant_to_no_is_allowed(mcp):
+    m, _, store = mcp
+    store["X"] = {"category": "Aspirant"}
+    m._set_category_impl("X", "No")
+    assert store["X"]["category"] == "No"
+
+
+def test_set_category_refuses_setting_aspirant_directly(mcp):
+    m, _, store = mcp
+    store["X"] = {"category": "Maybe"}
+    out = m._set_category_impl("X", "Aspirant")
+    assert "add_aspirant" in out
+    assert store["X"]["category"] == "Maybe"
+
+
+def test_save_to_watchlist_refuses_category_change_on_an_aspirant(mcp):
+    m, _, store = mcp
+    store["Z"] = {"category": "Aspirant", "equity_market_value": 1.0,
+                  "sector_betas": [["S", 1.0, 1.0]]}
+    payload = {"equity_market_value": 1.0, "sector_betas": [["S", 1.0, 1.0]],
+               "category": "Yes"}
+    out = m._save_to_watchlist_impl("Z", payload)
+    assert "promote_aspirant" in out or "set_category" in out
+    assert store["Z"]["category"] == "Aspirant"

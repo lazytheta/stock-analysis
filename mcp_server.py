@@ -333,13 +333,35 @@ def _save_to_watchlist_impl(ticker, cfg, user_id: str | None = None):
                 f"usual cause: it squares the beta and shifts the WACC."
             )
 
-    # A filled-in DCF lifts the aspirant's placeholder marker. Set to False
-    # rather than popped: save_config merges, so an absent key would survive.
-    if cfg.get("dcf_placeholder") and not aspirant.curves_are_flat(cfg):
-        cfg = {**cfg, "dcf_placeholder": False}
-
     user_id = user_id or USER_ID
     client = get_supabase_client()
+    stored = config_store.load_config(client, ticker, user_id=user_id) or {}
+
+    # An Aspirant may only leave that category via promote_aspirant (Wide moat,
+    # filled-in DCF) or set_category(ticker, "No") to reject it. A category
+    # slipped into a save_to_watchlist payload would bypass that gate.
+    if stored.get("category") == "Aspirant" \
+            and "category" in cfg and cfg["category"] != "Aspirant":
+        return (
+            f"{ticker.upper()} not saved: it is an Aspirant and can only leave "
+            f"that category via promote_aspirant (Wide moat, DCF filled in) or "
+            f"set_category(ticker, \"No\") to reject it."
+        )
+
+    # A filled-in DCF lifts the aspirant's placeholder marker. Set to False
+    # rather than popped: save_config merges, so an absent key would survive.
+    # Flatness is judged on the merged curves — the payload's own
+    # revenue_growth/op_margins where it sets them, else what's already
+    # stored — so a save that fills in the curves but omits dcf_placeholder
+    # doesn't leave a stale True behind.
+    if stored.get("dcf_placeholder") or cfg.get("dcf_placeholder"):
+        merged_curves = {
+            key: cfg[key] if key in cfg else stored.get(key)
+            for key in ("revenue_growth", "op_margins")
+        }
+        if not aspirant.curves_are_flat(merged_curves):
+            cfg = {**cfg, "dcf_placeholder": False}
+
     config_store.save_config(client, ticker, cfg, user_id=user_id)
     return f"Saved {ticker.upper()} to watchlist."
 
@@ -1396,6 +1418,19 @@ def _set_category_impl(ticker, category, user_id: str | None = None):
     cfg = config_store.load_config(client, ticker, user_id=user_id)
     if cfg is None:
         return json.dumps({"error": f"{ticker} not on watchlist"})
+
+    current = cfg.get("category")
+    # An Aspirant leaves that category only via promote_aspirant (Wide moat,
+    # filled-in DCF) or a reject to "No"; every other target is refused here.
+    if current == "Aspirant" and category not in ("Aspirant", "No"):
+        return json.dumps({
+            "error": f"{ticker} is an Aspirant; use promote_aspirant to move it "
+                     f"to Uncategorized, or set_category(ticker, \"No\") to reject it.",
+        })
+    # "Aspirant" is add_aspirant's category, not one set_category hands out.
+    if category == "Aspirant" and current != "Aspirant":
+        return json.dumps({"error": "Aspirant is only set by add_aspirant."})
+
     config_store.save_config(client, ticker, {**cfg, "category": category,
                                               "promoted_by": None}, user_id=user_id)
     return f"{ticker} → {category}."
@@ -1546,8 +1581,11 @@ def promote_aspirant(ticker: str) -> str:
 
 @mcp.tool()
 def set_category(ticker: str, category: str) -> str:
-    """Set a watchlist name's category: Yes, Aspirant, Maybe, Watch Later, No
-    or Uncategorized. "No" is how an aspirant is rejected.
+    """Set a watchlist name's category: Yes, Maybe, Watch Later, No or
+    Uncategorized. "No" is how an Aspirant is rejected. An Aspirant may only
+    leave that category via promote_aspirant or a set_category(ticker, "No")
+    reject — any other target category is refused here. "Aspirant" itself is
+    only set by add_aspirant, not by this tool.
     """
     try:
         return _set_category_impl(ticker, category)
