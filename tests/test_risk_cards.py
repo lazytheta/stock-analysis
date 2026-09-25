@@ -66,3 +66,32 @@ def test_risk_cards_does_not_import_prescan_render_at_module_load():
     fresh = importlib.import_module("risk_cards")
     importlib.reload(fresh)
     assert "prescan_render" not in sys.modules
+
+
+from unittest.mock import MagicMock
+
+
+def test_mcp_refuses_malformed_risk_cards_and_accepts_valid(monkeypatch):
+    import mcp_server
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: MagicMock())
+    store = {"X": {"ai_notes": {}}}
+    monkeypatch.setattr(mcp_server.config_store, "load_config",
+                        lambda c, t, user_id=None: store.get(t.upper()))
+    monkeypatch.setattr(mcp_server.config_store, "save_config",
+                        lambda c, t, cfg, user_id=None: store.__setitem__(t.upper(), cfg))
+    out = mcp_server._save_prescan_section_impl("X", "Risk Cards", '{"cards": []}', user_id="u")
+    assert "error" in out and "Risk Cards" in out["error"]
+    mcp_server._save_prescan_section_impl("X", "Risk Cards", json.dumps(_p()), user_id="u")
+    assert "Risk Cards" in store["X"]["ai_notes"]
+
+
+def test_default_prompts_put_risk_cards_right_after_risk_analysis():
+    import streamlit_app
+    titles = [p["title"] for p in streamlit_app.DEFAULT_AI_PROMPTS]
+    assert titles[titles.index("Risk Analysis") + 1] == "Risk Cards"
+
+
+def test_ticker_page_has_a_risk_tab_after_moat():
+    src = open("streamlit_app.py", encoding="utf-8").read()
+    assert '["Pre-Scan", "Moat", "Risk", "Fundamentals", "DCF"' in src
+    assert "risk_cards.summary_row_html(" in src and "risk_cards.cards_section_html(" in src

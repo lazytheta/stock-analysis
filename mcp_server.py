@@ -70,6 +70,13 @@ from scorecard_utils import compute_roce_metric, capital_employed
 import notifications
 import aspirant
 import moat_cards
+import risk_cards
+
+# Structured pre-scan sections: a malformed block would render as a broken
+# tab, so it is refused in _save_prescan_section_impl with the reason rather
+# than stored.
+_CARD_PARSERS = {moat_cards.TITLE: moat_cards.parse_moat_cards,
+                  risk_cards.TITLE: risk_cards.parse_risk_cards}
 
 
 # ---------------------------------------------------------------------------
@@ -1332,13 +1339,12 @@ def _save_prescan_section_impl(ticker, title, content,
                                 user_id: str | None = None):
     if not title.strip():
         return {"error": "title is required"}
-    # Moat Cards are structured: a malformed block would render as a broken
-    # tab, so it is refused here with the reason rather than stored.
-    if title.strip() == moat_cards.TITLE:
+    parser = _CARD_PARSERS.get(title.strip())
+    if parser is not None:
         try:
-            moat_cards.parse_moat_cards(content)
+            parser(content)
         except ValueError as e:
-            return {"error": f"Moat Cards not saved: {e}"}
+            return {"error": f"{title.strip()} not saved: {e}"}
     user_id = user_id or USER_ID
     client = get_supabase_client()
     cfg = config_store.load_config(client, ticker, user_id=user_id)

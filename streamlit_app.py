@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 import aspirant
 import moat_cards
+import risk_cards
 from error_logger import log_error, log_error_with_trace
 from dcf_calculator import (compute_wacc, compute_intrinsic_value, compute_reverse_dcf,
                             DEFAULT_DISCOUNT_MODE, DEFAULT_HURDLE_RATE)
@@ -1929,6 +1930,12 @@ margin back above 54% for two quarters" is.]
   2.5+ = High, 1.5-2.4 = Medium, below 1.5 = Low
 
 """,
+    },
+    {
+        # Four question cards for the Risk tab, built on Risk Analysis and
+        # SaaSpocalypse Resistance.
+        "title": risk_cards.TITLE,
+        "prompt": risk_cards.PROMPT,
     },
     {
         "title": "Price & Sentiment Analysis",
@@ -5098,9 +5105,9 @@ def _dcf_editor(ticker):
     margins = list(cfg.get('op_margins', []))
 
     # ── Tabs: DCF / Reverse DCF / Peer Comparison / Dividend / Fundamentals ──
-    (_tab_notes, _tab_moat, _tab_fundamentals, _tab_dcf, _tab_rdcf, _tab_peers,
+    (_tab_notes, _tab_moat, _tab_risk, _tab_fundamentals, _tab_dcf, _tab_rdcf, _tab_peers,
      _tab_dividend, _tab_history) = st.tabs(
-        ["Pre-Scan", "Moat", "Fundamentals", "DCF", "Reverse DCF", "Peer Comparison",
+        ["Pre-Scan", "Moat", "Risk", "Fundamentals", "DCF", "Reverse DCF", "Peer Comparison",
          "Dividend", "History"])
 
     # Moat: the Moat Analysis as two summary cards, then the five question cards
@@ -5118,6 +5125,21 @@ def _dcf_editor(ticker):
             st.caption("No Moat Analysis in the verdict format yet.")
         st.markdown("##### Moat sources")
         st.markdown(moat_cards.cards_section_html(_notes.get(moat_cards.TITLE), T),
+                    unsafe_allow_html=True)
+
+    # Risk: Risk Analysis and SaaSpocalypse Resistance as two summary cards, then
+    # the four question cards from "Risk Cards". Read-only, like Moat.
+    with _tab_risk:
+        _rnotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
+        _rsum = risk_cards.summary_row_html(
+            _rnotes.get("Risk Analysis") or "",
+            _rnotes.get("SaaSpocalypse Resistance") or "", T)
+        if _rsum:
+            st.markdown(_rsum, unsafe_allow_html=True)
+        else:
+            st.caption("No Risk Analysis in the verdict format yet.")
+        st.markdown("##### Risk questions")
+        st.markdown(risk_cards.cards_section_html(_rnotes.get(risk_cards.TITLE), T),
                     unsafe_allow_html=True)
 
     with _tab_dcf:
@@ -8284,11 +8306,15 @@ def _dcf_editor(ticker):
 
                     if _content.strip():
                         with st.container(key=f"ai_out_{_li}"):
-                            # Moat Cards is JSON for the Moat tab; shown as
-                            # raw text it read as a code dump. Draw the cards.
-                            _card = (moat_cards.cards_section_html(_content, T)
-                                     if _title == moat_cards.TITLE
-                                     else _verdict_card_html(_content, _title))
+                            # Moat Cards / Risk Cards are JSON for their tabs;
+                            # shown as raw text they read as a code dump. Draw
+                            # the cards.
+                            if _title == moat_cards.TITLE:
+                                _card = moat_cards.cards_section_html(_content, T)
+                            elif _title == risk_cards.TITLE:
+                                _card = risk_cards.cards_section_html(_content, T)
+                            else:
+                                _card = _verdict_card_html(_content, _title)
                             if _card:
                                 st.markdown(_card, unsafe_allow_html=True)
                             else:
