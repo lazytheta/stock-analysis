@@ -24,5 +24,6 @@ demo_*.py
 scripts/*
 !scripts/run_screener.py
 !scripts/screener_requirements.txt
+!scripts/run_price_history.py
 *.md
 NOTES*
