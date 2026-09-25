@@ -10,7 +10,19 @@ the parser, and the Cloud Run image does not ship prescan_render.
 
 import json
 import re
-from html import escape as _esc
+from html import escape as _html_escape
+
+
+def _esc(text):
+    """HTML-escape, and turn $ into an entity: Streamlit's markdown reads a pair
+    of dollar signs as LaTeX, so "$608M to $1.43B" became a formula."""
+    return _html_escape(str(text)).replace("$", "&#36;")
+
+
+def _css(*blocks):
+    """Style blocks on one line. A <style> block with newlines ends the HTML
+    block early in Streamlit's markdown, and the cards after it fell apart."""
+    return "".join(b.replace("\n", " ") for b in blocks)
 
 TITLE = "Moat Cards"
 
@@ -73,6 +85,12 @@ summary: ONE sentence for the front of the card, with the fact that decides the 
 points: EXACTLY three, each {"label": two to four words, "text": one line with a number or
 a fact from the filings}. For an absent source, say what you looked for and why it is absent.
 
+Then the moat as a whole, in "trend":
+summary: ONE sentence on whether the moat is widening, stable or narrowing, and why
+(agree with the direction in the analysis's verdict line).
+points: EXACTLY three, same shape as above, each a measurable sign of that direction
+(returns versus peers over time, costs versus sales, a new mechanism, a rival gaining).
+
 Output ONLY a fenced JSON block, nothing before or after:
 
 ```json
@@ -81,9 +99,12 @@ Output ONLY a fenced JSON block, nothing before or after:
    "summary": "...",
    "points": [{"label": "...", "text": "..."}, {"label": "...", "text": "..."},
               {"label": "...", "text": "..."}]}
-]}
+],
+ "trend": {"summary": "...",
+           "points": [{"label": "...", "text": "..."}, {"label": "...", "text": "..."},
+                      {"label": "...", "text": "..."}]}}
 ```
-The array holds all five sources, in the order listed above.
+The "cards" array holds all five sources, in the order listed above.
 """
 
 
@@ -117,17 +138,27 @@ def parse_moat_cards(content):
         summary = str(c.get("summary") or "").strip()
         if not summary:
             raise ValueError(f"{src}: summary is empty")
-        points = c.get("points")
-        ok = isinstance(points, list) and len(points) == 3 and all(
-            isinstance(p, dict) and str(p.get("label") or "").strip()
-            and str(p.get("text") or "").strip() for p in points)
-        if not ok:
-            raise ValueError(f"{src}: needs exactly three points, each with label and text")
         out.append({"source": src, "pick": pick, "direction": direction,
-                    "summary": summary,
-                    "points": [{"label": str(p["label"]).strip(),
-                                "text": str(p["text"]).strip()} for p in points]})
-    return {"cards": out}
+                    "summary": summary, "points": _points(c.get("points"), src)})
+
+    # The moat as a whole. Optional, so cards saved before it existed stay
+    # valid; checked like a card when it is there.
+    trend = data.get("trend")
+    if trend is not None:
+        t_summary = str(trend.get("summary") or "").strip() if isinstance(trend, dict) else ""
+        if not t_summary:
+            raise ValueError("trend: summary is empty")
+        trend = {"summary": t_summary, "points": _points(trend.get("points"), "trend")}
+    return {"cards": out, "trend": trend}
+
+
+def _points(points, where):
+    ok = isinstance(points, list) and len(points) == 3 and all(
+        isinstance(p, dict) and str(p.get("label") or "").strip()
+        and str(p.get("text") or "").strip() for p in points)
+    if not ok:
+        raise ValueError(f"{where}: needs exactly three points, each with label and text")
+    return [{"label": str(p["label"]).strip(), "text": str(p["text"]).strip()} for p in points]
 
 
 def _source(key):
@@ -185,32 +216,90 @@ def sources_row_html(cards, theme):
             f'border-radius:14px;padding:14px 10px;margin-top:6px">{"".join(cells)}</div>')
 
 
-def direction_card_html(moat_analysis, theme):
-    """Direction from the Moat Analysis verdict line, with its weakest link."""
-    from prescan_render import band_tone, parse_verdict_section
+_BOLD = re.compile(r"\*\*(.+?)\*\*")
+
+SUMMARY_STYLE = """<style>
+.ms-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;
+  align-items:stretch;margin-bottom:6px}
+@media (max-width:760px){.ms-row{grid-template-columns:1fr}}
+.ms-card{border-radius:16px;padding:16px 20px;display:flex;flex-direction:column;
+  height:300px;box-sizing:border-box;overflow:hidden}
+.ms-body{display:flex;gap:18px;align-items:flex-start;min-height:0;flex:1}
+.ms-box{background:#2b2b2f;border-radius:14px;width:124px;height:124px;flex:none;
+  display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ms-text{min-width:0;font-size:.86rem;line-height:1.45;overflow:hidden}
+.ms-lead{margin:0 0 8px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;
+  overflow:hidden}
+.ms-pt{margin:0 0 6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden}
+</style>"""
+
+
+def _bold(text):
+    """Escape, then turn **x** back into <b>x</b>."""
+    return _BOLD.sub(r"<b>\1</b>", _esc(text or ""))
+
+
+def _summary_card(title, box, lead, points, theme):
+    pts = "".join(
+        f'<p class="ms-pt">• <b>{_esc(p["label"])}</b>: {_esc(p["text"])}</p>' for p in points)
+    return (f'<div class="ms-card" style="background:{theme["bg_secondary"]};color:{theme["text"]}">'
+            f'<div class="mc-q" style="color:{theme["text_muted"]};margin-bottom:12px">{title}</div>'
+            f'<div class="ms-body">{box}<div class="ms-text">'
+            f'<p class="ms-lead">{lead}</p>{pts}</div></div></div>')
+
+
+def summary_row_html(moat_analysis, cards_content, theme):
+    """Moat size and moat direction as two equal cards, or None without a verdict.
+
+    Size comes from the Moat Analysis (verdict, sentence, three bullets). The
+    direction card uses the Moat Cards "trend" block when there is one; before
+    that it falls back to the verdict's direction and its weakest link.
+    """
+    from prescan_render import band_tone, gauge_fraction, parse_verdict_section
     v = parse_verdict_section(moat_analysis or "")
     if not v:
         return None
-    word = next((q for q in v["qualifiers"]
-                 if q.strip().lower() in ("widening", "stable", "narrowing")), "")
-    if not word:
-        return None
-    tone = band_tone({"widening": "green", "stable": "yellow",
-                      "narrowing": "red"}[word.strip().lower()])
-    foot = ""
-    if v["footer_text"]:
-        foot = (f'<div style="margin-top:12px;font-size:.86rem;color:{theme["text_muted"]}">'
-                f'<b style="color:{theme["text"]}">{_esc(v["footer_label"] or "Weakest link")}:</b> '
-                f'{_esc(v["footer_text"])}</div>')
-    return (f'<div style="background:{theme["bg_secondary"]};border-radius:16px;padding:20px 22px">'
-            f'<div style="display:flex;gap:18px;align-items:center">'
-            f'<div style="background:{_BACK_BG};border-radius:14px;padding:18px 20px;'
-            f'text-align:center;min-width:132px">'
-            f'<div style="font-size:2rem;color:{tone}">{_ARROW[word.strip().lower()]}</div>'
-            f'<div style="color:rgba(255,255,255,.72);font-size:.7rem;font-weight:700;'
-            f'letter-spacing:.08em">{_esc(word.upper())}</div></div>'
-            f'<div style="font-size:.95rem;line-height:1.5;color:{theme["text"]}">'
-            f'Is the moat getting stronger or weaker?</div></div>{foot}</div>')
+    size_tone = band_tone(v["label"]) or theme["text_muted"]
+    if v["score"] is not None:
+        r, c = 42, 50
+        circ = 2 * 3.14159 * r
+        fill = gauge_fraction(v["score"], v["out_of"]) * circ * 0.75
+        dial = (f'<svg viewBox="0 0 100 100" style="width:84px;height:84px">'
+                f'<circle cx="{c}" cy="{c}" r="{r}" fill="none" stroke="rgba(255,255,255,.16)" '
+                f'stroke-width="8" stroke-dasharray="{circ * .75:.1f} {circ}" '
+                f'stroke-linecap="round" transform="rotate(135 {c} {c})"/>'
+                f'<circle cx="{c}" cy="{c}" r="{r}" fill="none" stroke="{size_tone}" '
+                f'stroke-width="8" stroke-dasharray="{fill:.1f} {circ}" '
+                f'stroke-linecap="round" transform="rotate(135 {c} {c})"/>'
+                f'<text x="{c}" y="{c + 10}" text-anchor="middle" fill="#fff" font-size="28" '
+                f'font-weight="700">{v["score"]:g}</text></svg>')
+    else:
+        dial = f'<div style="font-size:1.4rem;font-weight:700;color:{size_tone}">•</div>'
+    label_style = ('color:rgba(255,255,255,.72);font-size:.68rem;font-weight:700;'
+                   'letter-spacing:.08em;margin-top:2px')
+    size_box = (f'<div class="ms-box">{dial}'
+                f'<div style="{label_style}">{_esc(v["label"].upper())}</div></div>')
+    size = _summary_card("MOAT SIZE", size_box, _bold(v["summary"]), v["bullets"][:3], theme)
+
+    word = next((q.strip().lower() for q in v["qualifiers"]
+                 if q.strip().lower() in DIRECTIONS), "stable")
+    dir_tone = band_tone({"widening": "green", "stable": "yellow", "narrowing": "red"}[word])
+    dir_box = (f'<div class="ms-box"><div style="font-size:2.2rem;line-height:1;color:{dir_tone}">'
+               f'{_ARROW[word]}</div><div style="{label_style};margin-top:8px">'
+               f'{_esc(word.upper())}</div></div>')
+    try:
+        trend = parse_moat_cards(cards_content)["trend"] if cards_content else None
+    except ValueError:
+        trend = None
+    if trend:
+        lead, points = _esc(trend["summary"]), trend["points"]
+    else:
+        lead = "Is the moat getting stronger or weaker?"
+        points = ([{"label": v["footer_label"] or "Weakest link", "text": v["footer_text"]}]
+                  if v["footer_text"] else [])
+    direction = _summary_card("MOAT DIRECTION", dir_box, lead, points, theme)
+    return f'{_css(STYLE, SUMMARY_STYLE)}<div class="ms-row">{size}{direction}</div>'
 
 
 def cards_section_html(content, theme):
@@ -224,4 +313,4 @@ def cards_section_html(content, theme):
                 f'No Moat Cards yet. Ask Claude via the MCP to fill the "Moat Cards" '
                 f'pre-scan section for this ticker.</div>')
     grid = "".join(flip_card_html(c, theme) for c in cards)
-    return f'{STYLE}{sources_row_html(cards, theme)}<div class="mc-grid">{grid}</div>'
+    return f'{_css(STYLE)}{sources_row_html(cards, theme)}<div class="mc-grid">{grid}</div>'

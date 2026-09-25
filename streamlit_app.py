@@ -5108,21 +5108,14 @@ def _dcf_editor(ticker):
     with _tab_moat:
         _notes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
         _moat_text = _notes.get("Moat Analysis") or ""
-        _mc_left, _mc_right = st.columns(2)
-        with _mc_left:
-            st.markdown("##### Moat size")
-            _size = _verdict_card_html(_moat_text, "Moat Analysis")
-            if _size:
-                st.markdown(_size, unsafe_allow_html=True)
-            else:
-                st.caption("No Moat Analysis in the verdict format yet.")
-        with _mc_right:
-            st.markdown("##### Moat direction")
-            _dir = moat_cards.direction_card_html(_moat_text, T)
-            if _dir:
-                st.markdown(_dir, unsafe_allow_html=True)
-            else:
-                st.caption("No direction in the Moat Analysis verdict yet.")
+        # One HTML row, not two st.columns: the size and direction cards must
+        # share a height, which separate columns cannot guarantee.
+        _summary = moat_cards.summary_row_html(
+            _moat_text, _notes.get(moat_cards.TITLE), T)
+        if _summary:
+            st.markdown(_summary, unsafe_allow_html=True)
+        else:
+            st.caption("No Moat Analysis in the verdict format yet.")
         st.markdown("##### Moat sources")
         st.markdown(moat_cards.cards_section_html(_notes.get(moat_cards.TITLE), T),
                     unsafe_allow_html=True)

@@ -251,12 +251,46 @@ def test_sources_row_has_a_dot_per_source():
         assert name.upper() in html.upper()
 
 
-def test_direction_card_reads_the_verdict_line():
-    text = ("**Moat: Wide 🛡️ · Narrowing ↘️ · 4/5**\n\nX has a **wide moat**.\n\n"
-            "- **A**: one\n- **B**: two\n- **C**: three\n\n**Weakest link:** pricing.")
-    html = moat_cards.direction_card_html(text, THEME)
-    assert "NARROWING" in html.upper() and "pricing" in html
-    assert moat_cards.direction_card_html("free text", THEME) is None
+_MOAT_TEXT = ("**Moat: Wide 🛡️ · Narrowing ↘️ · 4/5**\n\nX has a **wide moat**.\n\n"
+              "- **A**: one\n- **B**: two\n- **C**: three\n\n**Weakest link:** pricing.")
+_TREND = {"summary": "Returns keep climbing.",
+          "points": [{"label": "Gap opening", "text": "ROIC 15% to 27%."},
+                     {"label": "Costs slower", "text": "Spend +10% vs sales +13%."},
+                     {"label": "New engine", "text": "Ads double to $3B."}]}
+
+
+def test_trend_block_is_optional_but_validated_when_present():
+    assert moat_cards.parse_moat_cards(json.dumps(_payload()))["trend"] is None
+    p = _payload()
+    p["trend"] = _TREND
+    assert moat_cards.parse_moat_cards(json.dumps(p))["trend"]["summary"] == "Returns keep climbing."
+    p["trend"] = {"summary": "x", "points": []}
+    with pytest.raises(ValueError, match="trend"):
+        moat_cards.parse_moat_cards(json.dumps(p))
+
+
+def test_summary_row_has_two_equal_cards_with_dial_and_bullets():
+    p = _payload()
+    p["trend"] = _TREND
+    html = moat_cards.summary_row_html(_MOAT_TEXT, json.dumps(p), THEME)
+    assert html.count('class="ms-card"') == 2 and "grid-template-columns" in html
+    assert "WIDE" in html and "NARROWING" in html
+    assert "Returns keep climbing." in html and "Gap opening" in html
+    assert "<b>wide moat</b>" in html          # bold kept, rest escaped
+    assert "pricing" not in html.split("MOAT DIRECTION")[0]   # weakest link not on size card
+
+
+def test_summary_row_falls_back_to_weakest_link_without_trend():
+    html = moat_cards.summary_row_html(_MOAT_TEXT, json.dumps(_payload()), THEME)
+    assert "pricing" in html.split("MOAT DIRECTION")[1]
+
+
+def test_summary_row_is_none_without_a_verdict_line():
+    assert moat_cards.summary_row_html("free text", None, THEME) is None
+
+
+def test_prompt_asks_for_the_trend_block():
+    assert '"trend"' in moat_cards.PROMPT
 
 
 def test_cards_section_without_data_shows_a_notice_not_a_crash():
@@ -283,4 +317,14 @@ def test_ticker_page_has_a_moat_tab_after_pre_scan():
     src = open("streamlit_app.py", encoding="utf-8").read()
     assert '["Pre-Scan", "Moat", "Fundamentals", "DCF"' in src
     assert "moat_cards.cards_section_html(" in src
-    assert "moat_cards.direction_card_html(" in src
+    assert "moat_cards.summary_row_html(" in src
+
+
+def test_dollar_signs_and_styles_cannot_break_streamlit_markdown():
+    p = _payload()
+    p["cards"][0]["summary"] = "Grew from $608M to $1.43B."
+    html = moat_cards.cards_section_html(json.dumps(p), THEME)
+    assert "$" not in html and "&#36;608M" in html
+    row = moat_cards.summary_row_html(_MOAT_TEXT.replace("one", "$1 to $2"), json.dumps(p), THEME)
+    assert "$" not in row and "\n" not in row
+    assert "\n" not in html
