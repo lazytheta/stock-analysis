@@ -225,7 +225,12 @@ def test_get_watchlist_tool():
     ]
     mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = mock_resp
 
-    with patch.object(mcp_server, "get_supabase_client", return_value=mock_client):
+    # _live_quote reaches real Nasdaq/Yahoo over the network; stub it so this
+    # test stays offline. apply_live_prices handles a None quote fine (leaves
+    # the stored price with price_stale: True), so the assertions below are
+    # unaffected.
+    with patch.object(mcp_server, "get_supabase_client", return_value=mock_client), \
+         patch.object(mcp_server, "_live_quote", return_value=None):
         result = json.loads(mcp_server._get_watchlist_impl())
         assert len(result) == 2
         assert result[0]["ticker"] == "MSFT"

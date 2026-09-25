@@ -1079,6 +1079,10 @@ def test_round_trip_calculate_and_persist(monkeypatch):
     monkeypatch.setattr(mcp_server.config_store, "save_config", fake_save)
     monkeypatch.setattr(mcp_server.config_store, "list_watchlist", fake_list)
     monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+    # _get_watchlist_impl below overlays a live quote via _live_quote, which
+    # reaches real Nasdaq/Yahoo over the network. Stub it offline; the
+    # assertions only check fv_mid/lens_count, not the price.
+    monkeypatch.setattr(mcp_server, "_live_quote", lambda ticker: None)
 
     import json as _json
     result_json = mcp_server._calculate_multi_lens_valuation_impl("TEST", scenario_grid=False)
