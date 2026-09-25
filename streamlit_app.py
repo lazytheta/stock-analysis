@@ -5098,10 +5098,34 @@ def _dcf_editor(ticker):
     margins = list(cfg.get('op_margins', []))
 
     # ── Tabs: DCF / Reverse DCF / Peer Comparison / Dividend / Fundamentals ──
-    (_tab_notes, _tab_fundamentals, _tab_dcf, _tab_rdcf, _tab_peers,
+    (_tab_notes, _tab_moat, _tab_fundamentals, _tab_dcf, _tab_rdcf, _tab_peers,
      _tab_dividend, _tab_history) = st.tabs(
-        ["Pre-Scan", "Fundamentals", "DCF", "Reverse DCF", "Peer Comparison",
+        ["Pre-Scan", "Moat", "Fundamentals", "DCF", "Reverse DCF", "Peer Comparison",
          "Dividend", "History"])
+
+    # Moat: the Moat Analysis as two summary cards, then the five question cards
+    # from the "Moat Cards" section. Read-only; Pre-Scan stays the place to edit.
+    with _tab_moat:
+        _notes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
+        _moat_text = _notes.get("Moat Analysis") or ""
+        _mc_left, _mc_right = st.columns(2)
+        with _mc_left:
+            st.markdown("##### Moat size")
+            _size = _verdict_card_html(_moat_text, "Moat Analysis")
+            if _size:
+                st.markdown(_size, unsafe_allow_html=True)
+            else:
+                st.caption("No Moat Analysis in the verdict format yet.")
+        with _mc_right:
+            st.markdown("##### Moat direction")
+            _dir = moat_cards.direction_card_html(_moat_text, T)
+            if _dir:
+                st.markdown(_dir, unsafe_allow_html=True)
+            else:
+                st.caption("No direction in the Moat Analysis verdict yet.")
+        st.markdown("##### Moat sources")
+        st.markdown(moat_cards.cards_section_html(_notes.get(moat_cards.TITLE), T),
+                    unsafe_allow_html=True)
 
     with _tab_dcf:
         with st.container(key="tabcard_dcf_1"):

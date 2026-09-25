@@ -194,3 +194,10 @@ def test_moat_cards_does_not_import_prescan_render_at_module_load():
     fresh = importlib.import_module("moat_cards")
     importlib.reload(fresh)
     assert "prescan_render" not in sys.modules
+
+
+def test_ticker_page_has_a_moat_tab_after_pre_scan():
+    src = open("streamlit_app.py", encoding="utf-8").read()
+    assert '["Pre-Scan", "Moat", "Fundamentals", "DCF"' in src
+    assert "moat_cards.cards_section_html(" in src
+    assert "moat_cards.direction_card_html(" in src
