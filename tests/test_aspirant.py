@@ -96,3 +96,18 @@ def test_a_complete_wide_aspirant_has_no_blockers():
 def test_each_missing_piece_blocks_promotion(over, fragment):
     blockers = aspirant.promotion_blockers(_cfg(**over))
     assert any(fragment in b for b in blockers), blockers
+
+
+def test_list_watchlist_carries_category_and_markers():
+    from unittest.mock import MagicMock
+    from config_store import list_watchlist
+    client = MagicMock()
+    resp = MagicMock()
+    resp.data = [{"ticker": "ABC", "company": "Abc", "stock_price": 1, "updated_at": "",
+                  "category": "Aspirant", "dcf_placeholder": True,
+                  "promoted_by": None, "promoted_at": None},
+                 {"ticker": "OLD", "company": "Old", "stock_price": 1, "updated_at": ""}]
+    client.table.return_value.select.return_value.eq.return_value.execute.return_value = resp
+    out = {e["ticker"]: e for e in list_watchlist(client, user_id="u")}
+    assert out["ABC"]["category"] == "Aspirant" and out["ABC"]["dcf_placeholder"] is True
+    assert out["OLD"]["category"] == "Uncategorized" and out["OLD"]["dcf_placeholder"] is False

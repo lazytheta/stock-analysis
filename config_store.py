@@ -365,6 +365,8 @@ def list_watchlist(client, user_id=None, tickers=None):
         .select("ticker, company, stock_price, updated_at, "
                 "config->valuation_summary, config->robustness, "
                 "config->isin, config->quote_venue, "
+                "config->category, config->dcf_placeholder, "
+                "config->promoted_by, config->promoted_at, "
                 "config->ai_notes->Scorecard")
     )
     if user_id is not None:
@@ -419,6 +421,10 @@ def list_watchlist(client, user_id=None, tickers=None):
             "lens_count": lens_count,
             "verdict": _vp["verdict"],
             "phase":   _vp["phase"],
+            "category": row.get("category") or "Uncategorized",
+            "dcf_placeholder": bool(row.get("dcf_placeholder")),
+            "promoted_by": row.get("promoted_by"),
+            "promoted_at": row.get("promoted_at"),
         })
     return out
 

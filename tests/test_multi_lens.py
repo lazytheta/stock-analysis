@@ -999,6 +999,8 @@ def test_list_watchlist_enriched_shape():
         # voor de Europese lijnen geen tweede koersbron als Yahoo ze niet
         # levert, en stonden ze op een koers van weken oud.
         "isin", "quote_venue",
+        # Aspirant watchlist markers (Task 3)
+        "category", "dcf_placeholder", "promoted_by", "promoted_at",
     }
     for row in out:
         assert set(row.keys()) == expected_keys
