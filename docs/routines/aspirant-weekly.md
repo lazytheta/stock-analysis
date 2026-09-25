@@ -13,14 +13,23 @@ the next.
       `set_category` to move an Aspirant anywhere except `No`; promotion only
       happens through `promote_aspirant`. Never call `save_to_watchlist` for
       a name you did not add in this run.
-   b. Call `get_prescan_prompts(ticker)`. Answer every prompt thoroughly from
-      filings and your own analysis, following each prompt's own TEMPLATE
-      section exactly, and save each one with
+   b. Call `get_prescan_prompts(ticker)`. Answer the prompts in library order,
+      thoroughly, from filings and your own analysis, following each prompt's
+      own TEMPLATE section exactly, and save each one with
       `save_prescan_section(ticker, title, content)` under that prompt's
       `title` exactly as `get_prescan_prompts` returned it (e.g. "Moat
       Analysis" — not "Moat"). The Moat Analysis section must open with its
       verdict line exactly in the form
       `**Moat: <Wide|Narrow|None> <emoji> · <Widening|Stable|Narrowing> <emoji> · <n>/5**`.
+      Several prompts reference an earlier section's output via `{prior:…}`;
+      that placeholder is only filled in with what is currently saved, so
+      call `get_prescan_prompts(ticker)` again after saving each section a
+      later prompt depends on — at minimum after saving "Moat Analysis" and
+      before answering "Moat Cards", "Investment Summary" and "Scorecard" —
+      so every `{prior:…}` in the prompt you are about to answer is actually
+      filled in, not still a bare placeholder. If `save_prescan_section`
+      refuses "Moat Cards", fix what the error names and save once more; if
+      it refuses again, note it and move on.
    c. If the Moat verdict is not Wide, the name stays an Aspirant. Move on.
    d. If the Moat verdict is Wide, fill in the full DCF: `get_config(ticker)`,
       then set revenue_growth and op_margins year by year with a short

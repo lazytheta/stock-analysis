@@ -45,7 +45,7 @@ STYLE = """<style>
 .mc-face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;
   border-radius:16px;padding:16px 20px;box-sizing:border-box;overflow:hidden;
   display:flex;flex-direction:column}
-.mc-back{transform:rotateY(180deg)}
+.mc-back{transform:rotateY(180deg);overflow:auto}
 .mc-q{font-size:.7rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
 .mc-tag{font-size:.66rem;font-weight:700;letter-spacing:.05em;padding:2px 8px;
   border-radius:9px;text-transform:uppercase;white-space:nowrap}
@@ -138,8 +138,10 @@ def flip_card_html(card, theme):
     from prescan_render import band_tone, three_state_html
     _key, _name, question, options = _source(card["source"])
     tone = band_tone(_BANDS[card["pick"]])
+    direction_tone = band_tone({"widening": "green", "stable": "yellow",
+                                "narrowing": "red"}[card["direction"]])
     arrow = _ARROW[card["direction"]]
-    tag = (f'<span class="mc-tag" style="background:{tone}22;color:{tone}">'
+    tag = (f'<span class="mc-tag" style="background:{direction_tone}22;color:{direction_tone}">'
            f'{_esc(card["direction"])} {arrow}</span>')
     front = (
         f'<div class="mc-face" style="background:{theme["bg_secondary"]};color:{theme["text"]}">'

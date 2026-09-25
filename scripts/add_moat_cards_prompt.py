@@ -28,6 +28,14 @@ def insert_prompt(library):
     return lib, True
 
 
+def library_has_prompt(prefs):
+    """Whether prefs' ai_prompts already contains the Moat Cards prompt."""
+    prompts = prefs.get("ai_prompts") if isinstance(prefs, dict) else None
+    if not isinstance(prompts, list):
+        return False
+    return any(isinstance(p, dict) and p.get("title") == moat_cards.TITLE for p in prompts)
+
+
 def should_write(prefs):
     """False when prefs has no non-empty ai_prompts list.
 
@@ -63,6 +71,15 @@ def main():
     if args.apply:
         prefs["ai_prompts"] = new
         config_store.save_user_prefs(client, prefs, user_id=args.user_id)
+        # save_user_prefs swallows its own errors, so a silent write failure
+        # would otherwise print "Saved." over a library that was never
+        # touched. Reload and check the prompt actually made it in.
+        reloaded = config_store.load_user_prefs(client, user_id=args.user_id)
+        if not library_has_prompt(reloaded):
+            print("Save failed: Moat Cards prompt is not in the library after "
+                  "writing. Check Supabase credentials/connectivity and retry.",
+                  file=sys.stderr)
+            sys.exit(1)
         print("Saved.")
 
 

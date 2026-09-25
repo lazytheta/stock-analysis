@@ -150,6 +150,73 @@ def test_should_write_refuses_missing_or_empty_prompt_library():
     assert should_write({"ai_prompts": "not-a-list"}) is False
 
 
+def test_library_has_prompt():
+    from scripts.add_moat_cards_prompt import library_has_prompt
+    assert library_has_prompt({"ai_prompts": [{"title": "Moat Cards", "prompt": "x"}]}) is True
+    assert library_has_prompt({"ai_prompts": [{"title": "Moat Analysis", "prompt": "x"}]}) is False
+    assert library_has_prompt({"ai_prompts": []}) is False
+    assert library_has_prompt({}) is False
+    assert library_has_prompt({"ai_prompts": None}) is False
+    assert library_has_prompt({"ai_prompts": "not-a-list"}) is False
+
+
+def test_main_exits_nonzero_when_save_does_not_stick(monkeypatch, capsys):
+    """save_user_prefs swallows its own errors, so a write that silently fails
+    must not be reported as "Saved." — main() has to reload and verify."""
+    import sys as _sys
+    import scripts.add_moat_cards_prompt as script
+
+    starting = {"ai_prompts": [{"title": "Moat Analysis", "prompt": "b"}]}
+    calls = {"n": 0}
+
+    def fake_load_user_prefs(client, user_id=None):
+        calls["n"] += 1
+        # First load (pre-write) has the library; the reload after the write
+        # comes back without Moat Cards, as if the upsert silently failed.
+        return dict(starting) if calls["n"] == 1 else {"ai_prompts": list(starting["ai_prompts"])}
+
+    monkeypatch.setattr(_sys, "argv", ["add_moat_cards_prompt.py", "--user-id", "u1", "--apply"])
+    monkeypatch.setenv("SUPABASE_URL", "https://example.invalid")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "key")
+    monkeypatch.setitem(_sys.modules, "supabase", MagicMock(create_client=lambda *a, **k: MagicMock()))
+    fake_config_store = MagicMock()
+    fake_config_store.load_user_prefs = fake_load_user_prefs
+    fake_config_store.save_user_prefs = MagicMock()
+    monkeypatch.setitem(_sys.modules, "config_store", fake_config_store)
+
+    with pytest.raises(SystemExit) as exc:
+        script.main()
+    assert exc.value.code != 0
+    assert "Save failed" in capsys.readouterr().err
+
+
+def test_main_prints_saved_when_the_prompt_is_confirmed_present(monkeypatch, capsys):
+    import sys as _sys
+    import scripts.add_moat_cards_prompt as script
+
+    with_prompt = {"ai_prompts": [{"title": "Moat Analysis", "prompt": "b"},
+                                  {"title": "Moat Cards", "prompt": moat_cards.PROMPT}]}
+    calls = {"n": 0}
+
+    def fake_load_user_prefs(client, user_id=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"ai_prompts": [{"title": "Moat Analysis", "prompt": "b"}]}
+        return dict(with_prompt)
+
+    monkeypatch.setattr(_sys, "argv", ["add_moat_cards_prompt.py", "--user-id", "u1", "--apply"])
+    monkeypatch.setenv("SUPABASE_URL", "https://example.invalid")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "key")
+    monkeypatch.setitem(_sys.modules, "supabase", MagicMock(create_client=lambda *a, **k: MagicMock()))
+    fake_config_store = MagicMock()
+    fake_config_store.load_user_prefs = fake_load_user_prefs
+    fake_config_store.save_user_prefs = MagicMock()
+    monkeypatch.setitem(_sys.modules, "config_store", fake_config_store)
+
+    script.main()
+    assert "Saved." in capsys.readouterr().out
+
+
 def test_flip_card_shows_pick_direction_and_three_points_on_the_back():
     card = moat_cards.parse_moat_cards(json.dumps(_payload({0: {"pick": 1, "direction": "widening"}})))["cards"][0]
     html = moat_cards.flip_card_html(card, THEME)
@@ -159,6 +226,22 @@ def test_flip_card_shows_pick_direction_and_three_points_on_the_back():
     assert "MODERATE" in html.upper() and "widening" in html.lower()
     assert all(f"L{i}" in html and f"T{i}" in html for i in range(3))
     assert "Back to summary" in html
+
+
+def test_flip_card_front_tag_is_coloured_by_direction_not_pick():
+    import prescan_render
+    # pick 2 (strongest -> green) but direction "narrowing" (-> red): the front
+    # tag must follow direction, not the pick's own tone.
+    card = moat_cards.parse_moat_cards(json.dumps(
+        _payload({0: {"pick": 2, "direction": "narrowing"}})))["cards"][0]
+    html = moat_cards.flip_card_html(card, THEME)
+    red = prescan_render.band_tone("red")
+    green = prescan_render.band_tone("green")
+    front, back = html.split('mc-back', 1)
+    assert f'class="mc-tag" style="background:{red}22;color:{red}">narrowing' in front
+    assert f'background:{green}22;color:{green}">narrowing' not in front  # not the pick's tone
+    # the pick colour still governs the back face (chosen-option tag, accents)
+    assert f'background:{green}33;color:{green}' in back
 
 
 def test_sources_row_has_a_dot_per_source():
