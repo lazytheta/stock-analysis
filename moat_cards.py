@@ -32,7 +32,7 @@ SOURCES = (
 )
 DIRECTIONS = ("widening", "stable", "narrowing")
 
-MOAT = question_cards.CardSet(TITLE, SOURCES, DIRECTIONS, trend=True)
+MOAT = question_cards.CardSet(TITLE, SOURCES, DIRECTIONS, blocks=(("trend", 3),))
 
 STYLE = question_cards.STYLE
 SUMMARY_STYLE = question_cards.SUMMARY_STYLE

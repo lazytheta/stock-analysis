@@ -14,7 +14,7 @@ ITEMS = (
     ("financial_health", "Financial health", "How healthy are the financials?",
      ("Weak", "Mixed", "Strong")),
 )
-RISK = qc.CardSet(TITLE, ITEMS, directions=None, trend=False)
+RISK = qc.CardSet(TITLE, ITEMS, directions=None, blocks=())
 
 PROMPT = """You are turning the existing risk work on **{company} ({ticker})** into four
 question cards. Base every call on the analyses below and on reported numbers;

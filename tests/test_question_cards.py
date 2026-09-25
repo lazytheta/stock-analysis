@@ -5,7 +5,7 @@ import question_cards as qc
 CS = qc.CardSet("Test Cards",
                 (("a", "A", "Q a?", ("Lo", "Mid", "Hi")),
                  ("b", "B", "Q b?", ("Lo", "Mid", "Hi"))),
-                directions=None, trend=False)
+                directions=None, blocks=())
 THEME = {"text": "#222", "text_muted": "#888", "divider": "#ddd", "bg_secondary": "#f5f3ee"}
 
 
@@ -16,9 +16,9 @@ def _p(**over):
     return {"cards": cards, **over}
 
 
-def test_parse_without_directions_needs_no_direction_and_ignores_trend():
+def test_parse_without_directions_needs_no_direction_and_ignores_unknown_fields():
     out = qc.parse(CS, json.dumps(_p(trend={"x": 1})))
-    assert "direction" not in out["cards"][0] and out["trend"] is None
+    assert "direction" not in out["cards"][0] and "trend" not in out
 
 
 def test_parse_counts_the_items_in_words():
@@ -64,3 +64,30 @@ def test_sections_carry_the_site_card_style_and_cards_inside_are_flat():
     assert "\n" not in html and "$" not in html
     card = qc.parse(CS, json.dumps(_p()))["cards"][0]
     assert "#2b2b2f" not in qc.flip_card_html(CS, card, THEME)
+
+
+BS = qc.CardSet("Block Cards", CS.items, directions=None, blocks=(("overview", 4),))
+
+
+def _block(n):
+    return {"summary": "Lead $1.", "points": [{"label": f"B{i}", "text": f"t{i}"} for i in range(n)]}
+
+
+def test_named_block_is_optional_and_checked_for_its_point_count():
+    assert qc.parse(BS, json.dumps(_p()))["overview"] is None
+    assert len(qc.parse(BS, json.dumps(_p(overview=_block(4))))["overview"]["points"]) == 4
+    with pytest.raises(ValueError, match="overview"):
+        qc.parse(BS, json.dumps(_p(overview=_block(3))))
+
+
+def test_undeclared_blocks_are_ignored():
+    out = qc.parse(CS, json.dumps(_p(overview=_block(1))))
+    assert "overview" not in out
+
+
+def test_text_row_has_two_panels_with_bullets_and_is_markdown_safe():
+    left = qc.text_panel_html("Business overview", qc.bold("A **bold** $5 lead."),
+                              _block(4)["points"])
+    html = qc.text_row_html(left, left)
+    assert html.count('class="tp-panel"') == 2 and html.count("<li") == 8
+    assert "<b>bold</b>" in html and "$" not in html and "\n" not in html

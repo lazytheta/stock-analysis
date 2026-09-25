@@ -80,6 +80,16 @@ SUMMARY_STYLE = """<style>
   overflow:hidden}
 .ms-pt{margin:0 0 6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
   overflow:hidden}
+.tp-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;
+  align-items:stretch;margin-bottom:6px}
+@media (max-width:760px){.tp-row{grid-template-columns:1fr}}
+.tp-panel{background:var(--qc-inner, var(--bg-secondary));color:var(--text);border-radius:16px;
+  padding:18px 22px;box-sizing:border-box}
+.tp-title{font-size:.72rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--text-muted);margin:0 0 10px}
+.tp-panel p{margin:0 0 10px;font-size:.86rem;line-height:1.5}
+.tp-panel ul{margin:0;padding-left:1.1em}
+.tp-panel li{font-size:.86rem;line-height:1.5;margin:0 0 6px}
 </style>"""
 
 _LABEL_STYLE = ('color:rgba(255,255,255,.72);font-size:.68rem;font-weight:700;'
@@ -93,19 +103,20 @@ class CardSet:
     title: str
     items: tuple
     directions: tuple | None
-    trend: bool
+    blocks: tuple = ()
 
 
 def _item(cs, key):
     return next(i for i in cs.items if i[0] == key)
 
 
-def _points(points, where):
-    ok = isinstance(points, list) and len(points) == 3 and all(
+def _points(points, where, n=3):
+    word = NUMBER_WORDS.get(n, str(n))
+    ok = isinstance(points, list) and len(points) == n and all(
         isinstance(p, dict) and str(p.get("label") or "").strip()
         and str(p.get("text") or "").strip() for p in points)
     if not ok:
-        raise ValueError(f"{where}: needs exactly three points, each with label and text")
+        raise ValueError(f"{where}: needs exactly {word} points, each with label and text")
     return [{"label": str(p["label"]).strip(), "text": str(p["text"]).strip()} for p in points]
 
 
@@ -147,16 +158,20 @@ def parse(cs, content):
         card["points"] = _points(c.get("points"), src)
         out.append(card)
 
-    # The set's overall trend. Optional even when the card set supports it, so
-    # cards saved before it existed stay valid; checked like a card when it
-    # is there. Ignored entirely when the card set has no trend.
-    trend = data.get("trend") if cs.trend else None
-    if trend is not None:
-        t_summary = str(trend.get("summary") or "").strip() if isinstance(trend, dict) else ""
-        if not t_summary:
-            raise ValueError("trend: summary is empty")
-        trend = {"summary": t_summary, "points": _points(trend.get("points"), "trend")}
-    return {"cards": out, "trend": trend}
+    result = {"cards": out}
+    # Named optional blocks (e.g. Moat's "trend"). Optional even when the card
+    # set declares them, so cards saved before a block existed stay valid;
+    # checked like a card when present. Blocks the card set doesn't declare
+    # are ignored entirely.
+    for name, n in cs.blocks:
+        block = data.get(name)
+        if block is not None:
+            b_summary = str(block.get("summary") or "").strip() if isinstance(block, dict) else ""
+            if not b_summary:
+                raise ValueError(f"{name}: summary is empty")
+            block = {"summary": b_summary, "points": _points(block.get("points"), name, n)}
+        result[name] = block
+    return result
 
 
 def flip_card_html(cs, card, theme):
@@ -250,3 +265,17 @@ def section_html(label, inner_html):
 
 def summary_row_html(left_html, right_html):
     return f'{css(STYLE, SUMMARY_STYLE)}<div class="ms-row">{left_html}{right_html}</div>'
+
+
+def text_panel_html(title, lead_html, points):
+    """A flat text panel: small-caps title, one lead paragraph, a bullet list
+    of "label. text" items. Not height-fixed; text_row_html stretches a pair
+    of these to equal height."""
+    items = "".join(
+        f'<li><b>{esc(p["label"])}.</b> {esc(p["text"])}</li>' for p in points)
+    return (f'<div class="tp-panel"><div class="tp-title">{esc(title)}</div>'
+            f'<p>{lead_html}</p><ul>{items}</ul></div>')
+
+
+def text_row_html(left_html, right_html):
+    return f'{css(SUMMARY_STYLE)}<div class="tp-row">{left_html}{right_html}</div>'
