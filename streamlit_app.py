@@ -1932,12 +1932,6 @@ margin back above 54% for two quarters" is.]
 """,
     },
     {
-        # Four question cards for the Risk tab, built on Risk Analysis and
-        # SaaSpocalypse Resistance.
-        "title": risk_cards.TITLE,
-        "prompt": risk_cards.PROMPT,
-    },
-    {
         "title": "Price & Sentiment Analysis",
         "prompt": """PRICE & SENTIMENT ANALYSIS v1.9
 
@@ -2090,6 +2084,12 @@ if nothing plausible exists, say what you looked for.]
   selling units of a physical thing is not exposed just because it uses
   software.
 """,
+    },
+    {
+        # Four question cards for the Risk tab, built on Risk Analysis and
+        # SaaSpocalypse Resistance.
+        "title": risk_cards.TITLE,
+        "prompt": risk_cards.PROMPT,
     },
     {
         "title": "Investment Summary",

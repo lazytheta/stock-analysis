@@ -6,10 +6,12 @@ only the Lazy-Theta-Remote-MCP connector. Do not modify, commit or push
 anything in the repository.
 
 Before enabling: both the "Moat Cards" and "Risk Cards" prompts must already
-be in the user's prompt library (see `scripts/add_moat_cards_prompt.py`) and
-the Cloud Run MCP must be redeployed with `tickers_missing_section` and the
-Moat Cards / Risk Cards save validation. Without both, step 2a finds no
-matching prompt to answer.
+be in the user's prompt library. `scripts/add_moat_cards_prompt.py` only adds
+"Moat Cards" — the "Risk Cards" prompt comes from the app's own
+`DEFAULT_AI_PROMPTS` (added the first time the user opens the prompt editor)
+or is added directly by the maintainer. The Cloud Run MCP must also be
+redeployed with `tickers_missing_section` and the Moat Cards / Risk Cards save
+validation. Without all of this, step 2a finds no matching prompt to answer.
 
 1. Call `tickers_missing_section(title="Moat Cards", requires="Moat Analysis", limit=10)`.
 2. For each ticker:
@@ -21,15 +23,18 @@ matching prompt to answer.
    d. Save with `save_prescan_section(ticker, "Moat Cards", <the JSON block>)`.
       If the server refuses, fix what the error names and save once more; if it
       refuses again, note the ticker and the reason and move on.
-3. With whatever remains of the budget of 10 names (10 minus the names done
-   in step 2), call `tickers_missing_section(title="Risk Cards",
-   requires="Risk Analysis", limit=<remaining>)`. If nothing remains of the
-   budget, skip straight to step 5. If `tickers` is empty, note that and
-   continue to step 5.
+3. With whatever remains of the budget of 10 names (10 minus the number of
+   tickers step 1 returned, filled or skipped), call
+   `tickers_missing_section(title="Risk Cards", requires="Risk Analysis",
+   limit=<remaining>)`. If that remaining budget is 0, skip step 3 entirely —
+   do not call it with limit 0 — and go straight to step 5. If `tickers` is
+   empty, note that and continue to step 5.
 4. For each ticker from step 3:
    a. Call `get_prescan_prompts(ticker)` and take the prompt titled "Risk Cards"
       (its {prior:Risk Analysis} and {prior:SaaSpocalypse Resistance} are
-      already filled in).
+      already filled in). A ticker without a "SaaSpocalypse Resistance"
+      section still gets Risk Cards — its AI-exposure context is simply
+      missing, which is acceptable.
    b. Call `get_fundamentals(ticker)` for the numbers you cite.
    c. Answer the prompt exactly as it asks: one fenced JSON block, four cards in
       the listed order.

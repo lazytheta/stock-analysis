@@ -27,9 +27,10 @@ the next.
       later prompt depends on — at minimum after saving "Moat Analysis" and
       before answering "Moat Cards", "Investment Summary" and "Scorecard",
       and after saving "Risk Analysis" and "SaaSpocalypse Resistance" and
-      before answering "Risk Cards" — so every `{prior:…}` in the prompt you
-      are about to answer is actually filled in, not still a bare
-      placeholder. If `save_prescan_section` refuses "Moat Cards" or "Risk
+      before answering "Risk Cards" — library order now already places Risk
+      Cards directly after both of its priors, but the re-fetch is still
+      required so every `{prior:…}` in the prompt you are about to answer is
+      actually filled in, not still a bare placeholder. If `save_prescan_section` refuses "Moat Cards" or "Risk
       Cards", fix what the error names and save once more; if it refuses
       again, note it and move on.
    c. If the Moat verdict is not Wide, the name stays an Aspirant. Move on.

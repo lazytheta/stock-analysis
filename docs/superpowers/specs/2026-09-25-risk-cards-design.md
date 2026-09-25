@@ -46,8 +46,9 @@ Geen module-level import van `prescan_render` (Cloud Run).
 
 ## 4. Vullen
 
-- Prompt in `DEFAULT_AI_PROMPTS` direct na "Risk Analysis"; in de bibliotheek van de
-  gebruiker gezet door de controller (SQL, zoals bij Moat Cards).
+- Prompt in `DEFAULT_AI_PROMPTS` direct na SaaSpocalypse Resistance (die hij als context
+  gebruikt); in de bibliotheek van de gebruiker gezet door de controller (SQL, zoals bij
+  Moat Cards).
 - Backfill-routine-doc: Moat Cards eerst, dan Risk Cards (`requires="Risk Analysis"`),
   samen maximaal 10 namen per run.
 - Aspirant-routine neemt Risk Cards vanzelf mee (prompts uit de bibliotheek, re-fetch na

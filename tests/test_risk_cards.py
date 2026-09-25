@@ -85,10 +85,10 @@ def test_mcp_refuses_malformed_risk_cards_and_accepts_valid(monkeypatch):
     assert "Risk Cards" in store["X"]["ai_notes"]
 
 
-def test_default_prompts_put_risk_cards_right_after_risk_analysis():
+def test_default_prompts_put_risk_cards_right_after_saaspocalypse_resistance():
     import streamlit_app
     titles = [p["title"] for p in streamlit_app.DEFAULT_AI_PROMPTS]
-    assert titles[titles.index("Risk Analysis") + 1] == "Risk Cards"
+    assert titles[titles.index("SaaSpocalypse Resistance") + 1] == "Risk Cards"
 
 
 def test_ticker_page_has_a_risk_tab_after_moat():
