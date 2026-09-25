@@ -173,7 +173,14 @@ class TestSlimConfigLoad:
     def test_the_watchlist_rows_never_write_a_config(self):
         """A partial config handed to save_config is how the prescan sections
         got wiped once before. save_config's merge would survive it, but the
-        rendering path has no business saving at all — this pins that."""
+        rendering path has no business saving at all — this pins that.
+
+        A user-click action (e.g. the Aspirant row's NO button) may still
+        write, but only by calling out to a module-level helper — such as
+        `_reject_aspirant` — that loads the complete config with
+        `load_config` before saving it. Saving any config obtained from the
+        display-only `load_all_configs(include_ai_notes=False)` load used to
+        build these rows remains forbidden."""
         import re
         src = open("streamlit_app.py").read().split("\n")
         start = next(i for i, line in enumerate(src) if "_cached_watchlist" in line)

@@ -4980,7 +4980,7 @@ def _watchlist_overview():
 
     # Yes is the active-decision pile → open by default. Other categories
     # collapse so they don't push the must-look-at items below the fold.
-    _default_open = {"Yes": True, "Aspirant": True}
+    _default_open = {"Yes": True}
 
     for _cat in _active_cats:
         _cat_rows = _grouped[_cat]
