@@ -1,4 +1,5 @@
-from unittest.mock import patch
+import json
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -111,3 +112,94 @@ def test_list_watchlist_carries_category_and_markers():
     out = {e["ticker"]: e for e in list_watchlist(client, user_id="u")}
     assert out["ABC"]["category"] == "Aspirant" and out["ABC"]["dcf_placeholder"] is True
     assert out["OLD"]["category"] == "Uncategorized" and out["OLD"]["dcf_placeholder"] is False
+
+
+@pytest.fixture
+def mcp(monkeypatch):
+    import mcp_server
+    client = MagicMock()
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: client)
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+    store = {}
+    monkeypatch.setattr(mcp_server.config_store, "load_config",
+                        lambda c, t, user_id=None: store.get(t.upper()))
+    monkeypatch.setattr(mcp_server.config_store, "save_config",
+                        lambda c, t, cfg, user_id=None: store.__setitem__(t.upper(), {**store.get(t.upper(), {}), **cfg}))
+    monkeypatch.setattr(mcp_server.config_store, "list_watchlist",
+                        lambda c, user_id=None, tickers=None: [{"ticker": t} for t in store])
+    return mcp_server, client, store
+
+
+def test_candidates_skip_names_already_listed_and_sort_by_roce(mcp):
+    m, client, store = mcp
+    store["BBB"] = {"category": "No"}
+    snap = MagicMock()
+    snap.data = [{"computed_at": "2026-09-22", "rows": [
+        {"ticker": "AAA", "name": "A", "avg_roce": 0.25, "net_debt": -1, "passes": True},
+        {"ticker": "BBB", "name": "B", "avg_roce": 0.40, "net_debt": -1, "passes": True},
+        {"ticker": "CCC", "name": "C", "avg_roce": 0.35, "net_debt": -1, "passes": True},
+        {"ticker": "DDD", "name": "D", "avg_roce": 0.90, "net_debt": 5, "passes": False},
+    ]}]
+    client.table.return_value.select.return_value.order.return_value.limit.return_value.execute.return_value = snap
+    out = json.loads(m._get_screener_candidates_impl(limit=5))
+    assert [c["ticker"] for c in out["candidates"]] == ["CCC", "AAA"]
+
+
+def test_add_aspirant_refuses_an_existing_config(mcp, monkeypatch):
+    m, _, store = mcp
+    store["MSFT"] = {"category": "Yes", "revenue_growth": [0.1, 0.08]}
+    called = MagicMock()
+    monkeypatch.setattr(m.gather_data, "build_base_config", called)
+    out = m._add_aspirant_impl("msft", stock_price=400)
+    assert "already" in out
+    called.assert_not_called()
+    assert store["MSFT"]["category"] == "Yes"
+
+
+def test_add_aspirant_stores_category_and_placeholder(mcp, monkeypatch):
+    m, _, store = mcp
+    monkeypatch.setattr(m.gather_data, "build_base_config",
+                        lambda t, stock_price=0: {"stock_price": stock_price, "company": "New"})
+    m._add_aspirant_impl("new", stock_price=12.5)
+    assert store["NEW"]["category"] == "Aspirant"
+    assert store["NEW"]["dcf_placeholder"] is True
+    assert store["NEW"]["stock_price"] == 12.5
+    assert store["NEW"]["aspirant_added"]
+
+
+def test_save_to_watchlist_lifts_the_placeholder_once_curves_vary(mcp):
+    m, _, store = mcp
+    base = {"equity_market_value": 1.0, "sector_betas": [["S", 1.0, 1.0]],
+            "dcf_placeholder": True}
+    m._save_to_watchlist_impl("X", {**base, "revenue_growth": [0.03, 0.03], "op_margins": [0.2, 0.2]})
+    assert store["X"]["dcf_placeholder"] is True
+    m._save_to_watchlist_impl("X", {**base, "revenue_growth": [0.1, 0.05], "op_margins": [0.2, 0.2]})
+    assert store["X"]["dcf_placeholder"] is False
+
+
+def test_calculate_refuses_a_placeholder(mcp):
+    m, _, store = mcp
+    store["X"] = {"dcf_placeholder": True}
+    assert "placeholder" in m._calculate_multi_lens_valuation_impl("X")
+
+
+def test_promote_refuses_until_complete_then_moves_to_uncategorized(mcp):
+    m, _, store = mcp
+    store["X"] = {"category": "Aspirant", "dcf_placeholder": True, "ai_notes": {}}
+    assert "Wide" in m._promote_aspirant_impl("X")
+    store["X"] = {"category": "Aspirant", "dcf_placeholder": False,
+                  "equity_market_value": 5.0, "sector_betas": [["S", 1.0, 1.0]],
+                  "valuation_summary": {"weighted_fv_mid": 1},
+                  "ai_notes": {"Moat": "**Moat: Wide · Stable · 4/5**\n\nx"}}
+    out = m._promote_aspirant_impl("X")
+    assert "Uncategorized" in out
+    assert store["X"]["category"] == "Uncategorized"
+    assert store["X"]["promoted_by"] == "claude"
+
+
+def test_set_category_refuses_unknown(mcp):
+    m, _, store = mcp
+    store["X"] = {"category": "Aspirant"}
+    assert "Unknown category" in m._set_category_impl("X", "Nope")
+    m._set_category_impl("X", "No")
+    assert store["X"]["category"] == "No"

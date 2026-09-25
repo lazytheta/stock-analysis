@@ -68,6 +68,7 @@ import quotes
 import valuation_lenses
 from scorecard_utils import compute_roce_metric, capital_employed
 import notifications
+import aspirant
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +208,9 @@ def _calculate_multi_lens_valuation_impl(ticker, scenario_grid=False,
     cfg = config_store.load_config(client, ticker, user_id=user_id)
     if cfg is None:
         return json.dumps({"error": f"{ticker.upper()} not on watchlist"})
+    if cfg.get("dcf_placeholder"):
+        return json.dumps({"error": f"{ticker.upper()} still has the placeholder "
+                                    f"DCF (flat curves); fill it in and save first"})
 
     # Valuation uses only what the config already holds — no yfinance autofill.
     cfg.setdefault("ticker", ticker)
@@ -262,6 +266,7 @@ def _refresh_all_valuations_impl(force: bool = False,
         results = dict(zip(tickers, pool.map(_load, tickers)))
     loaded, dropped = _load_watchlist_configs(tickers, results.get)
 
+    loaded = {t: c for t, c in loaded.items() if not c.get("dcf_placeholder")}
     targets = list(loaded.keys()) if force else [t for t, c in loaded.items() if _is_stale(c)]
     skipped = [t for t in loaded if t not in targets]
 
@@ -327,6 +332,11 @@ def _save_to_watchlist_impl(ticker, cfg, user_id: str | None = None):
                 f"sector takes weight 1.0. A weight equal to the beta is the "
                 f"usual cause: it squares the beta and shifts the WACC."
             )
+
+    # A filled-in DCF lifts the aspirant's placeholder marker. Set to False
+    # rather than popped: save_config merges, so an absent key would survive.
+    if cfg.get("dcf_placeholder") and not aspirant.curves_are_flat(cfg):
+        cfg = {**cfg, "dcf_placeholder": False}
 
     user_id = user_id or USER_ID
     client = get_supabase_client()
@@ -1315,6 +1325,82 @@ def _save_prescan_section_impl(ticker, title, content,
     return f"Saved {ticker.upper()} → '{title}' ({len(content)} chars)."
 
 
+def _get_screener_candidates_impl(limit=5, user_id: str | None = None):
+    """Passing names from the latest Screener run that are not on the list yet."""
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    resp = (client.table("screener_snapshots")
+            .select("computed_at, rows")
+            .order("created_at", desc=True).limit(1).execute())
+    if not (resp and resp.data):
+        return json.dumps({"candidates": [], "computed_at": None})
+    snap = resp.data[0]
+    listed = {e["ticker"].upper()
+              for e in config_store.list_watchlist(client, user_id=user_id)}
+    rows = [r for r in snap.get("rows") or []
+            if r.get("passes") and (r.get("ticker") or "").upper() not in listed]
+    rows.sort(key=lambda r: r.get("avg_roce") or 0, reverse=True)
+    return json.dumps({
+        "computed_at": snap.get("computed_at"),
+        "candidates": [{"ticker": r["ticker"], "company": r.get("name"),
+                        "sector": r.get("sector"), "avg_roce": r.get("avg_roce"),
+                        "net_debt": r.get("net_debt")}
+                       for r in rows[:max(int(limit), 0)]],
+    }, default=str)
+
+
+def _add_aspirant_impl(ticker, stock_price=0, user_id: str | None = None):
+    """Put a new name on the list as Aspirant; never touch an existing one."""
+    from datetime import date
+    user_id = user_id or USER_ID
+    ticker = ticker.upper()
+    client = get_supabase_client()
+    if config_store.load_config(client, ticker, user_id=user_id) is not None:
+        return f"{ticker} is already on the watchlist; not overwritten."
+    try:
+        cfg = gather_data.build_base_config(ticker, stock_price=stock_price or 0)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+    cfg.update({"category": "Aspirant", "dcf_placeholder": True,
+                "aspirant_added": date.today().isoformat()})
+    config_store.save_config(client, ticker, cfg, user_id=user_id)
+    return f"Added {ticker} as Aspirant."
+
+
+def _promote_aspirant_impl(ticker, user_id: str | None = None):
+    """Aspirant -> Uncategorized, only with a Wide moat and a filled-in DCF."""
+    from datetime import date
+    user_id = user_id or USER_ID
+    ticker = ticker.upper()
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
+    if cfg is None:
+        return json.dumps({"error": f"{ticker} not on watchlist"})
+    blockers = aspirant.promotion_blockers(cfg)
+    if blockers:
+        return json.dumps({"error": f"{ticker} not promoted: " + "; ".join(blockers)})
+    config_store.save_config(client, ticker, {
+        **cfg, "category": "Uncategorized", "promoted_by": "claude",
+        "promoted_at": date.today().isoformat()}, user_id=user_id)
+    return f"Promoted {ticker} to Uncategorized."
+
+
+def _set_category_impl(ticker, category, user_id: str | None = None):
+    """Move a name to one of the watchlist categories (e.g. No to reject)."""
+    user_id = user_id or USER_ID
+    ticker = ticker.upper()
+    if category not in aspirant.CATEGORIES:
+        return json.dumps({"error": f"Unknown category {category!r}; use one of "
+                                    f"{', '.join(aspirant.CATEGORIES)}"})
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
+    if cfg is None:
+        return json.dumps({"error": f"{ticker} not on watchlist"})
+    config_store.save_config(client, ticker, {**cfg, "category": category,
+                                              "promoted_by": None}, user_id=user_id)
+    return f"{ticker} → {category}."
+
+
 def _set_robustness_impl(ticker, axes, user_id: str | None = None):
     """Store the 4 qualitative robustness axes (band + note each) as the
     'Robustness' ai_notes section, recompute the data axes (ROCE/net debt) from
@@ -1415,6 +1501,56 @@ def save_prescan_section(ticker: str, title: str, content: str) -> str:
         if isinstance(result, dict):
             return json.dumps(result)
         return result
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def get_screener_candidates(limit: int = 5) -> str:
+    """Names that pass the latest Screener run and are not on the watchlist
+    yet (in any category), highest average ROCE first.
+
+    Returns JSON {computed_at, candidates: [{ticker, company, sector,
+    avg_roce, net_debt}]}.
+    """
+    try:
+        return _get_screener_candidates_impl(limit)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def add_aspirant(ticker: str, stock_price: float = 0) -> str:
+    """Add a NEW name to the watchlist in category Aspirant, with a facts-only
+    base config (EDGAR) marked dcf_placeholder. Refuses if the ticker already
+    has a config — it never overwrites. Pass stock_price: Yahoo is blocked on
+    this server.
+    """
+    try:
+        return _add_aspirant_impl(ticker, stock_price)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def promote_aspirant(ticker: str) -> str:
+    """Move an Aspirant to Uncategorized. Refused unless the Moat section's
+    verdict is Wide, the DCF is filled in (no placeholder, equity_market_value,
+    sector_betas weights sum to 1.0) and a valuation_summary exists.
+    """
+    try:
+        return _promote_aspirant_impl(ticker)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def set_category(ticker: str, category: str) -> str:
+    """Set a watchlist name's category: Yes, Aspirant, Maybe, Watch Later, No
+    or Uncategorized. "No" is how an aspirant is rejected.
+    """
+    try:
+        return _set_category_impl(ticker, category)
     except Exception as e:
         return json.dumps({"error": str(e)})
 

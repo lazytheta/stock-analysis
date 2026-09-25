@@ -210,6 +210,23 @@ async def _tool_delete_price_alert(user_id: str, args: dict) -> Any:
     return mcp_server._delete_price_alert_impl(args["alert_id"], user_id=user_id)
 
 
+async def _tool_get_screener_candidates(user_id: str, args: dict) -> Any:
+    return mcp_server._get_screener_candidates_impl(args.get("limit", 5), user_id=user_id)
+
+
+async def _tool_add_aspirant(user_id: str, args: dict) -> Any:
+    return mcp_server._add_aspirant_impl(
+        args["ticker"], stock_price=args.get("stock_price", 0), user_id=user_id)
+
+
+async def _tool_promote_aspirant(user_id: str, args: dict) -> Any:
+    return mcp_server._promote_aspirant_impl(args["ticker"], user_id=user_id)
+
+
+async def _tool_set_category(user_id: str, args: dict) -> Any:
+    return mcp_server._set_category_impl(args["ticker"], args["category"], user_id=user_id)
+
+
 # ---- Tool definitions (MCP wire format) ----
 
 TOOLS: list[dict] = [
@@ -659,6 +676,40 @@ TOOLS: list[dict] = [
             },
         },
     },
+    {
+        "name": "get_screener_candidates",
+        "description": ("Names passing the latest Screener run that are not on the "
+                        "watchlist yet (any category), highest average ROCE first."),
+        "inputSchema": {"type": "object",
+                        "properties": {"limit": {"type": "integer"}}},
+    },
+    {
+        "name": "add_aspirant",
+        "description": ("Add a NEW name in category Aspirant with a facts-only base "
+                        "config marked dcf_placeholder. Refuses an existing ticker; "
+                        "never overwrites. Pass stock_price (Yahoo is blocked here)."),
+        "inputSchema": {"type": "object",
+                        "properties": {"ticker": {"type": "string"},
+                                       "stock_price": {"type": "number"}},
+                        "required": ["ticker"]},
+    },
+    {
+        "name": "promote_aspirant",
+        "description": ("Aspirant -> Uncategorized. Refused unless the Moat verdict is "
+                        "Wide and the DCF is filled in with a valuation_summary."),
+        "inputSchema": {"type": "object",
+                        "properties": {"ticker": {"type": "string"}},
+                        "required": ["ticker"]},
+    },
+    {
+        "name": "set_category",
+        "description": ("Set a watchlist category: Yes, Aspirant, Maybe, Watch Later, "
+                        "No, Uncategorized. 'No' rejects an aspirant."),
+        "inputSchema": {"type": "object",
+                        "properties": {"ticker": {"type": "string"},
+                                       "category": {"type": "string"}},
+                        "required": ["ticker", "category"]},
+    },
 ]
 
 
@@ -691,6 +742,10 @@ TOOL_HANDLERS: dict[str, Callable[[str, dict], Awaitable[Any]]] = {
     "add_price_alert": _tool_add_price_alert,
     "list_price_alerts": _tool_list_price_alerts,
     "delete_price_alert": _tool_delete_price_alert,
+    "get_screener_candidates": _tool_get_screener_candidates,
+    "add_aspirant": _tool_add_aspirant,
+    "promote_aspirant": _tool_promote_aspirant,
+    "set_category": _tool_set_category,
 }
 
 
