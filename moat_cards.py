@@ -101,10 +101,10 @@ def sources_row_html(cards, theme):
             f'<div style="text-align:center;flex:1;min-width:90px">'
             f'<div style="width:12px;height:12px;border-radius:50%;margin:0 auto 6px;{dot}"></div>'
             f'<div class="mc-q" style="color:{theme["text_muted"]}">{question_cards.esc(name)}</div></div>')
-    # Same card as the rest of the site: white, 24px, accent top, soft shadow.
-    return ('<div style="display:flex;flex-wrap:wrap;gap:8px;background:var(--card);'
-            'border-top:3px solid var(--accent);border-radius:24px;box-shadow:var(--shadow);'
-            f'padding:16px 12px;margin-top:6px">{"".join(cells)}</div>')
+    # A flat panel inside the section, like the question cards below it.
+    return ('<div style="display:flex;flex-wrap:wrap;gap:8px;'
+            'background:var(--qc-inner, var(--bg-secondary));border-radius:16px;'
+            f'padding:16px 12px">{"".join(cells)}</div>')
 
 
 def summary_row_html(moat_analysis, cards_content, theme):
@@ -138,7 +138,7 @@ def summary_row_html(moat_analysis, cards_content, theme):
         points = ([{"label": v["footer_label"] or "Weakest link", "text": v["footer_text"]}]
                   if v["footer_text"] else [])
     direction = question_cards.summary_card_html("MOAT DIRECTION", dir_box, lead, points, theme)
-    return question_cards.summary_row_html(size, direction)
+    return question_cards.section_html("Moat", question_cards.summary_row_html(size, direction))
 
 
 def cards_section_html(content, theme):
@@ -148,5 +148,7 @@ def cards_section_html(content, theme):
     except ValueError:
         cards = None
     if not cards:
-        return question_cards.notice_html(TITLE, theme)
-    return f'{sources_row_html(cards, theme)}{question_cards.grid_html(MOAT, cards, theme)}'
+        return question_cards.section_html("Moat sources", question_cards.notice_html(TITLE, theme))
+    return question_cards.section_html(
+        "Moat sources",
+        f'{sources_row_html(cards, theme)}{question_cards.grid_html(MOAT, cards, theme)}')

@@ -61,7 +61,8 @@ def cards_section_html(content, theme):
         cards = parse_risk_cards(content)["cards"] if content else None
     except ValueError:
         cards = None
-    return qc.grid_html(RISK, cards, theme) if cards else qc.notice_html(TITLE, theme)
+    inner = qc.grid_html(RISK, cards, theme) if cards else qc.notice_html(TITLE, theme)
+    return qc.section_html("Risk questions", inner)
 
 
 def _verdict_card(title, v, band_tone, theme):
@@ -92,5 +93,6 @@ def summary_row_html(risk_analysis, saas_text, theme):
                            band_tone, theme)
     if left is None and right is None:
         return None
-    return qc.summary_row_html(left or _missing_card("EXECUTION RISK", theme),
-                                right or _missing_card("AI EXPOSURE", theme))
+    row = qc.summary_row_html(left or _missing_card("EXECUTION RISK", theme),
+                              right or _missing_card("AI EXPOSURE", theme))
+    return qc.section_html("Risk", row)

@@ -43,7 +43,12 @@ BANDS = ("red", "yellow", "green")
 ARROW = {"widening": "↗", "stable": "→", "narrowing": "↘"}
 
 STYLE = """<style>
-.mc-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:14px}
+.qc-section{background:var(--card);border-top:3px solid var(--accent);border-radius:24px;
+  box-shadow:var(--shadow);padding:20px 24px 24px;margin:0 0 18px;
+  --qc-inner:color-mix(in srgb, var(--text) 4%, var(--card))}
+.qc-label{font-size:.72rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--text-muted);margin:0 0 14px}
+.mc-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:16px}
 @media (max-width:760px){.mc-grid{grid-template-columns:1fr}}
 .mc-card{display:block;perspective:1200px;cursor:pointer;height:270px;margin:0}
 .mc-flip{display:none}
@@ -51,9 +56,8 @@ STYLE = """<style>
   transform-style:preserve-3d}
 .mc-flip:checked + .mc-inner{transform:rotateY(180deg)}
 .mc-face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;
-  background:var(--card);color:var(--text);border-top:3px solid var(--accent);
-  border-radius:24px;box-shadow:var(--shadow);padding:18px 24px;box-sizing:border-box;
-  overflow:hidden;display:flex;flex-direction:column}
+  background:var(--qc-inner, var(--bg-secondary));color:var(--text);border-radius:16px;
+  padding:18px 22px;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column}
 .mc-back{transform:rotateY(180deg);overflow:auto}
 .mc-q{font-size:.7rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
 .mc-tag{font-size:.66rem;font-weight:700;letter-spacing:.05em;padding:2px 8px;
@@ -65,9 +69,9 @@ SUMMARY_STYLE = """<style>
 .ms-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;
   align-items:stretch;margin-bottom:6px}
 @media (max-width:760px){.ms-row{grid-template-columns:1fr}}
-.ms-card{background:var(--card);color:var(--text);border-top:3px solid var(--accent);
-  border-radius:24px;box-shadow:var(--shadow);padding:20px 24px;display:flex;
-  flex-direction:column;height:300px;box-sizing:border-box;overflow:hidden}
+.ms-card{background:var(--qc-inner, var(--bg-secondary));color:var(--text);border-radius:16px;
+  padding:18px 22px;display:flex;flex-direction:column;height:300px;box-sizing:border-box;
+  overflow:hidden}
 .ms-body{display:flex;gap:18px;align-items:flex-start;min-height:0;flex:1}
 .ms-box{background:#2b2b2f;border-radius:14px;width:124px;height:124px;flex:none;
   display:flex;flex-direction:column;align-items:center;justify-content:center}
@@ -235,6 +239,13 @@ def word_box_html(glyph, word, tone):
     return (f'<div class="ms-box"><div style="font-size:2.2rem;line-height:1;color:{tone}">'
             f'{glyph}</div><div style="{_LABEL_STYLE};margin-top:8px">'
             f'{esc(word.upper())}</div></div>')
+
+
+def section_html(label, inner_html):
+    """One white section in the site's card style with a small label, holding
+    flat cards. Groups read as one block instead of a stack of floating boxes."""
+    return (f'{css(STYLE, SUMMARY_STYLE)}<div class="qc-section">'
+            f'<div class="qc-label">{esc(label)}</div>{inner_html}</div>')
 
 
 def summary_row_html(left_html, right_html):

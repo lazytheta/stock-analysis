@@ -50,15 +50,17 @@ def test_question_cards_does_not_import_prescan_render_at_load():
     assert "prescan_render" not in sys.modules
 
 
-def test_cards_use_the_site_card_style_front_and_back():
-    """White card, 24px corners, accent top border, site shadow — like the
-    DCF / Peer Comparison tab cards — via the site's CSS variables, so dark
-    mode follows. The back is the same card, not a dark panel."""
-    style = qc.css(qc.STYLE, qc.SUMMARY_STYLE)
-    for rule in ("background:var(--card)", "border-top:3px solid var(--accent)",
+def test_sections_carry_the_site_card_style_and_cards_inside_are_flat():
+    """One white section per group (24px, accent top, site shadow) with a small
+    label; the cards inside are flat panels without border or shadow."""
+    html = qc.section_html("Moat sources", "<div>inner</div>")
+    flat = html.replace(" ", "")
+    assert 'class="qc-section"' in html and "MOAT SOURCES" in html.upper()
+    for rule in ("background:var(--card)", "border-top:3pxsolidvar(--accent)",
                  "box-shadow:var(--shadow)", "border-radius:24px"):
-        assert rule.replace(" ", "") in style.replace(" ", "")
+        assert rule in flat
+    face = flat.split(".mc-face{")[1].split("}")[0]
+    assert "box-shadow" not in face and "border-top" not in face and "--qc-inner" in face
+    assert "\n" not in html and "$" not in html
     card = qc.parse(CS, json.dumps(_p()))["cards"][0]
-    html = qc.flip_card_html(CS, card, THEME)
-    assert "#2b2b2f" not in html and "bg_secondary" not in html
-    assert THEME["bg_secondary"] not in html
+    assert "#2b2b2f" not in qc.flip_card_html(CS, card, THEME)

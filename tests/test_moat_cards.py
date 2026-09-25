@@ -296,7 +296,7 @@ def test_prompt_asks_for_the_trend_block():
 def test_cards_section_without_data_shows_a_notice_not_a_crash():
     for content in (None, "", "not json"):
         html = moat_cards.cards_section_html(content, THEME)
-        assert "Moat Cards" in html and "mc-card" not in html
+        assert "Moat Cards" in html and 'class="mc-card"' not in html
 
 
 def test_cards_section_with_data_renders_five_cards_and_the_style():

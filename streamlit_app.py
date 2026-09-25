@@ -5123,7 +5123,6 @@ def _dcf_editor(ticker):
             st.markdown(_summary, unsafe_allow_html=True)
         else:
             st.caption("No Moat Analysis in the verdict format yet.")
-        st.markdown("##### Moat sources")
         st.markdown(moat_cards.cards_section_html(_notes.get(moat_cards.TITLE), T),
                     unsafe_allow_html=True)
 
@@ -5138,7 +5137,6 @@ def _dcf_editor(ticker):
             st.markdown(_rsum, unsafe_allow_html=True)
         else:
             st.caption("No Risk Analysis in the verdict format yet.")
-        st.markdown("##### Risk questions")
         st.markdown(risk_cards.cards_section_html(_rnotes.get(risk_cards.TITLE), T),
                     unsafe_allow_html=True)
 
