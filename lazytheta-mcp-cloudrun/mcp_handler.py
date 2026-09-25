@@ -168,6 +168,12 @@ async def _tool_save_prescan_section(user_id: str, args: dict) -> Any:
     )
 
 
+async def _tool_tickers_missing_section(user_id: str, args: dict) -> Any:
+    return mcp_server._tickers_missing_section_impl(
+        args["title"], requires=args.get("requires") or "",
+        limit=args.get("limit") or 10, user_id=user_id)
+
+
 async def _tool_set_robustness(user_id: str, args: dict) -> Any:
     return mcp_server._set_robustness_impl(args["ticker"], args["axes"], user_id=user_id)
 
@@ -521,6 +527,22 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "tickers_missing_section",
+        "description": (
+            "Watchlist tickers lacking a pre-scan section (optionally "
+            "requiring another), for backfills."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "requires": {"type": "string"},
+                "limit": {"type": "integer"},
+            },
+            "required": ["title"],
+        },
+    },
+    {
         "name": "set_robustness",
         "description": (
             "Set the 4 qualitative robustness axes (customers, barriers, "
@@ -736,6 +758,7 @@ TOOL_HANDLERS: dict[str, Callable[[str, dict], Awaitable[Any]]] = {
     "get_prescan_prompts": _tool_get_prescan_prompts,
     "get_prescan_sections": _tool_get_prescan_sections,
     "save_prescan_section": _tool_save_prescan_section,
+    "tickers_missing_section": _tool_tickers_missing_section,
     "set_robustness": _tool_set_robustness,
     "set_premortem": _tool_set_premortem,
     "add_reminder": _tool_add_reminder,

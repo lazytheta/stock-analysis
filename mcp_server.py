@@ -69,6 +69,7 @@ import valuation_lenses
 from scorecard_utils import compute_roce_metric, capital_employed
 import notifications
 import aspirant
+import moat_cards
 
 
 # ---------------------------------------------------------------------------
@@ -1331,6 +1332,13 @@ def _save_prescan_section_impl(ticker, title, content,
                                 user_id: str | None = None):
     if not title.strip():
         return {"error": "title is required"}
+    # Moat Cards are structured: a malformed block would render as a broken
+    # tab, so it is refused here with the reason rather than stored.
+    if title.strip() == moat_cards.TITLE:
+        try:
+            moat_cards.parse_moat_cards(content)
+        except ValueError as e:
+            return {"error": f"Moat Cards not saved: {e}"}
     user_id = user_id or USER_ID
     client = get_supabase_client()
     cfg = config_store.load_config(client, ticker, user_id=user_id)
@@ -1345,6 +1353,30 @@ def _save_prescan_section_impl(ticker, title, content,
 
     config_store.save_config(client, ticker, cfg, user_id=user_id)
     return f"Saved {ticker.upper()} → '{title}' ({len(content)} chars)."
+
+
+def _tickers_missing_section_impl(title, requires="", limit=10,
+                                  user_id: str | None = None):
+    """Watchlist tickers without pre-scan section `title`, alphabetical.
+    `remaining` counts the whole backlog of tickers lacking `title` (so it
+    still reflects names blocked on `requires`, not only what was
+    returned); `tickers` is that backlog filtered to the ones that, when
+    `requires` is given, already have that section too — i.e. are actually
+    ready to backfill — capped at `limit`."""
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    cfgs = config_store.load_all_configs(client, user_id=user_id)
+    missing = []
+    for t, cfg in sorted(cfgs.items()):
+        notes = cfg.get("ai_notes") if isinstance(cfg.get("ai_notes"), dict) else {}
+        if str(notes.get(title) or "").strip():
+            continue
+        missing.append((t, notes))
+    n = max(int(limit or 10), 0)
+    eligible = [t for t, notes in missing
+                if not requires or str(notes.get(requires) or "").strip()]
+    tickers = eligible[:n]
+    return json.dumps({"tickers": tickers, "remaining": len(missing) - len(tickers)})
 
 
 def _get_screener_candidates_impl(limit=5, user_id: str | None = None):
@@ -1536,6 +1568,18 @@ def save_prescan_section(ticker: str, title: str, content: str) -> str:
         if isinstance(result, dict):
             return json.dumps(result)
         return result
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def tickers_missing_section(title: str, requires: str = "", limit: int = 10) -> str:
+    """Watchlist tickers that lack pre-scan section `title` — e.g. "Moat Cards"
+    with requires="Moat Analysis" for a backfill. Returns JSON
+    {tickers: [...], remaining: n}.
+    """
+    try:
+        return _tickers_missing_section_impl(title, requires, limit)
     except Exception as e:
         return json.dumps({"error": str(e)})
 

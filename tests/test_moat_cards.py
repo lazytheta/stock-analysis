@@ -58,3 +58,57 @@ def test_prompt_uses_prior_moat_analysis_and_names_every_source():
     assert "{prior:Moat Analysis}" in moat_cards.PROMPT
     for key, *_ in moat_cards.SOURCES:
         assert key in moat_cards.PROMPT
+
+
+from unittest.mock import MagicMock
+
+
+@pytest.fixture
+def mcp(monkeypatch):
+    import mcp_server
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: MagicMock())
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+    store = {}
+    monkeypatch.setattr(mcp_server.config_store, "load_config",
+                        lambda c, t, user_id=None: store.get(t.upper()))
+    monkeypatch.setattr(mcp_server.config_store, "save_config",
+                        lambda c, t, cfg, user_id=None: store.__setitem__(
+                            t.upper(), {**store.get(t.upper(), {}), **cfg}))
+    monkeypatch.setattr(mcp_server.config_store, "load_all_configs",
+                        lambda c, user_id=None, include_ai_notes=True: dict(store))
+    return mcp_server, store
+
+
+def test_save_refuses_malformed_moat_cards(mcp):
+    m, store = mcp
+    store["X"] = {"ai_notes": {}}
+    out = m._save_prescan_section_impl("X", "Moat Cards", '{"cards": []}')
+    assert "error" in out and "Moat Cards" in out["error"]
+    assert "Moat Cards" not in store["X"]["ai_notes"]
+
+
+def test_save_accepts_valid_moat_cards(mcp):
+    m, store = mcp
+    store["X"] = {"ai_notes": {}}
+    m._save_prescan_section_impl("X", "Moat Cards", json.dumps(_payload()))
+    assert "Moat Cards" in store["X"]["ai_notes"]
+
+
+def test_other_sections_are_not_validated(mcp):
+    m, store = mcp
+    store["X"] = {"ai_notes": {}}
+    m._save_prescan_section_impl("X", "Moat Analysis", "free text")
+    assert store["X"]["ai_notes"]["Moat Analysis"] == "free text"
+
+
+def test_tickers_missing_section(mcp):
+    m, store = mcp
+    store.update({
+        "AAA": {"ai_notes": {"Moat Analysis": "x"}},
+        "BBB": {"ai_notes": {"Moat Analysis": "x", "Moat Cards": "{}"}},
+        "CCC": {"ai_notes": {}},
+        "DDD": {"ai_notes": {"Moat Analysis": "y"}},
+    })
+    out = json.loads(m._tickers_missing_section_impl(
+        "Moat Cards", requires="Moat Analysis", limit=1))
+    assert out == {"tickers": ["AAA"], "remaining": 2}
