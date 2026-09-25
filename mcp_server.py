@@ -394,8 +394,8 @@ def _get_config_impl(ticker, user_id: str | None = None):
 _QUOTE_CACHE = quotes.TtlCache(ttl_seconds=60)
 
 
-def _yahoo_quote(ticker: str):
-    """Eén koers via de bestaande Yahoo-route, in het koerscontract."""
+def _live_quote(ticker: str):
+    """Eén koers via fetch_stock_price (Nasdaq, dan Yahoo), in het koerscontract."""
     price, _, _ = gather_data.fetch_stock_price(ticker)
     return {"price": price} if price and price > 0 else None
 
@@ -456,7 +456,7 @@ def _get_watchlist_impl(user_id: str | None = None, live_prices: bool = True):
         quotes.apply_live_prices(
             entries,
             primary=lambda tickers: quotes.parallel_quotes(
-                tickers, _yahoo_quote, cache=_QUOTE_CACHE),
+                tickers, _live_quote, cache=_QUOTE_CACHE),
             frankfurt=quotes.fetch_frankfurt_quotes)
     return json.dumps(entries, default=str)
 
@@ -1605,8 +1605,8 @@ def get_screener_candidates(limit: int = 5) -> str:
 def add_aspirant(ticker: str, stock_price: float = 0) -> str:
     """Add a NEW name to the watchlist in category Aspirant, with a facts-only
     base config (EDGAR) marked dcf_placeholder. Refuses if the ticker already
-    has a config — it never overwrites. Pass stock_price: Yahoo is blocked on
-    this server.
+    has a config — it never overwrites. stock_price is optional: when omitted
+    the server fetches it (Nasdaq, then Yahoo).
     """
     try:
         return _add_aspirant_impl(ticker, stock_price)

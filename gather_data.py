@@ -841,11 +841,24 @@ def fetch_fx_history(currency: str, years: int = 5) -> dict:
 
 
 def fetch_stock_price(ticker):
-    """Fetch current stock price from Yahoo Finance chart API.
+    """Fetch the current stock price: Nasdaq first, Yahoo chart API as fallback.
 
-    Returns (price, 0, 0) — market cap and shares are calculated later
-    from EDGAR data since Yahoo quoteSummary requires authentication.
+    Nasdaq answers from datacenter IPs (Cloud Run included) without a key;
+    Yahoo blocks by user-agent and source IP and now mostly serves as the
+    route for symbols Nasdaq does not know (European lines, FX pairs like
+    EURUSD=X). Returns (price, 0, 0) — market cap and shares are calculated
+    later from EDGAR data. (0, 0, 0) when nothing answers.
     """
+    import quotes  # late: quotes imports gather_data for its SSL context
+    try:
+        quote = quotes.fetch_nasdaq_quotes([ticker]).get(ticker)
+    except Exception as e:
+        print(f"  WARNING: Nasdaq quote failed for {ticker}: {e}")
+        quote = None
+    if quote and quote.get("price"):
+        print(f"[Nasdaq] {ticker}: ${quote['price']:.2f}")
+        return quote["price"], 0, 0
+
     print(f"[Yahoo] Fetching stock price for {ticker}...")
     url = (
         f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
@@ -2559,8 +2572,8 @@ def build_base_config(ticker, stock_price=0):
     if not stock_price or stock_price <= 0:
         stock_price, _, _ = fetch_stock_price(ticker)
     if not stock_price or stock_price <= 0:
-        raise ValueError(f"No price for {ticker}: pass stock_price (Yahoo is "
-                          f"unreachable from this server)")
+        raise ValueError(f"No price for {ticker}: Nasdaq and Yahoo both "
+                          f"failed; pass stock_price")
 
     oi = financials["operating_income"][-1] if financials.get("operating_income") else 0
     credit_rating, credit_spread = synthetic_credit_rating(

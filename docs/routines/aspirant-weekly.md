@@ -7,8 +7,10 @@ the next.
 1. Call `get_screener_candidates(limit=5)`. If `candidates` is empty, stop
    without doing anything else.
 2. For each candidate:
-   a. Get the price with the SEC connector's `GetLiveQuote`. Call
-      `add_aspirant(ticker, stock_price)`. If it returns an error or says the
+   a. Call `add_aspirant(ticker)`; the server fetches the price itself. Only
+      if it returns an error mentioning `No price`, get the price with the
+      SEC connector's `GetLiveQuote` and call `add_aspirant(ticker,
+      stock_price)` once more. If it returns an error or says the
       name already exists, skip the name and note why. Never call
       `set_category` to move an Aspirant anywhere except `No`; promotion only
       happens through `promote_aspirant`. Never call `save_to_watchlist` for

@@ -709,7 +709,8 @@ TOOLS: list[dict] = [
         "name": "add_aspirant",
         "description": ("Add a NEW name in category Aspirant with a facts-only base "
                         "config marked dcf_placeholder. Refuses an existing ticker; "
-                        "never overwrites. Pass stock_price (Yahoo is blocked here)."),
+                        "never overwrites. stock_price is optional; the server "
+                        "fetches it when omitted."),
         "inputSchema": {"type": "object",
                         "properties": {"ticker": {"type": "string"},
                                        "stock_price": {"type": "number"}},
