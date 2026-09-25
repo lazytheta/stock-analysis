@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 import aspirant
 import moat_cards
 import risk_cards
+import business_cards
+import business_revenue
 from error_logger import log_error, log_error_with_trace
 from dcf_calculator import (compute_wacc, compute_intrinsic_value, compute_reverse_dcf,
                             DEFAULT_DISCOUNT_MODE, DEFAULT_HURDLE_RATE)
@@ -1840,6 +1842,13 @@ the level at which it would. This line is mandatory even when all five pass.]
 """,
     },
     {
+        # Business overview, customer profile, revenue breakdown and four
+        # question cards for the Business tab, built on Business Analysis,
+        # Moat Analysis and Key Metrics.
+        "title": business_cards.TITLE,
+        "prompt": business_cards.PROMPT,
+    },
+    {
         "title": "Risk Analysis",
         "prompt": """# RISK ANALYSIS v2.0
 CRITICAL: You are now executing an execution risk assessment protocol. Follow each instruction precisely in order.
@@ -2803,6 +2812,28 @@ st.markdown(f"""
         box-shadow: var(--shadow);
         padding: 24px 28px;
         margin-bottom: 22px;
+    }}
+    /* Business tab: the Revenue section wraps the segment/geography panels
+       in a qc-section-styled card of its own (built with st.columns rather
+       than question_cards.section_html, since the geography column holds a
+       Plotly chart). .qc-label is repeated here so the label above it
+       renders correctly even before question_cards.STYLE has been emitted
+       elsewhere on the page. */
+    .st-key-qc_revenue_section {{
+        background: var(--card);
+        border-top: 3px solid var(--accent);
+        border-radius: 24px;
+        box-shadow: var(--shadow);
+        padding: 20px 24px 24px;
+        margin: 0 0 18px;
+    }}
+    .qc-label {{
+        font-size: .72rem;
+        font-weight: 700;
+        letter-spacing: .07em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin: 0 0 14px;
     }}
     /* Inputs inside tabs card — subtle spreadsheet cell style */
     [data-testid="stTabs"] .stNumberInput > div,
@@ -5105,10 +5136,43 @@ def _dcf_editor(ticker):
     margins = list(cfg.get('op_margins', []))
 
     # ── Tabs: DCF / Reverse DCF / Peer Comparison / Dividend / Fundamentals ──
-    (_tab_notes, _tab_moat, _tab_risk, _tab_fundamentals, _tab_dcf, _tab_rdcf, _tab_peers,
-     _tab_dividend, _tab_history) = st.tabs(
-        ["Pre-Scan", "Moat", "Risk", "Fundamentals", "DCF", "Reverse DCF", "Peer Comparison",
-         "Dividend", "History"])
+    (_tab_notes, _tab_business, _tab_moat, _tab_risk, _tab_fundamentals, _tab_dcf, _tab_rdcf,
+     _tab_peers, _tab_dividend, _tab_history) = st.tabs(
+        ["Pre-Scan", "Business", "Moat", "Risk", "Fundamentals", "DCF", "Reverse DCF",
+         "Peer Comparison", "Dividend", "History"])
+
+    # Business: overview and customer profile, revenue by segment and region,
+    # then the four business-quality cards. Read-only, like Moat and Risk.
+    with _tab_business:
+        _bnotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
+        _bcontent = _bnotes.get(business_cards.TITLE)
+        st.markdown(business_cards.overview_section_html(
+            _bnotes.get("Business Analysis") or "", _bcontent, T), unsafe_allow_html=True)
+        try:
+            _brev = business_cards.parse_business_cards(_bcontent)["revenue"] if _bcontent else None
+        except ValueError:
+            _brev = None
+        with st.container(key="qc_revenue_section"):
+            st.markdown('<div class="qc-label">Revenue</div>', unsafe_allow_html=True)
+            if _brev:
+                _rl, _rr = st.columns(2)
+                with _rl:
+                    st.markdown(business_revenue.segments_panel_html(_brev, T),
+                                unsafe_allow_html=True)
+                with _rr:
+                    st.markdown(business_revenue.geography_header_html(_brev, T),
+                                unsafe_allow_html=True)
+                    _fig = business_revenue.geography_figure(_brev, T)
+                    if _fig is not None:
+                        st.plotly_chart(_fig, use_container_width=True,
+                                        config={"displayModeBar": False})
+                        st.markdown(business_revenue.geography_legend_html(_brev, T),
+                                    unsafe_allow_html=True)
+                    else:
+                        st.caption("No geographic split reported.")
+            else:
+                st.caption("No revenue breakdown yet. It comes with the \"Business Cards\" section.")
+        st.markdown(business_cards.quality_section_html(_bcontent, T), unsafe_allow_html=True)
 
     # Moat: the Moat Analysis as two summary cards, then the five question cards
     # from the "Moat Cards" section. Read-only; Pre-Scan stays the place to edit.
@@ -8304,13 +8368,15 @@ def _dcf_editor(ticker):
 
                     if _content.strip():
                         with st.container(key=f"ai_out_{_li}"):
-                            # Moat Cards / Risk Cards are JSON for their tabs;
-                            # shown as raw text they read as a code dump. Draw
-                            # the cards.
+                            # Moat Cards / Risk Cards / Business Cards are JSON
+                            # for their tabs; shown as raw text they read as a
+                            # code dump. Draw the cards.
                             if _title == moat_cards.TITLE:
                                 _card = moat_cards.cards_section_html(_content, T)
                             elif _title == risk_cards.TITLE:
                                 _card = risk_cards.cards_section_html(_content, T)
+                            elif _title == business_cards.TITLE:
+                                _card = business_cards.quality_section_html(_content, T)
                             else:
                                 _card = _verdict_card_html(_content, _title)
                             if _card:

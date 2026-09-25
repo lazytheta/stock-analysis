@@ -146,3 +146,34 @@ def test_business_cards_does_not_import_prescan_render_at_module_load():
     fresh = importlib.import_module("business_cards")
     importlib.reload(fresh)
     assert "prescan_render" not in sys.modules
+
+
+from unittest.mock import MagicMock
+
+
+def test_mcp_refuses_malformed_business_cards_and_accepts_valid(monkeypatch):
+    import mcp_server
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: MagicMock())
+    store = {"X": {"ai_notes": {}}}
+    monkeypatch.setattr(mcp_server.config_store, "load_config",
+                        lambda c, t, user_id=None: store.get(t.upper()))
+    monkeypatch.setattr(mcp_server.config_store, "save_config",
+                        lambda c, t, cfg, user_id=None: store.__setitem__(t.upper(), cfg))
+    out = mcp_server._save_prescan_section_impl("X", "Business Cards", '{"cards": []}', user_id="u")
+    assert "error" in out and "Business Cards" in out["error"]
+    mcp_server._save_prescan_section_impl("X", "Business Cards", json.dumps(_payload()), user_id="u")
+    assert "Business Cards" in store["X"]["ai_notes"]
+
+
+def test_default_prompts_put_business_cards_right_after_key_metrics():
+    import streamlit_app
+    titles = [p["title"] for p in streamlit_app.DEFAULT_AI_PROMPTS]
+    assert titles[titles.index("Key Metrics") + 1] == "Business Cards"
+
+
+def test_ticker_page_has_a_business_tab_before_moat():
+    src = open("streamlit_app.py", encoding="utf-8").read()
+    assert '["Pre-Scan", "Business", "Moat", "Risk", "Fundamentals", "DCF"' in src
+    assert "business_cards.overview_section_html(" in src
+    assert "business_cards.quality_section_html(" in src
+    assert "business_revenue.geography_figure(" in src

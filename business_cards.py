@@ -105,7 +105,10 @@ Output ONLY a fenced JSON block, nothing before or after:
               {"label": "...", "text": "..."}]}
  ]}
 ```
-The "cards" array holds all four questions, in the order listed above.
+The "cards" array holds all four questions, in the order listed above. The
+example above shows only one segment and one region entry each — the real
+"segments" must sum to total_musd and the real "regions" shares must sum to
+100.
 """
 
 
