@@ -8291,7 +8291,11 @@ def _dcf_editor(ticker):
 
                     if _content.strip():
                         with st.container(key=f"ai_out_{_li}"):
-                            _card = _verdict_card_html(_content, _title)
+                            # Moat Cards is JSON for the Moat tab; shown as
+                            # raw text it read as a code dump. Draw the cards.
+                            _card = (moat_cards.cards_section_html(_content, T)
+                                     if _title == moat_cards.TITLE
+                                     else _verdict_card_html(_content, _title))
                             if _card:
                                 st.markdown(_card, unsafe_allow_html=True)
                             else:
