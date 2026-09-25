@@ -33,7 +33,7 @@ def with_live_point(series: list, price, today: date) -> list:
     return [*series, (today.isoformat(), price)]
 
 
-def _add_months(d: date, months: int) -> date:
+def _months_before(d: date, months: int) -> date:
     total = d.month - 1 - months
     year = d.year + total // 12
     month = total % 12 + 1
@@ -48,7 +48,7 @@ def _add_months(d: date, months: int) -> date:
 def range_start(rng: str, last_day: date) -> date:
     """Start of the window for a range button, ending at `last_day`."""
     if rng in _MONTHS:
-        return _add_months(last_day, _MONTHS[rng])
+        return _months_before(last_day, _MONTHS[rng])
     if rng == "YTD":
         return date(last_day.year, 1, 1)
     years = _YEARS.get(rng, _YEARS[DEFAULT_RANGE])
@@ -142,6 +142,10 @@ def _colored(text, pct):
 
 def _line(label, total, cagr):
     esc = question_cards.esc
+    if total is None:
+        dash = '<span style="color:var(--text-muted)">—</span>'
+        parts = [esc(label), f"<b>{dash}</b>"]
+        return " ".join(parts)
     parts = [esc(label), f"<b>{_colored(f'{total:+.1%}', total)}</b>"]
     if cagr is not None:
         parts.append(_colored(f"CAGR {cagr:+.1%}", cagr))

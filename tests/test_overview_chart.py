@@ -137,6 +137,18 @@ def test_header_html_nonnegative_uses_green():
     assert "var(--green" in html
 
 
+def test_header_html_none_stock_total_renders_dash_and_omits_cagr():
+    html = oc.header_html("NFLX", "1M", None, None, 0.05, None)
+    assert "—" in html
+    assert "+5.0%" in html
+    assert "CAGR" not in html
+
+
+def test_header_html_both_totals_none_renders_two_dashes():
+    html = oc.header_html("NFLX", "1M", None, None, None, None)
+    assert html.count("—") == 2
+
+
 # ── figure ──
 
 def test_figure_returns_two_traces_with_expected_y():
