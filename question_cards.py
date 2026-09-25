@@ -41,8 +41,6 @@ def bold(text):
 
 BANDS = ("red", "yellow", "green")
 ARROW = {"widening": "↗", "stable": "→", "narrowing": "↘"}
-BACK_BG = "#2b2b2f"
-BACK_TEXT = "#f2f0ea"
 
 STYLE = """<style>
 .mc-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:14px}
@@ -53,8 +51,9 @@ STYLE = """<style>
   transform-style:preserve-3d}
 .mc-flip:checked + .mc-inner{transform:rotateY(180deg)}
 .mc-face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;
-  border-radius:16px;padding:16px 20px;box-sizing:border-box;overflow:hidden;
-  display:flex;flex-direction:column}
+  background:var(--card);color:var(--text);border-top:3px solid var(--accent);
+  border-radius:24px;box-shadow:var(--shadow);padding:18px 24px;box-sizing:border-box;
+  overflow:hidden;display:flex;flex-direction:column}
 .mc-back{transform:rotateY(180deg);overflow:auto}
 .mc-q{font-size:.7rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
 .mc-tag{font-size:.66rem;font-weight:700;letter-spacing:.05em;padding:2px 8px;
@@ -66,8 +65,9 @@ SUMMARY_STYLE = """<style>
 .ms-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;
   align-items:stretch;margin-bottom:6px}
 @media (max-width:760px){.ms-row{grid-template-columns:1fr}}
-.ms-card{border-radius:16px;padding:16px 20px;display:flex;flex-direction:column;
-  height:300px;box-sizing:border-box;overflow:hidden}
+.ms-card{background:var(--card);color:var(--text);border-top:3px solid var(--accent);
+  border-radius:24px;box-shadow:var(--shadow);padding:20px 24px;display:flex;
+  flex-direction:column;height:300px;box-sizing:border-box;overflow:hidden}
 .ms-body{display:flex;gap:18px;align-items:flex-start;min-height:0;flex:1}
 .ms-box{background:#2b2b2f;border-radius:14px;width:124px;height:124px;flex:none;
   display:flex;flex-direction:column;align-items:center;justify-content:center}
@@ -167,7 +167,7 @@ def flip_card_html(cs, card, theme):
         tag = (f'<span class="mc-tag" style="background:{direction_tone}22;color:{direction_tone}">'
                f'{esc(card["direction"])} {arrow}</span>')
     front = (
-        f'<div class="mc-face" style="background:{theme["bg_secondary"]};color:{theme["text"]}">'
+        f'<div class="mc-face">'
         f'<div style="display:flex;justify-content:space-between;gap:8px">'
         f'<span class="mc-q" style="color:{theme["text_muted"]}">{esc(question)}</span>{tag}</div>'
         f'<div style="margin:16px 0 12px">'
@@ -180,12 +180,12 @@ def flip_card_html(cs, card, theme):
         f'font-size:.84rem;line-height:1.45"><b>{esc(p["label"])}</b>: {esc(p["text"])}</div>'
         for p in card["points"])
     back = (
-        f'<div class="mc-face mc-back" style="background:{BACK_BG};color:{BACK_TEXT}">'
+        f'<div class="mc-face mc-back">'
         f'<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:12px">'
         f'<span class="mc-q" style="color:{tone}">{esc(name)}</span>'
         f'<span class="mc-tag" style="background:{tone}33;color:{tone}">'
         f'{esc(options[card["pick"]])}</span></div>{points}'
-        f'<div class="mc-foot" style="color:rgba(242,240,234,.6);text-align:left;'
+        f'<div class="mc-foot" style="color:{theme["text_muted"]};text-align:left;'
         f'font-weight:500">Back to summary ↩</div></div>')
     return (f'<label class="mc-card"><input type="checkbox" class="mc-flip">'
             f'<div class="mc-inner">{front}{back}</div></label>')
@@ -205,7 +205,7 @@ def notice_html(title, theme):
 def summary_card_html(title, box_html, lead_html, points, theme):
     pts = "".join(
         f'<p class="ms-pt">• <b>{esc(p["label"])}</b>: {esc(p["text"])}</p>' for p in points)
-    return (f'<div class="ms-card" style="background:{theme["bg_secondary"]};color:{theme["text"]}">'
+    return (f'<div class="ms-card">'
             f'<div class="mc-q" style="color:{theme["text_muted"]};margin-bottom:12px">{title}</div>'
             f'<div class="ms-body">{box_html}<div class="ms-text">'
             f'<p class="ms-lead">{lead_html}</p>{pts}</div></div></div>')

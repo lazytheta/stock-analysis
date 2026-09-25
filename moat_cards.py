@@ -101,8 +101,10 @@ def sources_row_html(cards, theme):
             f'<div style="text-align:center;flex:1;min-width:90px">'
             f'<div style="width:12px;height:12px;border-radius:50%;margin:0 auto 6px;{dot}"></div>'
             f'<div class="mc-q" style="color:{theme["text_muted"]}">{question_cards.esc(name)}</div></div>')
-    return (f'<div style="display:flex;flex-wrap:wrap;gap:8px;background:{theme["bg_secondary"]};'
-            f'border-radius:14px;padding:14px 10px;margin-top:6px">{"".join(cells)}</div>')
+    # Same card as the rest of the site: white, 24px, accent top, soft shadow.
+    return ('<div style="display:flex;flex-wrap:wrap;gap:8px;background:var(--card);'
+            'border-top:3px solid var(--accent);border-radius:24px;box-shadow:var(--shadow);'
+            f'padding:16px 12px;margin-top:6px">{"".join(cells)}</div>')
 
 
 def summary_row_html(moat_analysis, cards_content, theme):

@@ -48,3 +48,17 @@ def test_question_cards_does_not_import_prescan_render_at_load():
         sys.modules.pop(n, None)
     importlib.import_module("question_cards")
     assert "prescan_render" not in sys.modules
+
+
+def test_cards_use_the_site_card_style_front_and_back():
+    """White card, 24px corners, accent top border, site shadow — like the
+    DCF / Peer Comparison tab cards — via the site's CSS variables, so dark
+    mode follows. The back is the same card, not a dark panel."""
+    style = qc.css(qc.STYLE, qc.SUMMARY_STYLE)
+    for rule in ("background:var(--card)", "border-top:3px solid var(--accent)",
+                 "box-shadow:var(--shadow)", "border-radius:24px"):
+        assert rule.replace(" ", "") in style.replace(" ", "")
+    card = qc.parse(CS, json.dumps(_p()))["cards"][0]
+    html = qc.flip_card_html(CS, card, THEME)
+    assert "#2b2b2f" not in html and "bg_secondary" not in html
+    assert THEME["bg_secondary"] not in html
