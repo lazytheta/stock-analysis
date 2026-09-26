@@ -172,6 +172,15 @@ def test_key_figures_growth_table_layout():
     assert table.count("<td>") == 12
 
 
+def test_key_figures_css_equal_heights_and_plain_table():
+    html = op.key_figures_section_html(_metrics())
+    assert "align-items:stretch" in html and "align-items:start" not in html
+    assert ".ov-metrics > .ov-card{height:100%" in html
+    assert ".ov-gtab,.ov-gtab tr,.ov-gtab th,.ov-gtab td{border:none !important" in html
+    assert "nth-child(even)" in html
+    assert ".ov-gtab tr:last-child td{border-bottom:none !important}" in html
+
+
 def test_key_figures_none_values_render_as_dash():
     html = op.key_figures_section_html(_metrics(total_equity=[-5.0] * len(YEARS)))
     assert "—" in html  # Debt / Equity and P/B with negative equity

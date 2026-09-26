@@ -52,7 +52,8 @@ COMPANY_STYLE = f"""<style>
 </style>"""
 
 METRICS_STYLE = f"""<style>
-.ov-metrics{{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start}}
+.ov-metrics{{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:stretch}}
+.ov-metrics > .ov-card{{height:100%;box-sizing:border-box}}
 @media (min-width:600px){{.ov-metrics{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 @media (min-width:900px){{.ov-metrics{{grid-template-columns:repeat(3,minmax(0,1fr))}}}}
 @media (min-width:1200px){{.ov-metrics{{grid-template-columns:repeat(5,minmax(0,1fr))}}}}
@@ -63,15 +64,16 @@ METRICS_STYLE = f"""<style>
   padding:7px 0;border-bottom:1px solid {_HAIRLINE};font-size:14px;color:var(--text)}}
 .ov-row:last-child{{border-bottom:none}}
 .ov-row b{{font-weight:600;white-space:nowrap}}
-.ov-gtab{{width:100%;border-collapse:collapse;font-size:14px;color:var(--text)}}
+.ov-gtab{{width:100%;border-collapse:collapse;font-size:14px;color:var(--text);margin:0}}
+.ov-gtab,.ov-gtab tr,.ov-gtab th,.ov-gtab td{{border:none !important;background:transparent !important}}
+.ov-gtab tr:nth-child(even),.ov-gtab tr:nth-child(odd){{background:transparent !important}}
 .ov-gtab th{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
-  color:var(--text-muted);text-align:right;padding:4px 0 6px 8px;
-  border-bottom:1px solid {_HAIRLINE}}}
-.ov-gtab td{{padding:7px 0 7px 8px;border-bottom:1px solid {_HAIRLINE};text-align:right;
-  font-weight:600;white-space:nowrap}}
+  color:var(--text-muted);text-align:right;padding:4px 0 6px 8px}}
+.ov-gtab td{{padding:7px 0 7px 8px;text-align:right;font-weight:600;white-space:nowrap}}
+.ov-gtab tr td{{border-bottom:1px solid {_HAIRLINE} !important}}
+.ov-gtab tr:last-child td{{border-bottom:none !important}}
 .ov-gtab th:first-child,.ov-gtab td:first-child{{text-align:left;padding-left:0;
   font-weight:400;white-space:normal}}
-.ov-gtab tr:last-child td{{border-bottom:none}}
 </style>"""
 
 _DIFF_COLOUR = {"Easy": "#2e9e5b", "Moderate": "var(--accent)", "Hard": "var(--red)"}
