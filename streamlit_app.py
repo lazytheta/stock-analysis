@@ -5234,7 +5234,7 @@ def _dcf_editor(ticker):
         ["Overview", "Pre-Scan", "Business", "Moat", "Risk", "Fundamentals", "DCF",
          "Reverse DCF", "Peer Comparison", "Dividend", "History"])
 
-    # Overview: three white sections -- Company (profile + mission), Price vs
+    # Overview: three white sections -- Company (profile + at a glance), Price vs
     # S&P 500 and Key figures. Read-only; the profile comes from the "Company
     # Profile" section.
     with _tab_overview:
@@ -5250,7 +5250,12 @@ def _dcf_editor(ticker):
         _omcap = (live_price * _oshares / 1e6
                   if live_price and live_price > 0 and _oshares else None)
 
-        st.markdown(overview_page.company_section_html(_oprofile, _omcap),
+        try:
+            _oglance = overview_metrics.glance(fund, cfg)
+        except Exception as e:
+            logger.warning("Overview at-a-glance for %s failed: %s", ticker, e)
+            _oglance = None
+        st.markdown(overview_page.company_section_html(_oprofile, _omcap, _oglance),
                     unsafe_allow_html=True)
 
         with st.container(key="qc_ov_price"):

@@ -239,3 +239,85 @@ def test_require_years_rejects_an_empty_statement():
         om.require_years(None, "cash flow statement")
     stmt = {"years": [2025]}
     assert om.require_years(stmt, "income statement") is stmt
+
+
+# ── glance ────────────────────────────────────────────────────────────
+
+
+def _gfund(**over):
+    years = list(range(2016, 2027))
+    n = len(years)
+    fund = {"years": years, "revenue": [100.0] * n, "net_income": [20.0] * n,
+            "fcf": [31.0] * n, "cash": [50.0] * n, "short_term_investments": [10.0] * n,
+            "total_debt": [30.0] * n, "short_term_debt": [5.0] * n,
+            "shares": [100.0] * n}
+    fund.update(over)
+    return fund
+
+
+def test_glance_uses_compute_roce_metric(monkeypatch):
+    seen = {}
+
+    def fake(fund, cfg=None):
+        seen["cfg"] = cfg
+        return "ROE", 18.5
+
+    monkeypatch.setattr(om.scorecard_utils, "compute_roce_metric", fake)
+    g = om.glance(_gfund(), {"roce_metric_override": "ROE"})
+    assert (g["roce_metric"], g["roce_pct"]) == ("ROE", 18.5)
+    assert seen["cfg"] == {"roce_metric_override": "ROE"}
+
+
+def test_glance_roce_failure_is_none(monkeypatch):
+    def boom(fund, cfg=None):
+        raise ValueError("bad")
+
+    monkeypatch.setattr(om.scorecard_utils, "compute_roce_metric", boom)
+    g = om.glance(_gfund(), None)
+    assert g["roce_metric"] is None and g["roce_pct"] is None
+    assert g["net_cash_m"] is not None
+
+
+def test_glance_roce_real_fund():
+    years = list(range(2016, 2027))
+    n = len(years)
+    fund = {"years": years, "operating_income": [30.0] * n, "total_assets": [300.0] * n,
+            "current_liabilities": [100.0] * n, "cash": [0.0] * n,
+            "short_term_investments": [0.0] * n, "net_income": [20.0] * n,
+            "total_equity": [150.0] * n, "revenue": [100.0] * n}
+    g = om.glance(fund, None)
+    assert g["roce_metric"] == "ROCE"
+    assert abs(g["roce_pct"] - 15.0) < 1e-9
+
+
+def test_glance_net_cash_positive_and_negative():
+    assert om.glance(_gfund(), None)["net_cash_m"] == 60.0 - 35.0
+    g = om.glance(_gfund(total_debt=[100.0] * 11, short_term_debt=[None] * 11), None)
+    assert g["net_cash_m"] == 60.0 - 100.0  # missing short-term debt counts as 0
+
+
+def test_glance_fcf_conversion():
+    assert abs(om.glance(_gfund(), None)["fcf_conversion"] - 1.55) < 1e-9
+    assert om.glance(_gfund(net_income=[0.0] * 11), None)["fcf_conversion"] is None
+    assert om.glance(_gfund(net_income=[-5.0] * 11), None)["fcf_conversion"] is None
+    # CFO fallback when FCF is missing and capex untagged
+    g = om.glance(_gfund(fcf=[None] * 11, cfo=[40.0] * 11), None)
+    assert abs(g["fcf_conversion"] - 2.0) < 1e-9
+
+
+def test_glance_share_change_sign():
+    shrinking = [100.0 * 0.98 ** i for i in range(11)]
+    growing = [100.0 * 1.01 ** i for i in range(11)]
+    assert abs(om.glance(_gfund(shares=shrinking), None)["share_change_5y"] + 0.02) < 1e-9
+    assert abs(om.glance(_gfund(shares=growing), None)["share_change_5y"] - 0.01) < 1e-9
+    zero_start = [0.0] * 6 + [100.0] * 5
+    assert om.glance(_gfund(shares=zero_start), None)["share_change_5y"] is None
+
+
+def test_glance_empty_fund():
+    g = om.glance({}, None)
+    assert set(g) == {"roce_metric", "roce_pct", "net_cash_m", "fcf_conversion",
+                      "share_change_5y"}
+    assert g["net_cash_m"] is None and g["fcf_conversion"] is None
+    assert g["share_change_5y"] is None
+    assert om.glance(None, None)["net_cash_m"] is None

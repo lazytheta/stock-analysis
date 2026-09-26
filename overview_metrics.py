@@ -7,6 +7,8 @@ Every figure that cannot be computed is None, rendered as an em dash.
 
 from __future__ import annotations
 
+import scorecard_utils
+
 DASH = "—"
 HORIZONS = (3, 5, 10)
 
@@ -163,6 +165,50 @@ def compute(fund: dict, income: dict | None, cashflow: dict | None,
             ("Total shareholder yield", total),
         ],
     }
+
+
+def glance(fund: dict, cfg: dict | None = None) -> dict:
+    """The four "At a glance" tiles. Each value is None when it cannot be
+    computed; nothing here raises on missing or odd data.
+
+    roce_metric / roce_pct: scorecard_utils.compute_roce_metric (percent).
+    net_cash_m: (cash + short-term investments) - (total + short-term debt)
+        at the fiscal year, $M; positive = net cash.
+    fcf_conversion: FCF / net income (fraction), only when net income > 0.
+    share_change_5y: annualised change in shares over five years (fraction);
+        negative = buybacks.
+    """
+    fund = fund or {}
+    out = {"roce_metric": None, "roce_pct": None, "net_cash_m": None,
+           "fcf_conversion": None, "share_change_5y": None}
+    try:
+        metric, avg = scorecard_utils.compute_roce_metric(fund, cfg)
+        out["roce_metric"] = metric
+        out["roce_pct"] = avg
+    except Exception:
+        pass
+    fy = _fiscal_year(fund)
+    if fy is None:
+        return out
+
+    def f(key):
+        return _at(fund, key, fy)
+
+    cash = f("cash")
+    if cash is not None:
+        cash_inv = cash + (f("short_term_investments") or 0.0)
+        debt = (f("total_debt") or 0.0) + (f("short_term_debt") or 0.0)
+        out["net_cash_m"] = cash_inv - debt
+
+    ni = f("net_income")
+    fcf = _fcf_at(fund, fy)
+    if ni is not None and ni > 0 and fcf is not None:
+        out["fcf_conversion"] = fcf / ni
+
+    end, start = f("shares"), _at(fund, "shares", fy - 5)
+    if end is not None and start is not None and end > 0 and start > 0:
+        out["share_change_5y"] = (end / start) ** (1.0 / 5) - 1.0
+    return out
 
 
 def fmt_pct(x, signed=False) -> str:

@@ -1,4 +1,4 @@
-"""HTML for the Overview tab: the "Company" section (profile + mission) and
+"""HTML for the Overview tab: the "Company" section (profile + at a glance) and
 the "Key figures" section (five flat cards).
 
 Pure string builders; the tab in streamlit_app.py fetches the data and draws
@@ -30,7 +30,6 @@ CARD_STYLE = f"""<style>
 COMPANY_STYLE = f"""<style>
 .ov-company{{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px;
   align-items:stretch}}
-.ov-company.ov-solo{{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:800px){{.ov-company{{grid-template-columns:minmax(0,1fr)}}}}
 .ov-profile{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 18px}}
 @media (max-width:520px){{.ov-profile{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
@@ -43,7 +42,13 @@ COMPANY_STYLE = f"""<style>
 .ov-chip{{display:inline-block;padding:3px 10px;border-radius:8px;background:{_CHIP};
   color:var(--text);font-size:13px}}
 .ov-empty{{margin-top:14px;font-size:13px;color:var(--text-muted);line-height:1.45}}
+.ov-mission{{margin-top:16px}}
 .ov-mission p{{margin:0;font-size:16px;font-style:italic;color:var(--text);line-height:1.55}}
+.ov-glance{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 18px}}
+.ov-gval{{font-size:22px;font-weight:700;color:var(--text);line-height:1.2;margin:2px 0 2px;
+  white-space:nowrap}}
+.ov-gval.ov-pos{{color:var(--green, #2e7d32)}}
+.ov-gcap{{font-size:12px;color:var(--text-muted);line-height:1.35}}
 </style>"""
 
 METRICS_STYLE = f"""<style>
@@ -58,7 +63,15 @@ METRICS_STYLE = f"""<style>
   padding:7px 0;border-bottom:1px solid {_HAIRLINE};font-size:14px;color:var(--text)}}
 .ov-row:last-child{{border-bottom:none}}
 .ov-row b{{font-weight:600;white-space:nowrap}}
-.ov-row .ov-h{{font-size:11px;color:var(--text-muted);margin-left:6px}}
+.ov-gtab{{width:100%;border-collapse:collapse;font-size:14px;color:var(--text)}}
+.ov-gtab th{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--text-muted);text-align:right;padding:4px 0 6px 8px;
+  border-bottom:1px solid {_HAIRLINE}}}
+.ov-gtab td{{padding:7px 0 7px 8px;border-bottom:1px solid {_HAIRLINE};text-align:right;
+  font-weight:600;white-space:nowrap}}
+.ov-gtab th:first-child,.ov-gtab td:first-child{{text-align:left;padding-left:0;
+  font-weight:400;white-space:normal}}
+.ov-gtab tr:last-child td{{border-bottom:none}}
 </style>"""
 
 _DIFF_COLOUR = {"Easy": "#2e9e5b", "Moderate": "var(--accent)", "Hard": "var(--red)"}
@@ -113,25 +126,62 @@ def _profile_body(profile, market_cap_m):
         chips = "".join(f'<span class="ov-chip">{qc.esc(t)}</span>' for t in tags)
         tags_html = (f'<div class="ov-tags"><div class="ov-lbl">TAGS</div>'
                      f'<div class="ov-chips">{chips}</div></div>')
-    return f'<div class="ov-profile">{"".join(pairs)}</div>{tags_html}'
+    mission = profile.get("mission")
+    mission_html = (f'<div class="ov-mission"><div class="ov-lbl">MISSION</div>'
+                    f'<p>{qc.esc(mission)}</p></div>' if mission else "")
+    return f'<div class="ov-profile">{"".join(pairs)}</div>{tags_html}{mission_html}'
 
 
-def company_section_html(profile, market_cap_m) -> str:
-    """White "Company" section: a Profile card (label/value pairs, tags; $M in
-    for market cap) and, beside it, a Mission card. Without a profile only
-    Market cap and a muted note, and no Mission card."""
-    cards = [_card("Profile", _profile_body(profile, market_cap_m))]
-    mission = (profile or {}).get("mission")
-    if profile and mission:
-        cards.append(_card("Mission", f"<p>{qc.esc(mission)}</p>", "ov-mission"))
-    grid_cls = "ov-company" if len(cards) == 2 else "ov-company ov-solo"
-    inner = f'<div class="{grid_cls}">{"".join(cards)}</div>'
+def _tile(label, value, caption, positive=False):
+    cls = "ov-gval ov-pos" if positive else "ov-gval"
+    return (f'<div><div class="ov-lbl">{qc.esc(label.upper())}</div>'
+            f'<div class="{cls}">{qc.esc(value)}</div>'
+            f'<div class="ov-gcap">{qc.esc(caption)}</div></div>')
+
+
+def _num(x):
+    """A finite float, else None (bad data must not crash the page)."""
+    try:
+        x = float(x)
+    except (TypeError, ValueError):
+        return None
+    return x if x == x and x not in (float("inf"), float("-inf")) else None
+
+
+def _glance_body(glance):
+    g = glance or {}
+    metric = g.get("roce_metric") if g.get("roce_metric") in ("ROCE", "ROE") else "ROCE"
+    roce = _num(g.get("roce_pct"))
+    net = _num(g.get("net_cash_m"))
+    conv = _num(g.get("fcf_conversion"))
+    shares = _num(g.get("share_change_5y"))
+    tiles = [
+        _tile(metric, DASH if roce is None else f"{roce:.1f}%", "10-year average"),
+        _tile("Net debt" if net is not None and net < 0 else "Net cash",
+              om.fmt_money_m(None if net is None else abs(net)),
+              "cash & investments − debt", positive=net is not None and net > 0),
+        _tile("FCF conversion", DASH if conv is None else f"{conv * 100:.0f}%",
+              "free cash flow / net income"),
+        _tile("Shares per year (5y)", om.fmt_pct(shares, signed=True),
+              "buybacks" if shares is not None and shares < 0 else "dilution"),
+    ]
+    return f'<div class="ov-glance">{"".join(tiles)}</div>'
+
+
+def company_section_html(profile, market_cap_m, glance: dict | None = None) -> str:
+    """White "Company" section: a Profile card (label/value pairs, tags,
+    mission; $M in for market cap) and, beside it, an "At a glance" card with
+    four tiles from overview_metrics.glance. Without a profile the Profile
+    card holds only Market cap and a muted note; the glance card always
+    shows, with dashes for missing values."""
+    cards = [_card("Profile", _profile_body(profile, market_cap_m)),
+             _card("At a glance", _glance_body(glance))]
+    inner = f'<div class="ov-company">{"".join(cards)}</div>'
     return qc.css(CARD_STYLE, COMPANY_STYLE) + qc.section_html("Company", inner)
 
 
-def _row(label, value, horizon=None):
-    h = f'<span class="ov-h">{qc.esc(horizon)}</span>' if horizon else ""
-    return (f'<div class="ov-row"><span>{qc.esc(label)}{h}</span>'
+def _row(label, value):
+    return (f'<div class="ov-row"><span>{qc.esc(label)}</span>'
             f'<b>{qc.esc(value)}</b></div>')
 
 
@@ -141,6 +191,26 @@ def _group(title, sub, rows):
 
 
 _MONEY = {"Cash & investments", "Total debt"}
+
+
+def _growth_table(growth):
+    """Rows Revenue / EPS / FCF, columns 3Y / 5Y / 10Y, from compute()'s
+    (label, years, value) triples."""
+    labels, horizons, values = [], [], {}
+    for label, n, v in growth:
+        if label not in labels:
+            labels.append(label)
+        if n not in horizons:
+            horizons.append(n)
+        values[(label, n)] = v
+    head = "".join(f"<th>{qc.esc(f'{n}Y')}</th>" for n in horizons)
+    rows = "".join(
+        f"<tr><td>{qc.esc(label)}</td>"
+        + "".join(f"<td>{qc.esc(om.fmt_pct(values.get((label, n)), signed=True))}</td>"
+                  for n in horizons)
+        + "</tr>"
+        for label in labels)
+    return f'<table class="ov-gtab"><tr><th></th>{head}</tr>{rows}</table>'
 
 
 def key_figures_section_html(metrics: dict) -> str:
@@ -155,9 +225,8 @@ def key_figures_section_html(metrics: dict) -> str:
         _group("Financial Health", None, [
             _row(label, om.fmt_money_m(v) if label in _MONEY else om.fmt_mult(v))
             for label, v in metrics.get("health", [])]),
-        _group("Growth", "Compound annual growth", [
-            _row(label, om.fmt_pct(v, signed=True), f"{n}Y")
-            for label, n, v in metrics.get("growth", [])]),
+        _card("Growth", '<div class="ov-sub">COMPOUND ANNUAL GROWTH</div>'
+              + _growth_table(metrics.get("growth", []))),
         _group("Valuation", "At current price", [
             _row(label, om.fmt_mult(v)) for label, v in metrics.get("valuation", [])]),
         _group("Shareholder Returns", None, [
