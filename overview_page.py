@@ -1,8 +1,10 @@
-"""HTML for the Overview tab: the company profile panel, the mission line and
-the four columns of key figures.
+"""HTML for the Overview tab: the "Company" section (profile + mission) and
+the "Key figures" section (five flat cards).
 
-Pure string builders; the tab in streamlit_app.py fetches the data, draws the
-price chart and wraps everything in the `qc_overview_section` container.
+Pure string builders; the tab in streamlit_app.py fetches the data and draws
+the "Price vs S&P 500" section (a keyed container, since it holds widgets)
+between the two. Both sections use question_cards.section_html, the white
+section look of the Business/Moat/Risk tabs, with flat inner cards.
 Every dynamic text goes through question_cards.esc (a bare `$` pair would
 render as LaTeX) and every <style> block is emitted on one line.
 """
@@ -14,41 +16,47 @@ DASH = om.DASH
 
 _HAIRLINE = "color-mix(in srgb, var(--text) 10%, transparent)"
 _INNER = "var(--qc-inner, color-mix(in srgb, var(--text) 4%, var(--card)))"
+# A chip inside a flat card needs to stand out from that card's own tint.
+_CHIP = "color-mix(in srgb, var(--text) 7%, var(--card))"
 
-PROFILE_STYLE = f"""<style>
-.ov-profile{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 18px}}
+CARD_STYLE = f"""<style>
+.ov-card{{background:{_INNER};border-radius:16px;padding:16px 18px;box-sizing:border-box;
+  min-width:0}}
+.ov-ctitle{{font-size:15px;font-weight:700;color:var(--text);margin:0 0 12px}}
 .ov-lbl{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
   color:var(--text-muted);margin:0 0 3px}}
-.ov-val{{font-size:14px;color:var(--text);line-height:1.35}}
+</style>"""
+
+COMPANY_STYLE = f"""<style>
+.ov-company{{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px;
+  align-items:stretch}}
+.ov-company.ov-solo{{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:800px){{.ov-company{{grid-template-columns:minmax(0,1fr)}}}}
+.ov-profile{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 18px}}
+@media (max-width:520px){{.ov-profile{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
+.ov-val{{font-size:14px;color:var(--text);line-height:1.35;overflow-wrap:anywhere}}
 .ov-diff{{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:8px;
-  background:{_INNER};font-size:13px}}
+  background:{_CHIP};font-size:13px}}
 .ov-diff i{{display:inline-block;width:9px;height:9px;border-radius:2px}}
 .ov-tags{{margin-top:16px}}
 .ov-chips{{display:flex;flex-wrap:wrap;gap:6px}}
-.ov-chip{{display:inline-block;padding:3px 10px;border-radius:8px;background:{_INNER};
+.ov-chip{{display:inline-block;padding:3px 10px;border-radius:8px;background:{_CHIP};
   color:var(--text);font-size:13px}}
 .ov-empty{{margin-top:14px;font-size:13px;color:var(--text-muted);line-height:1.45}}
-</style>"""
-
-# The mission renders in its own st.markdown after the profile panel; its own
-# small style keeps PROFILE_STYLE from being emitted twice on the page.
-MISSION_STYLE = """<style>
-.ov-mission{margin:18px 0 4px}
-.ov-mission .ov-mlbl{font-size:11px;font-weight:700;letter-spacing:.07em;
-  text-transform:uppercase;color:var(--text-muted);margin:0 0 3px}
-.ov-mission p{margin:0;font-size:15px;font-style:italic;color:var(--text);line-height:1.5}
+.ov-mission p{{margin:0;font-size:16px;font-style:italic;color:var(--text);line-height:1.55}}
 </style>"""
 
 METRICS_STYLE = f"""<style>
-.ov-metrics{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:28px;margin-top:18px}}
-@media (max-width:900px){{.ov-metrics{{grid-template-columns:1fr}}}}
-.ov-group{{margin:0 0 22px}}
-.ov-group:last-child{{margin-bottom:0}}
-.ov-title{{font-size:15px;font-weight:700;color:var(--text);margin:0 0 2px}}
+.ov-metrics{{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start}}
+@media (min-width:600px){{.ov-metrics{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
+@media (min-width:900px){{.ov-metrics{{grid-template-columns:repeat(3,minmax(0,1fr))}}}}
+@media (min-width:1200px){{.ov-metrics{{grid-template-columns:repeat(5,minmax(0,1fr))}}}}
+.ov-metrics .ov-ctitle{{margin:0 0 2px}}
 .ov-sub{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
   color:var(--text-muted);margin:0 0 6px}}
 .ov-row{{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
   padding:7px 0;border-bottom:1px solid {_HAIRLINE};font-size:14px;color:var(--text)}}
+.ov-row:last-child{{border-bottom:none}}
 .ov-row b{{font-weight:600;white-space:nowrap}}
 .ov-row .ov-h{{font-size:11px;color:var(--text-muted);margin-left:6px}}
 </style>"""
@@ -76,22 +84,24 @@ def _difficulty_html(difficulty):
             f'{qc.esc(difficulty)}</span>')
 
 
-def profile_panel_html(profile, market_cap_m) -> str:
-    """Label/value pairs from the Company Profile, plus Market cap ($M in).
-    Without a profile only Market cap and a muted note."""
+def _card(title, body_html, extra_class=""):
+    cls = f"ov-card {extra_class}".strip()
+    return (f'<div class="{cls}"><div class="ov-ctitle">{qc.esc(title)}</div>'
+            f'{body_html}</div>')
+
+
+def _profile_body(profile, market_cap_m):
     mcap = qc.esc(om.fmt_money_m(market_cap_m))
-    css = qc.css(PROFILE_STYLE)
     if not profile:
-        return (f'{css}<div class="ov-profile">{_pair("Market cap", mcap)}</div>'
+        return (f'<div class="ov-profile">{_pair("Market cap", mcap)}</div>'
                 f'<div class="ov-empty">{qc.esc(_EMPTY_NOTE)}</div>')
     employees = profile.get("employees")
-    # Rows: Sector | Industry; Market cap alone; Capital type | Difficulty;
-    # Founded | Employees. The empty cell keeps Market cap on its own row.
+    # Three columns: Sector | Industry | Market cap; Capital type | Difficulty;
+    # Founded | Employees.
     pairs = [
         _pair("Sector", _text(profile.get("sector"))),
         _pair("Industry", _text(profile.get("industry"))),
         _pair("Market cap", mcap),
-        "<div></div>",
         _pair("Capital type", _text(profile.get("capital_type"))),
         _pair("Difficulty", _difficulty_html(profile.get("difficulty"))),
         _pair("Founded", _text(profile.get("founded"))),
@@ -103,16 +113,20 @@ def profile_panel_html(profile, market_cap_m) -> str:
         chips = "".join(f'<span class="ov-chip">{qc.esc(t)}</span>' for t in tags)
         tags_html = (f'<div class="ov-tags"><div class="ov-lbl">TAGS</div>'
                      f'<div class="ov-chips">{chips}</div></div>')
-    return f'{css}<div class="ov-profile">{"".join(pairs)}</div>{tags_html}'
+    return f'<div class="ov-profile">{"".join(pairs)}</div>{tags_html}'
 
 
-def mission_html(profile) -> str:
-    """The mission as one italic line across the full width; "" without one."""
+def company_section_html(profile, market_cap_m) -> str:
+    """White "Company" section: a Profile card (label/value pairs, tags; $M in
+    for market cap) and, beside it, a Mission card. Without a profile only
+    Market cap and a muted note, and no Mission card."""
+    cards = [_card("Profile", _profile_body(profile, market_cap_m))]
     mission = (profile or {}).get("mission")
-    if not mission:
-        return ""
-    return (f'{qc.css(MISSION_STYLE)}<div class="ov-mission"><div class="ov-mlbl">MISSION</div>'
-            f'<p>{qc.esc(mission)}</p></div>')
+    if profile and mission:
+        cards.append(_card("Mission", f"<p>{qc.esc(mission)}</p>", "ov-mission"))
+    grid_cls = "ov-company" if len(cards) == 2 else "ov-company ov-solo"
+    inner = f'<div class="{grid_cls}">{"".join(cards)}</div>'
+    return qc.css(CARD_STYLE, COMPANY_STYLE) + qc.section_html("Company", inner)
 
 
 def _row(label, value, horizon=None):
@@ -123,30 +137,32 @@ def _row(label, value, horizon=None):
 
 def _group(title, sub, rows):
     sub_html = f'<div class="ov-sub">{qc.esc(sub.upper())}</div>' if sub else ""
-    return (f'<div class="ov-group"><div class="ov-title">{qc.esc(title)}</div>'
-            f'{sub_html}{"".join(rows)}</div>')
+    return _card(title, f'{sub_html}{"".join(rows)}')
 
 
 _MONEY = {"Cash & investments", "Total debt"}
 
 
-def metrics_html(metrics: dict) -> str:
-    """Three columns (one below 900px): Profitability + Financial Health,
-    Growth, Valuation + Shareholder Returns."""
+def key_figures_section_html(metrics: dict) -> str:
+    """White "Key figures" section: five flat cards (Profitability, Financial
+    Health, Growth, Valuation, Shareholder Returns) in a grid of 5/3/2/1
+    columns by width."""
     fy = metrics.get("fy")
     fy_sub = f"Latest fiscal year (FY{fy})" if fy else "Latest fiscal year"
-    profitability = _group("Profitability", fy_sub, [
-        _row(label, om.fmt_pct(v)) for label, v in metrics.get("profitability", [])])
-    health = _group("Financial Health", None, [
-        _row(label, om.fmt_money_m(v) if label in _MONEY else om.fmt_mult(v))
-        for label, v in metrics.get("health", [])])
-    growth = _group("Growth", "Compound annual growth", [
-        _row(label, om.fmt_pct(v, signed=True), f"{n}Y")
-        for label, n, v in metrics.get("growth", [])])
-    valuation = _group("Valuation", "At current price", [
-        _row(label, om.fmt_mult(v)) for label, v in metrics.get("valuation", [])])
-    returns = _group("Shareholder Returns", None, [
-        _row(label, om.fmt_pct(v, signed=True)) for label, v in metrics.get("returns", [])])
-    columns = (f'<div>{profitability}{health}</div><div>{growth}</div>'
-               f'<div>{valuation}{returns}</div>')
-    return f'{qc.css(METRICS_STYLE)}<div class="ov-metrics">{columns}</div>'
+    cards = [
+        _group("Profitability", fy_sub, [
+            _row(label, om.fmt_pct(v)) for label, v in metrics.get("profitability", [])]),
+        _group("Financial Health", None, [
+            _row(label, om.fmt_money_m(v) if label in _MONEY else om.fmt_mult(v))
+            for label, v in metrics.get("health", [])]),
+        _group("Growth", "Compound annual growth", [
+            _row(label, om.fmt_pct(v, signed=True), f"{n}Y")
+            for label, n, v in metrics.get("growth", [])]),
+        _group("Valuation", "At current price", [
+            _row(label, om.fmt_mult(v)) for label, v in metrics.get("valuation", [])]),
+        _group("Shareholder Returns", None, [
+            _row(label, om.fmt_pct(v, signed=True))
+            for label, v in metrics.get("returns", [])]),
+    ]
+    inner = f'<div class="ov-metrics">{"".join(cards)}</div>'
+    return qc.css(CARD_STYLE, METRICS_STYLE) + qc.section_html("Key figures", inner)

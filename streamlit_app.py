@@ -2868,17 +2868,17 @@ st.markdown(f"""
         padding: 20px 24px 24px;
         margin: 0 0 18px;
     }}
-    /* Overview tab: the whole tab is one qc-section-styled card (built with
-       st.columns because the price chart is a Plotly widget). --qc-inner
-       gives the profile chips the same flat inner background as .qc-section. */
-    .st-key-qc_overview_section {{
+    /* Overview tab: the "Price vs S&P 500" section holds the range control
+       and the Plotly chart, so it is a keyed container styled like
+       .st-key-qc_revenue_section instead of question_cards.section_html.
+       The Company and Key figures sections around it are pure HTML. */
+    .st-key-qc_ov_price {{
         background: var(--card);
         border-top: 3px solid var(--accent);
         border-radius: 24px;
         box-shadow: var(--shadow);
         padding: 20px 24px 24px;
         margin: 0 0 18px;
-        --qc-inner: color-mix(in srgb, var(--text) 4%, var(--card));
     }}
     /* Business tab: the "BY GEOGRAPHY" column (header + Plotly map + legend)
        as one continuous flat panel, matching the segment panel's own flat
@@ -5234,101 +5234,102 @@ def _dcf_editor(ticker):
         ["Overview", "Pre-Scan", "Business", "Moat", "Risk", "Fundamentals", "DCF",
          "Reverse DCF", "Peer Comparison", "Dividend", "History"])
 
-    # Overview: company profile, price vs the S&P 500, mission and key
-    # figures. Read-only; the profile comes from the "Company Profile" section.
+    # Overview: three white sections -- Company (profile + mission), Price vs
+    # S&P 500 and Key figures. Read-only; the profile comes from the "Company
+    # Profile" section.
     with _tab_overview:
-        with st.container(key="qc_overview_section"):
-            st.markdown('<div class="qc-label">Overview</div>', unsafe_allow_html=True)
-            _onotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
-            _oprofile_raw = _onotes.get(company_profile.TITLE)
-            try:
-                _oprofile = (company_profile.parse_company_profile(_oprofile_raw)
-                             if _oprofile_raw else None)
-            except Exception as e:
-                logger.debug("Company Profile for %s is invalid: %s", ticker, e)
-                _oprofile = None
-            _oshares = overview_metrics.shares_at_fiscal_year(fund)
-            _omcap = (live_price * _oshares / 1e6
-                      if live_price and live_price > 0 and _oshares else None)
+        _onotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
+        _oprofile_raw = _onotes.get(company_profile.TITLE)
+        try:
+            _oprofile = (company_profile.parse_company_profile(_oprofile_raw)
+                         if _oprofile_raw else None)
+        except Exception as e:
+            logger.debug("Company Profile for %s is invalid: %s", ticker, e)
+            _oprofile = None
+        _oshares = overview_metrics.shares_at_fiscal_year(fund)
+        _omcap = (live_price * _oshares / 1e6
+                  if live_price and live_price > 0 and _oshares else None)
 
-            _ol, _or = st.columns([2, 3])
-            with _ol:
-                st.markdown(overview_page.profile_panel_html(_oprofile, _omcap),
-                            unsafe_allow_html=True)
-            with _or:
+        st.markdown(overview_page.company_section_html(_oprofile, _omcap),
+                    unsafe_allow_html=True)
+
+        with st.container(key="qc_ov_price"):
+            st.markdown('<div class="qc-label">Price vs S&amp;P 500</div>',
+                        unsafe_allow_html=True)
+            _octl, _ohdr = st.columns([3, 2], vertical_alignment="center")
+            with _octl:
                 _orng = st.segmented_control(
                     "Range", overview_chart.RANGES, default=overview_chart.DEFAULT_RANGE,
                     key=f"ov_range_{ticker}", label_visibility="collapsed",
                 ) or overview_chart.DEFAULT_RANGE
+            _ochart = None
+            try:
+                _otoday = date.today()
+                _osince = overview_chart.range_start("10Y", _otoday)
+                _oseries = _overview_prices(ticker, _osince.isoformat())
+                _ostock = overview_chart.with_live_point(
+                    _oseries.get(ticker) or [], live_price, _otoday)
+                # SPY gets its live point too: the chart inner-joins the
+                # two series on day, so a stock-only point for today
+                # would be dropped.
+                _obench = overview_chart.with_live_point(
+                    _oseries.get("SPY") or [], _price("SPY"), _otoday)
+                if _ostock:
+                    _olast = date.fromisoformat(_ostock[-1][0])
+                    _odays, _ospct, _obpct = overview_chart.aligned_pct(
+                        _ostock, _obench, overview_chart.range_start(_orng, _olast))
+                    if _odays:
+                        # 0.95: a 1Y window starts on the first trading day
+                        # on/after the anniversary, often a few days short
+                        # of 365, and would otherwise lose its CAGR.
+                        _os_tot, _os_cagr = overview_chart.total_and_cagr(
+                            _ospct, _odays, min_years=0.95)
+                        _ob_tot, _ob_cagr = overview_chart.total_and_cagr(
+                            _obpct, _odays, min_years=0.95)
+                        # CAGR only means something over whole years.
+                        if _orng not in ("1Y", "3Y", "5Y", "10Y"):
+                            _os_cagr = _ob_cagr = None
+                        _ochart = (
+                            overview_chart.header_html(ticker, _orng, _os_tot, _os_cagr,
+                                                       _ob_tot, _ob_cagr),
+                            overview_chart.figure(_odays, _ospct, _obpct, ticker,
+                                                  {"accent": T["accent"],
+                                                   "bench": "#5b6cff"}),
+                        )
+            except Exception as e:
+                logger.warning("Overview chart for %s failed: %s", ticker, e)
                 _ochart = None
-                try:
-                    _otoday = date.today()
-                    _osince = overview_chart.range_start("10Y", _otoday)
-                    _oseries = _overview_prices(ticker, _osince.isoformat())
-                    _ostock = overview_chart.with_live_point(
-                        _oseries.get(ticker) or [], live_price, _otoday)
-                    # SPY gets its live point too: the chart inner-joins the
-                    # two series on day, so a stock-only point for today
-                    # would be dropped.
-                    _obench = overview_chart.with_live_point(
-                        _oseries.get("SPY") or [], _price("SPY"), _otoday)
-                    if _ostock:
-                        _olast = date.fromisoformat(_ostock[-1][0])
-                        _odays, _ospct, _obpct = overview_chart.aligned_pct(
-                            _ostock, _obench, overview_chart.range_start(_orng, _olast))
-                        if _odays:
-                            # 0.95: a 1Y window starts on the first trading day
-                            # on/after the anniversary, often a few days short
-                            # of 365, and would otherwise lose its CAGR.
-                            _os_tot, _os_cagr = overview_chart.total_and_cagr(
-                                _ospct, _odays, min_years=0.95)
-                            _ob_tot, _ob_cagr = overview_chart.total_and_cagr(
-                                _obpct, _odays, min_years=0.95)
-                            # CAGR only means something over whole years.
-                            if _orng not in ("1Y", "3Y", "5Y", "10Y"):
-                                _os_cagr = _ob_cagr = None
-                            _ochart = (
-                                overview_chart.header_html(ticker, _orng, _os_tot, _os_cagr,
-                                                           _ob_tot, _ob_cagr),
-                                overview_chart.figure(_odays, _ospct, _obpct, ticker,
-                                                      {"accent": T["accent"],
-                                                       "bench": "#5b6cff"}),
-                            )
-                except Exception as e:
-                    logger.warning("Overview chart for %s failed: %s", ticker, e)
-                    _ochart = None
-                if _ochart:
-                    st.markdown(_ochart[0], unsafe_allow_html=True)
-                    st.plotly_chart(_ochart[1], width="stretch",
-                                    config={"displayModeBar": False})
-                else:
-                    st.caption("No price history for this listing yet.")
-
-            _omission = overview_page.mission_html(_oprofile)
-            if _omission:
-                st.markdown(_omission, unsafe_allow_html=True)
-            try:
-                _oinc = _overview_income(ticker)
-            except Exception as e:
-                logger.warning("income statement for %s failed: %s", ticker, e)
-                _oinc = None
-            try:
-                _ocf = _overview_cashflow(ticker)
-            except Exception as e:
-                logger.warning("cash flow statement for %s failed: %s", ticker, e)
-                _ocf = None
-            # live_price is 0.0 when every price source failed; None keeps
-            # P/E and the yields at a dash instead of 0.0x.
-            try:
-                _ometrics_html = overview_page.metrics_html(overview_metrics.compute(
-                    fund, _oinc, _ocf, live_price if live_price > 0 else None))
-            except Exception as e:
-                logger.warning("Overview key figures for %s failed: %s", ticker, e)
-                _ometrics_html = None
-            if _ometrics_html:
-                st.markdown(_ometrics_html, unsafe_allow_html=True)
+            if _ochart:
+                with _ohdr:
+                    st.markdown(f'<div style="text-align:right">{_ochart[0]}</div>',
+                                unsafe_allow_html=True)
+                st.plotly_chart(_ochart[1], width="stretch",
+                                config={"displayModeBar": False})
             else:
-                st.caption("Key figures unavailable right now.")
+                st.caption("No price history for this listing yet.")
+
+        try:
+            _oinc = _overview_income(ticker)
+        except Exception as e:
+            logger.warning("income statement for %s failed: %s", ticker, e)
+            _oinc = None
+        try:
+            _ocf = _overview_cashflow(ticker)
+        except Exception as e:
+            logger.warning("cash flow statement for %s failed: %s", ticker, e)
+            _ocf = None
+        # live_price is 0.0 when every price source failed; None keeps
+        # P/E and the yields at a dash instead of 0.0x.
+        try:
+            _ometrics_html = overview_page.key_figures_section_html(overview_metrics.compute(
+                fund, _oinc, _ocf, live_price if live_price > 0 else None))
+        except Exception as e:
+            logger.warning("Overview key figures for %s failed: %s", ticker, e)
+            _ometrics_html = None
+        if _ometrics_html:
+            st.markdown(_ometrics_html, unsafe_allow_html=True)
+        else:
+            st.caption("Key figures unavailable right now.")
 
     # Business: overview and customer profile, revenue by segment and region,
     # then the four business-quality cards. Read-only, like Moat and Risk.

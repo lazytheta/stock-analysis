@@ -44,76 +44,103 @@ def _styles(html):
     return re.findall(r"<style>(.*?)</style>", html, re.S)
 
 
-def test_profile_panel_with_profile():
-    html = op.profile_panel_html(GOOD_PROFILE, 343190.0)
+def _body(html):
+    """The HTML after the leading <style> blocks."""
+    return re.sub(r"<style>.*?</style>", "", html, flags=re.S)
+
+
+def test_company_section_with_profile():
+    html = op.company_section_html(GOOD_PROFILE, 343190.0)
     assert html.startswith("<")
-    for text in ("SECTOR", "Communication Services", "Entertainment",
-                 "&#36;343.2B", "Asset-light", "Moderate", "1997", "16,000",
-                 "Subscription", "Ad-based"):
+    assert 'class="qc-section"' in html and ">Company</div>" in html
+    for text in ("Profile", "Mission", "SECTOR", "Communication Services",
+                 "Entertainment", "&#36;343.2B", "Asset-light", "Moderate", "1997",
+                 "16,000", "Subscription", "Ad-based", "To entertain the world."):
         assert text in html, text
-    assert "ov-chip" in html and "ov-diff" in html
+    assert "ov-chip" in html and "ov-diff" in html and "ov-mission" in _body(html)
+    assert "ov-solo" not in _body(html)
     assert "$" not in html
-    assert all("\n" not in s for s in _styles(html))
+    styles = _styles(html)
+    assert styles and all("\n" not in s for s in styles)
+    assert "@media (max-width:800px)" in html
 
 
-def test_profile_panel_difficulty_colours():
-    easy = op.profile_panel_html(dict(GOOD_PROFILE, difficulty="Easy"), None)
-    hard = op.profile_panel_html(dict(GOOD_PROFILE, difficulty="Hard"), None)
-    moderate = op.profile_panel_html(GOOD_PROFILE, None)
-    assert "var(--red)" in hard
-    assert "var(--accent)" in moderate.split("ov-diff")[-1]
+def test_company_section_profile_order():
+    html = _body(op.company_section_html(GOOD_PROFILE, 343190.0))
+    order = ["SECTOR", "INDUSTRY", "MARKET CAP", "CAPITAL TYPE", "DIFFICULTY",
+             "FOUNDED", "EMPLOYEES", "TAGS"]
+    positions = [html.index(label) for label in order]
+    assert positions == sorted(positions)
+    assert html.index(">Profile<") < html.index(">Mission<")
+
+
+def test_company_section_difficulty_colours():
+    easy = op.company_section_html(dict(GOOD_PROFILE, difficulty="Easy"), None)
+    hard = op.company_section_html(dict(GOOD_PROFILE, difficulty="Hard"), None)
+    moderate = op.company_section_html(GOOD_PROFILE, None)
+    assert "var(--red)" in _body(hard)
+    assert "var(--accent)" in moderate.split('class="ov-diff"')[-1]
     assert easy != moderate != hard
 
 
-def test_profile_panel_none_values_are_dashes():
-    html = op.profile_panel_html(dict(GOOD_PROFILE, founded=None, employees=None), None)
+def test_company_section_none_values_are_dashes():
+    html = _body(op.company_section_html(dict(GOOD_PROFILE, founded=None, employees=None),
+                                         None))
     # market cap, founded and employees all missing
     assert html.count("—") >= 3
 
 
-def test_profile_panel_without_profile():
-    html = op.profile_panel_html(None, 510.0)
-    assert "&#36;510M" in html
-    assert "Company profile not filled yet" in html
-    assert "SECTOR" not in html
+def test_company_section_without_profile():
+    html = op.company_section_html(None, 510.0)
+    body = _body(html)
+    assert html.startswith("<")
+    assert "&#36;510M" in body
+    assert "Company profile not filled yet" in body
+    assert "SECTOR" not in body
+    assert ">Mission<" not in body and "ov-mission" not in body
+    assert "ov-solo" in body
     assert "$" not in html
 
 
-def test_profile_panel_escapes_text():
-    html = op.profile_panel_html(dict(GOOD_PROFILE, tags=["<b>x</b>", "$y"]), None)
+def test_company_section_profile_without_mission_spans_full_width():
+    body = _body(op.company_section_html(dict(GOOD_PROFILE, mission=""), None))
+    assert ">Mission<" not in body and "ov-solo" in body
+
+
+def test_company_section_escapes_text():
+    html = op.company_section_html(
+        dict(GOOD_PROFILE, tags=["<b>x</b>", "$y"], mission="$1 <i>a</i>"), None)
     assert "<b>x</b>" not in html and "&lt;b&gt;" in html
+    assert "<i>a</i>" not in html
     assert "$" not in html
 
 
-def test_mission():
-    html = op.mission_html(GOOD_PROFILE)
+def test_key_figures_section():
+    html = op.key_figures_section_html(_metrics())
     assert html.startswith("<")
-    assert "MISSION" in html and "To entertain the world." in html
-    assert op.mission_html(None) == ""
-
-
-def test_metrics_html():
-    html = op.metrics_html(_metrics())
-    assert html.startswith("<")
+    assert 'class="qc-section"' in html and ">Key figures</div>" in html
     for text in ("Profitability", "Financial Health", "Growth", "Valuation",
                  "Shareholder Returns", "LATEST FISCAL YEAR (FY2026)",
                  "COMPOUND ANNUAL GROWTH", "AT CURRENT PRICE",
                  "3Y", "5Y", "10Y", "×", "&#36;5.0B", "Gross margin", "50.0%",
                  "+10.0%", "Total shareholder yield"):
         assert text in html, text
+    assert _body(html).count('class="ov-card"') == 5
     assert "$" not in html
     styles = _styles(html)
     assert styles and all("\n" not in s for s in styles)
-    assert "@media (max-width:900px)" in html
+    for bp in ("(min-width:600px)", "(min-width:900px)", "(min-width:1200px)"):
+        assert bp in html, bp
+    assert "repeat(5,minmax(0,1fr))" in html
 
 
-def test_metrics_html_none_values_render_as_dash():
-    html = op.metrics_html(_metrics(total_equity=[-5.0] * len(YEARS)))
+def test_key_figures_none_values_render_as_dash():
+    html = op.key_figures_section_html(_metrics(total_equity=[-5.0] * len(YEARS)))
     assert "—" in html  # Debt / Equity and P/B with negative equity
 
 
-def test_metrics_html_without_fiscal_year():
-    html = op.metrics_html(om.compute({}, None, None, None))
+def test_key_figures_without_fiscal_year():
+    html = op.key_figures_section_html(om.compute({}, None, None, None))
     assert "LATEST FISCAL YEAR" in html and "FYNone" not in html
     assert "—" in html
 
@@ -121,27 +148,16 @@ def test_metrics_html_without_fiscal_year():
 def test_ticker_page_has_overview_tab_first():
     src = open("streamlit_app.py", encoding="utf-8").read()
     assert '["Overview", "Pre-Scan", "Business", "Moat", "Risk", "Fundamentals", "DCF"' in src
-    assert 'key="qc_overview_section"' in src
-    assert ".st-key-qc_overview_section" in src
-    assert "overview_page.metrics_html(" in src
-    assert "overview_page.profile_panel_html(" in src
+    assert "overview_page.company_section_html(" in src
+    assert "overview_page.key_figures_section_html(" in src
 
 
-def test_profile_panel_order_market_cap_alone_on_its_row():
-    html = op.profile_panel_html(GOOD_PROFILE, 343190.0)
-    order = ["SECTOR", "INDUSTRY", "MARKET CAP", "CAPITAL TYPE", "DIFFICULTY",
-             "FOUNDED", "EMPLOYEES", "TAGS"]
-    positions = [html.index(label) for label in order]
-    assert positions == sorted(positions)
-    between = html[html.index("MARKET CAP"):html.index("CAPITAL TYPE")]
-    assert "<div></div>" in between
-
-
-def test_mission_does_not_repeat_profile_style():
-    profile = op.profile_panel_html(GOOD_PROFILE, None)
-    mission = op.mission_html(GOOD_PROFILE)
-    assert ".ov-profile{" in profile and ".ov-profile{" not in mission
-    assert all("\n" not in s for s in _styles(mission))
+def test_overview_price_section_container():
+    src = open("streamlit_app.py", encoding="utf-8").read()
+    assert 'key="qc_ov_price"' in src
+    assert ".st-key-qc_ov_price" in src
+    assert "qc_overview_section" not in src
+    assert '<div class="qc-label">Overview</div>' not in src
 
 
 def test_overview_tab_wiring_guards():
