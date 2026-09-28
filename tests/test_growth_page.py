@@ -155,7 +155,7 @@ def test_revenue_earnings_figure():
     assert fig.data[1].textposition == "bottom center"
     assert "text" in fig.data[0].mode and "markers" in fig.data[0].mode
     assert list(fig.data[0].customdata) == ["$1.0B", "$1.5B", "$2.4B"]
-    assert fig.layout.height == 340
+    assert fig.layout.height == 300
     assert fig.layout.paper_bgcolor == "rgba(0,0,0,0)"
     assert fig.layout.legend.x == 0 and fig.layout.legend.xanchor == "left"
 
@@ -168,6 +168,20 @@ def test_revenue_earnings_figure_uses_phase_ticks():
     assert list(fig.layout.yaxis.ticktext) == text
     ticks = dict(zip(vals, text))
     assert ticks[2000.0] == "$2.0B" and ticks[-500.0] == "-$500M"
+
+
+def test_revenue_earnings_figure_range_from_zero_with_label_headroom():
+    fig = gp.revenue_earnings_figure([2021, 2022], [1000.0, 2000.0], [100.0, 300.0], THEME)
+    lo, hi = fig.layout.yaxis.range
+    assert lo == 0 and hi == 2000.0 * 1.12
+    assert fig.layout.legend.y == 1.0 and fig.layout.margin.t <= 30
+
+
+def test_revenue_earnings_figure_range_below_zero_for_losses():
+    fig = gp.revenue_earnings_figure([2021, 2022], [1000.0, 2000.0], [-200.0, 300.0], THEME)
+    lo, hi = fig.layout.yaxis.range
+    assert lo < -200 and hi == 2000.0 * 1.12
+    assert gp.label_headroom_range([None]) is None
 
 
 # ── CAGR table ─────────────────────────────────────────────────────────────

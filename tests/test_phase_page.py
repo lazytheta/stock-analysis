@@ -77,6 +77,34 @@ def test_section_html_nothing_parses_shows_notice_without_highlight():
     assert 'class="ph-num"' not in html
 
 
+def test_phase_notes_cover_six_phases():
+    assert sorted(pg.PHASE_NOTES) == [1, 2, 3, 4, 5, 6]
+    for note in pg.PHASE_NOTES.values():
+        assert set(note) == {"looks_like", "valuation", "moves_on"}
+        assert all(0 < len(v) <= 80 for v in note.values())
+
+
+def test_section_html_phase_note_for_known_phase():
+    html = pg.phase_section_html(ANALYSIS, None, THEME)
+    for label in ("Looks like", "Valuation fits", "Moves on when"):
+        assert label in html
+    assert "Mature, rewarding shareholders" in html
+    assert 'class="ph-card ph-cycle"' in html and 'class="ph-cycle-fig"' in html
+
+
+def test_section_html_no_phase_note_when_unknown():
+    html = pg.phase_section_html("free prose", "nope", THEME)
+    for label in ("Looks like", "Valuation fits", "Moves on when"):
+        assert label not in html
+    assert pg.phase_note_html(None) == "" and pg.phase_note_html(7) == ""
+
+
+def test_phase_analysis_text_is_13px():
+    css = pg.PHASE_STYLE
+    assert ".ph-lead{margin:0 0 10px;font-size:13px" in css
+    assert ".ph-pt{margin:0 0 7px;font-size:13px" in css
+
+
 # ── growth cycle ────────────────────────────────────────────────────────────
 
 def _labels(svg):
@@ -124,9 +152,12 @@ def test_revenue_ocf_figure():
     assert fig.data[1].line.color == "#5b6cff"
     assert list(fig.data[0].customdata) == ["$1.0B", "$1.5B", "$2.4B"]
     assert fig.data[1].customdata[2] == "—"
-    assert fig.layout.height == 320
+    assert fig.layout.height == 300
     assert all(t.lstrip("-").startswith("$") for t in fig.layout.yaxis.ticktext)
     assert fig.layout.legend.orientation == "h"
+    assert fig.layout.yaxis.rangemode == "tozero"
+    assert fig.layout.legend.x == 0 and fig.layout.legend.y == 1.0
+    assert fig.layout.margin.t <= 30
 
 
 def test_revenue_ocf_figure_ticks_in_billions():

@@ -28,6 +28,33 @@ PAYOUT_COLOUR = "#5b6cff"
 NOTICE = 'No phase analysis yet. It comes with the "Business Phase Analysis" section.'
 
 _INNER = "var(--qc-inner, color-mix(in srgb, var(--text) 4%, var(--card)))"
+_HAIRLINE = "color-mix(in srgb, var(--text) 10%, transparent)"
+
+# Per phase: what it looks like, which valuation fits and what moves it on —
+# condensed from the "Business Phase Analysis" prompt's phase definitions and
+# decision tree (streamlit_app.DEFAULT_AI_PROMPTS).
+PHASE_NOTE_LABELS = (("looks_like", "Looks like"), ("valuation", "Valuation fits"),
+                     ("moves_on", "Moves on when"))
+PHASE_NOTES = {
+    1: {"looks_like": "Losses expanding, finding product-market fit",
+        "valuation": "Forward price to sales, total addressable market (TAM)",
+        "moves_on": "Losses start shrinking (→ Hypergrowth)"},
+    2: {"looks_like": "Losses improving, proving viability",
+        "valuation": "Forward price to sales, price to gross profit",
+        "moves_on": "Losses near breakeven (→ Self Funding)"},
+    3: {"looks_like": "Near breakeven, validating the model",
+        "valuation": "Price to sales, price to gross profit",
+        "moves_on": "Operating income turns positive (→ Operating Leverage)"},
+    4: {"looks_like": "Profitable, maximizing margins",
+        "valuation": "Forward P/E, forward price to free cash flow",
+        "moves_on": "Payouts start (→ Capital Return) or revenue falls (→ Decline)"},
+    5: {"looks_like": "Mature, rewarding shareholders",
+        "valuation": "Trailing P/E, trailing price to free cash flow, reverse DCF",
+        "moves_on": "Revenue starts falling (→ Decline) or payouts stop (→ Operating Leverage)"},
+    6: {"looks_like": "Revenue falling, business deteriorating",
+        "valuation": "Price to book, liquidation value, asset-based valuation",
+        "moves_on": "Revenue grows again (→ Operating Leverage)"},
+}
 
 PHASE_STYLE = f"""<style>
 .ph-row{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;
@@ -43,10 +70,17 @@ PHASE_STYLE = f"""<style>
 .ph-kicker{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
   color:var(--text-muted)}}
 .ph-name{{font-size:20px;font-weight:700;line-height:1.2}}
-.ph-lead{{margin:0 0 10px;font-size:14px;line-height:1.5}}
-.ph-pt{{margin:0 0 7px;font-size:14px;line-height:1.45}}
+.ph-lead{{margin:0 0 10px;font-size:13px;line-height:1.45}}
+.ph-pt{{margin:0 0 7px;font-size:13px;line-height:1.45}}
 .ph-note{{margin:0;font-size:13px;color:var(--text-muted);line-height:1.45}}
 .ph-svg{{display:block;width:100%;height:auto}}
+.ph-cycle{{display:flex;flex-direction:column}}
+.ph-cycle-fig{{margin:auto 0}}
+.ph-pn{{margin-top:14px;padding-top:12px;border-top:1px solid {_HAIRLINE}}}
+.ph-pn-row{{display:flex;gap:10px;margin:0 0 5px;font-size:12.5px;line-height:1.4;
+  color:var(--text-muted)}}
+.ph-pn-row:last-child{{margin-bottom:0}}
+.ph-pn-row b{{flex:none;width:104px;font-weight:600}}
 </style>"""
 
 
@@ -191,15 +225,33 @@ def _analysis_body(number, v):
     return f"{badge}{lead}{points}"
 
 
-def _card(title, body_html):
-    return f'<div class="ph-card"><div class="ph-title">{qc.esc(title)}</div>{body_html}</div>'
+def _card(title, body_html, extra_class=""):
+    cls = f"ph-card {extra_class}".strip()
+    return f'<div class="{cls}"><div class="ph-title">{qc.esc(title)}</div>{body_html}</div>'
+
+
+def phase_note_html(number):
+    """Three muted label/value lines for the current phase; empty when the
+    phase is unknown."""
+    note = PHASE_NOTES.get(number) if isinstance(number, int) else None
+    if not note:
+        return ""
+    rows = "".join(f'<div class="ph-pn-row"><b>{qc.esc(label)}</b>'
+                   f'<span>{qc.esc(note[key])}</span></div>'
+                   for key, label in PHASE_NOTE_LABELS)
+    return f'<div class="ph-pn">{rows}</div>'
+
+
+def _cycle_body(number):
+    return (f'<div class="ph-cycle-fig">{growth_cycle_svg(number)}</div>'
+            f'{phase_note_html(number)}')
 
 
 def phase_section_html(analysis_text, scorecard_text, theme):
     """The "Phase" section: Phase Analysis card and the growth-cycle card."""
     number = phase_number(analysis_text, scorecard_text)
     left = _card("Phase Analysis", _analysis_body(number, _verdict(analysis_text)))
-    right = _card("Growth cycle", growth_cycle_svg(number))
+    right = _card("Growth cycle", _cycle_body(number), "ph-cycle")
     return qc.section_html("Phase", f'{qc.css(PHASE_STYLE)}<div class="ph-row">{left}{right}</div>')
 
 
@@ -230,6 +282,19 @@ def money_ticks(values, n=5):
     return ticks, [_tick_label(t) for t in ticks]
 
 
+# Shared by the Phase and Growth line charts: compact top margin and the
+# legend tucked just above the plot's top-left corner.
+CHART_LAYOUT = dict(
+    height=300,
+    margin=dict(l=10, r=10, t=28, b=10),
+    hovermode="x unified",
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    legend=dict(orientation="h", x=0, xanchor="left", y=1.0, yanchor="bottom",
+                bgcolor="rgba(0,0,0,0)"),
+)
+
+
 def revenue_ocf_figure(years, revenue, cfo, theme) -> go.Figure:
     """Revenue and operating cash flow ($M) per fiscal year, two lines."""
     xs = [f"FY{y}" for y in years]
@@ -242,16 +307,10 @@ def revenue_ocf_figure(years, revenue, cfo, theme) -> go.Figure:
             customdata=[om.fmt_money_m(v) for v in ys],
             hovertemplate=f"%{{customdata}}<extra>{name}</extra>",
         ))
-    fig.update_layout(
-        height=320,
-        margin=dict(l=10, r=10, t=30, b=10),
-        hovermode="x unified",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        legend=dict(orientation="h", x=0, xanchor="left", y=1.12, yanchor="bottom"),
-    )
+    fig.update_layout(**CHART_LAYOUT)
     tickvals, ticktext = money_ticks(list(revenue) + list(cfo))
-    fig.update_yaxes(tickmode="array", tickvals=tickvals, ticktext=ticktext, showgrid=True,
+    fig.update_yaxes(rangemode="tozero", tickmode="array", tickvals=tickvals,
+                     ticktext=ticktext, showgrid=True,
                      gridwidth=1, gridcolor="rgba(128,128,128,0.15)", zeroline=True,
                      zerolinecolor="rgba(128,128,128,0.35)")
     fig.update_xaxes(type="category", showgrid=False)

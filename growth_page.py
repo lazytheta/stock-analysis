@@ -17,7 +17,7 @@ import overview_metrics as om
 import question_cards as qc
 from growth_cards import GROWTH, SCORE_LABELS, TITLE, parse_growth_cards
 from overview_page import METRICS_STYLE
-from phase_page import PAYOUT_COLOUR, money_ticks
+from phase_page import CHART_LAYOUT, PAYOUT_COLOUR, money_ticks
 
 NOTICE = 'No growth analysis yet. It comes with the "Growth Cards" section.'
 NO_CONSENSUS = "No analyst consensus available."
@@ -126,6 +126,22 @@ def yoy_labels(values) -> list[str]:
     return out
 
 
+HEADROOM = 1.12
+
+
+def label_headroom_range(values):
+    """y-axis range from 0 (or below the lowest value, with room for its
+    label) to HEADROOM x the highest value, so the year-on-year labels above
+    the top points are not clipped. None without data."""
+    vals = [v for v in values if v is not None]
+    if not vals:
+        return None
+    lo, hi = min(0.0, min(vals)), max(0.0, max(vals))
+    span = (hi - lo) or 1.0
+    pad = (HEADROOM - 1) * span
+    return [lo - pad if lo < 0 else 0.0, hi * HEADROOM if hi > 0 else pad]
+
+
 def revenue_earnings_figure(years, revenue, earnings, theme) -> go.Figure:
     """Revenue and net income ($M) per fiscal year as two lines, each point
     labelled with its year-on-year change (net income below its point, so
@@ -143,16 +159,11 @@ def revenue_earnings_figure(years, revenue, earnings, theme) -> go.Figure:
             customdata=[om.fmt_money_m(v) for v in ys],
             hovertemplate=f"%{{customdata}}<extra>{name}</extra>",
         ))
-    fig.update_layout(
-        height=340,
-        margin=dict(l=10, r=10, t=40, b=10),
-        hovermode="x unified",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        legend=dict(orientation="h", x=0, xanchor="left", y=1.12, yanchor="bottom"),
-    )
-    tickvals, ticktext = money_ticks(list(revenue) + list(earnings))
-    fig.update_yaxes(tickmode="array", tickvals=tickvals, ticktext=ticktext, showgrid=True,
+    fig.update_layout(**CHART_LAYOUT)
+    values = list(revenue) + list(earnings)
+    tickvals, ticktext = money_ticks(values)
+    fig.update_yaxes(range=label_headroom_range(values), tickmode="array",
+                     tickvals=tickvals, ticktext=ticktext, showgrid=True,
                      gridwidth=1, gridcolor="rgba(128,128,128,0.15)", zeroline=True,
                      zerolinecolor="rgba(128,128,128,0.35)")
     fig.update_xaxes(type="category", showgrid=False)
