@@ -154,7 +154,10 @@ def mcp(monkeypatch):
     monkeypatch.setattr(mcp_server.config_store, "save_config",
                         lambda c, t, cfg, user_id=None: store.__setitem__(t.upper(), {**store.get(t.upper(), {}), **cfg}))
     monkeypatch.setattr(mcp_server.config_store, "list_watchlist",
-                        lambda c, user_id=None, tickers=None: [{"ticker": t} for t in store])
+                        lambda c, user_id=None, tickers=None: [
+                            {"ticker": t, "category": cfg.get("category") or "Uncategorized",
+                             "dcf_placeholder": bool(cfg.get("dcf_placeholder"))}
+                            for t, cfg in store.items()])
     return mcp_server, client, store
 
 
@@ -171,6 +174,50 @@ def test_candidates_skip_names_already_listed_and_sort_by_roce(mcp):
     client.table.return_value.select.return_value.order.return_value.limit.return_value.execute.return_value = snap
     out = json.loads(m._get_screener_candidates_impl(limit=5))
     assert [c["ticker"] for c in out["candidates"]] == ["CCC", "AAA"]
+
+
+def _snapshot(client, rows):
+    snap = MagicMock()
+    snap.data = [{"computed_at": "2026-09-22", "rows": rows}]
+    client.table.return_value.select.return_value.order.return_value.limit.return_value.execute.return_value = snap
+
+
+def test_candidates_put_requested_aspirants_first_oldest_first(mcp):
+    # A name added by hand with add_aspirant sits on the list as a placeholder
+    # Aspirant; the nightly run must pick it up before any Screener name.
+    m, client, store = mcp
+    store["NEW2"] = {"category": "Aspirant", "dcf_placeholder": True,
+                     "aspirant_added": "2026-09-27", "company": "New Two",
+                     "revenue_growth": [0.03] * 5, "op_margins": [0.2] * 5}
+    store["NEW1"] = {"category": "Aspirant", "dcf_placeholder": True,
+                     "aspirant_added": "2026-09-20", "company": "New One",
+                     "revenue_growth": [0.03] * 5, "op_margins": [0.2] * 5}
+    _snapshot(client, [{"ticker": "AAA", "name": "A", "avg_roce": 0.5,
+                        "net_debt": -1, "passes": True}])
+    out = json.loads(m._get_screener_candidates_impl(limit=5))
+    assert [(c["ticker"], c["source"]) for c in out["candidates"]] == [
+        ("NEW1", "requested"), ("NEW2", "requested"), ("AAA", "screener")]
+    one = json.loads(m._get_screener_candidates_impl(limit=1))
+    assert [c["ticker"] for c in one["candidates"]] == ["NEW1"]
+
+
+def test_candidates_skip_aspirants_whose_dcf_is_filled_in(mcp):
+    # Stale flag but varying curves = already researched; not queued again.
+    m, client, store = mcp
+    store["DONE"] = {"category": "Aspirant", "dcf_placeholder": True,
+                     "revenue_growth": [0.1, 0.08, 0.06], "op_margins": [0.2] * 3}
+    store["FULL"] = {"category": "Aspirant", "dcf_placeholder": False}
+    _snapshot(client, [])
+    out = json.loads(m._get_screener_candidates_impl(limit=5))
+    assert out["candidates"] == []
+
+
+def test_candidates_queue_works_without_a_screener_snapshot(mcp):
+    m, client, store = mcp
+    store["NEW"] = {"category": "Aspirant", "dcf_placeholder": True}
+    client.table.return_value.select.return_value.order.return_value.limit.return_value.execute.return_value = MagicMock(data=[])
+    out = json.loads(m._get_screener_candidates_impl(limit=1))
+    assert [c["ticker"] for c in out["candidates"]] == ["NEW"]
 
 
 def test_candidates_limit_none_from_cloud_run_json_falls_back_to_five(mcp):

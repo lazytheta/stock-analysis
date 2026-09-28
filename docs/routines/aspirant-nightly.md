@@ -7,7 +7,11 @@ and the SEC connector only.
 1. Call `get_screener_candidates(limit=1)`. If `candidates` is empty, stop
    without doing anything else.
 2. For the candidate:
-   a. Call `add_aspirant(ticker)`; the server fetches the price itself. Only
+   a. If the candidate's `source` is `"requested"`, it was added by hand and
+      is already on the list as an Aspirant: do NOT call `add_aspirant`; go
+      straight to step b (it counts as a name you added in this run for the
+      `save_to_watchlist` rule below). Otherwise call `add_aspirant(ticker)`;
+      the server fetches the price itself. Only
       if it returns an error mentioning `No price`, get the price with the
       SEC connector's `GetLiveQuote` and call `add_aspirant(ticker,
       stock_price)` once more. If it returns an error or says the

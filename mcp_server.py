@@ -1387,27 +1387,44 @@ def _tickers_missing_section_impl(title, requires="", limit=10,
 
 
 def _get_screener_candidates_impl(limit=5, user_id: str | None = None):
-    """Passing names from the latest Screener run that are not on the list yet."""
+    """Names for the nightly Aspirant run, requested ones first.
+
+    A name added by hand with add_aspirant is already on the list, so the
+    Screener filter below would never hand it out. Aspirants whose DCF is still
+    the placeholder are that queue: oldest aspirant_added first, then the
+    passing Screener names not on the list yet, highest ROCE first.
+    """
     user_id = user_id or USER_ID
+    n = max(int(limit or 5), 0)
     client = get_supabase_client()
+    entries = config_store.list_watchlist(client, user_id=user_id)
+    listed = {e["ticker"].upper() for e in entries}
+
+    requested = []
+    for e in entries:
+        if e.get("category") != "Aspirant" or not e.get("dcf_placeholder"):
+            continue
+        cfg = config_store.load_config(client, e["ticker"], user_id=user_id) or {}
+        if aspirant.is_placeholder(cfg):
+            requested.append((cfg.get("aspirant_added") or "", e["ticker"].upper(), cfg))
+    requested.sort()
+    candidates = [{"ticker": t, "company": cfg.get("company"),
+                   "sector": cfg.get("sector"), "source": "requested"}
+                  for _, t, cfg in requested]
+
     resp = (client.table("screener_snapshots")
             .select("computed_at, rows")
             .order("created_at", desc=True).limit(1).execute())
-    if not (resp and resp.data):
-        return json.dumps({"candidates": [], "computed_at": None})
-    snap = resp.data[0]
-    listed = {e["ticker"].upper()
-              for e in config_store.list_watchlist(client, user_id=user_id)}
+    snap = resp.data[0] if (resp and resp.data) else {}
     rows = [r for r in snap.get("rows") or []
             if r.get("passes") and (r.get("ticker") or "").upper() not in listed]
     rows.sort(key=lambda r: r.get("avg_roce") or 0, reverse=True)
-    return json.dumps({
-        "computed_at": snap.get("computed_at"),
-        "candidates": [{"ticker": r["ticker"], "company": r.get("name"),
-                        "sector": r.get("sector"), "avg_roce": r.get("avg_roce"),
-                        "net_debt": r.get("net_debt")}
-                       for r in rows[:max(int(limit or 5), 0)]],
-    }, default=str)
+    candidates += [{"ticker": r["ticker"], "company": r.get("name"),
+                    "sector": r.get("sector"), "avg_roce": r.get("avg_roce"),
+                    "net_debt": r.get("net_debt"), "source": "screener"}
+                   for r in rows]
+    return json.dumps({"computed_at": snap.get("computed_at"),
+                       "candidates": candidates[:n]}, default=str)
 
 
 def _add_aspirant_impl(ticker, stock_price=0, user_id: str | None = None):
@@ -1593,11 +1610,14 @@ def tickers_missing_section(title: str, requires: str = "", limit: int = 10) -> 
 
 @mcp.tool()
 def get_screener_candidates(limit: int = 5) -> str:
-    """Names that pass the latest Screener run and are not on the watchlist
-    yet (in any category), highest average ROCE first.
+    """Names for the nightly Aspirant run. First the requested ones: Aspirants
+    added by hand whose DCF is still the placeholder, oldest first. Then names
+    that pass the latest Screener run and are not on the watchlist yet (in any
+    category), highest average ROCE first.
 
-    Returns JSON {computed_at, candidates: [{ticker, company, sector,
-    avg_roce, net_debt}]}.
+    Returns JSON {computed_at, candidates: [{ticker, company, sector, source,
+    avg_roce, net_debt}]}; source is "requested" (already on the list — do not
+    call add_aspirant again) or "screener".
     """
     try:
         return _get_screener_candidates_impl(limit)
@@ -1610,7 +1630,8 @@ def add_aspirant(ticker: str, stock_price: float = 0) -> str:
     """Add a NEW name to the watchlist in category Aspirant, with a facts-only
     base config (EDGAR) marked dcf_placeholder. Refuses if the ticker already
     has a config — it never overwrites. stock_price is optional: when omitted
-    the server fetches it (Nasdaq, then Yahoo).
+    the server fetches it (Nasdaq, then Yahoo). A name added this way is
+    queued: the nightly Aspirant run researches it before any Screener name.
     """
     try:
         return _add_aspirant_impl(ticker, stock_price)

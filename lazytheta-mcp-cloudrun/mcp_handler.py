@@ -700,8 +700,11 @@ TOOLS: list[dict] = [
     },
     {
         "name": "get_screener_candidates",
-        "description": ("Names passing the latest Screener run that are not on the "
-                        "watchlist yet (any category), highest average ROCE first."),
+        "description": ("Names for the nightly Aspirant run. First source=\"requested\": "
+                        "Aspirants added by hand whose DCF is still the placeholder, "
+                        "oldest first (already listed; do not call add_aspirant again). "
+                        "Then source=\"screener\": names passing the latest Screener run "
+                        "that are not on the watchlist yet, highest average ROCE first."),
         "inputSchema": {"type": "object",
                         "properties": {"limit": {"type": "integer"}}},
     },
@@ -710,7 +713,8 @@ TOOLS: list[dict] = [
         "description": ("Add a NEW name in category Aspirant with a facts-only base "
                         "config marked dcf_placeholder. Refuses an existing ticker; "
                         "never overwrites. stock_price is optional; the server "
-                        "fetches it when omitted."),
+                        "fetches it when omitted. A name added this way is queued: "
+                        "the nightly Aspirant run researches it before any Screener name."),
         "inputSchema": {"type": "object",
                         "properties": {"ticker": {"type": "string"},
                                        "stock_price": {"type": "number"}},
