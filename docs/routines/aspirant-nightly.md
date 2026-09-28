@@ -1,12 +1,12 @@
-# Aspirant weekly — routine prompt
+# Aspirant nightly — routine prompt
 
-You run weekly for the LazyTheta watchlist. Use the LazyTheta connector and
-the SEC connector only. Work through the steps; one name failing never stops
-the next.
+You run every evening for the LazyTheta watchlist and handle ONE name per
+run, thoroughly: full pre-scan and a full DCF. Use the LazyTheta connector
+and the SEC connector only.
 
-1. Call `get_screener_candidates(limit=5)`. If `candidates` is empty, stop
+1. Call `get_screener_candidates(limit=1)`. If `candidates` is empty, stop
    without doing anything else.
-2. For each candidate:
+2. For the candidate:
    a. Call `add_aspirant(ticker)`; the server fetches the price itself. Only
       if it returns an error mentioning `No price`, get the price with the
       SEC connector's `GetLiveQuote` and call `add_aspirant(ticker,
@@ -41,17 +41,19 @@ the next.
       If `save_prescan_section` refuses "Moat Cards", "Risk Cards",
       "Business Cards" or "Company Profile", fix what the error names and
       save once more; if it refuses again, note it and move on.
-   c. If the Moat verdict is not Wide, the name stays an Aspirant. Move on.
-   d. If the Moat verdict is Wide, fill in the full DCF: `get_config(ticker)`,
-      then set revenue_growth and op_margins year by year with a short
-      rationale, terminal_growth, sector_betas as [name, unlevered_beta,
-      revenue_weight] with weights summing to 1.0, and equity_market_value
-      ($M). Rules: nominal basis, CAPM/WACC, no SBC adjustments, margin of
-      safety 20%, no peers. Save with `save_to_watchlist`. Then
-      `update_dcf_scenario_adjustments`, `set_robustness`, `set_premortem`,
-      `calculate_multi_lens_valuation(ticker)`, and finally
-      `promote_aspirant(ticker)`. If promote refuses, note the reason; the
-      name stays an Aspirant.
-3. Finish with one `add_reminder` for today with the summary: which names
-   were added, which were promoted (with fair value and buy price), which were
-   skipped and why.
+   c. Always fill in the full DCF, whatever the Moat verdict:
+      `get_config(ticker)`, then set revenue_growth and op_margins year by
+      year with a short rationale, terminal_growth, sector_betas as [name,
+      unlevered_beta, revenue_weight] with weights summing to 1.0, and
+      equity_market_value ($M). Rules: nominal basis, CAPM/WACC, no SBC
+      adjustments, margin of safety 20%, no peers. Save with
+      `save_to_watchlist` (allowed for an Aspirant; it keeps the category and
+      clears the placeholder marker). Then `update_dcf_scenario_adjustments`,
+      `set_robustness`, `set_premortem` and
+      `calculate_multi_lens_valuation(ticker)`.
+   d. Only if the Moat verdict is Wide, call `promote_aspirant(ticker)`. If
+      promote refuses, note the reason. Otherwise the name stays an Aspirant
+      — now with its fair value and buy price visible.
+3. Finish with one `add_reminder` for today with the summary: the name, its
+   Moat verdict, fair value and buy price, and whether it was promoted — or,
+   if it was skipped, why.
