@@ -50,7 +50,7 @@ PHASE_NOTES = {
         "moves_on": "Payouts start (→ Capital Return) or revenue falls (→ Decline)"},
     5: {"looks_like": "Mature, rewarding shareholders",
         "valuation": "Trailing P/E, trailing price to free cash flow, reverse DCF",
-        "moves_on": "Revenue starts falling (→ Decline) or payouts stop (→ Operating Leverage)"},
+        "moves_on": "Payouts stop (→ Operating Leverage, or Decline if revenue falls)"},
     6: {"looks_like": "Revenue falling, business deteriorating",
         "valuation": "Price to book, liquidation value, asset-based valuation",
         "moves_on": "Revenue grows again (→ Operating Leverage)"},

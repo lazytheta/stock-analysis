@@ -163,24 +163,29 @@ def test_revenue_earnings_figure():
 def test_revenue_earnings_figure_uses_phase_ticks():
     years, rev, earn = [2021, 2022, 2023], [1000.0, 1500.0, 2400.0], [200.0, -50.0, None]
     fig = gp.revenue_earnings_figure(years, rev, earn, THEME)
-    vals, text = pg.money_ticks(rev + earn)
+    padded = gp.label_headroom_range(rev + earn)
+    vals, text = pg.money_ticks(padded)
     assert list(fig.layout.yaxis.tickvals) == vals
     assert list(fig.layout.yaxis.ticktext) == text
+    assert vals[-1] >= 2400 * 1.12 and vals[0] <= padded[0]
     ticks = dict(zip(vals, text))
-    assert ticks[2000.0] == "$2.0B" and ticks[-500.0] == "-$500M"
+    assert ticks[2000.0] == "$2.0B" and ticks[0] == "$0"
 
 
 def test_revenue_earnings_figure_range_from_zero_with_label_headroom():
     fig = gp.revenue_earnings_figure([2021, 2022], [1000.0, 2000.0], [100.0, 300.0], THEME)
     lo, hi = fig.layout.yaxis.range
-    assert lo == 0 and hi == 2000.0 * 1.12
+    assert lo == 0 and hi >= 2000.0 * 1.12
+    assert hi == fig.layout.yaxis.tickvals[-1]
     assert fig.layout.legend.y == 1.0 and fig.layout.margin.t <= 30
 
 
 def test_revenue_earnings_figure_range_below_zero_for_losses():
     fig = gp.revenue_earnings_figure([2021, 2022], [1000.0, 2000.0], [-200.0, 300.0], THEME)
     lo, hi = fig.layout.yaxis.range
-    assert lo < -200 and hi == 2000.0 * 1.12
+    assert lo < -200 and hi >= 2000.0 * 1.12
+    assert lo == gp.label_headroom_range([1000.0, 2000.0, -200.0, 300.0])[0]
+    assert hi == fig.layout.yaxis.tickvals[-1]
     assert gp.label_headroom_range([None]) is None
 
 

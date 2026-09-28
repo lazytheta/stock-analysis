@@ -160,9 +160,13 @@ def revenue_earnings_figure(years, revenue, earnings, theme) -> go.Figure:
             hovertemplate=f"%{{customdata}}<extra>{name}</extra>",
         ))
     fig.update_layout(**CHART_LAYOUT)
-    values = list(revenue) + list(earnings)
-    tickvals, ticktext = money_ticks(values)
-    fig.update_yaxes(range=label_headroom_range(values), tickmode="array",
+    padded = label_headroom_range(list(revenue) + list(earnings))
+    tickvals, ticktext = money_ticks(padded or [])
+    # Ticks come from the padded range and the axis runs up to the top tick,
+    # so the top gridline covers the label headroom; the bottom stays at 0
+    # (or the padded minimum with losses) rather than snapping to a tick.
+    y_range = [padded[0], tickvals[-1]] if padded else None
+    fig.update_yaxes(range=y_range, tickmode="array",
                      tickvals=tickvals, ticktext=ticktext, showgrid=True,
                      gridwidth=1, gridcolor="rgba(128,128,128,0.15)", zeroline=True,
                      zerolinecolor="rgba(128,128,128,0.35)")
