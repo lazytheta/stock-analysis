@@ -1,4 +1,8 @@
-"""Daily closes from Nasdaq into Supabase `price_history`, and reading them back.
+"""Daily closes into Supabase `price_history`, and reading them back.
+
+US tickers come from Nasdaq; non-US watchlist tickers with an ISIN in their
+config come from Boerse Frankfurt (Xetra) and are stored under the watchlist
+ticker (e.g. "RMS.PA").
 
 Why a table: Yahoo blocks the app's hosts, and a chart that fetched ten years
 of history on every page view would be exactly the traffic that gets a source
@@ -8,9 +12,10 @@ trading day; the app only reads.
 
 from __future__ import annotations
 
+import calendar
 import logging
 import time
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import quotes
 
@@ -18,6 +23,9 @@ logger = logging.getLogger(__name__)
 
 HISTORY_URL = ("https://api.nasdaq.com/api/quote/{symbol}/historical"
                "?assetclass={cls}&fromdate={start}&todate={end}&limit=9999")
+FRANKFURT_HISTORY_URL = ("https://api.boerse-frankfurt.de/v1/tradingview/history"
+                         "?symbol={mic}:{isin}&resolution=D&from={start}&to={end}")
+FRANKFURT_MIC = "XETR"
 TABLE = "price_history"
 YEARS = 10
 BENCHMARK = "SPY"
@@ -62,6 +70,36 @@ def fetch_history(symbol, start, end, fetch=None) -> list:
     return []
 
 
+def parse_frankfurt(payload) -> list:
+    """TradingView-style {"s":"ok","t":[unix],"c":[close]} -> ascending
+    [(iso_day, close)]. Days are UTC dates; a day seen twice keeps the last
+    close; closes <= 0 or non-numeric are dropped. "no_data" -> []."""
+    if not isinstance(payload, dict) or payload.get("s") != "ok":
+        return []
+    times, closes = payload.get("t") or [], payload.get("c") or []
+    by_day = {}
+    for stamp, close in zip(times, closes):
+        if isinstance(close, bool) or not isinstance(close, (int, float)) or close <= 0:
+            continue
+        if isinstance(stamp, bool) or not isinstance(stamp, (int, float)):
+            continue
+        day = datetime.fromtimestamp(stamp, UTC).date().isoformat()
+        by_day[day] = float(close)
+    return sorted(by_day.items())
+
+
+def _unix(day) -> int:
+    return calendar.timegm(day.timetuple())
+
+
+def fetch_frankfurt_history(isin, start, end, fetch=None) -> list:
+    """Xetra daily closes for an ISIN from start through end (inclusive)."""
+    fetch = fetch or quotes._http_get_json
+    return parse_frankfurt(fetch(FRANKFURT_HISTORY_URL.format(
+        mic=FRANKFURT_MIC, isin=isin, start=_unix(start),
+        end=_unix(end + timedelta(days=1)) - 1)))
+
+
 def start_date(last_day, today, years: int = YEARS):
     if last_day is None:
         try:
@@ -85,7 +123,9 @@ def _split_suspected(rows, stored) -> bool:
 
 def update_ticker(ticker, today, last_day, fetch, upsert, batch=500,
                   stored=None) -> int:
-    """Fetch and upsert new closes. With a last_day, the fetch overlaps the
+    """Fetch and upsert new closes. `fetch(ticker, start, end)` is the
+    source's history function (Nasdaq for US, Frankfurt bound to the ISIN for
+    EU). With a last_day, the fetch overlaps the
     last OVERLAP_DAYS so a split (stored closes no longer matching) triggers a
     full re-fetch that overwrites the whole window."""
     if last_day is None:
@@ -105,17 +145,35 @@ def update_ticker(ticker, today, last_day, fetch, upsert, batch=500,
     return len(records)
 
 
-def _tickers(client) -> list:
-    names, start = [], 0
+def _watchlist_rows(client, cols) -> list:
+    """All watchlist_configs rows, paged with a stable order (without one,
+    PostgREST pages may overlap or skip rows)."""
+    out, start = [], 0
     while True:
-        rows = (client.table("watchlist_configs").select("ticker")
+        rows = (client.table("watchlist_configs").select(cols).order("ticker")
                 .range(start, start + PAGE - 1).execute().data or [])
         if not rows:
             break
-        names.extend(r.get("ticker") for r in rows)
+        out.extend(rows)
         start += len(rows)
+    return out
+
+
+def _tickers(client) -> list:
+    names = [r.get("ticker") for r in _watchlist_rows(client, "ticker")]
     us = [t for t in dict.fromkeys(names) if quotes._nasdaq_symbol_ok(t)]
     return [t for t in us if t != BENCHMARK] + [BENCHMARK]
+
+
+def _eu_tickers(client) -> dict:
+    """{ticker: isin} for non-US watchlist tickers whose config has an ISIN."""
+    out = {}
+    for r in _watchlist_rows(client, "ticker, isin:config->>isin"):
+        ticker, isin = r.get("ticker"), r.get("isin")
+        if (isinstance(ticker, str) and ticker and not quotes._nasdaq_symbol_ok(ticker)
+                and isinstance(isin, str) and isin.strip()):
+            out.setdefault(ticker, isin.strip())
+    return out
 
 
 def _recent(client, ticker):
@@ -128,27 +186,32 @@ def _recent(client, ticker):
             {r["day"]: float(r["close"]) for r in rows})
 
 
-def run(client, today=None, fetch=None, sleep=time.sleep) -> dict:
+def run(client, today=None, fetch=None, fetch_eu=None, sleep=time.sleep) -> dict:
+    """US tickers via `fetch(symbol, start, end)` (Nasdaq), then non-US
+    tickers with an ISIN via `fetch_eu(isin, start, end)` (Frankfurt)."""
     today = today or date.today()
     fetch = fetch or fetch_history
-    tickers = _tickers(client)
+    fetch_eu = fetch_eu or fetch_frankfurt_history
+    jobs = [(t, fetch) for t in _tickers(client)]
+    for ticker, isin in _eu_tickers(client).items():
+        jobs.append((ticker, lambda _t, a, b, isin=isin: fetch_eu(isin, a, b)))
 
     def upsert(records):
         client.table(TABLE).upsert(records, on_conflict="ticker,day").execute()
 
     total, errors = 0, []
-    for i, ticker in enumerate(tickers):
+    for i, (ticker, source) in enumerate(jobs):
         if i:
             sleep(0.3)
         try:
             last_day, stored = _recent(client, ticker)
-            total += update_ticker(ticker, today, last_day, fetch, upsert,
+            total += update_ticker(ticker, today, last_day, source, upsert,
                                    stored=stored)
         except Exception as e:
             logger.warning("price history for %s failed: %s: %s",
                            ticker, type(e).__name__, e)
             errors.append(ticker)
-    return {"tickers": len(tickers), "rows": total, "errors": errors}
+    return {"tickers": len(jobs), "rows": total, "errors": errors}
 
 
 def load_series(client, tickers, since) -> dict:

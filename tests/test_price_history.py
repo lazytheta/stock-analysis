@@ -226,3 +226,149 @@ def test_tickers_pages_past_first_page():
     pages = {0: [{"ticker": "NFLX"}], 1: [{"ticker": "MSFT"}, {"ticker": "NFLX"}]}
     db = {("data", "watchlist_configs"): lambda t: pages.get(t._range[0], [])}
     assert ph._tickers(FakeClient(db)) == ["NFLX", "MSFT", "SPY"]
+
+
+# ── Frankfurt (Xetra) history for non-US tickers ───────────────────────────
+
+def _ts(iso, hour=0):
+    from datetime import UTC, datetime
+    d = date.fromisoformat(iso)
+    return int(datetime(d.year, d.month, d.day, hour, tzinfo=UTC).timestamp())
+
+
+def test_parse_frankfurt_dates_skips_bad_closes_and_dedupes():
+    p = {"s": "ok",
+         "t": [_ts("2026-09-24"), _ts("2026-09-22"), _ts("2026-09-23"),
+               _ts("2026-09-24", 15), _ts("2026-09-21")],
+         "c": [10.0, 8.0, 0, 11.5, None]}
+    assert ph.parse_frankfurt(p) == [("2026-09-22", 8.0), ("2026-09-24", 11.5)]
+
+
+def test_parse_frankfurt_no_data_and_garbage():
+    assert ph.parse_frankfurt({"s": "no_data"}) == []
+    assert ph.parse_frankfurt(None) == []
+    assert ph.parse_frankfurt({"s": "ok", "t": [1], "c": []}) == []
+    assert ph.parse_frankfurt({"s": "ok", "t": ["x"], "c": ["y"]}) == []
+
+
+def test_fetch_frankfurt_history_builds_url():
+    urls = []
+
+    def fetch(url):
+        urls.append(url)
+        return {"s": "ok", "t": [_ts("2026-09-24")], "c": [2100.0]}
+
+    out = ph.fetch_frankfurt_history("FR0000052292", date(2026, 9, 1),
+                                     date(2026, 9, 25), fetch=fetch)
+    assert out == [("2026-09-24", 2100.0)]
+    assert "symbol=XETR:FR0000052292" in urls[0]
+    assert "resolution=D" in urls[0]
+    assert f"from={_ts('2026-09-01')}" in urls[0]
+    assert f"to={_ts('2026-09-26') - 1}" in urls[0]
+
+
+def test_eu_tickers_only_non_us_with_isin_and_orders_pages():
+    seen_orders = []
+
+    def data(t):
+        seen_orders.append(t._order)
+        if t._range[0] != 0:
+            return []
+        return [{"ticker": "RMS.PA", "isin": "FR0000052292"},
+                {"ticker": "NFLX", "isin": "US64110L1061"},
+                {"ticker": "ENX.PA", "isin": ""},
+                {"ticker": "ASML.AS", "isin": None},
+                {"ticker": "SAP.DE", "isin": "DE0007164600"},
+                {"ticker": "RMS.PA", "isin": "FR0000052292"}]
+
+    db = {("data", "watchlist_configs"): data}
+    assert ph._eu_tickers(FakeClient(db)) == {"RMS.PA": "FR0000052292",
+                                              "SAP.DE": "DE0007164600"}
+    assert all(o == ("ticker", False) for o in seen_orders)
+
+
+def test_us_ticker_paging_uses_order():
+    seen = []
+
+    def data(t):
+        seen.append(t._order)
+        return [{"ticker": "NFLX"}] if t._range[0] == 0 else []
+
+    ph._tickers(FakeClient({("data", "watchlist_configs"): data}))
+    assert seen and all(o == ("ticker", False) for o in seen)
+
+
+def _eu_db(stored_by_ticker=None):
+    stored_by_ticker = stored_by_ticker or {}
+
+    def ph_data(t):
+        for op, col, val in t.filters:
+            if op == "eq" and col == "ticker":
+                return stored_by_ticker.get(val, [])
+        return []
+
+    return {
+        ("data", "watchlist_configs"): _first_page([
+            {"ticker": "NFLX", "isin": "US64110L1061"},
+            {"ticker": "RMS.PA", "isin": "FR0000052292"},
+            {"ticker": "BAD.DE", "isin": "DE000BAD0000"}]),
+        ("data", "price_history"): ph_data,
+    }
+
+
+def test_run_eu_backfill_under_watchlist_ticker_and_continues_on_http_error():
+    db = _eu_db()
+    eu_calls = []
+
+    def fetch_eu(isin, start, end):
+        eu_calls.append((isin, start, end))
+        if isin == "DE000BAD0000":
+            raise RuntimeError("HTTP Error 500")
+        return [("2026-09-24", 2100.0)]
+
+    out = ph.run(FakeClient(db), today=date(2026, 9, 25),
+                 fetch=lambda s, a, b: [("2026-09-24", 1.0)],
+                 fetch_eu=fetch_eu, sleep=lambda s: None)
+    assert out["tickers"] == 4            # NFLX, SPY, RMS.PA, BAD.DE
+    assert out["errors"] == ["BAD.DE"]
+    assert ("FR0000052292", date(2016, 9, 25), date(2026, 9, 25)) in eu_calls
+    rms = [r for _, recs, _ in db["upserts"] for r in recs if r["ticker"] == "RMS.PA"]
+    assert rms == [{"ticker": "RMS.PA", "day": "2026-09-24", "close": 2100.0}]
+
+
+def test_run_eu_incremental_and_split_via_shared_update_ticker():
+    stored = [{"day": "2026-09-22", "close": 2000.0},
+              {"day": "2026-09-21", "close": 2000.0}]
+    db = _eu_db({"RMS.PA": stored})
+    calls = []
+
+    def fetch_eu(isin, start, end):
+        calls.append((isin, start))
+        if isin != "FR0000052292":
+            return []
+        if start == date(2026, 9, 15):
+            return [("2026-09-22", 1000.0), ("2026-09-23", 1010.0)]
+        return [("2016-09-26", 100.0), ("2026-09-22", 1000.0), ("2026-09-23", 1010.0)]
+
+    out = ph.run(FakeClient(db), today=date(2026, 9, 25),
+                 fetch=lambda s, a, b: [], fetch_eu=fetch_eu, sleep=lambda s: None)
+    assert ("FR0000052292", date(2026, 9, 15)) in calls     # overlap window
+    assert ("FR0000052292", date(2016, 9, 25)) in calls     # split -> full
+    rms = [r for _, recs, _ in db["upserts"] for r in recs if r["ticker"] == "RMS.PA"]
+    assert len(rms) == 3
+    assert out["errors"] == []
+
+
+def test_run_eu_incremental_without_split_writes_only_new_days():
+    stored = [{"day": "2026-09-22", "close": 2000.0}]
+    db = _eu_db({"RMS.PA": stored})
+
+    def fetch_eu(isin, start, end):
+        if isin != "FR0000052292":
+            return []
+        return [("2026-09-22", 2000.0), ("2026-09-23", 2010.0)]
+
+    ph.run(FakeClient(db), today=date(2026, 9, 25),
+           fetch=lambda s, a, b: [], fetch_eu=fetch_eu, sleep=lambda s: None)
+    rms = [r for _, recs, _ in db["upserts"] for r in recs if r["ticker"] == "RMS.PA"]
+    assert rms == [{"ticker": "RMS.PA", "day": "2026-09-23", "close": 2010.0}]
