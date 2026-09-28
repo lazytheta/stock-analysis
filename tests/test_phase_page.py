@@ -125,8 +125,24 @@ def test_revenue_ocf_figure():
     assert list(fig.data[0].customdata) == ["$1.0B", "$1.5B", "$2.4B"]
     assert fig.data[1].customdata[2] == "—"
     assert fig.layout.height == 320
-    assert fig.layout.yaxis.tickprefix == "$"
+    assert all(t.lstrip("-").startswith("$") for t in fig.layout.yaxis.ticktext)
     assert fig.layout.legend.orientation == "h"
+
+
+def test_revenue_ocf_figure_ticks_in_billions():
+    years, rev, cfo = [2021, 2022, 2023], [1000.0, 1500.0, 2400.0], [200.0, -50.0, None]
+    fig = pg.revenue_ocf_figure(years, rev, cfo, THEME)
+    ticks = dict(zip(fig.layout.yaxis.tickvals, fig.layout.yaxis.ticktext))
+    assert ticks[2000.0] == "$2.0B"
+    assert ticks[0] == "$0"
+    assert min(ticks) <= -50 and max(ticks) >= 2400
+    assert ticks[-500.0] == "-$500M"
+
+
+def test_revenue_ocf_figure_ticks_in_millions():
+    fig = pg.revenue_ocf_figure([2024, 2025], [510.0, 640.0], [90.0, 120.0], THEME)
+    assert "$600M" in fig.layout.yaxis.ticktext
+    assert not any(t.endswith("B") for t in fig.layout.yaxis.ticktext)
 
 
 # ── payouts ────────────────────────────────────────────────────────────────

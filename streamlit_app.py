@@ -28,6 +28,9 @@ import business_revenue
 import overview_chart
 import overview_metrics
 import overview_page
+import phase_page
+import phase_payouts
+import question_cards
 import price_history
 from error_logger import log_error, log_error_with_trace
 from dcf_calculator import (compute_wacc, compute_intrinsic_value, compute_reverse_dcf,
@@ -2880,6 +2883,16 @@ st.markdown(f"""
         padding: 20px 24px 24px;
         margin: 0 0 18px;
     }}
+    /* Phase tab: the "Revenue & operating cash flow" section holds the
+       range control and the Plotly chart, styled like .st-key-qc_ov_price. */
+    .st-key-qc_phase_chart {{
+        background: var(--card);
+        border-top: 3px solid var(--accent);
+        border-radius: 24px;
+        box-shadow: var(--shadow);
+        padding: 20px 24px 24px;
+        margin: 0 0 18px;
+    }}
     /* Business tab: the "BY GEOGRAPHY" column (header + Plotly map + legend)
        as one continuous flat panel, matching the segment panel's own flat
        background instead of three separately-rounded pieces with a seam
@@ -5229,9 +5242,9 @@ def _dcf_editor(ticker):
         logger.warning("fundamentals for %s failed: %s", ticker, e)
         _fund_error, fund = e, {}
 
-    (_tab_overview, _tab_notes, _tab_business, _tab_moat, _tab_risk, _tab_fundamentals,
-     _tab_dcf, _tab_rdcf, _tab_peers, _tab_dividend, _tab_history) = st.tabs(
-        ["Overview", "Pre-Scan", "Business", "Moat", "Risk", "Fundamentals", "DCF",
+    (_tab_overview, _tab_notes, _tab_business, _tab_phase, _tab_moat, _tab_risk,
+     _tab_fundamentals, _tab_dcf, _tab_rdcf, _tab_peers, _tab_dividend, _tab_history) = st.tabs(
+        ["Overview", "Pre-Scan", "Business", "Phase", "Moat", "Risk", "Fundamentals", "DCF",
          "Reverse DCF", "Peer Comparison", "Dividend", "History"])
 
     # Overview: three white sections -- Company (profile + at a glance), Price vs
@@ -5373,6 +5386,70 @@ def _dcf_editor(ticker):
             else:
                 st.caption("No revenue breakdown yet. It comes with the \"Business Cards\" section.")
         st.markdown(business_cards.quality_section_html(_bcontent, T), unsafe_allow_html=True)
+
+    # Phase: the growth-cycle phase (from "Business Phase Analysis", else the
+    # Scorecard), revenue vs operating cash flow, and the two computed payout
+    # cards. Read-only; every render path degrades to a caption.
+    with _tab_phase:
+        _pnotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
+        try:
+            st.markdown(phase_page.phase_section_html(
+                _pnotes.get("Business Phase Analysis"), _pnotes.get("Scorecard"), T),
+                unsafe_allow_html=True)
+        except Exception as e:
+            logger.warning("Phase section for %s failed: %s", ticker, e)
+            st.caption("Phase analysis unavailable right now.")
+
+        with st.container(key="qc_phase_chart"):
+            st.markdown('<div class="qc-label">Revenue &amp; operating cash flow</div>',
+                        unsafe_allow_html=True)
+            _prng = st.segmented_control(
+                "Range", ("5Y", "10Y"), default="5Y",
+                key=f"ph_range_{ticker}", label_visibility="collapsed",
+            ) or "5Y"
+            try:
+                _pyears, _prev, _pcfo = phase_payouts.revenue_ocf_series(
+                    fund, 10 if _prng == "10Y" else 5)
+                if not _pyears:
+                    raise ValueError("no revenue years")
+                _pfig = phase_page.revenue_ocf_figure(_pyears, _prev, _pcfo, T)
+                _pcap = phase_payouts.revenue_ocf_caption(_pyears, _prev, _pcfo)
+            except Exception as e:
+                logger.warning("Phase revenue chart for %s failed: %s", ticker, e)
+                _pfig = None
+            if _pfig is not None:
+                st.plotly_chart(_pfig, width="stretch", config={"displayModeBar": False})
+                if _pcap:
+                    st.markdown(
+                        f'<div style="font-size:.78rem;color:{T.get("text_muted", "#888")};'
+                        f'margin-top:4px">{question_cards.esc(_pcap)}</div>',
+                        unsafe_allow_html=True)
+            else:
+                st.caption("No revenue history available.")
+
+        try:
+            _pcf = _overview_cashflow(ticker)
+        except Exception as e:
+            logger.warning("cash flow statement for %s failed: %s", ticker, e)
+            _pcf = None
+        try:
+            _pinc = _overview_income(ticker)
+        except Exception as e:
+            logger.warning("income statement for %s failed: %s", ticker, e)
+            _pinc = None
+        try:
+            _pprice = live_price if live_price > 0 else None
+            _pnet = (overview_metrics.glance(fund, cfg) or {}).get("net_cash_m")
+            _ppay_html = phase_page.payouts_section_html(
+                phase_payouts.buyback_card(fund, _pcf, _pprice),
+                phase_payouts.dividend_card(fund, _pcf, _pinc, _pprice, _pnet), T)
+        except Exception as e:
+            logger.warning("Phase payouts for %s failed: %s", ticker, e)
+            _ppay_html = None
+        if _ppay_html:
+            st.markdown(_ppay_html, unsafe_allow_html=True)
+        else:
+            st.caption("Payouts unavailable right now.")
 
     # Moat: the Moat Analysis as two summary cards, then the five question cards
     # from the "Moat Cards" section. Read-only; Pre-Scan stays the place to edit.

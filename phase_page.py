@@ -11,6 +11,8 @@ every <style> block is emitted on one line.
 
 from __future__ import annotations
 
+import math
+
 import plotly.graph_objects as go
 
 import overview_metrics as om
@@ -203,6 +205,31 @@ def phase_section_html(analysis_text, scorecard_text, theme):
 
 # ── revenue & operating cash flow ───────────────────────────────────────────
 
+def _tick_label(t):
+    if t == 0:
+        return "$0"
+    return ("-" if t < 0 else "") + om.fmt_money_m(abs(t))
+
+
+def _money_ticks(values, n=5):
+    """Round y-axis ticks ($M) from min(0, lowest) to the highest value, about
+    `n` steps of 1/2/5 x 10^k, each labelled like fmt_money_m ("$2.4B",
+    "$510M"). Empty when there is no data."""
+    vals = [v for v in values if v is not None]
+    if not vals:
+        return [], []
+    lo, hi = min(0.0, min(vals)), max(0.0, max(vals))
+    span = hi - lo
+    if span <= 0:
+        return [0.0], ["$0"]
+    raw = span / n
+    mag = 10 ** math.floor(math.log10(raw))
+    step = next(m * mag for m in (1, 2, 5, 10) if m * mag >= raw)
+    first, last = math.floor(lo / step), math.ceil(hi / step)
+    ticks = [k * step for k in range(first, last + 1)]
+    return ticks, [_tick_label(t) for t in ticks]
+
+
 def revenue_ocf_figure(years, revenue, cfo, theme) -> go.Figure:
     """Revenue and operating cash flow ($M) per fiscal year, two lines."""
     xs = [f"FY{y}" for y in years]
@@ -223,7 +250,8 @@ def revenue_ocf_figure(years, revenue, cfo, theme) -> go.Figure:
         plot_bgcolor="rgba(0,0,0,0)",
         legend=dict(orientation="h", x=0, xanchor="left", y=1.12, yanchor="bottom"),
     )
-    fig.update_yaxes(tickprefix="$", ticksuffix="M", tickformat=",.0f", showgrid=True,
+    tickvals, ticktext = _money_ticks(list(revenue) + list(cfo))
+    fig.update_yaxes(tickmode="array", tickvals=tickvals, ticktext=ticktext, showgrid=True,
                      gridwidth=1, gridcolor="rgba(128,128,128,0.15)", zeroline=True,
                      zerolinecolor="rgba(128,128,128,0.35)")
     fig.update_xaxes(type="category", showgrid=False)
