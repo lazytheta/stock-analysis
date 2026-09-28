@@ -114,11 +114,23 @@ matching prompt to answer.
       Potential analysis available for this ticker)" or similar in the
       prompt — that is acceptable, answer with what is there).
    b. SEC-MCP's `GetAnalystEstimates` is the only source for the "consensus"
-      block: next-fiscal-year revenue and EPS growth, the analyst count and
-      the source name plus the date you pulled it. If SEC-MCP is
-      unavailable, or `GetAnalystEstimates` returns nothing usable for the
-      next fiscal year, omit the "consensus" key entirely — per the
-      prompt's own instruction, never estimate the growth figures by hand.
+      block. It returns level estimates (revenue and EPS, each with a
+      mean/median, an analyst count and an accounting basis), not growth
+      rates, so derive the block — computing this ratio is required; only
+      inventing or estimating the consensus numbers themselves is forbidden:
+      fiscal_year = the label of the FIRST fiscal year not yet reported;
+      revenue_growth_pct / eps_growth_pct = (consensus mean for that year ÷
+      the last REPORTED fiscal-year actual − 1) × 100, one decimal, using the
+      actual on the same accounting basis as the estimate (EPS estimate
+      adjusted/non-GAAP and no same-basis actual available → eps_growth_pct
+      null); null for a growth figure when the change is outside −100% to
+      1000% or the prior-year value is ≤ 0; analysts = the estimate's
+      analyst count; source names the basis plus source and date (e.g.
+      "compiled consensus, adjusted EPS, Equibles 2026-09-24"). If SEC-MCP
+      is unavailable, or `GetAnalystEstimates` returns nothing usable for
+      that fiscal year, omit the "consensus" key entirely — per the
+      prompt's own instruction, never estimate the consensus numbers by
+      hand.
    c. Answer the prompt exactly as it asks: one fenced JSON block with the
       "analysis" block (score 1-5, summary, three points), the "consensus"
       block when available, and the two cards in the listed order.

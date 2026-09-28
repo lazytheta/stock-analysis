@@ -1,5 +1,5 @@
 """HTML and the chart for the Growth tab: the "Growth" section (Growth
-Analysis + Consensus cards), the Revenue & Earnings figure with year-on-year
+Analysis + Consensus cards), the Revenue & net income figure with year-on-year
 labels, the CAGR table under it and the "Growth questions" flip cards.
 
 Pure builders, no Streamlit import; the tab in streamlit_app.py fetches the
@@ -97,7 +97,7 @@ def growth_section_html(content: str | None, theme) -> str:
     return qc.section_html("Growth", f'{qc.css(GROWTH_STYLE)}{inner}')
 
 
-# ── revenue & earnings ─────────────────────────────────────────────────────
+# ── revenue & net income ──────────────────────────────────────────────────
 
 def revenue_earnings_series(fund, years: int) -> tuple[list[int], list, list]:
     """The last `years` fiscal years that have revenue, with revenue and net
@@ -128,15 +128,17 @@ def yoy_labels(values) -> list[str]:
 
 def revenue_earnings_figure(years, revenue, earnings, theme) -> go.Figure:
     """Revenue and net income ($M) per fiscal year as two lines, each point
-    labelled with its year-on-year change."""
+    labelled with its year-on-year change (net income below its point, so
+    the two label rows do not collide)."""
     xs = [f"FY{y}" for y in years]
     fig = go.Figure()
-    for name, ys, colour in (("Revenue", list(revenue), theme.get("accent", "#81b29a")),
-                             ("Earnings", list(earnings), EARNINGS_COLOUR)):
+    for name, ys, colour, pos in (
+            ("Revenue", list(revenue), theme.get("accent", "#81b29a"), "top center"),
+            ("Net income", list(earnings), EARNINGS_COLOUR, "bottom center")):
         fig.add_trace(go.Scatter(
             x=xs, y=ys, mode="lines+markers+text", name=name,
             line=dict(color=colour, width=2.5), marker=dict(size=7, color=colour),
-            text=yoy_labels(ys), textposition="top center",
+            text=yoy_labels(ys), textposition=pos,
             textfont=dict(size=11, color=colour), cliponaxis=False,
             customdata=[om.fmt_money_m(v) for v in ys],
             hovertemplate=f"%{{customdata}}<extra>{name}</extra>",
@@ -158,14 +160,14 @@ def revenue_earnings_figure(years, revenue, earnings, theme) -> go.Figure:
 
 
 def cagr_table_html(fund) -> str:
-    """Revenue / Earnings x 3Y / 5Y / 10Y compound annual growth at the
+    """Revenue / Net income x 3Y / 5Y / 10Y compound annual growth at the
     fiscal year (overview_metrics' rule: only when start and end are > 0),
     in the Overview's borderless growth-table style."""
     fund = fund or {}
     fy = om._fiscal_year(fund)
     head = "".join(f"<th>{n}Y</th>" for n in om.HORIZONS)
     rows = []
-    for label, key in (("Revenue", "revenue"), ("Earnings", "net_income")):
+    for label, key in (("Revenue", "revenue"), ("Net income", "net_income")):
         cells = "".join(
             f"<td>{qc.esc(om.fmt_pct(om._cagr(fund, key, fy, n) if fy else None, signed=True))}"
             f"</td>" for n in om.HORIZONS)

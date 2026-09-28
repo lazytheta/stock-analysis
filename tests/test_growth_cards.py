@@ -130,6 +130,21 @@ def test_consensus_invalid_growth_pct_raises(field, value):
         gc.parse_growth_cards(json.dumps(p))
 
 
+@pytest.mark.parametrize("value", [-100, 1000, -100.0, 1000.0])
+def test_consensus_growth_pct_boundaries_accepted(value):
+    p = _payload()
+    p["consensus"]["revenue_growth_pct"] = value
+    assert gc.parse_growth_cards(json.dumps(p))["consensus"]["revenue_growth_pct"] == value
+
+
+@pytest.mark.parametrize("value", [-100.1, 1000.1])
+def test_consensus_growth_pct_just_outside_boundaries_rejected(value):
+    p = _payload()
+    p["consensus"]["revenue_growth_pct"] = value
+    with pytest.raises(ValueError, match="revenue_growth_pct"):
+        gc.parse_growth_cards(json.dumps(p))
+
+
 @pytest.mark.parametrize("field", ["fiscal_year", "source"])
 def test_consensus_empty_string_field_raises(field):
     p = _payload()
@@ -204,6 +219,19 @@ def test_prompt_has_all_placeholders_and_never_estimate():
                   "{prior:Business Analysis}", "{prior:Key Metrics}",
                   "GetAnalystEstimates", "never estimate"):
         assert token in gc.PROMPT
+
+
+def test_prompt_explains_deriving_consensus_growth():
+    # GetAnalystEstimates returns levels, not growth: the prompt must say how
+    # to turn them into growth figures and that doing so is required.
+    for phrase in ("FIRST fiscal year not yet reported",
+                   "last REPORTED fiscal-year actual",
+                   "same accounting basis",
+                   "set eps_growth_pct to null",
+                   "computing this ratio is required",
+                   "Use null for a growth figure when the change is outside "
+                   "−100% to 1000% or the prior-year value is ≤ 0."):
+        assert phrase in " ".join(gc.PROMPT.split()), phrase
 
 
 def test_prompt_names_every_item():

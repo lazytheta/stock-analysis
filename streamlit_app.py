@@ -2902,7 +2902,7 @@ st.markdown(f"""
         padding: 20px 24px 24px;
         margin: 0 0 18px;
     }}
-    /* Growth tab: the "Revenue & earnings" section holds the range control,
+    /* Growth tab: the "Revenue & net income" section holds the range control,
        the Plotly chart and the CAGR table, styled like .st-key-qc_phase_chart. */
     .st-key-qc_growth_chart {{
         background: var(--card);
@@ -5487,7 +5487,7 @@ def _dcf_editor(ticker):
                     unsafe_allow_html=True)
 
     # Growth: the Growth Analysis + analyst consensus cards (from "Growth Cards"),
-    # revenue vs earnings with the CAGR table, then the two growth question
+    # revenue vs net income with the CAGR table, then the two growth question
     # cards. Read-only; every render path degrades to a caption.
     with _tab_growth:
         _gnotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
@@ -5499,7 +5499,7 @@ def _dcf_editor(ticker):
             st.caption("Growth analysis unavailable right now.")
 
         with st.container(key="qc_growth_chart"):
-            st.markdown('<div class="qc-label">Revenue &amp; earnings</div>',
+            st.markdown('<div class="qc-label">Revenue &amp; net income</div>',
                         unsafe_allow_html=True)
             _grng = st.segmented_control(
                 "Range", ("5Y", "10Y"), default="5Y",

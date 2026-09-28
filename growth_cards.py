@@ -50,12 +50,25 @@ line with a number or fact from the analyses above or the filings}.
 
 consensus: the next-fiscal-year revenue and EPS growth consensus, from a
 filings-grade source only -- call the SEC connector's `GetAnalystEstimates`
-for {ticker}. State the fiscal year it covers (e.g. "FY2027"), the analyst
-count, and the source name plus the date you pulled it (e.g.
-"SEC-MCP GetAnalystEstimates, 2026-09-24"). If `GetAnalystEstimates` is
-unavailable, or returns nothing usable for the next fiscal year, OMIT the
-"consensus" key entirely -- do not send it as null, and never estimate
-revenue or EPS growth by hand.
+for {ticker}. It returns LEVEL estimates (revenue and EPS, each with a
+mean/median, an analyst count and an accounting basis), not growth rates, so
+you must derive the growth figures yourself -- computing this ratio is
+required; only inventing or estimating the consensus numbers themselves is
+forbidden:
+- fiscal_year: the label of the FIRST fiscal year not yet reported
+  (e.g. "FY2027").
+- revenue_growth_pct / eps_growth_pct: (consensus mean for that year /
+  the last REPORTED fiscal-year actual - 1) x 100, one decimal. Use the
+  actual on the same accounting basis as the estimate; if the EPS estimate
+  is adjusted/non-GAAP and no same-basis actual is available, set
+  eps_growth_pct to null.
+- Use null for a growth figure when the change is outside −100% to 1000% or the prior-year value is ≤ 0.
+- analysts: the estimate's analyst count.
+- source: name the basis and the source plus the date you pulled it
+  (e.g. "compiled consensus, adjusted EPS, Equibles 2026-09-24").
+If `GetAnalystEstimates` is unavailable, or returns nothing usable for the
+first unreported fiscal year, OMIT the "consensus" key entirely -- do not
+send it as null, and never estimate the consensus revenue or EPS by hand.
 
 For each of the two questions, in exactly this order, pick an answer
 (0 = worst, 2 = best):
@@ -73,7 +86,8 @@ Output ONLY a fenced JSON block, nothing before or after:
                "points": [{"label": "...", "text": "..."}, {"label": "...", "text": "..."},
                           {"label": "...", "text": "..."}]},
  "consensus": {"fiscal_year": "FY2027", "revenue_growth_pct": 15.2, "eps_growth_pct": 12.0,
-               "analysts": 23, "source": "SEC-MCP GetAnalystEstimates, 2026-09-24"},
+               "analysts": 23,
+               "source": "compiled consensus, adjusted EPS, Equibles 2026-09-24"},
  "cards": [
   {"source": "industry", "pick": 2, "summary": "...",
    "points": [{"label": "...", "text": "..."}, {"label": "...", "text": "..."},

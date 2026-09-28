@@ -144,7 +144,7 @@ def test_revenue_earnings_figure():
     years, rev, earn = [2021, 2022, 2023], [1000.0, 1500.0, 2400.0], [200.0, -50.0, None]
     fig = gp.revenue_earnings_figure(years, rev, earn, THEME)
     assert len(fig.data) == 2
-    assert [t.name for t in fig.data] == ["Revenue", "Earnings"]
+    assert [t.name for t in fig.data] == ["Revenue", "Net income"]
     assert list(fig.data[0].x) == ["FY2021", "FY2022", "FY2023"]
     assert list(fig.data[0].y) == rev and list(fig.data[1].y) == earn
     assert fig.data[0].line.color == "#2f7d4f"
@@ -152,6 +152,7 @@ def test_revenue_earnings_figure():
     assert list(fig.data[0].text) == ["", "+50.0%", "+60.0%"]
     assert list(fig.data[1].text) == ["", "-125.0%", ""]
     assert fig.data[0].textposition == "top center"
+    assert fig.data[1].textposition == "bottom center"
     assert "text" in fig.data[0].mode and "markers" in fig.data[0].mode
     assert list(fig.data[0].customdata) == ["$1.0B", "$1.5B", "$2.4B"]
     assert fig.layout.height == 340
@@ -182,7 +183,7 @@ def test_cagr_table_values_and_dashes():
     assert "<th>3Y</th><th>5Y</th><th>10Y</th>" in html
     rev_row = re.search(r"<tr><td>Revenue</td>(.*?)</tr>", html).group(1)
     assert rev_row.count("+10.0%") == 3
-    earn_row = re.search(r"<tr><td>Earnings</td>(.*?)</tr>", html).group(1)
+    earn_row = re.search(r"<tr><td>Net income</td>(.*?)</tr>", html).group(1)
     # 3Y: 10 -> 20 over 2021..2024 = +26.0%; 5Y start is -5 -> dash; 10Y start None -> dash
     assert "+26.0%" in earn_row
     assert earn_row.count("—") == 2

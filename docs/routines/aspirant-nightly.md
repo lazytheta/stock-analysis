@@ -42,10 +42,20 @@ and the SEC connector only.
       every `{prior:…}` in the prompt you are about to answer is actually
       filled in, not still a bare placeholder. For "Growth Cards", the
       "consensus" block comes only from the SEC connector's
-      `GetAnalystEstimates` (next-fiscal-year revenue and EPS growth, the
-      analyst count, and the source name plus the date pulled); if that
-      call is unavailable or returns nothing usable, omit the "consensus"
-      key entirely — never estimate it by hand. If `save_prescan_section`
+      `GetAnalystEstimates`, which returns level estimates (revenue and EPS
+      with mean/median, analyst count and accounting basis), not growth
+      rates: derive revenue_growth_pct / eps_growth_pct = (consensus mean
+      for the FIRST fiscal year not yet reported ÷ the last REPORTED
+      fiscal-year actual − 1) × 100, one decimal, on the same accounting
+      basis (adjusted/non-GAAP EPS estimate without a same-basis actual →
+      eps_growth_pct null; null too when the change is outside −100% to
+      1000% or the prior-year value is ≤ 0); fiscal_year = that first
+      unreported year's label; analysts = the estimate's count; source
+      names basis, source and date (e.g. "compiled consensus, adjusted
+      EPS, Equibles 2026-09-24"). Computing this ratio is required; only
+      inventing or estimating the consensus numbers themselves is
+      forbidden. If the call is unavailable or returns nothing usable, omit
+      the "consensus" key entirely — never estimate it by hand. If `save_prescan_section`
       refuses "Moat Cards", "Risk Cards", "Business Cards", "Company
       Profile" or "Growth Cards", fix what the error names and save once
       more; if it refuses again, note it and move on.

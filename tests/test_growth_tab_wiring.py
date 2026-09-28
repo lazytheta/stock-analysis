@@ -48,7 +48,7 @@ def test_growth_block_degrades_to_captions():
 def test_chart_container_and_css_rule():
     block = _growth_block()
     assert 'st.container(key="qc_growth_chart")' in block
-    assert "Revenue &amp; earnings" in block
+    assert "Revenue &amp; net income" in block
     assert '("5Y", "10Y")' in block and 'default="5Y"' in block
     assert 'key=f"gr_range_{ticker}"' in block
     assert 'or "5Y"' in block
