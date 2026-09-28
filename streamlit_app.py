@@ -24,6 +24,7 @@ import moat_cards
 import risk_cards
 import business_cards
 import company_profile
+import growth_cards
 import business_revenue
 import overview_chart
 import overview_metrics
@@ -1891,6 +1892,13 @@ the level at which it would. This line is mandatory even when all five pass.]
         # and Moat Analysis.
         "title": company_profile.TITLE,
         "prompt": company_profile.PROMPT,
+    },
+    {
+        # Scored growth analysis, analyst consensus (when available) and two
+        # question cards for the Growth tab, built on Long-Term Potential,
+        # Business Analysis and Key Metrics.
+        "title": growth_cards.TITLE,
+        "prompt": growth_cards.PROMPT,
     },
     {
         "title": "Risk Analysis",
@@ -8638,8 +8646,8 @@ def _dcf_editor(ticker):
                     if _content.strip():
                         with st.container(key=f"ai_out_{_li}"):
                             # Moat Cards / Risk Cards / Business Cards / Company
-                            # Profile are JSON for their tabs; shown as raw text
-                            # they read as a code dump. Draw the cards.
+                            # Profile / Growth Cards are JSON for their tabs; shown
+                            # as raw text they read as a code dump. Draw the cards.
                             if _title == moat_cards.TITLE:
                                 _card = moat_cards.cards_section_html(_content, T)
                             elif _title == risk_cards.TITLE:
@@ -8648,6 +8656,8 @@ def _dcf_editor(ticker):
                                 _card = business_cards.quality_section_html(_content, T)
                             elif _title == company_profile.TITLE:
                                 _card = company_profile.profile_list_html(_content, T)
+                            elif _title == growth_cards.TITLE:
+                                _card = growth_cards.prescan_section_html(_content, T)
                             else:
                                 _card = _verdict_card_html(_content, _title)
                             if _card:

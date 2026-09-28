@@ -1,20 +1,22 @@
 # Question cards backfill — routine prompt
 
-You fill the "Moat Cards", "Risk Cards", "Business Cards" and "Company
-Profile" pre-scan sections for LazyTheta watchlist tickers that have the
-underlying analysis but no cards yet. Use only the Lazy-Theta-Remote-MCP
-connector, plus the SEC-MCP connector for the "revenue" block in step 5b if
-it is available. Do not modify, commit or push anything in the repository.
+You fill the "Moat Cards", "Risk Cards", "Business Cards", "Company
+Profile" and "Growth Cards" pre-scan sections for LazyTheta watchlist
+tickers that have the underlying analysis but no cards yet. Use only the
+Lazy-Theta-Remote-MCP connector, plus the SEC-MCP connector for the
+"revenue" block in step 5b and the "consensus" block in step 9b if it is
+available. Do not modify, commit or push anything in the repository.
 
-Before enabling: the "Moat Cards", "Risk Cards", "Business Cards" and
-"Company Profile" prompts must already be in the user's prompt library.
-`scripts/add_moat_cards_prompt.py` only adds "Moat Cards" — "Risk Cards",
-"Business Cards" and "Company Profile" come from the app's own
-`DEFAULT_AI_PROMPTS` (added the first time the user opens the prompt editor)
-or are added directly by the maintainer. The Cloud Run MCP must also be
-redeployed with `tickers_missing_section` and the Moat Cards / Risk Cards /
-Business Cards / Company Profile save validation. Without all of this, step
-2a (or 5a, or 7a) finds no matching prompt to answer.
+Before enabling: the "Moat Cards", "Risk Cards", "Business Cards", "Company
+Profile" and "Growth Cards" prompts must already be in the user's prompt
+library. `scripts/add_moat_cards_prompt.py` only adds "Moat Cards" — "Risk
+Cards", "Business Cards", "Company Profile" and "Growth Cards" come from
+the app's own `DEFAULT_AI_PROMPTS` (added the first time the user opens the
+prompt editor) or are added directly by the maintainer. The Cloud Run MCP
+must also be redeployed with `tickers_missing_section` and the Moat Cards /
+Risk Cards / Business Cards / Company Profile / Growth Cards save
+validation. Without all of this, step 2a (or 5a, 7a, or 9a) finds no
+matching prompt to answer.
 
 1. Call `tickers_missing_section(title="Moat Cards", requires="Moat Analysis", limit=10)`.
 2. For each ticker:
@@ -98,6 +100,33 @@ Business Cards / Company Profile save validation. Without all of this, step
       block>)`. If the server refuses, fix what the error names and save
       once more; if it refuses again, note the ticker and the reason and
       move on.
-8. If all four `tickers` lists from steps 1, 3, 5 and 6 were empty, print
-   "Nothing left to backfill." Otherwise print a summary: tickers filled (per
-   card set), tickers skipped with reasons, and `remaining` for each.
+8. With whatever remains of the same budget of 10 (10 minus every ticker
+   filled or skipped in steps 1-7), call `tickers_missing_section(title=
+   "Growth Cards", requires="Long-Term Potential", limit=<remaining>)`. If
+   that remaining budget is 0, skip step 8 entirely — do not call it with
+   limit 0 — and go straight to step 10. If `tickers` is empty, note that
+   and continue to step 10.
+9. For each ticker from step 8:
+   a. Call `get_prescan_prompts(ticker)` and take the prompt titled "Growth
+      Cards" (its {prior:Long-Term Potential}, {prior:Business Analysis} and
+      {prior:Key Metrics} are already filled in when those pre-scan sections
+      exist for the ticker; a missing one shows as "(no prior Long-Term
+      Potential analysis available for this ticker)" or similar in the
+      prompt — that is acceptable, answer with what is there).
+   b. SEC-MCP's `GetAnalystEstimates` is the only source for the "consensus"
+      block: next-fiscal-year revenue and EPS growth, the analyst count and
+      the source name plus the date you pulled it. If SEC-MCP is
+      unavailable, or `GetAnalystEstimates` returns nothing usable for the
+      next fiscal year, omit the "consensus" key entirely — per the
+      prompt's own instruction, never estimate the growth figures by hand.
+   c. Answer the prompt exactly as it asks: one fenced JSON block with the
+      "analysis" block (score 1-5, summary, three points), the "consensus"
+      block when available, and the two cards in the listed order.
+   d. Save with `save_prescan_section(ticker, "Growth Cards", <the JSON
+      block>)`. If the server refuses, fix what the error names and save
+      once more; if it refuses again, note the ticker and the reason and
+      move on.
+10. If all five `tickers` lists from steps 1, 3, 5, 6 and 8 were empty,
+    print "Nothing left to backfill." Otherwise print a summary: tickers
+    filled (per card set), tickers skipped with reasons, and `remaining`
+    for each.

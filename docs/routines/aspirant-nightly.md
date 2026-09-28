@@ -30,17 +30,25 @@ and the SEC connector only.
       before answering "Moat Cards", "Investment Summary" and "Scorecard",
       after saving "Risk Analysis" and "SaaSpocalypse Resistance" and before
       answering "Risk Cards", and after saving "Business Analysis", "Moat
-      Analysis" and "Key Metrics" and before answering "Business Cards" and
-      "Company Profile" — library order now already places Risk Cards
-      directly after both of its priors and Business Cards directly after
-      Key Metrics (its last prior), with Company Profile right after
-      Business Cards (its own priors, Business Analysis and Moat Analysis,
-      are the same ones already re-fetched for Business Cards), but the
-      re-fetch is still required so every `{prior:…}` in the prompt you are
-      about to answer is actually filled in, not still a bare placeholder.
-      If `save_prescan_section` refuses "Moat Cards", "Risk Cards",
-      "Business Cards" or "Company Profile", fix what the error names and
-      save once more; if it refuses again, note it and move on.
+      Analysis", "Key Metrics" and "Long-Term Potential" and before
+      answering "Business Cards", "Company Profile" and "Growth Cards" —
+      library order now already places Risk Cards directly after both of
+      its priors and Business Cards directly after Key Metrics (its last
+      prior), with Company Profile right after Business Cards (its own
+      priors, Business Analysis and Moat Analysis, are the same ones
+      already re-fetched for Business Cards) and Growth Cards right after
+      Company Profile (its priors are Long-Term Potential, Business
+      Analysis and Key Metrics), but the re-fetch is still required so
+      every `{prior:…}` in the prompt you are about to answer is actually
+      filled in, not still a bare placeholder. For "Growth Cards", the
+      "consensus" block comes only from the SEC connector's
+      `GetAnalystEstimates` (next-fiscal-year revenue and EPS growth, the
+      analyst count, and the source name plus the date pulled); if that
+      call is unavailable or returns nothing usable, omit the "consensus"
+      key entirely — never estimate it by hand. If `save_prescan_section`
+      refuses "Moat Cards", "Risk Cards", "Business Cards", "Company
+      Profile" or "Growth Cards", fix what the error names and save once
+      more; if it refuses again, note it and move on.
    c. Always fill in the full DCF, whatever the Moat verdict:
       `get_config(ticker)`, then set revenue_growth and op_margins year by
       year with a short rationale, terminal_growth, sector_betas as [name,

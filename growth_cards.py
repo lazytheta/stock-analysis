@@ -1,0 +1,225 @@
+"""Growth Cards: a scored growth analysis, an optional analyst-consensus
+block and two question cards per ticker, built on the Long-Term Potential,
+Business Analysis and Key Metrics prior sections.
+
+The generic flip-card engine (escaping, CSS, parsing, rendering) lives in
+question_cards.py, shared with Moat/Risk/Business Cards. This module only
+defines Growth's questions/prompt and the validation for its two extra
+blocks -- "analysis" (mandatory: a 1-5 score) and "consensus" (optional: the
+next-fiscal-year analyst numbers), neither of which fits question_cards'
+generic summary+points block shape.
+
+No module-level import of prescan_render: mcp_server imports this module for
+the parser, and the Cloud Run image does not ship prescan_render.
+"""
+
+import json
+import re
+
+import question_cards as qc
+
+TITLE = "Growth Cards"
+
+ITEMS = (
+    ("industry", "Industry Growth", "Is the industry growing?",
+     ("No", "Slowly", "Yes")),
+    ("optionality", "Optionality", "Can new offerings drive growth?",
+     ("Unlikely", "Possible", "Likely")),
+)
+GROWTH = qc.CardSet(TITLE, ITEMS, directions=None, blocks=())
+
+SCORE_LABELS = {1: "Weak", 2: "Below average", 3: "Average", 4: "Strong", 5: "Exceptional"}
+
+_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
+
+PROMPT = """You are turning the existing growth work on **{company} ({ticker})** into
+Growth Cards: a scored growth analysis, an analyst-consensus block (when a
+filings-grade source has one) and two question cards. Base every call on the
+analyses below and on reported numbers; do not contradict them.
+
+{prior:Long-Term Potential}
+
+{prior:Business Analysis}
+
+{prior:Key Metrics}
+
+analysis: score the company's long-term growth potential from 1 (Weak) to 5
+(Exceptional), ONE sentence summary with the fact that decides the score,
+and EXACTLY three points, each {"label": two to four words, "text": one
+line with a number or fact from the analyses above or the filings}.
+
+consensus: the next-fiscal-year revenue and EPS growth consensus, from a
+filings-grade source only -- call the SEC connector's `GetAnalystEstimates`
+for {ticker}. State the fiscal year it covers (e.g. "FY2027"), the analyst
+count, and the source name plus the date you pulled it (e.g.
+"SEC-MCP GetAnalystEstimates, 2026-09-24"). If `GetAnalystEstimates` is
+unavailable, or returns nothing usable for the next fiscal year, OMIT the
+"consensus" key entirely -- do not send it as null, and never estimate
+revenue or EPS growth by hand.
+
+For each of the two questions, in exactly this order, pick an answer
+(0 = worst, 2 = best):
+- industry: Is the industry growing? pick 0 = No, 1 = Slowly, 2 = Yes
+- optionality: Can new offerings drive growth? pick 0 = Unlikely, 1 = Possible, 2 = Likely
+
+summary: ONE sentence for the front of the card, with the fact that decides the pick.
+points: EXACTLY three, each {"label": two to four words, "text": one line with a number or
+a fact from the filings}.
+
+Output ONLY a fenced JSON block, nothing before or after:
+
+```json
+{"analysis":  {"score": 3, "summary": "...",
+               "points": [{"label": "...", "text": "..."}, {"label": "...", "text": "..."},
+                          {"label": "...", "text": "..."}]},
+ "consensus": {"fiscal_year": "FY2027", "revenue_growth_pct": 15.2, "eps_growth_pct": 12.0,
+               "analysts": 23, "source": "SEC-MCP GetAnalystEstimates, 2026-09-24"},
+ "cards": [
+  {"source": "industry", "pick": 2, "summary": "...",
+   "points": [{"label": "...", "text": "..."}, {"label": "...", "text": "..."},
+              {"label": "...", "text": "..."}]},
+  {"source": "optionality", "pick": 1, "summary": "...",
+   "points": [{"label": "...", "text": "..."}, {"label": "...", "text": "..."},
+              {"label": "...", "text": "..."}]}
+ ]}
+```
+The "cards" array holds both questions, in the order listed above. Omit the
+"consensus" key entirely -- never send it as null -- when no filings-grade
+consensus is available.
+"""
+
+
+def _is_number(x):
+    """int/float only: booleans are ints in Python, and strings must never
+    silently coerce."""
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def _is_int(x):
+    """int only: booleans are ints in Python and must never pass as a score
+    or an analyst count, and a numeric string must never silently coerce."""
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
+def _load_json(content):
+    text = (content or "").strip()
+    fenced = _FENCE.search(text)
+    if fenced:
+        text = fenced.group(1).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"not valid JSON ({e.msg})") from None
+
+
+def _points3(points, where):
+    ok = (isinstance(points, list) and len(points) == 3 and all(
+        isinstance(p, dict) and str(p.get("label") or "").strip()
+        and str(p.get("text") or "").strip() for p in points))
+    if not ok:
+        raise ValueError(f"{where}: needs exactly three points, each with label and text")
+    return [{"label": str(p["label"]).strip(), "text": str(p["text"]).strip()} for p in points]
+
+
+def _validate_analysis(analysis):
+    if not isinstance(analysis, dict):
+        raise ValueError("analysis: must be an object")
+
+    score = analysis.get("score")
+    if not _is_int(score) or not (1 <= score <= 5):
+        raise ValueError("analysis: score must be an integer 1-5")
+
+    summary = str(analysis.get("summary") or "").strip()
+    if not summary:
+        raise ValueError("analysis: summary is empty")
+
+    points = _points3(analysis.get("points"), "analysis")
+    return {"score": score, "summary": summary, "points": points}
+
+
+def _validate_consensus(consensus):
+    if not isinstance(consensus, dict):
+        raise ValueError("consensus: must be an object or null")
+
+    fiscal_year = str(consensus.get("fiscal_year") or "").strip()
+    if not fiscal_year:
+        raise ValueError("consensus: fiscal_year is empty")
+
+    revenue_growth_pct = consensus.get("revenue_growth_pct")
+    eps_growth_pct = consensus.get("eps_growth_pct")
+    for name, value in (("revenue_growth_pct", revenue_growth_pct),
+                        ("eps_growth_pct", eps_growth_pct)):
+        if value is not None and (not _is_number(value) or not (-100 <= value <= 1000)):
+            raise ValueError(f"consensus: {name} must be a number between -100 and 1000, or null")
+    if revenue_growth_pct is None and eps_growth_pct is None:
+        raise ValueError(
+            "consensus: at least one of revenue_growth_pct or eps_growth_pct must be present")
+
+    analysts = consensus.get("analysts")
+    if analysts is not None and (not _is_int(analysts) or analysts <= 0):
+        raise ValueError("consensus: analysts must be a positive integer, or null")
+
+    source = str(consensus.get("source") or "").strip()
+    if not source:
+        raise ValueError("consensus: source is empty")
+
+    return {"fiscal_year": fiscal_year, "revenue_growth_pct": revenue_growth_pct,
+            "eps_growth_pct": eps_growth_pct, "analysts": analysts, "source": source}
+
+
+def parse_growth_cards(content):
+    """The validated {"analysis", "consensus", "cards"}, or ValueError saying
+    what is wrong. "consensus" is None when the block is absent or null."""
+    result = qc.parse(GROWTH, content)
+    data = _load_json(content)
+    if not isinstance(data, dict):
+        raise ValueError("expected a JSON object")
+
+    result["analysis"] = _validate_analysis(data.get("analysis"))
+
+    consensus = data.get("consensus")
+    result["consensus"] = _validate_consensus(consensus) if consensus is not None else None
+    return result
+
+
+def _analysis_html(analysis):
+    label = SCORE_LABELS.get(analysis["score"], str(analysis["score"]))
+    items = "".join(
+        f'<li><b>{qc.esc(p["label"])}</b>: {qc.esc(p["text"])}</li>' for p in analysis["points"])
+    return (f'<div class="tp-panel"><div class="tp-title">GROWTH ANALYSIS</div>'
+            f'<p><b>{analysis["score"]}/5 &middot; {qc.esc(label)}</b></p>'
+            f'<p>{qc.bold(analysis["summary"])}</p><ul>{items}</ul></div>')
+
+
+def _consensus_html(consensus):
+    if not consensus:
+        return ('<div class="tp-panel"><div class="tp-title">CONSENSUS</div>'
+                '<p>No analyst consensus available.</p></div>')
+    rev = f'{consensus["revenue_growth_pct"]:g}%' if consensus["revenue_growth_pct"] is not None \
+        else "—"
+    eps = f'{consensus["eps_growth_pct"]:g}%' if consensus["eps_growth_pct"] is not None else "—"
+    analysts = consensus["analysts"] if consensus["analysts"] is not None else "—"
+    return (f'<div class="tp-panel"><div class="tp-title">CONSENSUS</div>'
+            f'<ul>'
+            f'<li><b>Fiscal year</b>: {qc.esc(consensus["fiscal_year"])}</li>'
+            f'<li><b>Revenue growth (next FY)</b>: {qc.esc(rev)}</li>'
+            f'<li><b>EPS growth (next FY)</b>: {qc.esc(eps)}</li>'
+            f'<li><b>Analysts</b>: {qc.esc(analysts)}</li>'
+            f'</ul><p style="font-size:.78rem">{qc.esc(consensus["source"])}</p></div>')
+
+
+def prescan_section_html(content, theme):
+    """Pre-Scan tab preview: the growth analysis, the consensus block (or its
+    "not available" line) and the two flip cards -- or a one-line notice.
+    The Growth tab itself (Task 2) has its own, richer layout for this same
+    data; this is just a plain preview, like company_profile.profile_list_html."""
+    try:
+        parsed = parse_growth_cards(content) if content else None
+    except ValueError:
+        parsed = None
+    if not parsed:
+        return qc.section_html(TITLE, qc.notice_html(TITLE, theme))
+
+    top = qc.text_row_html(_analysis_html(parsed["analysis"]), _consensus_html(parsed["consensus"]))
+    grid = qc.grid_html(GROWTH, parsed["cards"], theme)
+    return qc.section_html(TITLE, f'{top}{grid}')
