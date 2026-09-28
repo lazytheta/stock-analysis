@@ -113,7 +113,8 @@ def _labels(svg):
 
 def test_growth_cycle_svg_six_labels_and_one_band():
     svg = pg.growth_cycle_svg(5)
-    assert svg.startswith("<svg") and 'viewBox="0 0 600 220"' in svg
+    assert svg.startswith("<svg") and 'viewBox="0 0 600 206"' in svg
+    assert 'font-size="12"' not in svg and 'font-size="13"' not in svg
     text = _labels(svg)
     for word in ("Startup", "Hypergrowth", "Self Funding", "Operating", "Leverage",
                  "Capital Return", "Decline"):

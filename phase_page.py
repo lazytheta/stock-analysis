@@ -121,6 +121,7 @@ def phase_number(analysis_text, scorecard_text):
 
 _COL = 100          # six equal columns across a 600-wide viewBox
 _ZERO = 130         # y of the zero baseline
+_H = 206            # viewBox height: chart, then the column labels
 
 # Stylised curves, one point per column centre plus both edges.
 _XS = (0, 50, 150, 250, 350, 450, 550, 600)
@@ -163,27 +164,27 @@ def growth_cycle_svg(current):
     if current:
         x0 = (current - 1) * _COL
         cx = x0 + _COL // 2
-        parts.append(f'<rect class="gc-band" x="{x0}" y="24" width="{_COL}" height="196" '
+        parts.append(f'<rect class="gc-band" x="{x0}" y="24" width="{_COL}" height="{_H - 24}" '
                      f'rx="8" fill="var(--accent)" fill-opacity="0.12"/>')
-        parts.append(f'<circle cx="{cx}" cy="38" r="12" fill="var(--accent)"/>'
-                     f'<text x="{cx}" y="42.5" text-anchor="middle" font-size="13" '
+        parts.append(f'<circle cx="{cx}" cy="36" r="9.5" fill="var(--accent)"/>'
+                     f'<text x="{cx}" y="39.5" text-anchor="middle" font-size="10" '
                      f'font-weight="700" fill="#fff">{current}</text>')
     for i in range(1, 6):
         parts.append(f'<line x1="{i * _COL}" y1="28" x2="{i * _COL}" y2="176" '
                      f'stroke="var(--text-muted)" stroke-opacity="0.18"/>')
     parts.append(f'<line x1="0" y1="{_ZERO}" x2="600" y2="{_ZERO}" stroke="var(--text-muted)" '
                  f'stroke-opacity="0.55" stroke-dasharray="3 3"/>'
-                 f'<text x="596" y="{_ZERO - 4}" text-anchor="end" font-size="9" '
+                 f'<text x="596" y="{_ZERO - 4}" text-anchor="end" font-size="8" '
                  f'fill="var(--text-muted)">0</text>')
     for name, colour, ys in _CURVES:
         parts.append(f'<path d="{_smooth_path(_XS, ys)}" fill="none" stroke="{colour}" '
                      f'stroke-width="2.5" stroke-linecap="round"><title>{name}</title></path>')
     # Legend: three short swatches across the top row.
     for i, (name, colour, _ys) in enumerate(_CURVES):
-        x = 180 + i * 90
+        x = 195 + i * 75
         parts.append(f'<line x1="{x}" y1="11" x2="{x + 16}" y2="11" stroke="{colour}" '
                      f'stroke-width="2.5" stroke-linecap="round"/>'
-                     f'<text x="{x + 21}" y="14.5" font-size="11" '
+                     f'<text x="{x + 20}" y="14" font-size="9" '
                      f'fill="var(--text-muted)">{name}</text>')
     for n, name in PHASES:
         cx = (n - 1) * _COL + _COL // 2
@@ -191,12 +192,12 @@ def growth_cycle_svg(current):
         fill = "var(--text)" if on else "var(--text-muted)"
         weight = ' font-weight="700"' if on else ""
         lines = _label_lines(n, name)
-        y0 = 196 if len(lines) == 1 else 190
-        spans = "".join(f'<tspan x="{cx}" y="{y0 + 13 * j}">{qc.esc(line)}</tspan>'
+        y0 = 192 if len(lines) == 1 else 187
+        spans = "".join(f'<tspan x="{cx}" y="{y0 + 11 * j}">{qc.esc(line)}</tspan>'
                         for j, line in enumerate(lines))
-        parts.append(f'<text text-anchor="middle" font-size="12" fill="{fill}"{weight}>'
+        parts.append(f'<text text-anchor="middle" font-size="10" fill="{fill}"{weight}>'
                      f'{spans}</text>')
-    return (f'<svg class="ph-svg" viewBox="0 0 600 220" role="img" '
+    return (f'<svg class="ph-svg" viewBox="0 0 600 {_H}" role="img" '
             f'aria-label="Growth cycle: six phases with revenue, profits and payouts">'
             f'{"".join(parts)}</svg>')
 
