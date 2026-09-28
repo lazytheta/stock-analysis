@@ -113,7 +113,7 @@ def _labels(svg):
 
 def test_growth_cycle_svg_six_labels_and_one_band():
     svg = pg.growth_cycle_svg(5)
-    assert svg.startswith("<svg") and 'viewBox="0 0 600 206"' in svg
+    assert svg.startswith("<svg") and 'viewBox="0 0 900 198"' in svg
     assert 'font-size="12"' not in svg and 'font-size="13"' not in svg
     text = _labels(svg)
     for word in ("Startup", "Hypergrowth", "Self Funding", "Operating", "Leverage",
@@ -128,6 +128,13 @@ def test_growth_cycle_svg_six_labels_and_one_band():
     assert "#5b6cff" in svg and "var(--accent)" in svg
 
 
+def test_growth_cycle_labels_on_one_line():
+    svg = pg.growth_cycle_svg(4)
+    assert ">4 Operating Leverage</tspan>" in svg
+    assert svg.count("<tspan") == 6
+    assert "max-width:900px" in pg.PHASE_STYLE
+
+
 def test_growth_cycle_svg_without_phase_has_no_band():
     svg = pg.growth_cycle_svg(None)
     assert 'class="gc-band"' not in svg
@@ -137,7 +144,7 @@ def test_growth_cycle_svg_without_phase_has_no_band():
 def test_growth_cycle_band_sits_over_the_current_column():
     svg = pg.growth_cycle_svg(3)
     band = re.search(r'<rect class="gc-band" x="([\d.]+)"', svg)
-    assert band and float(band.group(1)) == 200.0
+    assert band and float(band.group(1)) == 300.0
 
 
 # ── revenue / OCF figure ───────────────────────────────────────────────────

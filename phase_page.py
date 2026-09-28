@@ -73,7 +73,7 @@ PHASE_STYLE = f"""<style>
 .ph-lead{{margin:0 0 10px;font-size:13px;line-height:1.45}}
 .ph-pt{{margin:0 0 7px;font-size:13px;line-height:1.45}}
 .ph-note{{margin:0;font-size:13px;color:var(--text-muted);line-height:1.45}}
-.ph-svg{{display:block;width:100%;height:auto}}
+.ph-svg{{display:block;width:100%;height:auto;max-width:900px;margin:0 auto}}
 .ph-cycle{{display:flex;flex-direction:column}}
 .ph-cycle-fig{{margin:auto 0}}
 .ph-pn{{margin-top:14px;padding-top:12px;border-top:1px solid {_HAIRLINE}}}
@@ -119,12 +119,13 @@ def phase_number(analysis_text, scorecard_text):
 
 # ── growth-cycle diagram ────────────────────────────────────────────────────
 
-_COL = 100          # six equal columns across a 600-wide viewBox
+_COL = 150          # six equal columns across a 900-wide viewBox
+_W = 6 * _COL
 _ZERO = 130         # y of the zero baseline
-_H = 206            # viewBox height: chart, then the column labels
+_H = 198            # viewBox height: chart, then the column labels
 
 # Stylised curves, one point per column centre plus both edges.
-_XS = (0, 50, 150, 250, 350, 450, 550, 600)
+_XS = (0, 75, 225, 375, 525, 675, 825, 900)
 _CURVES = (
     # Revenue climbs through 1–5 and sags in Decline.
     ("Revenue", "var(--accent)", (128, 124, 108, 90, 72, 62, 74, 82)),
@@ -150,10 +151,10 @@ def _smooth_path(xs, ys):
 
 
 def _label_lines(n, name):
-    """"4 Operating Leverage" is too wide for a 100-unit column: long names
-    wrap before their last word."""
+    """One line per column; at 10px a 150-unit column fits ~24 characters,
+    longer names would wrap before their last word."""
     text = f"{n} {name}"
-    return [text] if len(text) <= 14 else text.rsplit(" ", 1)
+    return [text] if len(text) <= 24 else text.rsplit(" ", 1)
 
 
 def growth_cycle_svg(current):
@@ -172,16 +173,16 @@ def growth_cycle_svg(current):
     for i in range(1, 6):
         parts.append(f'<line x1="{i * _COL}" y1="28" x2="{i * _COL}" y2="176" '
                      f'stroke="var(--text-muted)" stroke-opacity="0.18"/>')
-    parts.append(f'<line x1="0" y1="{_ZERO}" x2="600" y2="{_ZERO}" stroke="var(--text-muted)" '
+    parts.append(f'<line x1="0" y1="{_ZERO}" x2="{_W}" y2="{_ZERO}" stroke="var(--text-muted)" '
                  f'stroke-opacity="0.55" stroke-dasharray="3 3"/>'
-                 f'<text x="596" y="{_ZERO - 4}" text-anchor="end" font-size="8" '
+                 f'<text x="{_W - 4}" y="{_ZERO - 4}" text-anchor="end" font-size="8" '
                  f'fill="var(--text-muted)">0</text>')
     for name, colour, ys in _CURVES:
         parts.append(f'<path d="{_smooth_path(_XS, ys)}" fill="none" stroke="{colour}" '
                      f'stroke-width="2.5" stroke-linecap="round"><title>{name}</title></path>')
     # Legend: three short swatches across the top row.
     for i, (name, colour, _ys) in enumerate(_CURVES):
-        x = 195 + i * 75
+        x = 341 + i * 75            # centred on the 900-wide row
         parts.append(f'<line x1="{x}" y1="11" x2="{x + 16}" y2="11" stroke="{colour}" '
                      f'stroke-width="2.5" stroke-linecap="round"/>'
                      f'<text x="{x + 20}" y="14" font-size="9" '
@@ -192,12 +193,12 @@ def growth_cycle_svg(current):
         fill = "var(--text)" if on else "var(--text-muted)"
         weight = ' font-weight="700"' if on else ""
         lines = _label_lines(n, name)
-        y0 = 192 if len(lines) == 1 else 187
+        y0 = 190 if len(lines) == 1 else 185
         spans = "".join(f'<tspan x="{cx}" y="{y0 + 11 * j}">{qc.esc(line)}</tspan>'
                         for j, line in enumerate(lines))
         parts.append(f'<text text-anchor="middle" font-size="10" fill="{fill}"{weight}>'
                      f'{spans}</text>')
-    return (f'<svg class="ph-svg" viewBox="0 0 600 {_H}" role="img" '
+    return (f'<svg class="ph-svg" viewBox="0 0 {_W} {_H}" role="img" '
             f'aria-label="Growth cycle: six phases with revenue, profits and payouts">'
             f'{"".join(parts)}</svg>')
 
