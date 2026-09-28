@@ -1405,7 +1405,8 @@ def _get_screener_candidates_impl(limit=5, user_id: str | None = None):
         if e.get("category") != "Aspirant" or not e.get("dcf_placeholder"):
             continue
         cfg = config_store.load_config(client, e["ticker"], user_id=user_id) or {}
-        if aspirant.is_placeholder(cfg):
+        researched = str((cfg.get("ai_notes") or {}).get("Moat Analysis") or "").strip()
+        if aspirant.is_placeholder(cfg) and not researched:
             requested.append((cfg.get("aspirant_added") or "", e["ticker"].upper(), cfg))
     requested.sort()
     candidates = [{"ticker": t, "company": cfg.get("company"),
@@ -1611,7 +1612,8 @@ def tickers_missing_section(title: str, requires: str = "", limit: int = 10) -> 
 @mcp.tool()
 def get_screener_candidates(limit: int = 5) -> str:
     """Names for the nightly Aspirant run. First the requested ones: Aspirants
-    added by hand whose DCF is still the placeholder, oldest first. Then names
+    added by hand that were never researched (no Moat Analysis, placeholder
+    DCF), oldest first. Then names
     that pass the latest Screener run and are not on the watchlist yet (in any
     category), highest average ROCE first.
 

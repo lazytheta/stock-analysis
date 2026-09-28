@@ -701,7 +701,8 @@ TOOLS: list[dict] = [
     {
         "name": "get_screener_candidates",
         "description": ("Names for the nightly Aspirant run. First source=\"requested\": "
-                        "Aspirants added by hand whose DCF is still the placeholder, "
+                        "Aspirants added by hand that were never researched (no Moat "
+                        "Analysis, placeholder DCF), "
                         "oldest first (already listed; do not call add_aspirant again). "
                         "Then source=\"screener\": names passing the latest Screener run "
                         "that are not on the watchlist yet, highest average ROCE first."),

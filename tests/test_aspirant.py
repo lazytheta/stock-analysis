@@ -207,6 +207,10 @@ def test_candidates_skip_aspirants_whose_dcf_is_filled_in(mcp):
     store["DONE"] = {"category": "Aspirant", "dcf_placeholder": True,
                      "revenue_growth": [0.1, 0.08, 0.06], "op_margins": [0.2] * 3}
     store["FULL"] = {"category": "Aspirant", "dcf_placeholder": False}
+    # Researched under the old Wide-only rule: prescan done, DCF left empty.
+    store["OLD"] = {"category": "Aspirant", "dcf_placeholder": True,
+                    "revenue_growth": [0.03] * 5, "op_margins": [0.2] * 5,
+                    "ai_notes": {"Moat Analysis": "**Moat: Narrow 🤏 · Stable ➡️ · 2/5**"}}
     _snapshot(client, [])
     out = json.loads(m._get_screener_candidates_impl(limit=5))
     assert out["candidates"] == []
