@@ -79,6 +79,7 @@ def _dps_at(fund, cashflow, year):
 
 def buyback_card(fund, cashflow, price) -> dict:
     fund = fund or {}
+    cashflow = cashflow or {}
     fy = om._fiscal_year(fund)
     years = _last_n_fiscal_years(fy, BUYBACK_WINDOW)
     amounts = [_cf(cashflow, "stock_buybacks", y) for y in years]
@@ -130,6 +131,8 @@ def buyback_card(fund, cashflow, price) -> dict:
 
 def dividend_card(fund, cashflow, income_or_none, price, net_cash_m) -> dict:
     fund = fund or {}
+    cashflow = cashflow or {}
+    income_or_none = income_or_none or {}
     fy = om._fiscal_year(fund)
 
     last_paid = _cf(cashflow, "dividends_paid", fy) if fy is not None else None
@@ -156,7 +159,7 @@ def dividend_card(fund, cashflow, income_or_none, price, net_cash_m) -> dict:
     div_yield = last_paid_abs / mcap if (mcap and pays) else None
 
     net_income = om._at(fund, "net_income", fy) if fy is not None else None
-    if net_income is None and income_or_none is not None:
+    if net_income is None:
         net_income = om._at(income_or_none, "net_income", fy)
     payout_ratio = (last_paid_abs / net_income
                      if (pays and net_income is not None and net_income > 0) else None)
@@ -203,10 +206,10 @@ def revenue_ocf_series(fund, years: int):
 
 def revenue_ocf_caption(years, revenue, cfo) -> str:
     """`Revenue grew {cagr} a year over {n} years; operating cash flow was
-    positive in {k} of {n} years.` n = len(years) - 1 (the year-over-year
-    steps spanning the series); the growth clause is dropped when the
-    first or last revenue isn't positive. `k` counts the n most recent
-    years (the ones the growth clause's span actually covers)."""
+    positive in {k} of {len(years)} years.` n = len(years) - 1 (the
+    year-over-year steps spanning the series, used only by the growth
+    clause, which is dropped when the first or last revenue isn't
+    positive). `k` counts positive cfo over ALL shown years."""
     n = len(years) - 1
     if n < 1:
         return ""
@@ -214,8 +217,9 @@ def revenue_ocf_caption(years, revenue, cfo) -> str:
     first_rev, last_rev = revenue[0], revenue[-1]
     growth_ok = first_rev is not None and first_rev > 0 and last_rev is not None and last_rev > 0
 
-    k = sum(1 for c in cfo[1:] if c is not None and c > 0)
-    ocf_clause = f"operating cash flow was positive in {k} of {n} years."
+    total = len(years)
+    k = sum(1 for c in cfo if c is not None and c > 0)
+    ocf_clause = f"operating cash flow was positive in {k} of {total} years."
 
     if not growth_ok:
         return ocf_clause[0].upper() + ocf_clause[1:]

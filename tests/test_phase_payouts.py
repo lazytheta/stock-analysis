@@ -100,6 +100,13 @@ def test_buyback_yield_dash_without_price():
     assert _point(card, "Buyback yield") == "—"
 
 
+def test_buyback_card_tolerates_a_missing_cashflow_statement():
+    card = pp.buyback_card(_fund(), None, 100.0)
+    assert card["pick"] == 0
+    assert card["summary"] == "No buybacks in the last five years."
+    assert len(card["points"]) == 3
+
+
 # ── dividend ──────────────────────────────────────────────────────────
 
 
@@ -146,6 +153,13 @@ def test_dividend_payout_ratio_falls_back_to_income_statement():
     income = {"years": YEARS, "net_income": [16.0] * n}
     card = pp.dividend_card(fund, cash, income, 100.0, net_cash_m=0.0)
     assert "25.0%" in _point(card, "Payout ratio")  # 4 / 16
+
+
+def test_dividend_card_tolerates_missing_cashflow_and_income():
+    card = pp.dividend_card(_fund(), None, None, 100.0, net_cash_m=0.0)
+    assert card["pick"] == 0
+    assert card["summary"] == "No dividend: all cash returned through buybacks or reinvested."
+    assert len(card["points"]) == 3
 
 
 # ── every card ────────────────────────────────────────────────────────
@@ -198,7 +212,7 @@ def test_caption_growth_and_ocf_positive_count():
     years, revenue, cfo = pp.revenue_ocf_series(_series_fund(), 5)
     caption = pp.revenue_ocf_caption(years, revenue, cfo)
     assert caption.startswith("Revenue grew 10.0% a year over 4 years; ")
-    assert "3 of 4 years" in caption
+    assert "4 of 5 years" in caption  # cfo [10, -5, 20, 15, 30] → 4 positive of 5 shown
 
 
 def test_caption_omits_growth_clause_when_first_revenue_not_positive():
@@ -207,7 +221,7 @@ def test_caption_omits_growth_clause_when_first_revenue_not_positive():
     cfo = [1.0, -1.0, 2.0, 3.0, 4.0]
     caption = pp.revenue_ocf_caption(years, revenue, cfo)
     assert "grew" not in caption
-    assert caption == "Operating cash flow was positive in 3 of 4 years."
+    assert caption == "Operating cash flow was positive in 4 of 5 years."
 
 
 def test_caption_empty_with_fewer_than_two_years():
