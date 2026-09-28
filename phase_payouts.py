@@ -62,14 +62,20 @@ def _last_n_fiscal_years(fy, n):
     return [] if fy is None else [fy - i for i in range(n - 1, -1, -1)]
 
 
+def _covers_fiscal_year(cashflow, fy):
+    """True when the cash-flow statement has the fiscal year. Without it the
+    cards cannot tell "none" from "unknown", so they return None."""
+    return (fy is not None and bool(cashflow)
+            and fy in (cashflow.get("years") or []))
+
+
 def _dps_at(fund, cashflow, year):
-    """Dividend per share at `year`: the tagged figure, else the aggregate
-    dividend paid (cash-flow statement, $M) divided by shares outstanding."""
+    """Dividend per share at `year`: total dividends paid (cash-flow
+    statement, $M) over the split-adjusted share count. The tagged
+    dividends_per_share is not split-adjusted, so it is never used for
+    growth."""
     if year is None:
         return None
-    dps = om._at(fund, "dividends_per_share", year)
-    if dps is not None:
-        return dps
     paid = _cf(cashflow, "dividends_paid", year)
     shares = om._at(fund, "shares", year)
     if paid is not None and shares:
@@ -77,10 +83,13 @@ def _dps_at(fund, cashflow, year):
     return None
 
 
-def buyback_card(fund, cashflow, price) -> dict:
+def buyback_card(fund, cashflow, price) -> dict | None:
+    """None when the cash-flow statement is missing or lacks the fiscal year."""
     fund = fund or {}
     cashflow = cashflow or {}
     fy = om._fiscal_year(fund)
+    if not _covers_fiscal_year(cashflow, fy):
+        return None
     years = _last_n_fiscal_years(fy, BUYBACK_WINDOW)
     amounts = [_cf(cashflow, "stock_buybacks", y) for y in years]
     total = sum(abs(a) for a in amounts if a is not None)
@@ -94,11 +103,14 @@ def buyback_card(fund, cashflow, price) -> dict:
     if total <= 0:
         pick = 0
         summary = "No buybacks in the last five years."
-    elif pct is not None and pct <= -SHRINK_MIN:
+    elif pct is None:
+        pick = 1
+        summary = "Buying back stock. Share count history unavailable."
+    elif pct <= -SHRINK_MIN:
         pick = 2
         summary = (f"Shrinking the share count: {abs(pct) * 100:.1f}% "
                     f"fewer shares than FY{fy - BUYBACK_WINDOW}.")
-    elif pct is not None and pct > 0:
+    elif pct > 0:
         pick = 1
         summary = (f"Buying back, but issuing faster: {pct * 100:.1f}% "
                     f"more shares than FY{fy - BUYBACK_WINDOW}.")
@@ -129,11 +141,14 @@ def buyback_card(fund, cashflow, price) -> dict:
     }
 
 
-def dividend_card(fund, cashflow, income_or_none, price, net_cash_m) -> dict:
+def dividend_card(fund, cashflow, income_or_none, price, net_cash_m) -> dict | None:
+    """None when the cash-flow statement is missing or lacks the fiscal year."""
     fund = fund or {}
     cashflow = cashflow or {}
     income_or_none = income_or_none or {}
     fy = om._fiscal_year(fund)
+    if not _covers_fiscal_year(cashflow, fy):
+        return None
 
     last_paid = _cf(cashflow, "dividends_paid", fy) if fy is not None else None
     last_paid_abs = 0.0 if last_paid is None else abs(last_paid)
@@ -151,9 +166,20 @@ def dividend_card(fund, cashflow, income_or_none, price, net_cash_m) -> dict:
     elif rate is not None and rate >= DIVIDEND_GROWTH_MIN:
         pick = 2
         summary = f"Dividend growing {rate * 100:.1f}% a year over 3 years."
+    elif rate is not None and rate <= -DIVIDEND_GROWTH_MIN:
+        pick = 1
+        summary = f"Dividend cut {abs(rate) * 100:.1f}% a year over 3 years."
+    elif dps_then is None or dps_then <= 0:
+        pick = 1
+        summary = "Dividend started within the last 3 years."
     else:
         pick = 1
         summary = "Dividend paid, roughly flat."
+
+    # The back shows the latest tagged figure when there is one (what the
+    # filing says), else the computed paid / shares.
+    dps_tagged = om._at(fund, "dividends_per_share", fy)
+    dps_shown = dps_tagged if dps_tagged is not None else dps_now
 
     mcap = _mcap(fund, price)
     div_yield = last_paid_abs / mcap if (mcap and pays) else None
@@ -166,7 +192,7 @@ def dividend_card(fund, cashflow, income_or_none, price, net_cash_m) -> dict:
 
     if pays:
         points = [
-            {"label": "Dividend per share", "text": f"{_fmt_dollars(dps_now)} in FY{fy}."},
+            {"label": "Dividend per share", "text": f"{_fmt_dollars(dps_shown)} in FY{fy}."},
             {"label": "Yield",
              "text": f"{om.fmt_pct(div_yield)} at the current price." if mcap else om.DASH},
             {"label": "Payout ratio", "text": f"{om.fmt_pct(payout_ratio)} of net income."},
@@ -205,24 +231,31 @@ def revenue_ocf_series(fund, years: int):
 
 
 def revenue_ocf_caption(years, revenue, cfo) -> str:
-    """`Revenue grew {cagr} a year over {n} years; operating cash flow was
-    positive in {k} of {len(years)} years.` n = len(years) - 1 (the
-    year-over-year steps spanning the series, used only by the growth
-    clause, which is dropped when the first or last revenue isn't
-    positive). `k` counts positive cfo over ALL shown years."""
-    n = len(years) - 1
-    if n < 1:
+    """`Revenue grew {cagr} a year over {span} years; operating cash flow was
+    positive in {k} of {n} years.` span is the calendar span
+    years[-1] - years[0], so a gap in coverage does not inflate the CAGR.
+    The growth clause is dropped when the first or last revenue isn't
+    positive. k counts positive cfo among years where cfo is known; when
+    some years lack cfo the clause says "of {m} years with data"."""
+    if len(years) < 2:
         return ""
+    span = years[-1] - years[0]
 
     first_rev, last_rev = revenue[0], revenue[-1]
-    growth_ok = first_rev is not None and first_rev > 0 and last_rev is not None and last_rev > 0
+    growth_ok = (span >= 1 and first_rev is not None and first_rev > 0
+                 and last_rev is not None and last_rev > 0)
 
-    total = len(years)
-    k = sum(1 for c in cfo if c is not None and c > 0)
-    ocf_clause = f"operating cash flow was positive in {k} of {total} years."
+    known = [c for c in cfo if c is not None]
+    k = sum(1 for c in known if c > 0)
+    if not known:
+        ocf_clause = ""
+    elif len(known) < len(years):
+        ocf_clause = f"operating cash flow was positive in {k} of {len(known)} years with data."
+    else:
+        ocf_clause = f"operating cash flow was positive in {k} of {len(years)} years."
 
     if not growth_ok:
-        return ocf_clause[0].upper() + ocf_clause[1:]
+        return ocf_clause[:1].upper() + ocf_clause[1:]
 
-    cagr = (last_rev / first_rev) ** (1.0 / n) - 1.0
-    return f"Revenue grew {om.fmt_pct(cagr)} a year over {n} years; {ocf_clause}"
+    growth = f"Revenue grew {om.fmt_pct((last_rev / first_rev) ** (1.0 / span) - 1.0)} a year over {span} years"
+    return f"{growth}; {ocf_clause}" if ocf_clause else f"{growth}."

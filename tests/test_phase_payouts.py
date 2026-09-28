@@ -100,11 +100,23 @@ def test_buyback_yield_dash_without_price():
     assert _point(card, "Buyback yield") == "—"
 
 
-def test_buyback_card_tolerates_a_missing_cashflow_statement():
-    card = pp.buyback_card(_fund(), None, 100.0)
-    assert card["pick"] == 0
-    assert card["summary"] == "No buybacks in the last five years."
-    assert len(card["points"]) == 3
+def test_buyback_card_is_none_without_fiscal_year_cash_flow():
+    assert pp.buyback_card(_fund(), None, 100.0) is None
+    assert pp.buyback_card(_fund(), {}, 100.0) is None
+    stale = {"years": YEARS[:-1], "stock_buybacks": [-1.0] * (len(YEARS) - 1)}
+    assert pp.buyback_card(_fund(), stale, 100.0) is None  # lacks FY2026
+
+
+def test_buyback_without_old_share_count_says_history_unavailable():
+    shares = [None] * len(YEARS)
+    shares[YEARS.index(2026)] = 1_000_000.0  # FY2021 missing
+    cash = _cash(stock_buybacks=[-1.0] * len(YEARS))
+    card = pp.buyback_card(_fund(shares=shares), cash, 100.0)
+    assert card["pick"] == 1
+    assert "Share count history unavailable." in card["summary"]
+    assert "roughly flat" not in card["summary"]
+    no_buys = pp.buyback_card(_fund(shares=shares), _cash(), 100.0)
+    assert no_buys["pick"] == 0
 
 
 # ── dividend ──────────────────────────────────────────────────────────
@@ -124,9 +136,9 @@ def test_dividend_none():
 
 def test_dividend_growing_5pct_a_year():
     n = len(YEARS)
-    dps = [1.0 * 1.05 ** i for i in range(n)]
-    cash = _cash(dividends_paid=[-3.0] * n)
-    card = pp.dividend_card(_fund(dividends_per_share=dps), cash, None, 100.0, net_cash_m=0.0)
+    paid = [-3.0 * 1.05 ** i for i in range(n)]
+    cash = _cash(dividends_paid=paid)
+    card = pp.dividend_card(_fund(), cash, None, 100.0, net_cash_m=0.0)
     assert card["pick"] == 2
     assert "5.0% a year" in card["summary"]
 
@@ -155,11 +167,48 @@ def test_dividend_payout_ratio_falls_back_to_income_statement():
     assert "25.0%" in _point(card, "Payout ratio")  # 4 / 16
 
 
-def test_dividend_card_tolerates_missing_cashflow_and_income():
-    card = pp.dividend_card(_fund(), None, None, 100.0, net_cash_m=0.0)
-    assert card["pick"] == 0
-    assert card["summary"] == "No dividend: all cash returned through buybacks or reinvested."
-    assert len(card["points"]) == 3
+def test_dividend_card_is_none_without_fiscal_year_cash_flow():
+    assert pp.dividend_card(_fund(), None, None, 100.0, net_cash_m=0.0) is None
+    assert pp.dividend_card(_fund(), {}, None, 100.0, net_cash_m=0.0) is None
+    stale = {"years": YEARS[:-1], "dividends_paid": [-3.0] * (len(YEARS) - 1)}
+    assert pp.dividend_card(_fund(), stale, None, 100.0, net_cash_m=0.0) is None
+
+
+def test_dividend_cut_is_stable_with_cut_wording():
+    n = len(YEARS)
+    paid = [-3.0] * n
+    paid[YEARS.index(2023)] = -4.0
+    paid[YEARS.index(2026)] = -2.0  # (2/4)^(1/3) - 1 = -20.6%
+    card = pp.dividend_card(_fund(), _cash(dividends_paid=paid), None, 100.0, net_cash_m=0.0)
+    assert card["pick"] == 1
+    assert card["summary"] == "Dividend cut 20.6% a year over 3 years."
+
+
+def test_dividend_started_recently():
+    n = len(YEARS)
+    paid = [0.0] * n
+    paid[YEARS.index(2025)] = -2.0
+    paid[YEARS.index(2026)] = -2.0
+    card = pp.dividend_card(_fund(), _cash(dividends_paid=paid), None, 100.0, net_cash_m=0.0)
+    assert card["pick"] == 1
+    assert card["summary"] == "Dividend started within the last 3 years."
+
+
+def test_dividend_growth_uses_paid_over_split_adjusted_shares():
+    # 3:1 split in FY2025: the tagged DPS drops from $3.00 to $1.20, but
+    # paid / (split-adjusted) shares grows from $3.00 to $3.60.
+    n = len(YEARS)
+    shares = [3_000_000.0] * n
+    dps = [3.0] * n
+    dps[YEARS.index(2025)] = 1.15
+    dps[YEARS.index(2026)] = 1.2
+    paid = [-9.0] * n
+    paid[YEARS.index(2026)] = -10.8
+    card = pp.dividend_card(_fund(shares=shares, dividends_per_share=dps),
+                            _cash(dividends_paid=paid), None, 100.0, net_cash_m=0.0)
+    assert card["pick"] == 2
+    assert card["summary"].startswith("Dividend growing 6.3% a year")
+    assert _point(card, "Dividend per share") == "$1.20 in FY2026."  # tagged, shown as filed
 
 
 # ── every card ────────────────────────────────────────────────────────
@@ -212,7 +261,19 @@ def test_caption_growth_and_ocf_positive_count():
     years, revenue, cfo = pp.revenue_ocf_series(_series_fund(), 5)
     caption = pp.revenue_ocf_caption(years, revenue, cfo)
     assert caption.startswith("Revenue grew 10.0% a year over 4 years; ")
-    assert "4 of 5 years" in caption  # cfo [10, -5, 20, 15, 30] → 4 positive of 5 shown
+    assert caption.endswith("positive in 4 of 5 years.")  # cfo [10, -5, 20, 15, 30]
+
+
+def test_caption_growth_period_is_calendar_span():
+    years, revenue, cfo = [2018, 2024, 2025, 2026], [100.0, 150.0, 180.0, 200.0], [1.0] * 4
+    caption = pp.revenue_ocf_caption(years, revenue, cfo)
+    assert caption.startswith("Revenue grew 9.1% a year over 8 years; ")  # 2^(1/8) - 1
+
+
+def test_caption_counts_only_years_with_cfo():
+    years = [2022, 2023, 2024, 2025, 2026]
+    caption = pp.revenue_ocf_caption(years, [100.0] * 5, [1.0, None, 2.0, -1.0, None])
+    assert caption.endswith("operating cash flow was positive in 2 of 3 years with data.")
 
 
 def test_caption_omits_growth_clause_when_first_revenue_not_positive():

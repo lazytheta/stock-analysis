@@ -260,5 +260,26 @@ def revenue_ocf_figure(years, revenue, cfo, theme) -> go.Figure:
 
 # ── payouts ────────────────────────────────────────────────────────────────
 
+UNKNOWN_PAYOUT = "Not enough cash-flow data to tell."
+
+
+def _unknown_card_html(question, theme):
+    """Same size and face as a flip card, but it does not flip: without the
+    fiscal year's cash-flow statement "No" would be a guess."""
+    muted = theme.get("text_muted", "#888")
+    return (f'<div class="mc-card" style="cursor:default"><div class="mc-inner">'
+            f'<div class="mc-face"><span class="mc-q" style="color:{muted}">{qc.esc(question)}</span>'
+            f'<div style="margin:auto 0;text-align:center;font-size:.9rem;color:{muted}">'
+            f'{qc.esc(UNKNOWN_PAYOUT)}</div></div></div></div>')
+
+
 def payouts_section_html(buyback_card, dividend_card, theme):
-    return qc.section_html("Payouts", qc.grid_html(PAYOUTS, [buyback_card, dividend_card], theme))
+    """The two payout cards; a None card (cash flow unknown) gets a flat
+    notice card with its question in the same slot."""
+    cards = []
+    for (_key, _name, question, _options), card in zip(PAYOUTS.items,
+                                                       (buyback_card, dividend_card)):
+        cards.append(_unknown_card_html(question, theme) if card is None
+                     else qc.flip_card_html(PAYOUTS, card, theme))
+    grid = f'{qc.css(qc.STYLE)}<div class="mc-grid">{"".join(cards)}</div>'
+    return qc.section_html("Payouts", grid)
