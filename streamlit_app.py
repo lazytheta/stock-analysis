@@ -25,6 +25,7 @@ import risk_cards
 import business_cards
 import company_profile
 import growth_cards
+import growth_page
 import business_revenue
 import overview_chart
 import overview_metrics
@@ -2901,6 +2902,16 @@ st.markdown(f"""
         padding: 20px 24px 24px;
         margin: 0 0 18px;
     }}
+    /* Growth tab: the "Revenue & earnings" section holds the range control,
+       the Plotly chart and the CAGR table, styled like .st-key-qc_phase_chart. */
+    .st-key-qc_growth_chart {{
+        background: var(--card);
+        border-top: 3px solid var(--accent);
+        border-radius: 24px;
+        box-shadow: var(--shadow);
+        padding: 20px 24px 24px;
+        margin: 0 0 18px;
+    }}
     /* Business tab: the "BY GEOGRAPHY" column (header + Plotly map + legend)
        as one continuous flat panel, matching the segment panel's own flat
        background instead of three separately-rounded pieces with a seam
@@ -5250,9 +5261,9 @@ def _dcf_editor(ticker):
         logger.warning("fundamentals for %s failed: %s", ticker, e)
         _fund_error, fund = e, {}
 
-    (_tab_overview, _tab_notes, _tab_business, _tab_phase, _tab_moat, _tab_risk,
+    (_tab_overview, _tab_notes, _tab_business, _tab_phase, _tab_moat, _tab_growth, _tab_risk,
      _tab_fundamentals, _tab_dcf, _tab_rdcf, _tab_peers, _tab_dividend, _tab_history) = st.tabs(
-        ["Overview", "Pre-Scan", "Business", "Phase", "Moat", "Risk", "Fundamentals", "DCF",
+        ["Overview", "Pre-Scan", "Business", "Phase", "Moat", "Growth", "Risk", "Fundamentals", "DCF",
          "Reverse DCF", "Peer Comparison", "Dividend", "History"])
 
     # Overview: three white sections -- Company (profile + at a glance), Price vs
@@ -5474,6 +5485,48 @@ def _dcf_editor(ticker):
             st.caption("No Moat Analysis in the verdict format yet.")
         st.markdown(moat_cards.cards_section_html(_notes.get(moat_cards.TITLE), T),
                     unsafe_allow_html=True)
+
+    # Growth: the Growth Analysis + analyst consensus cards (from "Growth Cards"),
+    # revenue vs earnings with the CAGR table, then the two growth question
+    # cards. Read-only; every render path degrades to a caption.
+    with _tab_growth:
+        _gnotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
+        _gcontent = _gnotes.get(growth_cards.TITLE)
+        try:
+            st.markdown(growth_page.growth_section_html(_gcontent, T), unsafe_allow_html=True)
+        except Exception as e:
+            logger.warning("Growth section for %s failed: %s", ticker, e)
+            st.caption("Growth analysis unavailable right now.")
+
+        with st.container(key="qc_growth_chart"):
+            st.markdown('<div class="qc-label">Revenue &amp; earnings</div>',
+                        unsafe_allow_html=True)
+            _grng = st.segmented_control(
+                "Range", ("5Y", "10Y"), default="5Y",
+                key=f"gr_range_{ticker}", label_visibility="collapsed",
+            ) or "5Y"
+            try:
+                _gyears, _grev, _gearn = growth_page.revenue_earnings_series(
+                    fund, 10 if _grng == "10Y" else 5)
+                if not _gyears:
+                    raise ValueError("no revenue years")
+                _gfig = growth_page.revenue_earnings_figure(_gyears, _grev, _gearn, T)
+                _gcagr = growth_page.cagr_table_html(fund)
+            except Exception as e:
+                logger.warning("Growth revenue chart for %s failed: %s", ticker, e)
+                _gfig = None
+            if _gfig is not None:
+                st.plotly_chart(_gfig, width="stretch", config={"displayModeBar": False})
+                st.markdown(_gcagr, unsafe_allow_html=True)
+            else:
+                st.caption("No revenue history available.")
+
+        try:
+            st.markdown(growth_page.questions_section_html(_gcontent, T),
+                        unsafe_allow_html=True)
+        except Exception as e:
+            logger.warning("Growth questions for %s failed: %s", ticker, e)
+            st.caption("Growth questions unavailable right now.")
 
     # Risk: Risk Analysis and SaaSpocalypse Resistance as two summary cards, then
     # the four question cards from "Risk Cards". Read-only, like Moat.
