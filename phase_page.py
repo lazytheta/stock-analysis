@@ -211,7 +211,7 @@ def _tick_label(t):
     return ("-" if t < 0 else "") + om.fmt_money_m(abs(t))
 
 
-def _money_ticks(values, n=5):
+def money_ticks(values, n=5):
     """Round y-axis ticks ($M) from min(0, lowest) to the highest value, about
     `n` steps of 1/2/5 x 10^k, each labelled like fmt_money_m ("$2.4B",
     "$510M"). Empty when there is no data."""
@@ -250,7 +250,7 @@ def revenue_ocf_figure(years, revenue, cfo, theme) -> go.Figure:
         plot_bgcolor="rgba(0,0,0,0)",
         legend=dict(orientation="h", x=0, xanchor="left", y=1.12, yanchor="bottom"),
     )
-    tickvals, ticktext = _money_ticks(list(revenue) + list(cfo))
+    tickvals, ticktext = money_ticks(list(revenue) + list(cfo))
     fig.update_yaxes(tickmode="array", tickvals=tickvals, ticktext=ticktext, showgrid=True,
                      gridwidth=1, gridcolor="rgba(128,128,128,0.15)", zeroline=True,
                      zerolinecolor="rgba(128,128,128,0.35)")
