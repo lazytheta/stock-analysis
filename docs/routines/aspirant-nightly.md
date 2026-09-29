@@ -63,16 +63,13 @@ and the SEC connector only.
       refuses "Moat Cards", "Risk Cards", "Business Cards", "Company
       Profile" or "Growth Cards", fix what the error names and save once
       more; if it refuses again, note it and move on.
-   c. Always fill in the full DCF, whatever the Moat verdict:
-      `get_config(ticker)`, then set revenue_growth and op_margins year by
-      year with a short rationale, terminal_growth, sector_betas as [name,
-      unlevered_beta, revenue_weight] with weights summing to 1.0, and
-      equity_market_value ($M). Rules: nominal basis, CAPM/WACC, no SBC
-      adjustments, margin of safety 20%, no peers. Save with
-      `save_to_watchlist` (allowed for an Aspirant; it keeps the category and
-      clears the placeholder marker). Then `update_dcf_scenario_adjustments`,
-      `set_robustness`, `set_premortem` and
-      `calculate_multi_lens_valuation(ticker)`.
+   c. Always fill in the full DCF, whatever the Moat verdict. Read
+      `docs/routines/dcf-method.md` in this repository and follow it
+      exactly, sections 1–6: anchors (history, consensus, guidance), growth
+      and margin fades set by the Moat verdict, reinvestment, save, scenarios,
+      valuation, reverse-DCF check and the "DCF Rationale" section.
+      `save_to_watchlist` is allowed for an Aspirant; it keeps the category
+      and clears the placeholder marker.
    d. Only if the Moat verdict is Wide, call `promote_aspirant(ticker)`. If
       promote refuses, note the reason. Otherwise the name stays an Aspirant
       — now with its fair value and buy price visible.
