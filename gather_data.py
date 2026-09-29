@@ -130,6 +130,7 @@ SIC_TO_SECTOR = {
     6199: ("Brokerage & Investment Banking", 0.80),
     6211: ("Brokerage & Investment Banking", 0.80),
     6311: ("Insurance (General)", 0.65),
+    6324: ("Healthcare Support Services", 0.77),  # managed care (HUM, MOH)
     6411: ("Insurance (General)", 0.65),
     # Auto
     3711: ("Auto & Truck", 0.85),
@@ -1679,10 +1680,15 @@ def resolve_sector_betas(sic_code, sic_description=""):
         return [(sector_name, beta, 1.0)]
 
     if dam_betas and sic_description:
-        sic_words = set(sic_description.lower().split())
+        # Real words only: "&" once matched "HOSPITAL & MEDICAL SERVICE
+        # PLANS" to "Auto & Truck" (beta 1.27 for a managed-care insurer).
+        def _words(text):
+            return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if len(w) > 2}
+
+        sic_words = _words(sic_description)
         best_match, best_score = None, 0
         for sector, beta in dam_betas.items():
-            overlap = len(sic_words & set(sector.lower().split()))
+            overlap = len(sic_words & _words(sector))
             if overlap > best_score:
                 best_score = overlap
                 best_match = (sector, beta)
