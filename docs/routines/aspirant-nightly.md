@@ -65,8 +65,9 @@ and the SEC connector only.
       more; if it refuses again, note it and move on.
    c. Always fill in the full DCF, whatever the Moat verdict. Read
       `docs/routines/dcf-method.md` in this repository and follow it
-      exactly, sections 1–6: anchors (history, consensus, guidance), growth
-      and margin fades set by the Moat verdict, reinvestment, save, scenarios,
+      exactly, sections 1–7: anchors (history, consensus, guidance), growth
+      and margin fades set by the Moat verdict, reinvestment, balance check,
+      save, scenarios,
       valuation, reverse-DCF check and the "DCF Rationale" section.
       `save_to_watchlist` is allowed for an Aspirant; it keeps the category
       and clears the placeholder marker.

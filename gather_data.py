@@ -1646,6 +1646,18 @@ def fetch_sector_betas():
         return {}
 
 
+def holds_others_money(sic_code):
+    """True for SIC 6000–6499: banks, credit, brokers/exchanges, insurers and
+    insurance agents. Their balance sheet carries deposits, client money,
+    clearing collateral or claim reserves as cash and investments, and
+    build_config adds all of it to the equity bridge as if it were free cash.
+    """
+    try:
+        return 6000 <= int(sic_code) <= 6499
+    except (TypeError, ValueError):
+        return False
+
+
 def resolve_sector_betas(sic_code, sic_description=""):
     """Resolve a SIC code to a sector_betas list of (name, beta, weight) tuples.
 
@@ -2610,6 +2622,10 @@ def build_base_config(ticker, stock_price=0):
             cfg["fund_slice"] = _slice
     except Exception as e:  # the slice is a cache; never cost the add for it
         print(f"  WARNING: fund_slice for {ticker} failed: {e}")
+    if holds_others_money(sic_code):
+        # cash_bridge/securities above include money that is not the
+        # shareholders'; the DCF method's balance check must replace them.
+        cfg["balance_review"] = f"others_money (SIC {sic_code})"
     return cfg
 
 

@@ -47,6 +47,21 @@ def test_build_base_config_without_any_price_says_so():
             gd.build_base_config("TST")
 
 
+@pytest.mark.parametrize("sic,flagged", [(6324, True), (6022, True), (6200, True),
+                                         (6499, True), (7372, False), (5990, False), (6500, False)])
+def test_build_base_config_flags_balance_review_for_financials(sic, flagged):
+    import contextlib
+    import gather_data as gd
+    with contextlib.ExitStack() as stack:
+        for p in _patch_edgar(gd, price=10.0):
+            stack.enter_context(p)
+        stack.enter_context(patch.object(gd, "fetch_company_submissions",
+                                         return_value={"name": "T", "sic": str(sic),
+                                                       "sicDescription": "X"}))
+        cfg = gd.build_base_config("TST", stock_price=10.0)
+    assert ("balance_review" in cfg) is flagged
+
+
 def _cfg(**over):
     cfg = {
         "category": "Aspirant",

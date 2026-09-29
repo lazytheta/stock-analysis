@@ -70,10 +70,34 @@ hurdle they do not move the discount rate.
   Narrow modestly above; None close to it. If it does not fit the verdict,
   adjust sales_to_capital or the margin and say which.
 
-## 5. Save, scenarios, value
+## 5. Balance check — cash and investments in the equity bridge
+
+The DCF adds `cash_bridge` + `securities` to enterprise value. The base config
+fills both from EDGAR without judgement, so check them against the latest
+10-K/10-Q balance sheet (the SEC connector's filing search).
+
+- **Money that is not the shareholders'** — always when the config carries
+  `balance_review` (SIC 6000–6499: banks, brokers, exchanges, insurers,
+  insurance agents), and for anyone else holding client money (payment and
+  payroll processors, marketplaces holding seller funds). Cash and
+  investments that back claim reserves, deposits, client funds or clearing
+  collateral do not belong to shareholders. Use only what the parent company
+  can freely use: the parent-only balance sheet (10-K Schedule I, "condensed
+  financial information of registrant") or the "parent company cash and
+  investments" the company reports. If neither can be found, set
+  both `cash_bridge` and `securities` to 0 (conservative) and say so.
+- **Missing investments** — every company. If the filing shows short-term
+  investments or marketable securities (current, and long-term if they are
+  plainly liquid) that are missing from or smaller than `securities`, set
+  `securities` to the filing's figure. EDGAR tags change over the years, so
+  a null or stale value here is common.
+- Report old and new values, the filing, its date and the line items used.
+
+## 6. Save, scenarios, value
 
 1. `get_config(ticker)`, set revenue_growth, op_margins, terminal_growth,
-   terminal_margin, sales_to_capital, sector_betas as [name,
+   terminal_margin, sales_to_capital, cash_bridge and securities (section 5),
+   sector_betas as [name,
    unlevered_beta, revenue_weight] with weights summing to 1.0, and
    equity_market_value ($M). Save with `save_to_watchlist`.
 2. `update_dcf_scenario_adjustments`: size bull and bear from the spread
@@ -86,7 +110,7 @@ hurdle they do not move the discount rate.
    ROIC check in section 4), `implied_growth` and `implied_margin` — what
    the current price already assumes. Compare them with your years 1–5.
 
-## 6. Rationale
+## 7. Rationale
 
 Save with `save_prescan_section(ticker, "DCF Rationale", content)`:
 
@@ -102,6 +126,9 @@ Fade: <Wide|Narrow|None> pattern.
 
 **Checks** — each base-rate check broken, with the reason (or "none broken").
 Reverse DCF: price implies x% growth vs our x% (y1–5) → <what that means>.
+
+**Balance** — cash_bridge x → x, securities x → x (filing, date, lines) |
+unchanged, checked against <filing>.
 
 **Result** — fair value x, buy price x, vs price x.
 ```
