@@ -5,8 +5,11 @@ The approach is the buy-side one: trust the near term to consensus and
 guidance, and let the Moat verdict decide how fast growth and margins fade
 back to ordinary. The company's own history is a check, not the anchor.
 
-Fixed rules: nominal basis, CAPM/WACC, no SBC adjustments, margin of safety
-20%, no peers.
+Fixed rules: nominal basis, the fixed hurdle rate as discount rate (default
+9%, `discount_mode` "hurdle"; never set discount_mode or hurdle_rate), no SBC
+adjustments, margin of safety 20%, no peers. sector_betas and
+equity_market_value are still required by save_to_watchlist, but under the
+hurdle they do not move the discount rate.
 
 ## 1. Gather the three anchors
 
@@ -63,7 +66,7 @@ Fixed rules: nominal basis, CAPM/WACC, no SBC adjustments, margin of safety
   to a sane range (0.3–5). If it cannot be computed, pick a sector-typical
   value and say so.
 - Check: implied terminal return on capital ≈ terminal_margin × (1 − tax
-  rate) × sales_to_capital. Wide may stay well above the discount rate;
+  rate) × sales_to_capital. Wide may stay well above the discount rate (the hurdle);
   Narrow modestly above; None close to it. If it does not fit the verdict,
   adjust sales_to_capital or the margin and say which.
 
