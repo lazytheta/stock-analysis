@@ -9,6 +9,7 @@ No module-level import of prescan_render: mcp_server imports this module for
 the parser, and the Cloud Run image does not ship prescan_render.
 """
 
+import html
 import json
 import re
 
@@ -84,12 +85,14 @@ Output ONLY a fenced JSON block, nothing before or after:
 
 
 def _text(value, name):
-    """A stripped string; None/empty passes through as "", non-strings raise."""
+    """A stripped string with HTML entities decoded (a model sometimes writes
+    "G&amp;A", which qc.esc would escape again); None/empty passes through
+    as "", non-strings raise."""
     if value is None:
         return ""
     if not isinstance(value, str):
         raise ValueError(f"{name} must be a string")
-    return value.strip()
+    return html.unescape(value).strip()
 
 
 def _load_json(content):

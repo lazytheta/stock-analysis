@@ -113,3 +113,14 @@ def test_mcp_refuses_an_invalid_explainer():
     assert mcp_server._CARD_PARSERS[ce.TITLE] is ce.parse_company_explainer
     out = mcp_server._save_prescan_section_impl("ABC", ce.TITLE, "```json\n{}\n```")
     assert "error" in out and ce.TITLE in out["error"]
+
+
+def test_html_entities_in_the_text_are_decoded_once():
+    # A model sometimes writes "G&amp;A"; escaping that again would show
+    # "G&amp;A" on the page instead of "G&A".
+    sections = {key: PARA for key, _ in ce.SECTIONS}
+    sections["drivers"] = PARA + " It reports the G&amp;A ratio."
+    out = ce.parse_company_explainer(_block(sections=sections))
+    assert "G&A ratio" in out["sections"]["drivers"]
+    html = ce.explainer_section_html(_block(sections=sections), mission="", theme=T)
+    assert "G&amp;A ratio" in html and "&amp;amp;" not in html
