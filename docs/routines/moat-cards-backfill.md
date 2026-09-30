@@ -1,7 +1,7 @@
 # Question cards backfill — routine prompt
 
 You fill the "Moat Cards", "Risk Cards", "Business Cards", "Company
-Profile" and "Growth Cards" pre-scan sections for LazyTheta watchlist
+Profile", "Growth Cards" and "Company Explainer" pre-scan sections for LazyTheta watchlist
 tickers that have the underlying analysis but no cards yet. Use only the
 Lazy-Theta-Remote-MCP connector, plus the SEC-MCP connector for the
 "revenue" block in step 5b and the "consensus" block in step 9b if it is
@@ -138,7 +138,28 @@ matching prompt to answer.
       block>)`. If the server refuses, fix what the error names and save
       once more; if it refuses again, note the ticker and the reason and
       move on.
-10. If all five `tickers` lists from steps 1, 3, 5, 6 and 8 were empty,
+10. Company Explainer, with its OWN budget of 20 names (separate from the
+    shared budget of 10 above): call `tickers_missing_section(title=
+    "Company Explainer", requires="Business Analysis", limit=20)`. If
+    `tickers` is empty, note that and go to step 12.
+11. For each ticker from step 10:
+    a. Call `get_prescan_prompts(ticker)` and take the prompt titled
+       "Company Explainer" (its {prior:Business Analysis}, {prior:Business
+       Cards} and {prior:Key Metrics} are filled in when those sections
+       exist; a missing one is acceptable, answer with what is there).
+    b. Make exactly ONE SEC-MCP call per ticker for the latest 10-K's
+       Item 1 "Business" and segment note: `SearchDocuments` (or
+       `SearchDocument` on the latest 10-K) with a query such as "Item 1
+       Business products customers segments revenue". If SEC-MCP is
+       unavailable or returns nothing, answer from the priors alone and
+       name the source you did use.
+    c. Answer the prompt exactly as it asks: one fenced JSON block with
+       "lead", the five "sections" and "source".
+    d. Save with `save_prescan_section(ticker, "Company Explainer", <the
+       JSON block>)`. If the server refuses, fix what the error names
+       (usually a section outside 150-700 characters) and save once more;
+       if it refuses again, note the ticker and the reason and move on.
+12. If all six `tickers` lists from steps 1, 3, 5, 6, 8 and 10 were empty,
     print "Nothing left to backfill." Otherwise print a summary: tickers
     filled (per card set), tickers skipped with reasons, and `remaining`
     for each.

@@ -24,6 +24,7 @@ import moat_cards
 import risk_cards
 import business_cards
 import company_profile
+import company_explainer
 import growth_cards
 import growth_page
 import business_revenue
@@ -1902,6 +1903,12 @@ the level at which it would. This line is mandatory even when all five pass.]
         "prompt": growth_cards.PROMPT,
     },
     {
+        # Five-heading explanation of what the company does, for the Overview
+        # tab, built on Business Analysis, Business Cards and Key Metrics.
+        "title": company_explainer.TITLE,
+        "prompt": company_explainer.PROMPT,
+    },
+    {
         "title": "Risk Analysis",
         "prompt": """# RISK ANALYSIS v2.0
 CRITICAL: You are now executing an execution risk assessment protocol. Follow each instruction precisely in order.
@@ -2872,7 +2879,7 @@ st.markdown(f"""
        Plotly chart). .qc-label is repeated here so the label above it
        renders correctly even before question_cards.STYLE has been emitted
        elsewhere on the page. */
-    .st-key-qc_revenue_section {{
+    .st-key-qc_revenue_section, .st-key-qc_ov_revenue_section {{
         background: var(--card);
         border-top: 3px solid var(--accent);
         border-radius: 24px;
@@ -2919,14 +2926,15 @@ st.markdown(f"""
        geography_legend_html render transparent so this is the only
        background. The inner-block gap is tightened so the header, chart and
        legend sit close together like one panel. */
-    .st-key-qc_geo_panel {{
+    .st-key-qc_geo_panel, .st-key-qc_ov_geo_panel {{
         background: color-mix(in srgb, var(--text) 4%, var(--card));
         border-radius: 16px;
         padding: 16px 18px;
         min-height: 470px;
         box-sizing: border-box;
     }}
-    .st-key-qc_geo_panel [data-testid="stVerticalBlock"] {{
+    .st-key-qc_geo_panel [data-testid="stVerticalBlock"],
+    .st-key-qc_ov_geo_panel [data-testid="stVerticalBlock"] {{
         gap: .25rem !important;
     }}
     .qc-label {{
@@ -5290,6 +5298,20 @@ def _dcf_editor(ticker):
         st.markdown(overview_page.company_section_html(_oprofile, _omcap, _oglance),
                     unsafe_allow_html=True)
 
+        # What the company does (Company Explainer), then the same revenue
+        # breakdown as the Business tab; that section is left out when
+        # Business Cards has no revenue block.
+        st.markdown(company_explainer.explainer_section_html(
+            _onotes.get(company_explainer.TITLE),
+            mission=(_oprofile or {}).get("mission", ""), theme=T),
+            unsafe_allow_html=True)
+        try:
+            _orev_raw = _onotes.get(business_cards.TITLE)
+            _orev = business_cards.parse_business_cards(_orev_raw)["revenue"] if _orev_raw else None
+        except (ValueError, KeyError):
+            _orev = None
+        _render_revenue_section(_orev, "qc_ov")
+
         with st.container(key="qc_ov_price"):
             st.markdown('<div class="qc-label">Price vs S&amp;P 500</div>',
                         unsafe_allow_html=True)
@@ -5379,31 +5401,8 @@ def _dcf_editor(ticker):
             _brev = business_cards.parse_business_cards(_bcontent)["revenue"] if _bcontent else None
         except ValueError:
             _brev = None
-        with st.container(key="qc_revenue_section"):
-            st.markdown('<div class="qc-label">Revenue</div>', unsafe_allow_html=True)
-            if _brev:
-                _rl, _rr = st.columns(2)
-                with _rl:
-                    st.markdown(business_revenue.segments_panel_html(_brev, T),
-                                unsafe_allow_html=True)
-                with _rr:
-                    # One continuous flat panel (header + map + legend), not
-                    # three stacked pieces with a seam around the chart.
-                    with st.container(key="qc_geo_panel"):
-                        st.markdown(business_revenue.geography_header_html(_brev, T),
-                                    unsafe_allow_html=True)
-                        _fig = business_revenue.geography_figure(_brev, T)
-                        if _fig is not None:
-                            st.plotly_chart(_fig, width="stretch",
-                                            config={"displayModeBar": False})
-                            st.markdown(business_revenue.geography_legend_html(_brev, T),
-                                        unsafe_allow_html=True)
-                        else:
-                            st.caption("No geographic split reported.")
-                st.markdown(business_revenue.revenue_caption_html(_brev["period"], T),
-                            unsafe_allow_html=True)
-            else:
-                st.caption("No revenue breakdown yet. It comes with the \"Business Cards\" section.")
+        _render_revenue_section(_brev, "qc", empty_note=(
+            "No revenue breakdown yet. It comes with the \"Business Cards\" section."))
         st.markdown(business_cards.quality_section_html(_bcontent, T), unsafe_allow_html=True)
 
     # Phase: the growth-cycle phase (from "Business Phase Analysis", else the
@@ -8709,6 +8708,9 @@ def _dcf_editor(ticker):
                                 _card = business_cards.quality_section_html(_content, T)
                             elif _title == company_profile.TITLE:
                                 _card = company_profile.profile_list_html(_content, T)
+                            elif _title == company_explainer.TITLE:
+                                _card = company_explainer.explainer_section_html(
+                                    _content, theme=T)
                             elif _title == growth_cards.TITLE:
                                 _card = growth_cards.prescan_section_html(_content, T)
                             else:
@@ -9658,6 +9660,40 @@ def _to_time_col(values):
     """
     parsed = pd.to_datetime(values, format="mixed", utc=True)
     return parsed.dt.tz_localize(None)
+
+
+def _render_revenue_section(brev, prefix, empty_note=None):
+    """The "Revenue" section: segments panel beside the geography map. Used by
+    the Business and Overview tabs; `prefix` keeps the container and chart
+    keys unique, since both tabs render in the same run. Without a breakdown
+    it shows `empty_note`, or nothing at all when that is None."""
+    if not brev and empty_note is None:
+        return
+    with st.container(key=f"{prefix}_revenue_section"):
+        st.markdown('<div class="qc-label">Revenue</div>', unsafe_allow_html=True)
+        if not brev:
+            st.caption(empty_note)
+            return
+        _rl, _rr = st.columns(2)
+        with _rl:
+            st.markdown(business_revenue.segments_panel_html(brev, T),
+                        unsafe_allow_html=True)
+        with _rr:
+            # One continuous flat panel (header + map + legend), not
+            # three stacked pieces with a seam around the chart.
+            with st.container(key=f"{prefix}_geo_panel"):
+                st.markdown(business_revenue.geography_header_html(brev, T),
+                            unsafe_allow_html=True)
+                _fig = business_revenue.geography_figure(brev, T)
+                if _fig is not None:
+                    st.plotly_chart(_fig, width="stretch", key=f"{prefix}_geo_chart",
+                                    config={"displayModeBar": False})
+                    st.markdown(business_revenue.geography_legend_html(brev, T),
+                                unsafe_allow_html=True)
+                else:
+                    st.caption("No geographic split reported.")
+        st.markdown(business_revenue.revenue_caption_html(brev["period"], T),
+                    unsafe_allow_html=True)
 
 
 def _verdict_card_html(content, title=""):

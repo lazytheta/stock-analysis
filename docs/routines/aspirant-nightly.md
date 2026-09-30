@@ -44,7 +44,10 @@ and the SEC connector only.
       Company Profile (its priors are Long-Term Potential, Business
       Analysis and Key Metrics), but the re-fetch is still required so
       every `{prior:…}` in the prompt you are about to answer is actually
-      filled in, not still a bare placeholder. For "Growth Cards", the
+      filled in, not still a bare placeholder. "Company Explainer" comes after
+      Growth Cards; re-fetch after saving "Business Cards" (at the latest
+      before answering it) so its {prior:Business Cards} is filled in, and
+      use one SEC call for the latest 10-K's Item 1 "Business". For "Growth Cards", the
       "consensus" block comes only from the SEC connector's
       `GetAnalystEstimates`, which returns level estimates (revenue and EPS
       with mean/median, analyst count and accounting basis), not growth
