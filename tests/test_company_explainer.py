@@ -124,3 +124,8 @@ def test_html_entities_in_the_text_are_decoded_once():
     assert "G&A ratio" in out["sections"]["drivers"]
     html = ce.explainer_section_html(_block(sections=sections), mission="", theme=T)
     assert "G&amp;A ratio" in html and "&amp;amp;" not in html
+
+
+def test_prompt_asks_for_plain_language_not_a_catalogue():
+    assert "Never list product names" in ce.PROMPT
+    assert "by name" not in ce.PROMPT

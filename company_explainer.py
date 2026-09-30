@@ -49,17 +49,35 @@ the company does not disclose something, say so in plain words.
 
 {prior:Key Metrics}
 
-Write in plain English. Name real products, brands and customer types. When a
-term of art is unavoidable, explain it in a short clause ("etch — carving
-patterns into the silicon").
+HOW TO WRITE — this matters more than completeness:
+- Write for a smart reader who knows nothing about this industry, as if you
+  were explaining the company to a friend. Plain, everyday English.
+- Start with what things DO, not what they are called. An everyday
+  comparison is welcome ("like the printing press of a chip factory").
+- At most two product or brand names per paragraph, and only after you have
+  said what the thing does. Never list product names.
+- No jargon or abbreviations the reader would have to look up. If a term is
+  unavoidable, explain it in a few words the first time; otherwise leave it
+  out.
+- Use a few numbers that help the reader (shares of revenue, the biggest
+  customers), not every number you have.
+
+Bad (a catalogue, unreadable for an outsider):
+"Lam sells wafer-fab tools: etch systems (Kiyo, Flex, Vantex, Akara),
+deposition systems (ALTUS, SABRE, VECTOR, Striker) and clean tools (EOS,
+DV-Prime)."
+Good (says what it does):
+"Lam makes the machines chip factories use to build chips layer by layer.
+Some lay down ultra-thin layers of material, others cut microscopic patterns
+into those layers, and others clean the wafer between steps."
 
 lead: ONE sentence, at most 240 characters, on what the company is at its
 core — what it makes or does and how that turns into money.
 
 sections: EXACTLY these five keys, each a short paragraph of 2 to 4 sentences
 (150 to 700 characters):
-- sell: what they sell — the concrete products and services by name, and what
-  the customer uses them for.
+- sell: what they sell — what the products and services do for the customer,
+  in everyday words.
 - customers: who pays — which customers, out of which budget, and how
   concentrated (largest customers' share, main regions) where disclosed.
 - model: how they make money — the revenue model (one-off sale, subscription,
