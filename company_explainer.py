@@ -13,6 +13,7 @@ import html
 import json
 import re
 
+import prompt_style
 import question_cards as qc
 
 TITLE = "Company Explainer"
@@ -49,18 +50,9 @@ the company does not disclose something, say so in plain words.
 
 {prior:Key Metrics}
 
-HOW TO WRITE — this matters more than completeness:
-- Write for a smart reader who knows nothing about this industry, as if you
-  were explaining the company to a friend. Plain, everyday English.
-- Start with what things DO, not what they are called. An everyday
-  comparison is welcome ("like the printing press of a chip factory").
-- At most two product or brand names per paragraph, and only after you have
-  said what the thing does. Never list product names.
-- No jargon or abbreviations the reader would have to look up. If a term is
-  unavoidable, explain it in a few words the first time; otherwise leave it
-  out.
-- Use a few numbers that help the reader (shares of revenue, the biggest
-  customers), not every number you have.
+""" + prompt_style.HOW_TO_WRITE + """This matters more than completeness. Write as if explaining the company to a
+friend; an everyday comparison is welcome ("like the printing press of a chip
+factory"). Never list product names.
 
 Bad (a catalogue, unreadable for an outsider):
 "Lam sells wafer-fab tools: etch systems (Kiyo, Flex, Vantex, Akara),
@@ -84,7 +76,7 @@ sections: EXACTLY these five keys, each a short paragraph of 2 to 4 sentences
   usage, commission, spread, premiums), the pricing unit, and which segment
   brings in how much of revenue and operating profit, with the fiscal year.
 - drivers: what drives revenue — the two or three levers that move it (volume
-  times price, e.g. units shipped, members, take rate) and the KPIs the
+  times price, e.g. units shipped, members, take rate) and the measures the
   company itself reports.
 - chain: where they sit — whom they buy from, whom they sell to, and who they
   compete with at that step of the chain.

@@ -2,6 +2,7 @@
 the SaaSpocalypse Resistance sections. Answers run from riskiest (0, red) to
 safest (2, green). No module-level import of prescan_render."""
 
+import prompt_style
 import question_cards as qc
 
 TITLE = "Risk Cards"
@@ -26,7 +27,8 @@ do not contradict them.
 
 For each question, in exactly this order, pick an answer (0 = riskiest, 2 = safest):
 - concentration: How diversified are revenues? pick 0 = Concentrated, 1 = Moderate, 2 = Diversified
-  (customers, products and geographies; a customer at 10%+ of revenue counts against)
+  (customers, products and geographies). The largest customer caps the pick: above
+  20% of revenue = 0; 10% to 20% = at most 1
 - disruption: Is disruption a threat? pick 0 = Yes, 1 = Some risk, 2 = No
   (technology, AI, new business models that could make the product obsolete)
 - outside_forces: How much is outside their control? pick 0 = A lot, 1 = Some, 2 = Very little
@@ -35,9 +37,10 @@ For each question, in exactly this order, pick an answer (0 = riskiest, 2 = safe
   (interest cover, debt versus cash flow, liquidity)
 
 summary: ONE sentence for the front of the card, with the fact that decides the pick.
-points: EXACTLY three, each {"label": two to four words, "text": one line with a number or
-a fact from the filings}.
+points: EXACTLY three, each {"label": two to four words, "text": one line with the
+plainest evidence}.
 
+""" + prompt_style.HOW_TO_WRITE + """
 Output ONLY a fenced JSON block, nothing before or after:
 
 ```json

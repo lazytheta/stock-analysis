@@ -13,6 +13,7 @@ No module-level import of prescan_render: mcp_server imports this module for
 the parser, and the Cloud Run image does not ship prescan_render.
 """
 
+import prompt_style
 import question_cards
 
 TITLE = "Moat Cards"
@@ -53,8 +54,9 @@ For each of the five moat sources, in exactly this order, decide:
 
 direction: "widening", "stable" or "narrowing" - is this source getting stronger or weaker.
 summary: ONE sentence for the front of the card, with the fact that decides the pick.
-points: EXACTLY three, each {"label": two to four words, "text": one line with a number or
-a fact from the filings}. For an absent source, say what you looked for and why it is absent.
+points: EXACTLY three, each {"label": two to four words, "text": one line with the
+plainest evidence, no product names or acronyms}. For an absent source, say what
+you looked for and why it is absent.
 
 Then the moat as a whole, in "trend":
 summary: ONE sentence on whether the moat is widening, stable or narrowing, and why
@@ -62,6 +64,7 @@ summary: ONE sentence on whether the moat is widening, stable or narrowing, and 
 points: EXACTLY three, same shape as above, each a measurable sign of that direction
 (returns versus peers over time, costs versus sales, a new mechanism, a rival gaining).
 
+""" + prompt_style.HOW_TO_WRITE + """
 Output ONLY a fenced JSON block, nothing before or after:
 
 ```json

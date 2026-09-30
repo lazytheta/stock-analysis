@@ -16,6 +16,7 @@ the parser, and the Cloud Run image does not ship prescan_render.
 import json
 import re
 
+import prompt_style
 import question_cards as qc
 
 TITLE = "Growth Cards"
@@ -46,7 +47,7 @@ analyses below and on reported numbers; do not contradict them.
 analysis: score the company's long-term growth potential from 1 (Weak) to 5
 (Exceptional), ONE sentence summary with the fact that decides the score,
 and EXACTLY three points, each {"label": two to four words, "text": one
-line with a number or fact from the analyses above or the filings}.
+line with the plainest evidence, no product names or acronyms}.
 
 consensus: the next-fiscal-year revenue and EPS growth consensus, from a
 filings-grade source only -- call the SEC connector's `GetAnalystEstimates`
@@ -76,9 +77,10 @@ For each of the two questions, in exactly this order, pick an answer
 - optionality: Can new offerings drive growth? pick 0 = Unlikely, 1 = Possible, 2 = Likely
 
 summary: ONE sentence for the front of the card, with the fact that decides the pick.
-points: EXACTLY three, each {"label": two to four words, "text": one line with a number or
-a fact from the filings}.
+points: EXACTLY three, each {"label": two to four words, "text": one line with the
+plainest evidence, no product names or acronyms}.
 
+""" + prompt_style.HOW_TO_WRITE + """
 Output ONLY a fenced JSON block, nothing before or after:
 
 ```json

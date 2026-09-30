@@ -26,6 +26,7 @@ import business_cards
 import company_profile
 import company_explainer
 import growth_cards
+import prompt_style
 import growth_page
 import business_revenue
 import overview_chart
@@ -1334,6 +1335,7 @@ DEFAULT_AI_PROMPTS: list[dict] = [
             "Risk: {prior:Risk Analysis}\n\n"
             "Disruption resilience: {prior:SaaSpocalypse Resistance}\n\n"
             "Business: {prior:Business Analysis}\n\n"
+            + prompt_style.HOW_TO_WRITE + "\n"
             "Respond with ONLY a fenced JSON block, no prose:\n"
             "```json\n"
             "{\n"
@@ -1349,110 +1351,52 @@ DEFAULT_AI_PROMPTS: list[dict] = [
     },
     {
         "title": "Business Phase Analysis",
-        "prompt": """# BUSINESS PHASE ANALYSIS v18.7
+        "prompt": """# BUSINESS PHASE ANALYSIS — {company} ({ticker})
 
-## YOUR IDENTITY
-Financial analyst classifying companies into six growth phases based on operating income dynamics.
+Place the company in one of six growth phases, based on its operating income,
+revenue and capital returns.
 
-## YOUR MISSION
-1. Request company name from user
-2. Retrieve most recent financial data from SEC filings
-3. Apply simple decision tree
-4. Output ONLY the template below - nothing more
+## DATA
+Use the most recent quarterly report (10-Q) of the current year; if there is
+none yet, the most recent annual report (10-K). Name the one you used in the
+Sources list. SEC EDGAR first, the company's own investor-relations reports
+second; no third-party aggregators.
 
-## EXECUTION TRIGGER
-- If company name/ticker provided: Begin analysis
-- If not provided: Output EXACTLY: "What company (name or ticker) would you like me to analyze?"
-- WAIT FOR USER RESPONSE
+Collect for the latest period and the same period a year earlier: revenue and
+operating income. From the cash flow statement: dividends and buybacks.
 
-## DATA ACQUISITION
+## DECISION TREE (apply in order; stop at the first match)
+1. Returning capital (dividends or buybacks)? → Phase 5 · Capital Return
+2. Operating income positive and revenue lower than a year earlier?
+   → Phase 6 · Decline
+3. Operating margin (operating income ÷ revenue) between −5% and +5%?
+   → Phase 3 · Self Funding
+4. Operating loss larger than a year earlier? → Phase 1 · Startup
+5. Operating loss smaller than a year earlier? → Phase 2 · Hypergrowth
+6. Otherwise (clearly profitable, revenue flat or growing)
+   → Phase 4 · Operating Leverage
 
-### Priority (CRITICAL)
-1. Identify current year from today's date
-2. Search for MOST RECENT 10-Q from current year
-3. If no current year 10-Q, use most recent 10-K
-4. State explicitly: "Using [Q# YYYY 10-Q] filed on [date]" or "No 2025 10-Q available, using [FY YYYY 10-K]"
+## THE SIX PHASES
+1 · Startup — losses widening while it looks for a product that sells.
+    Valued on revenue and market size; earnings-based methods do not apply.
+2 · Hypergrowth — losses shrinking as the model proves itself. Valued on revenue
+    and gross profit.
+3 · Self Funding — near breakeven, margins climbing. Valued on revenue
+    and gross profit; earnings are not yet a reliable anchor.
+4 · Operating Leverage — clearly profitable, widening margins. Valued on
+    forward earnings and free cash flow.
+5 · Capital Return — mature, paying shareholders. Valued on trailing
+    earnings and free cash flow.
+6 · Decline — revenue falling. Valued on assets (book or liquidation value);
+    growth and earnings methods mislead.
 
-### Required Data
-- Current period Revenue
-- Prior year same period Revenue
-- Current period Operating Income
-- Prior year same period Operating Income
-- Capital Returns (dividends + buybacks from Cash Flow Statement)
+You still do the full analysis above, but report only what decides the answer:
+EXACTLY three bullets, no tables, no subsections.
 
-### Source Priority
-- PRIMARY: SEC EDGAR only
-- SECONDARY: Company IR page (official reports only)
-- FORBIDDEN: Third-party aggregators
-
-## CLASSIFICATION LOGIC (USE INTERNALLY ONLY)
-
-### DECISION TREE (Apply in exact order)
-
-STEP 1: Check Capital Returns
-- Returning capital (dividends OR buybacks)? → Phase 5: CAPITAL RETURN [STOP]
-- Otherwise → Continue
-
-STEP 2: Check Operating Income
-- Negative? → Go to Step 3
-- Positive? → Go to Step 4
-
-STEP 3: Analyze Losses (for negative Operating Income)
-- Current loss worse than prior year? → Phase 1: STARTUP [STOP]
-- Current loss same or better? → Phase 2: HYPERGROWTH [STOP]
-
-STEP 4: Check Revenue Growth (for positive Operating Income)
-- Revenue declining? → Phase 6: DECLINE [STOP]
-- Revenue flat/growing? → Phase 4: OPERATING LEVERAGE [STOP]
-
-## PHASE DEFINITIONS & VALUATION METHODS
-
-### 🌱 Phase 1: STARTUP
-- Characteristics: Losses expanding, finding product-market fit
-- Valuation Methods: Forward Price to Sales, Total Addressable Market (TAM)
-- Why These Fit: Company is pre-profit with expanding losses. Valuation relies on future revenue potential and market opportunity size.
-- Avoid: P/E ratios, DCF models, any earnings-based methods
-
-### 🚀 Phase 2: HYPERGROWTH
-- Characteristics: Losses improving, proving viability
-- Valuation Methods: Forward Price to Sales, Price to Gross Profit
-- Why These Fit: Company shows improving unit economics with shrinking losses. Valuation focuses on revenue trajectory and gross profit margins.
-- Avoid: P/E ratios, DCF models
-
-### ⚖️ Phase 3: SELF FUNDING
-- Characteristics: Near breakeven, validating model
-- Valuation Methods: Price to Sales, Price to Gross Profit
-- Why These Fit: Company is near breakeven, validating its business model. Current revenue and gross profit provide reliable valuation anchors.
-- Avoid: Forward/Trailing P/E, Reverse DCF
-
-### ⚙️ Phase 4: OPERATING LEVERAGE
-- Characteristics: Profitable, maximizing margins
-- Valuation Methods: Forward Price to Earnings, Forward Price to Free Cash Flow
-- Why These Fit: Company demonstrates scalable profitability. Forward earnings and cash flow reflect the trajectory.
-- Avoid: Dividend yield models
-
-### 🎁 Phase 5: CAPITAL RETURN
-- Characteristics: Mature, rewarding shareholders
-- Valuation Methods: Trailing Price to Earnings, Trailing Price to Free Cash Flow, Reverse DCF
-- Why These Fit: Company is mature with stable operations and capital returns. Current earnings and cash generation drive valuation.
-- Avoid: High growth multiples, forward P/S
-
-### 📉 Phase 6: DECLINE
-- Characteristics: Revenue falling, business deteriorating
-- Valuation Methods: Price to Book, Liquidation Value, Asset-Based Valuation
-- Why These Fit: Traditional growth valuation methods are unreliable for declining businesses due to deteriorating fundamentals.
-- Avoid: Growth multiples, forward earnings, DCF
-
-Write for someone scanning ten of these. The verdict must be readable without
-reading the body; the body justifies it rather than restating it. EXACTLY three
-bullets, each carrying a figure or a filing fact — a bullet that could be
-swapped onto any company in the sector is a description, not a finding.
-No tables, no subsections. You still do the full analysis above; you report
-only what decides the answer.
-
+""" + prompt_style.HOW_TO_WRITE + """
 # TEMPLATE (output exactly this shape, nothing before or after)
 
-**Phase: [Loss-making / Growth / Margin expansion / Profitable growth / Capital return / Decline] · [N]/6**
+**Phase: [Startup / Hypergrowth / Self Funding / Operating Leverage / Capital Return / Decline] · [N]/6**
 
 [ONE sentence. What the company is doing with its money right now, and how you
 know. Not a definition of the phase.]
@@ -1477,68 +1421,26 @@ the next phase, or back into the previous one. Name the metric and the level.]
     },
     {
         "title": "Business Analysis",
-        "prompt": """# BUSINESS ANALYSIS v2.1
+        "prompt": """# BUSINESS ANALYSIS — {company} ({ticker})
 
-CRITICAL: You are now executing a business analysis protocol. Follow each instruction precisely in order.
+Explain the business model from the latest annual report (10-K), updated with
+the most recent quarterly report (10-Q) of the current year if there is one;
+otherwise use earnings releases or investor presentations. Name the documents
+you used in the Sources list.
 
-## YOUR IDENTITY
-Expert financial analyst specializing in business model analysis from SEC filings.
+Work through these seven questions:
+1. What does the company do? (what its products and services do for customers)
+2. How does it make money? (revenue streams and segments, largest first, with shares)
+3. Who are its customers? (consumers, small businesses, large companies, governments)
+4. Where does it operate? (main regions, with shares)
+5. How often do customers buy? (recurring or one-time, contracts, how many stay)
+6. Can it raise prices? (margins, pricing comments, risk factors)
+7. What happens in a recession? (past cycles, management warnings)
 
-## YOUR MISSION
-1. Request company name from user
-2. Retrieve and analyze the most recent 10-K
-3. Answer the seven key questions about the company's business model
-4. Output findings in clean Markdown format (DO NOT wrap in code blocks)
-5. Provide concise but informative answers—not too brief, not overly detailed
+You still do the full analysis above, but report only what decides the answer:
+EXACTLY three bullets, no tables, no subsections.
 
-## EXECUTION TRIGGER
-- If this prompt contains a company name/ticker: Extract it and begin analysis
-- If interactive dialog is available: Output EXACTLY and ONLY: "What company (name or ticker) would you like me to analyze?"
-- Do NOT proceed without explicit company identification
-- Do NOT default to any example company
-- WAIT FOR USER RESPONSE BEFORE PROCEEDING
-
-## EXECUTION SEQUENCE
-
-### Step 1: User Input
-If company not provided with prompt, output exactly:
-"What company (name or ticker) would you like me to analyze? (I'll retrieve the most recent filings as of [current date])"
-Wait for the response. Store as COMPANY_NAME.
-
-### Step 2: Data Acquisition
-**SEARCH PRIORITY (CRITICAL):**
-1. First, identify the current year from today's date
-2. Search for the MOST RECENT 10-Q from the CURRENT YEAR
-3. Only use prior year 10-Q if current year is unavailable
-4. If no current year 10-Q exists, explicitly state: "No 2025 10-Q available as of [date], using [specify what you're using instead]"
-
-Gather in this order:
-- Most recent 10-Q from current fiscal year (e.g., if in 2025, get Q1/Q2/Q3 2025)
-- Most recent 10-K (for complete business model)
-- If current year 10-Q unavailable, use earnings press releases or investor presentations
-
-**VERIFICATION STEP:** Before proceeding, confirm which documents you found:
-- State: "Using [Company] 10-K from [date] and 10-Q from [specific quarter and year]"
-- If using older data, explain why newer isn't available
-
-### Step 3: Business Analysis (from 10-K)
-Answer these questions in plain English, with citations:
-
-1. **What does the company do?** (Core products/services)
-2. **How does it make money?** (Revenue streams & segments - list from most to least important with % breakdown)
-3. **Who are its customers?** (Individuals, SMBs, enterprises, governments, etc.)
-4. **Where does it operate?** (Key geographies with % breakdown if multiple)
-5. **How often do customers buy?** (Recurring vs one-time, contracts, retention data)
-6. **Can it raise prices?** (Evidence from margins, pricing commentary, risk factors)
-7. **What happens in a recession?** (Cyclicality, past performance, management warnings)
-
-Write for someone scanning ten of these. The verdict must be readable without
-reading the body; the body justifies it rather than restating it. EXACTLY three
-bullets, each carrying a figure or a filing fact — a bullet that could be
-swapped onto any company in the sector is a description, not a finding.
-No tables, no subsections. You still do the full analysis above; you report
-only what decides the answer.
-
+""" + prompt_style.HOW_TO_WRITE + """
 # TEMPLATE (output exactly this shape, nothing before or after)
 
 **Business: [Simple 🟢 / Understandable 🟡 / Opaque 🔴] · [how it earns, in two or three words]**
@@ -1565,86 +1467,35 @@ spend less, with evidence from a past cycle if there is one.]
     },
     {
         "title": "Moat Analysis",
-        "prompt": """# MOAT ANALYSIS v2.2
+        "prompt": """# MOAT ANALYSIS — {company} ({ticker})
 
-CRITICAL: You are now executing a moat analysis protocol. Follow each instruction precisely in order.
-Platform Note: If sequential execution not possible, include company name in initial prompt.
+Judge whether the company has a durable competitive advantage (a moat), how
+wide it is and which way it is moving.
 
-##YOUR IDENTITY: World-class financial analyst specializing in economic moat assessment.
+## SOURCES
+The latest annual and quarterly reports (10-K, 10-Q), recent earnings calls,
+a Morningstar moat report if available, and key figures: revenue growth,
+margins, customer retention, market share.
 
-##YOUR MISSION:
-1. Request company name from user
-2. Retrieve current financial data and Morningstar analysis
-3. Evaluate all five moat sources with evidence
-4. Classify moat size and direction using STRICT CRITERIA
-5. Output clean Markdown report (DO NOT wrap in code blocks)
---------------------------------------------
-EXECUTION TRIGGER
---------------------------------------------
-CRITICAL: Company selection protocol:
-- If this prompt contains a company name/ticker in the same message: Extract it and begin analysis
-- If interactive dialog is available: Output EXACTLY and ONLY: "What company (name or ticker) would you like me to analyze for moat assessment?"
-- Do NOT proceed without explicit company identification
-- Do NOT default to any example company (e.g., Apple, Microsoft)
-- If uncertain, always ask for clarification
-WAIT FOR USER RESPONSE BEFORE PROCEEDING
---------------------------------------------
-DEFINITIONS AND FRAMEWORK
---------------------------------------------
-MOAT SIZE CRITERIA:
-WIDE MOAT (10+ years durability):
-- Network Effect: Every new user makes product more valuable, market leadership
-- Switching Costs: High friction to leaving; mission-critical product
-- Intangible Assets: Brand provides significant pricing power; exclusive licenses
-- Low-Cost Production: Lowest cost structure that competitors struggle to match
-- Counter-Positioning: Incumbents unable to copy without self-harm
-NARROW MOAT (3-10 years durability):
-- Network Effect: Users loyal but not locked in; niche network
-- Switching Costs: Some friction; customers stay from habit/convenience
-- Intangible Assets: Some brand loyalty but price-sensitive customers
-- Low-Cost Production: Some cost advantage but regionally limited
-- Counter-Positioning: Challenges incumbents but they can fight back
-NO MOAT (No durable advantage):
-- Network Effect: No benefit when users join; small network
-- Switching Costs: Customers leave easily with low attachment
-- Intangible Assets: Undifferentiated brand with many substitutes
-- Low-Cost Production: Higher costs than peers
-- Counter-Positioning: Same business model as competitors
-MOAT DIRECTION:
-- Widening: Rising engagement, margin expansion, brand extending
-- Stable: Flat growth/margins; high retention but no new advantages
-- Narrowing: Increasing churn, margin compression, weakening brand
---------------------------------------------
-EXECUTION SEQUENCE
---------------------------------------------
-STEP 1: USER INPUT
-If company not provided with prompt, output exactly: "What company (name or ticker) would you like me to analyze for moat assessment?"
-Wait for response. Store as COMPANY_NAME.
-STEP 2: DATA ACQUISITION
-Perform web search to gather:
-- Most recent 10-K, 10-Q filings
-- Latest earnings call transcripts
-- Morningstar analyst report (if available)
-- Key metrics: Revenue growth, margins, retention rates, market share
-STEP 3: MOAT EVALUATION
-For each of the 5 moat sources:
-- Start with assumption of "No Moat"
-- Seek positive evidence to prove otherwise
-- Require 2 hard data points + 1 quote per moat type
-Note: Counter-Positioning requires the new model to harm incumbents if copied (e.g., Netflix streaming vs Blockbuster stores). Simply being different or innovative is NOT counter-positioning.
-STEP 4: CLASSIFICATION
-Apply criteria mechanically:
-- Document each moat type as Present/Not Present
-- If Present, classify as Wide/Narrow
-- Determine direction as Widening/Stable/Narrowing
-- Identify 1-2 primary moat sources
-STEP 5: OUTPUT
+## THE FIVE MOAT SOURCES
+Start from "no moat" for each source and look for evidence against that.
+- Switching costs — how painful it is for a customer to leave.
+- Network effect — each new user makes the product more valuable to others.
+- Intangible assets — a brand, patent or licence that lets it charge more.
+- Low-cost production — costs rivals cannot match.
+- Counter-positioning — rivals cannot copy the model without hurting
+  themselves (Netflix streaming vs Blockbuster stores). Being different or
+  innovative is not enough.
 
-Write for someone scanning ten of these. The verdict must be readable without
-reading the body; the body exists to justify it, not to restate it. Every
-bullet must survive the question "would I still write this if I had to drop
-one?" — if it would not, drop it.
+Size: Wide = the advantage should last 10+ years; Narrow = 3-10 years;
+None = no durable advantage.
+Direction: Widening = engagement rising, margins expanding, brand extending;
+Stable = flat; Narrowing = customers leaving, margins shrinking, brand
+weakening.
 
+You still assess all five sources, but report only what decides the answer.
+
+""" + prompt_style.HOW_TO_WRITE + """
 # TEMPLATE (output exactly this shape, nothing before or after)
 
 **Moat: [None ❌ / Narrow 🤏 / Wide 🛡️] · [Widening ↗️ / Stable ➡️ / Narrowing ↘️] · [0-5]/5**
@@ -1671,11 +1522,9 @@ with nothing against it has not been done.]
 - EXACTLY three bullets. Not four because a fourth is interesting. If two
   sources are strong and three are absent, three bullets still — use one to
   say what is absent and why it does not matter.
-- A bullet whose label could be swapped onto any company in the sector is not
-  a moat, it is a description. Rewrite it or drop it.
-- No tables. No per-source subsections. No "Assessment: Present" lines. You
-  still assess all five sources — you just report the ones that decide it.
-
+- A bullet says why THIS company has the advantage, not just which category
+  it falls in.
+- No tables. No per-source subsections. No "Assessment: Present" lines.
 """,
     },
     {
@@ -1685,55 +1534,34 @@ with nothing against it has not been done.]
     },
     {
         "title": "Long-Term Potential",
-        "prompt": """# LONG-TERM POTENTIAL GROWTH DRIVERS ANALYSIS v2.2
+        "prompt": """# LONG-TERM POTENTIAL — {company} ({ticker})
 
-CRITICAL: You are now executing a growth drivers analysis protocol. Follow each instruction precisely in order.
+Judge how long the company can keep growing, and where that growth comes from.
 
-## YOUR IDENTITY
-Expert growth strategist specializing in identifying and evaluating corporate growth mechanisms from financial filings and strategic initiatives.
+## SOURCES
+The latest annual report (10-K: segments, strategy, management discussion),
+the latest quarterly report (10-Q), investor-day material and recent earnings
+calls. Name what you used in the Sources list.
 
-## YOUR MISSION
-1. Request company name from user
-2. Retrieve and analyze recent 10-K, 10-Q, and supplementary sources
-3. Evaluate growth drivers using the 2×4 framework (New Customers vs Existing Customers)
-4. Assess strength of each driver and identify primary/secondary strategies
-5. Output findings in clean Markdown format (DO NOT wrap in code blocks)
+## THE SEVEN GROWTH DRIVERS
+Winning new customers:
+1. Marketing and sales spending
+2. New sales channels
+3. New regions or markets
+4. Acquisitions
+Existing customers spending more:
+5. Raising prices
+6. New products for the same customers
+7. Keeping customers longer
 
-## EXECUTION TRIGGER
-- If this prompt contains a company name/ticker: Extract it and begin analysis
-- If interactive dialog is available: Output EXACTLY and ONLY: "What company (name or ticker) would you like me to analyze for growth drivers?"
-- Do NOT proceed without explicit company identification
-- WAIT FOR USER RESPONSE BEFORE PROCEEDING
+Rate each driver Strong (clear evidence and real investment), Moderate
+(mentioned, not emphasised), Weak (little evidence) or Not applicable.
+Evaluate only these seven drivers; do not add others.
 
-## EXECUTION SEQUENCE
+You still do the full analysis above, but report only what decides the answer:
+EXACTLY three bullets, no tables, no subsections.
 
-### Step 1: User Input
-If company not provided with prompt, output exactly:
-"What company (name or ticker) would you like me to analyze for growth drivers?"
-Wait for response. Store as COMPANY_NAME.
-
-### Step 2: Data Acquisition
-**SEARCH PRIORITY:**
-1. Most recent 10-K (business segments, strategy section, MD&A)
-2. Latest 10-Q (recent developments, quarterly trends)
-3. Web search for: "[Company] growth strategy", "[Company] expansion plans", "[Company] investor day"
-4. Recent earnings call transcripts (CEO/CFO growth commentary)
-State which documents found: "Analyzing [Company] using 10-K from [date], 10-Q from [quarter], and [other sources]"
-### Step 3: Growth Driver Evaluation
-
-**STRENGTH INDICATORS:**
-- 🟢 = Strong: Clear evidence with metrics, major investment/focus
-- 🟡 = Moderate: Some evidence, mentioned but not emphasized
-- 🔴 = Weak: Limited or no evidence
-- ⚫ = Not Applicable: No evidence found
-CRITICAL: Only evaluate the 7 specified drivers. Do NOT add bonus categories or additional drivers.
-Write for someone scanning ten of these. The verdict must be readable without
-reading the body; the body justifies it rather than restating it. EXACTLY three
-bullets, each carrying a figure or a filing fact — a bullet that could be
-swapped onto any company in the sector is a description, not a finding.
-No tables, no subsections. You still do the full analysis above; you report
-only what decides the answer.
-
+""" + prompt_style.HOW_TO_WRITE + """
 # TEMPLATE (output exactly this shape, nothing before or after)
 
 **Runway: [Long ↗️ / Moderate ➡️ / Short ↘️] · [0-5]/5**
@@ -1761,48 +1589,27 @@ does not.]
     },
     {
         "title": "Key Metrics",
-        "prompt": """# BUSINESS PHASE KEY METRICS v3.3
+        "prompt": """# KEY METRICS — {company} ({ticker})
 
-## CONTEXT FROM PRIOR ANALYSIS
-Use the phase identified in the following Business Phase Analysis (extract the phase number 1-6 automatically, do NOT ask the user):
+Score the five metrics that matter for the company's growth phase, each Red,
+Yellow or Green against the thresholds below.
+
+## PHASE
+Take the phase number (1-6) from the Business Phase Analysis below. If it is
+missing, use the phase the latest filings clearly point to and say so.
 
 {prior:Business Phase Analysis}
 
-If the prior analysis above is missing or empty, default to asking for the phase.
+## DATA
+The most recent quarterly report (10-Q) of the current year, else the latest
+annual report (10-K); recent 8-K filings; optionally the last two earnings
+calls. You need: revenue (now and three years back), gross margin by quarter,
+operating income, free cash flow, shares outstanding (now and three years
+back), dividends and buybacks, return on capital, and cash, debt and interest
+expense.
 
-## YOUR IDENTITY
-Financial analyst evaluating company's phase-appropriate metrics using Red/Yellow/Green framework.
-
-## YOUR MISSION
-1. Extract the phase number from the prior Business Phase Analysis above
-2. Retrieve and analyze the most recent 10-K, 10-Q, and earnings reports
-3. Apply the exact phase-specific metrics and thresholds below
-4. Score each metric as Red / Yellow / Green based on defined thresholds
-5. Output ONLY the template below - nothing more
-
-## EXECUTION TRIGGER
-- Phase is provided via the prior analysis context above — begin analysis immediately
-- Only if BOTH the prior analysis is missing AND no phase was given, output: "What company (name or ticker) and phase (1-6) would you like me to analyze for key metrics?"
-
-## DATA ACQUISITION
-### Priority (CRITICAL)
-1. Identify current year from today's date
-2. Search for MOST RECENT 10-Q from current year
-3. If no current year 10-Q, use most recent 10-K
-4. Recent 8-K filings (material events)
-5. Earnings call transcripts (last 2 quarters) - optional
-
-### Required Data (in priority order)
-- Revenue (current and 3-year historical)
-- Gross margin (quarterly for trend analysis)
-- Operating margin/income
-- Free cash flow
-- Shares outstanding (current and 3-year historical)
-- Capital returns (dividends + buybacks)
-- ROIC components (operating income, tax rate, debt, equity, cash)
-- Balance sheet (cash, debt, interest expense)
-## PHASE-SPECIFIC METRICS & THRESHOLDS
-### 🌱 Phase 1: STARTUP
+## THRESHOLDS BY PHASE
+### Phase 1 · Startup
 | Metric | 🔴 Red | 🟡 Yellow | 🟢 Green |
 |--------|--------|-----------|----------|
 | **Revenue** | None | Positive | Positive and >30% YoY Growth |
@@ -1810,7 +1617,7 @@ Financial analyst evaluating company's phase-appropriate metrics using Red/Yello
 | **Cash Runway** | Less than 1.5 Years | Between 1.5 and 3 Years | 3+ Years (or FCF Positive) |
 | **Revenue vs. Estimates** | <5 of last 8 beats | 5-7 of last 8 beats | 4 of last 4 beats |
 | **Shares Outstanding 3YR CAGR** | Over 7% | Between 4% and 7% | Less than 4% |
-### 🚀 Phase 2: HYPER GROWTH
+### Phase 2 · Hypergrowth
 | Metric | 🔴 Red | 🟡 Yellow | 🟢 Green |
 |--------|--------|-----------|----------|
 | **Revenue 3YR CAGR** | Less than 20% | 20%-30% | 30%+ |
@@ -1818,7 +1625,7 @@ Financial analyst evaluating company's phase-appropriate metrics using Red/Yello
 | **Cash Runway** | Less than 2 Years | Between 2 and 4 Years | 4+ Years (or FCF Positive) |
 | **Revenue vs. Estimates** | <5 of last 8 beats | 5-7 of last 8 beats | 4 of last 4 beats |
 | **Shares Outstanding 3YR CAGR** | Over 5% | Between 3% and 5% | Less than 3% |
-### ⚖️ Phase 3: SELF FUNDING
+### Phase 3 · Self Funding
 | Metric | 🔴 Red | 🟡 Yellow | 🟢 Green |
 |--------|--------|-----------|----------|
 | **Revenue 3YR CAGR** | Less than 15% | Between 15% and 25% | Over 25% |
@@ -1826,7 +1633,7 @@ Financial analyst evaluating company's phase-appropriate metrics using Red/Yello
 | **Operating Margin** | Declining or <-2% | Between -2% and +2% | >2% and Rising |
 | **Free Cash Flow** | Negative | Positive | Positive and Rising |
 | **Shares Outstanding 3YR CAGR** | More than 3% | Between 1% and 3% | Below 1% |
-### ⚙️ Phase 4: OPERATING LEVERAGE
+### Phase 4 · Operating Leverage
 | Metric | 🔴 Red | 🟡 Yellow | 🟢 Green |
 |--------|--------|-----------|----------|
 | **Revenue 3YR CAGR** | Less than 10% | Between 10% and 20% | Over 20% |
@@ -1834,7 +1641,7 @@ Financial analyst evaluating company's phase-appropriate metrics using Red/Yello
 | **Free Cash Flow Margin** | Contracting or Negative | Positive | Positive and Rising |
 | **Earnings vs. Estimates** | <5 of last 8 beats | 5-7 of last 8 beats | 4 of last 4 beats |
 | **ROIC** | <0% or Declining | 0%-5% (no clear trend) | >5% and Rising (3 of 4 quarters) |
-### 🎁 Phase 5: CAPITAL RETURN
+### Phase 5 · Capital Return
 | Metric | 🔴 Red | 🟡 Yellow | 🟢 Green |
 |--------|--------|-----------|----------|
 | **Revenue 3YR CAGR** | Less than 5% | Between 5% and 10% | Over 10% |
@@ -1842,23 +1649,25 @@ Financial analyst evaluating company's phase-appropriate metrics using Red/Yello
 | **EBIT / Interest Expense** | Less than 2 | Between 2 and 5 | 5+ (or debt-free) |
 | **ROIC** | Less than 10% | Between 10% and 20% | Over 20% |
 | **Capital Returns** | None | Yes, <5 Years | Yes, 5+ Years |
-### 📉 Phase 6: DECLINE
-**No metrics recommended** - Framework advises avoiding these companies as they are in permanent decline.
-## KEY DEFINITIONS
-- **Stable**: Within ±1 percentage point year-over-year
-- **Erratic**: Variance >3pp between consecutive quarters
-- **Rising ROIC**: Improved in 3 of last 4 quarters
-- **Cash Runway**: If FCF positive, automatically Green
-- **No Debt**: EBIT/Interest automatically Green
-- **Boundary Rule**: When exactly on threshold, use better rating
----
-Write for someone scanning ten of these. The verdict must be readable without
-reading the body; the body justifies it rather than restating it. EXACTLY three
-bullets, each carrying a figure or a filing fact — a bullet that could be
-swapped onto any company in the sector is a description, not a finding.
-No tables, no subsections. You still do the full analysis above; you report
-only what decides the answer.
+### Phase 6 · Decline
+No gates. Score 0/5 and use the bullets for the revenue, margin and cash flow
+trends.
 
+## DEFINITIONS
+- Stable = within ±1 percentage point year over year; Erratic = moves of more
+  than 3 points between quarters.
+- ROIC may be replaced by ROCE (operating profit ÷ capital employed), the
+  measure the rest of the app uses; name the one you report. Rising = improved
+  in 3 of the last 4 quarters.
+- Positive free cash flow makes Cash Runway Green; no debt makes EBIT /
+  Interest Green. Exactly on a threshold = the better rating.
+- A metric passes ONLY when it is Green; Yellow and Red do not pass. The score
+  N/5 counts the passes. 4-5 = Strong, 2-3 = Mixed, 0-1 = Weak.
+
+You still score all five metrics, but report only what decides the answer:
+EXACTLY three bullets, no tables, no subsections.
+
+""" + prompt_style.HOW_TO_WRITE + """
 # TEMPLATE (output exactly this shape, nothing before or after)
 
 **Metrics: [Strong 🟢 / Mixed 🟡 / Weak 🔴] · [N]/5**
@@ -1876,9 +1685,11 @@ the level at which it would. This line is mandatory even when all five pass.]
 [1] Source - domain.com
 
 # RULES
-- The score is how many of the five phase metrics pass their gate.
+- The score is how many of the five phase metrics pass (are Green).
 - The three bullets are the three that decide it: the failures first, then the
   ones nearest their threshold. A metric passing comfortably needs no line.
+- Each bullet ends with what the number means for the business, in plain
+  words (e.g. "profits cover interest many times over").
 """,
     },
     {
@@ -1910,56 +1721,40 @@ the level at which it would. This line is mandatory even when all five pass.]
     },
     {
         "title": "Risk Analysis",
-        "prompt": """# RISK ANALYSIS v2.0
-CRITICAL: You are now executing an execution risk assessment protocol. Follow each instruction precisely in order.
-## YOUR IDENTITY
-Expert risk analyst specializing in identifying and evaluating operational and strategic risks from financial filings.
-## YOUR MISSION
-1. Request company name from user
-2. Retrieve and analyze the most recent 10-K/10-Q filings
-3. Assess four critical risk dimensions: Concentration, Disruption, Outside Forces, and Competition
-4. Classify each risk using Red/Yellow/Green framework with evidence
-5. Output findings in clean Markdown format (DO NOT wrap in code blocks)
-## EXECUTION TRIGGER
-- If this prompt contains a company name/ticker: Extract it and begin analysis
-- If interactive dialog is available: Output EXACTLY and ONLY: "What company (name or ticker) would you like me to analyze for execution risk?"
-- Do NOT proceed without explicit company identification
-- WAIT FOR USER RESPONSE BEFORE PROCEEDING
-## EXECUTION SEQUENCE
-### Step 1: User Input
-If company not provided with prompt, output exactly:
-"What company (name or ticker) would you like me to analyze for execution risk?"
-Wait for response. Store as COMPANY_NAME.
-### Step 2: Data Acquisition
-**SEARCH PRIORITY:**
-1. Most recent 10-K (risk factors, MD&A, business overview)
-2. Latest 10-Q (recent developments, updated risks)
-3. Only if critical data missing: Web search for "[Company] customer concentration", "[Company] competitive pressure"
-State which documents found: "Analyzing [Company] using 10-K from [date] and 10-Q from [quarter]"
-### Step 3: Risk Assessment Framework
-**RISK CLASSIFICATIONS:**
-**Concentration Risk**
-- 🔴 Red: Few customers >20% of revenue
-- 🟡 Yellow: Largest customer <15% of revenue
-- 🟢 Green: Highly diversified customer base
-**Disruption Risk**
-- 🔴 Red: Identifiable disruption threat
-- 🟡 Yellow: Normal industry evolution
-- 🟢 Green: Company is the disruptor
-**Outside Forces Risk**
-- 🔴 Red: High exposure (regulation, commodities, government, economy, interest rates)
-- 🟡 Yellow: Normal exposure
-- 🟢 Green: Low exposure
-**Competition Risk**
-- 🔴 Red: Severe pricing pressure, fragmented market
-- 🟡 Yellow: Normal competitive environment
-- 🟢 Green: Monopoly/Duopoly dynamics
-## OUTPUT TEMPLATE
+        "prompt": """# RISK ANALYSIS — {company} ({ticker})
 
-Write for someone scanning ten of these. Rate all four risk factors — then
-report the ones that decide the answer. A risk that is Yellow because nothing
-is wrong does not need a paragraph.
+Judge what could go wrong in the business itself, across four risks.
 
+## SOURCES
+The latest annual report (10-K: risk factors, management discussion) and
+quarterly report (10-Q). Search the web only for data the filings lack.
+Prefer filing data from the last 12 months. Where the company does not break
+something out, say "limited disclosure".
+
+## THE FOUR RISKS
+Concentration (customers)
+- 🔴 Red: largest customer above 20% of revenue
+- 🟡 Yellow: largest customer 10% to 20% of revenue
+- 🟢 Green: no customer at 10% or more
+Disruption
+- 🔴 Red: an identifiable threat that could make the product obsolete
+- 🟡 Yellow: normal change in the industry
+- 🟢 Green: the company is the disruptor
+Outside forces (regulation, commodities, government, the economy, rates)
+- 🔴 Red: high exposure · 🟡 Yellow: normal · 🟢 Green: low
+Competition
+- 🔴 Red: severe price pressure, many rivals
+- 🟡 Yellow: normal competition
+- 🟢 Green: one or two players dominate
+
+Overall rating: average the four (Red = 3, Yellow = 2, Green = 1);
+2.5 and up = High, 1.5 to 2.4 = Medium, below 1.5 = Low. When the evidence is
+thin, default to Medium and say the evidence is thin.
+
+You rate all four risks, but report only the ones that decide the answer. A
+risk that is Yellow because nothing is wrong does not need a line.
+
+""" + prompt_style.HOW_TO_WRITE + """
 # TEMPLATE (output exactly this shape, nothing before or after)
 
 **Risk: [High 🔴 / Medium 🟡 / Low 🟢] · [Concentration / Disruption / Outside forces / Competition — the one that drives the rating]**
@@ -1985,69 +1780,32 @@ margin back above 54% for two quarters" is.]
   the third to name the one you expected to find and did not — an analysis
   that finds nothing reassuring is as incomplete as one that finds nothing
   wrong.
-- Every bullet carries a figure or a filing fact. "Faces competition" is not a
-  risk; "gross margin fell 500bps in two years while two entrants scaled" is.
-- No tables, no matrix, no per-factor subsections. The four ratings still get
-  made; they just do not each get a heading.
-- Default to Medium when the evidence is thin, and say the evidence is thin.
-
-## BEHAVIORAL GUARDRAILS
-- Apply Red/Yellow/Green strictly per the criteria above
-- Prioritize filing data from the last 12 months
-- State "Limited disclosure" where the company does not break it out
-- Overall rating is the weighted average (Red=3, Yellow=2, Green=1):
-  2.5+ = High, 1.5-2.4 = Medium, below 1.5 = Low
-
+- Every bullet names concrete evidence. "Faces competition" is not a risk;
+  "profit margins fell by a fifth in two years while two new rivals grew" is.
+- No tables, no matrix, no per-factor subsections.
 """,
     },
     {
         "title": "Price & Sentiment Analysis",
-        "prompt": """PRICE & SENTIMENT ANALYSIS v1.9
+        "prompt": """# PRICE & SENTIMENT — {company} ({ticker})
 
-YOUR IDENTITY
-Expert market analyst focused on price causation and layered sentiment (analyst / investor / media) over the past 12 months.
+Explain why the stock moved over the past 12 months and where market mood sits
+now. No speculation, no hype; every statement must be checkable.
 
-YOUR MISSION
-Identify why the stock moved over the last year and where sentiment sits now.
- Deliver a scan-friendly, citation-backed Markdown analysis.
- Never speculate. Never hype. Every statement must be verifiable.
+## GATHER
+- The 1-year price move, where it sits in its 52-week range, and how it
+  compares with its 50- and 200-day moving averages and the index.
+- What moved it: earnings reactions, analyst actions, product launches,
+  regulation or economic news.
+- Mood: analyst ratings and targets, institutional versus retail buying,
+  media and forum tone.
+Weigh the two or three strongest arguments on each side, bull and bear. With
+fewer than two sources on a side, say "limited recent coverage".
 
-INITIAL INPUT
-Begin with:
- "What company (name or ticker) would you like me to analyze for price and sentiment changes over the past year?"
- If the user provides a company/ticker, begin immediately.
-EXECUTION SEQUENCE
-Step 1 – Input
-Store company name as COMPANY_NAME and ticker as TICKER.
-Step 2 – Data Acquisition (Priority Order)
-Retrieve:
-• 1-year price performance (% change, 52-week range, vs 50 / 200-day MAs)
+You still do the full analysis above, but report only what decides the answer:
+EXACTLY three bullets, no tables, no subsections.
 
-
-• Major catalysts (earnings reactions, analyst actions, product launches, macro/regulatory headlines)
-
-
-• Sentiment signals:
-
-
-    ◦ Analyst reports (targets & ratings)
-    ◦ Investor flows (institutional vs retail)
-    ◦ Media tone (headlines, social, forums)
-
-
-Step 3 – Perspective Analysis
-Summarize 2–3 concise arguments for both the bullish and bearish cases.
- Use bullet points only. Include citations when available.
- If fewer than 2 sources per side → note "Limited recent coverage."
-
-
-Write for someone scanning ten of these. The verdict must be readable without
-reading the body; the body justifies it rather than restating it. EXACTLY three
-bullets, each carrying a figure or a filing fact — a bullet that could be
-swapped onto any company in the sector is a description, not a finding.
-No tables, no subsections. You still do the full analysis above; you report
-only what decides the answer.
-
+""" + prompt_style.HOW_TO_WRITE + """
 # TEMPLATE (output exactly this shape, nothing before or after)
 
 **Sentiment: [Bullish 🟢 / Mixed 🟡 / Bearish 🔴] · [what moved the price]**
@@ -2075,59 +1833,38 @@ argument. "Earnings" is not enough; say which quarter and what to watch in it.]
     },
     {
         "title": "SaaSpocalypse Resistance",
-        "prompt": """YOUR IDENTITY
-Act as a financial analyst who is focused on the long-term viability of a company's moat, or competitive advantage.
+        "prompt": """# AI DISRUPTION RESISTANCE — {company} ({ticker})
 
-YOUR MISSION
-Your task is to perform a viability and risk assessment of this company in the context of the AI revolution.
+Judge whether AI strengthens or threatens what this company sells, through
+four lenses. Put failure points and structural risks first.
 
-EXECUTION TRIGGER
-If company name/ticker provided: Begin analysis. If not provided: Output EXACTLY: "What company (name or ticker) would you like me to analyze?" WAIT FOR USER RESPONSE.
+Rate each lens:
+- 🔴 Exposed: AI can replace or cheapen what the company sells.
+- 🟡 Resilient: defensible and stable, but no real upside from AI.
+- 🟢 Anti-fragile: the business gets stronger as AI spreads.
 
-DATA ACQUISITION
-Evaluate the company across the following four lenses using the following rating scale. Provide a logical justification for each rating, prioritizing failure points and structural risks.
+1. Liability — is a mistake costly? Green: a 90%-right answer is a disaster
+   (medical diagnosis, cybersecurity, running a power grid). Red: 90% right
+   is fine (marketing copy, simple code, graphic design).
+2. Business model — does it charge for work done or per user? Green: over 80%
+   of current revenue is tied to usage, so if AI agents replace ten analysts,
+   the revenue follows the agents' usage. Red: over 80% comes from per-user
+   subscriptions, so if one person can do the work of ten, nine
+   subscriptions go. Rate the current revenue mix, not planned changes.
+3. Physical world — does it need real-world hardware or infrastructure? Green:
+   software tied to physical equipment is hard to replace with pure AI. Red:
+   pure software that an AI agent could copy at near-zero cost.
+4. Data — does it own data AI needs? Green: unique, non-public data or a
+   two-sided network. Red: data that is public or easy to move elsewhere.
 
-## The Rating Scale
-- 🔴 **Fragile (Red):** High risk of disruption or structural weakness.
-- 🟡 **Robust (Yellow):** Defensible and stable, but lacks significant upside from AI.
-- 🟢 **Anti-Fragile (Green):** Structurally benefits from AI and gains strength from disruption.
+If the company does not sell software or office work, say so plainly in the
+one-sentence summary and keep the lenses short; still output the verdict line
+in the format below.
 
-## 1. Liability Lens (The Hallucination Risk)
-**Assessment:** Is the cost of failure high?
+You still do the full analysis above, but report only what decides the answer:
+EXACTLY three bullets, no tables, no subsections.
 
-Scale:
-- 🟢 **Anti-Fragile (Green):** High cost of error. "If it's 90% right, that's catastrophic." Examples: Medical diagnostics, cybersecurity, grid management.
-- 🔴 **Fragile (Red):** Low cost of error. "If it's 90% right, that's fine." Examples: Marketing copy, basic code generation, graphic design.
-
-## 2. Business Model Lens (The Monetization Structure)
-**Assessment:** Does the company charge for work (usage), or per worker (seats)?
-
-Scale:
-- 🟢 **Anti-Fragile (Green):** Verified Usage-Based. >80% of current revenue is explicitly tied to usage/credits. If AI agents replace 10 analysts, the revenue shifts to the compute/credits used by those agents.
-- 🔴 **Fragile (Red):** Seat-Based Dominance. >80% of revenue is derived from per-user subscriptions. If AI allows 1 person to do the work of 10, the company loses 9 revenue streams.
-- Note: Do not rate Green based on "planned" transitions; use current revenue mix.
-
-## 3. Physical World Lens (Integration)
-**Assessment:** Can an agent simulate this, or does it require real-world feedback?
-
-Scale:
-- 🟢 **Anti-Fragile (Green):** Hardware Integration. Software used in conjunction with tangible hardware or physical infrastructure cannot be easily replaced by pure AI agents.
-- 🔴 **Fragile (Red):** Purely Software. Software is approaching zero marginal cost; it can be easily replicated or simulated by an agent.
-
-## 4. Network Lens (Data Gravity)
-**Assessment:** Does the data get better as more agents join?
-
-Scale:
-- 🟢 **Anti-Fragile (Green):** Proprietary Context. The company owns unique, non-public data that AI needs to be effective. Two-sided networks or proprietary security databases cannot be easily replicated.
-- 🔴 **Fragile (Red):** Public Knowledge. The company relies on data that can be quickly migrated to a cheaper platform or scraped from the public web.
-
-Write for someone scanning ten of these. The verdict must be readable without
-reading the body; the body justifies it rather than restating it. EXACTLY three
-bullets, each carrying a figure or a filing fact — a bullet that could be
-swapped onto any company in the sector is a description, not a finding.
-No tables, no subsections. You still do the full analysis above; you report
-only what decides the answer.
-
+""" + prompt_style.HOW_TO_WRITE + """
 # TEMPLATE (output exactly this shape, nothing before or after)
 
 **AI exposure: [Anti-fragile 🟢 / Resilient 🟡 / Exposed 🔴] · [N]/4**
@@ -2148,7 +1885,7 @@ if nothing plausible exists, say what you looked for.]
 
 # RULES
 - The score is how many of the four lenses (liability, business model,
-  physical world, network) come back resilient.
+  physical world, data) come back Resilient or Anti-fragile.
 - Seat-based pricing on knowledge work is the exposure that matters. A company
   selling units of a physical thing is not exposed just because it uses
   software.
@@ -2162,13 +1899,10 @@ if nothing plausible exists, say what you looked for.]
     },
     {
         "title": "Investment Summary",
-        "prompt": """# INVESTMENT SUMMARY & VERDICT
+        "prompt": """# INVESTMENT SUMMARY & VERDICT — {company} ({ticker})
 
-## YOUR IDENTITY
-Senior portfolio manager synthesizing multiple prior analyses into a single, actionable investment verdict.
-
-## YOUR MISSION
-Read all the prior research below for this company and produce a concise, decisive summary with an overall investment verdict. Do NOT repeat the underlying analyses — synthesize them.
+Read all the prior research below and give one decisive verdict. Synthesize;
+do not repeat the underlying analyses.
 
 ## PRIOR RESEARCH
 
@@ -2198,13 +1932,10 @@ Read all the prior research below for this company and produce a concise, decisi
 
 ---
 
-Write for someone scanning ten of these. The verdict must be readable without
-reading the body; the body justifies it rather than restating it. EXACTLY three
-bullets, each carrying a figure or a filing fact — a bullet that could be
-swapped onto any company in the sector is a description, not a finding.
-No tables, no subsections. You still do the full analysis above; you report
-only what decides the answer.
+Report only what decides the answer: EXACTLY three bullets, no tables, no
+subsections.
 
+""" + prompt_style.HOW_TO_WRITE + """
 # TEMPLATE (output exactly this shape, nothing before or after)
 
 **Verdict: [Deep dive 🟢 / Revisit 🟡 / Pass 🔴] · [High / Medium / Low] conviction**
@@ -2233,7 +1964,7 @@ verdict, in either direction. Name the metric and the level.]
     },
     {
         "title": "Scorecard",
-        "prompt": """# SCORECARD DATA EXTRACTOR
+        "prompt": """# SCORECARD DATA EXTRACTOR — {company} ({ticker})
 
 ## YOUR MISSION
 Read all prior analyses for this company and extract a structured JSON scorecard. This JSON is parsed programmatically — output EXACTLY the JSON block, nothing else before or after.
@@ -2263,6 +1994,7 @@ Read all prior analyses for this company and extract a structured JSON scorecard
 
 ---
 
+""" + prompt_style.HOW_TO_WRITE + """
 ## OUTPUT INSTRUCTIONS
 Output ONLY a fenced JSON code block. No prose, no explanations. Use the exact schema below. Use lowercase color names: "red", "yellow", or "green".
 

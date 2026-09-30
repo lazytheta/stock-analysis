@@ -190,7 +190,9 @@ class TestBandTone(unittest.TestCase):
         green circle would turn a description into a compliment."""
         from prescan_render import band_tone
         for phase in ("Capital return", "Growth", "Margin expansion",
-                      "Decline", "Loss-making", "Profitable growth"):
+                      "Decline", "Loss-making", "Profitable growth",
+                      "Startup", "Hypergrowth", "Self Funding",
+                      "Operating Leverage", "Capital Return"):
             self.assertIsNone(band_tone(phase), phase)
 
     def test_an_unknown_label_is_not_coloured(self):

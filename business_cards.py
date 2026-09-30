@@ -15,6 +15,7 @@ the parser, and the Cloud Run image does not ship prescan_render.
 import json
 import re
 
+import prompt_style
 import question_cards as qc
 
 TITLE = "Business Cards"
@@ -54,10 +55,11 @@ reported numbers; do not contradict them.
 
 {prior:Key Metrics}
 
-overview: ONE sentence on what the company sells and how it earns money, plus
-EXACTLY four points, each {"label": two to five words, "text": one line}, on:
-what it sells (products or plans), how it charges (the revenue model), and
-what makes that model distinctive.
+overview: ONE sentence, in everyday words, on what the company's products DO
+for the customer and how it earns money, plus EXACTLY four points, each
+{"label": two to five words, "text": one line}, on: what the customer gets
+(what the products do, not what they are called; never a list of products),
+how it charges (the revenue model), and what makes that model distinctive.
 
 profile: ONE sentence on who the buyer is and what budget they pay from, plus
 EXACTLY four points on customer types: who they are, where they are, and why
@@ -95,9 +97,10 @@ For each of the four questions, in exactly this order, pick an answer
 - competitive_position: What is their competitive position? pick 0 = Weak, 1 = Average, 2 = Dominant
 
 summary: ONE sentence for the front of the card, with the fact that decides the pick.
-points: EXACTLY three, each {"label": two to four words, "text": one line with a number or
-a fact from the filings}.
+points: EXACTLY three, each {"label": two to four words, "text": one line with the
+plainest evidence}.
 
+""" + prompt_style.HOW_TO_WRITE + """
 Output ONLY a fenced JSON block, nothing before or after:
 
 ```json

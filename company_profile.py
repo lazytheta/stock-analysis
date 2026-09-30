@@ -13,6 +13,7 @@ import json
 import re
 from datetime import date
 
+import prompt_style
 import question_cards as qc
 
 TITLE = "Company Profile"
@@ -46,6 +47,7 @@ tags: 2 to 4 short business-model tags, e.g. "Subscription", "Marketplace",
 mission: the company's own mission statement if it has one, else one plain
 sentence describing what it does, at most 200 characters.
 
+""" + prompt_style.HOW_TO_WRITE + """
 Output ONLY a fenced JSON block, nothing before or after:
 
 ```json
