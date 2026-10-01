@@ -155,17 +155,17 @@ def test_compute_data_axes_value_and_net_debt_m():
 
 
 def test_default_prompts_include_robustness():
-    import streamlit_app
-    titles = [p["title"] for p in streamlit_app.DEFAULT_AI_PROMPTS]
+    import prescan_prompts
+    titles = [p["title"] for p in prescan_prompts.DEFAULT_AI_PROMPTS]
     assert "Robustness" in titles
-    entry = next(p for p in streamlit_app.DEFAULT_AI_PROMPTS if p["title"] == "Robustness")
+    entry = next(p for p in prescan_prompts.DEFAULT_AI_PROMPTS if p["title"] == "Robustness")
     for key in ("customers", "barriers", "management", "industry"):
         assert key in entry["prompt"]
     assert "{prior:Moat Analysis}" in entry["prompt"]
 
 
 def test_render_robustness_table_html_contains_axes_and_verdict():
-    import streamlit_app
+    import summary_page
     cfg = {
         "robustness": {
             "axes": {
@@ -180,7 +180,7 @@ def test_render_robustness_table_html_contains_axes_and_verdict():
             "verdict_reason": "deal-breaker amber: management",
         }
     }
-    html = streamlit_app._render_robustness_table(cfg, theme={"text": "#111", "text_muted": "#888"})
+    html = summary_page.render_robustness_table(cfg, theme={"text": "#111", "text_muted": "#888"})
     assert "ROCE" in html
     assert "Management" in html
     assert "BORDERLINE" in html.upper()
@@ -198,10 +198,10 @@ def test_render_robustness_table_leaves_an_unrated_axis_dark():
     """A missing band must light nothing. Lighting the middle circle would
     turn "not assessed" into "middling", which is a claim the data does not
     make."""
-    import streamlit_app
+    import summary_page
     cfg = {"robustness": {"verdict": "robust",
                           "axes": {"roce": {"band": "robust", "value": 30.0}}}}
-    html = streamlit_app._render_robustness_table(
+    html = summary_page.render_robustness_table(
         cfg, theme={"text": "#111", "text_muted": "#888"})
     # Verdict + the one rated axis; the other five stay dark.
     assert html.count('data-active="1"') == 2
@@ -343,67 +343,5 @@ def test_build_table_phase5_unchanged_strict_gate():
     assert table["verdict"] == "fragile"  # ROCE is a deal-breaker
 
 
-# ── Scorecard rendering (2026-08-18) ────────────────────────────────────────
-
-def _scorecard_data(**kw):
-    data = {
-        "phase": {"number": 5, "name": "Capital Return"},
-        "all_phases": {
-            "business_description": {"rating": "green", "note": "simple"},
-            "moat": {"rating": "yellow", "note": "narrow"},
-            "long_term_potential": {"rating": "green", "note": "runway"},
-        },
-        "key_metrics": [
-            {"name": "Revenue CAGR", "rating": "green", "value": "20%"},
-            {"name": "FCF / NI", "rating": "red", "value": "76%"},
-        ],
-        "execution_risk": {"rating": "yellow", "note": "medium"},
-        "verdict": "deep_dive",
-        "summary": "Three sentences.",
-    }
-    data.update(kw)
-    return data
-
-
-_THEME = {"text": "#111", "text_muted": "#888"}
-
-
-def test_scorecard_lights_one_state_per_rated_row():
-    """Verdict, three quality rows, two metrics, execution risk — seven rows,
-    seven lit states, fourteen dark."""
-    import streamlit_app
-    html = streamlit_app._render_scorecard(_scorecard_data(), _THEME, "X", "Co")
-    assert html.count('data-active="1"') == 7
-    assert html.count('data-active="0"') == 14
-
-
-def test_scorecard_verdict_maps_onto_the_shared_scale():
-    """pass/revisit/deep_dive are the same three-point scale as everything
-    else, so they reuse the selector rather than a bespoke pill."""
-    import streamlit_app
-    for verdict, label in (("pass", "Pass"), ("revisit", "Revisit"),
-                           ("deep_dive", "Deep dive")):
-        html = streamlit_app._render_scorecard(
-            _scorecard_data(verdict=verdict), _THEME, "X", "Co")
-        assert label in html
-        assert html.count('data-active="1"') == 7
-
-
-def test_scorecard_with_an_unknown_verdict_lights_nothing_for_it():
-    """A scorecard saved before the verdict key existed must not be shown as a
-    Revisit — that is a call nobody made."""
-    import streamlit_app
-    html = streamlit_app._render_scorecard(
-        _scorecard_data(verdict=""), _THEME, "X", "Co")
-    assert html.count('data-active="1"') == 6
-
-
-def test_scorecard_renders_no_valuation_row():
-    """Valuation left the pre-scan; a stored block must not resurface here."""
-    import streamlit_app
-    data = _scorecard_data()
-    data["valuation"] = {"primary": {"name": "P/E", "rating": "yellow",
-                                     "note": "Fairly valued"}}
-    html = streamlit_app._render_scorecard(data, _THEME, "X", "Co")
-    assert "Fairly valued" not in html
-    assert html.count('data-active="1"') == 7
+# Scorecard rendering moved to summary_page.scorecard_section_html (the
+# Summary tab); its tests live in tests/test_summary_page.py.

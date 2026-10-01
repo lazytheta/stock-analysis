@@ -298,7 +298,7 @@ def test_default_prompts_order_company_profile_then_growth_cards():
 
 
 def test_default_prompt_source_order_company_profile_before_growth_cards():
-    src = Path(__file__).resolve().parent.parent.joinpath("streamlit_app.py").read_text()
+    src = Path(__file__).resolve().parent.parent.joinpath("prescan_prompts.py").read_text()
     assert src.index("company_profile.TITLE") < src.index("growth_cards.TITLE")
 
 

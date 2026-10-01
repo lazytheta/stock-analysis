@@ -447,12 +447,16 @@ _DEFAULT_PREFS = {
 }
 
 
-def load_user_prefs(client, user_id=None):
+def load_user_prefs(client, user_id=None, raise_errors=False):
     """Load user wheel preferences from Supabase. Returns dict with defaults for missing keys.
 
     user_id is optional — when provided (e.g. from the MCP server with a
     service-role key), the row is filtered explicitly. When None we rely on
-    RLS to scope to the authenticated user (Streamlit context)."""
+    RLS to scope to the authenticated user (Streamlit context).
+
+    Read errors are swallowed (defaults come back) unless raise_errors is
+    set: a caller that writes the prefs back must be able to tell "no row
+    yet" from "the read failed", or it would overwrite the real row."""
     prefs = dict(_DEFAULT_PREFS)
     try:
         query = client.table("user_prefs").select("prefs")
@@ -462,6 +466,8 @@ def load_user_prefs(client, user_id=None):
         if resp and resp.data and resp.data.get("prefs"):
             prefs.update(resp.data["prefs"])
     except Exception as e:
+        if raise_errors:
+            raise
         logger.debug("user_prefs read failed (may not exist yet): %s", e)
     return prefs
 

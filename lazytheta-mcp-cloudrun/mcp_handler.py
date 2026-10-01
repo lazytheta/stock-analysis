@@ -561,7 +561,7 @@ TOOLS: list[dict] = [
     {
         "name": "set_premortem",
         "description": (
-            "Set the structured pre-mortem / action-triggers shown atop the Pre-Scan "
+            "Set the structured pre-mortem / action-triggers shown on the Summary "
             "tab (cfg['premortem']), with the SAME fixed sections for every ticker. "
             "Fields: current (one-line view: spot / cost basis / fair value / buy "
             "price), sell (sell/thesis-breaker triggers), add (buy-more triggers), "

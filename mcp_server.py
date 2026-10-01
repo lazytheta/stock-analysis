@@ -75,6 +75,7 @@ import business_cards
 import company_explainer
 import company_profile
 import growth_cards
+import prescan_prompts
 
 # Structured pre-scan sections: a malformed block would render as a broken
 # tab, so it is refused in _save_prescan_section_impl with the reason rather
@@ -1309,10 +1310,21 @@ def _get_prescan_prompts_impl(ticker, user_id: str | None = None):
         return {"error": f"{ticker.upper()} not on watchlist"}
     company = cfg.get("company", ticker.upper())
 
-    prefs = config_store.load_user_prefs(client, user_id=user_id)
-    library = prefs.get("ai_prompts") or []
-    if not library:
-        return {"error": "Prompt library is empty. Open a watchlist editor in the app once to seed defaults."}
+    # Seed the library from the shipped defaults and add defaults shipped
+    # since it was saved. Only write back after a read that really succeeded:
+    # load_user_prefs otherwise returns bare defaults on an error, and saving
+    # over that would wipe the user's real prefs.
+    try:
+        prefs = config_store.load_user_prefs(client, user_id=user_id, raise_errors=True)
+        read_ok = True
+    except Exception as e:
+        logger.warning("user_prefs read failed for prescan prompts: %s", e)
+        prefs, read_ok = {}, False
+    stored = prefs.get("ai_prompts")
+    library, changed = prescan_prompts.merge_defaults(stored if isinstance(stored, list) else [])
+    if changed and read_ok:
+        prefs["ai_prompts"] = library
+        config_store.save_user_prefs(client, prefs, user_id=user_id)
 
     ai_notes = cfg.get("ai_notes") or {}
     if not isinstance(ai_notes, dict):
@@ -1538,9 +1550,10 @@ def get_prescan_prompts(ticker: str) -> str:
     """Return the user's pre-scan prompts with {ticker}/{company}/{prior:...}
     placeholders already substituted, ready to send to an LLM.
 
-    Use this to fill in the AI Research Sections in the LazyTheta watchlist
-    editor. Each entry has the section title and the filled prompt — generate
+    Use this to fill in the pre-scan sections behind the LazyTheta ticker
+    tabs. Each entry has the section title and the filled prompt — generate
     a markdown answer per section, then call save_prescan_section to persist.
+    A missing or incomplete prompt library is seeded from the shipped defaults.
 
     Args:
         ticker: Stock ticker symbol (e.g. "NFLX")
@@ -1737,7 +1750,7 @@ def set_premortem(ticker: str, current: str = "",
                   discipline: list[str] | None = None) -> str:
     """Set the structured pre-mortem / action-triggers for a watchlist ticker.
 
-    Shown atop the Pre-Scan tab with the SAME fixed sections for every ticker
+    Shown on the ticker page's Summary tab with the SAME fixed sections for every ticker
     (stored as cfg['premortem']). Overwrites; read back via get_config
     (the 'premortem' object). Keep each list item to one short condition.
 

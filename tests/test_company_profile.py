@@ -63,7 +63,7 @@ def test_mcp_validates_company_profile():
 
 
 def test_default_prompt_after_business_cards():
-    src = Path(__file__).resolve().parent.parent.joinpath("streamlit_app.py").read_text()
+    src = Path(__file__).resolve().parent.parent.joinpath("prescan_prompts.py").read_text()
     assert src.index("business_cards.TITLE") < src.index("company_profile.TITLE")
 
 

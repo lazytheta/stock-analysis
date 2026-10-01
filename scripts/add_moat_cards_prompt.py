@@ -43,7 +43,7 @@ def should_write(prefs):
     DEFAULT prefs on failure (no ai_prompts key at all), which looks
     exactly like "user has no prompt library yet". Writing in that case
     would silently create a stunted library instead of the real one, so
-    refuse and let the caller re-run 'Load default prompts' in the app.
+    refuse and let the caller seed it via the MCP's get_prescan_prompts.
     """
     prompts = prefs.get("ai_prompts") if isinstance(prefs, dict) else None
     return isinstance(prompts, list) and len(prompts) > 0
@@ -60,7 +60,7 @@ def main():
     prefs = config_store.load_user_prefs(client, user_id=args.user_id)
     if not should_write(prefs):
         print("No existing prompt library found (or the load failed); not writing "
-              "anything. Use 'Load default prompts' in the app.")
+              "anything. Call get_prescan_prompts via the MCP once to seed it.")
         return
     new, changed = insert_prompt(prefs.get("ai_prompts") or [])
     if not changed:

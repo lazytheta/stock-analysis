@@ -16,7 +16,7 @@ COPY mcp_auth.py mcp_server.py valuation_lenses.py \
      scorecard_utils.py robustness.py notifications.py \
      t212_api.py quotes.py fx.py aspirant.py moat_cards.py question_cards.py \
      risk_cards.py business_cards.py company_profile.py company_explainer.py growth_cards.py \
-     prompt_style.py /app/
+     prompt_style.py prescan_prompts.py /app/
 
 EXPOSE 8080
 ENV PORT=8080
