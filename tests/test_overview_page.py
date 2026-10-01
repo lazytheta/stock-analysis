@@ -194,7 +194,7 @@ def test_key_figures_without_fiscal_year():
 
 def test_ticker_page_has_overview_tab_first():
     src = open("streamlit_app.py", encoding="utf-8").read()
-    assert '["Overview", "Business", "Phase", "Moat", "Growth", "Risk", "Summary", "Fundamentals", "DCF"' in src
+    assert '["Overview", "Business", "Phase", "Moat", "Growth", "Management", "Risk", "Summary", "Fundamentals", "DCF"' in src
     assert "overview_page.company_section_html(" in src
     assert "overview_page.key_figures_section_html(" in src
 

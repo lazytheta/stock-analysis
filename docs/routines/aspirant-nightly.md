@@ -62,10 +62,13 @@ and the SEC connector only.
       EPS, Equibles 2026-09-24"). Computing this ratio is required; only
       inventing or estimating the consensus numbers themselves is
       forbidden. If the call is unavailable or returns nothing usable, omit
-      the "consensus" key entirely — never estimate it by hand. If `save_prescan_section`
-      refuses "Moat Cards", "Risk Cards", "Business Cards", "Company
-      Profile" or "Growth Cards", fix what the error names and save once
-      more; if it refuses again, note it and move on.
+      the "consensus" key entirely — never estimate it by hand. "Management
+      Cards" comes right after Risk Cards and uses at most 4 SEC calls
+      (GetExecutiveCompensation, GetInsiderOwnership, GetInsiderTransactions,
+      GetExecutiveChanges) as its prompt describes. If `save_prescan_section`
+      refuses "Moat Cards", "Risk Cards", "Management Cards", "Business
+      Cards", "Company Profile" or "Growth Cards", fix what the error names
+      and save once more; if it refuses again, note it and move on.
    c. Always fill in the full DCF, whatever the Moat verdict. Read
       `docs/routines/dcf-method.md` in this repository and follow it
       exactly, sections 1–7: anchors (history, consensus, guidance), growth

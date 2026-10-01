@@ -10,6 +10,7 @@ import business_cards
 import company_explainer
 import company_profile
 import growth_cards
+import management_cards
 import moat_cards
 import prompt_style
 import risk_cards
@@ -601,6 +602,12 @@ if nothing plausible exists, say what you looked for.]
         # SaaSpocalypse Resistance.
         "title": risk_cards.TITLE,
         "prompt": risk_cards.PROMPT,
+    },
+    {
+        # Three question cards for the Management tab plus the insider and
+        # pay facts behind them, from the SEC connector's executive feeds.
+        "title": management_cards.TITLE,
+        "prompt": management_cards.PROMPT,
     },
     {
         "title": "Investment Summary",

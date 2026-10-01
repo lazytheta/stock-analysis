@@ -27,6 +27,8 @@ import company_profile
 import company_explainer
 import growth_cards
 import growth_page
+import management_cards
+import management_page
 import business_revenue
 import overview_chart
 import overview_metrics
@@ -3862,9 +3864,10 @@ def _dcf_editor(ticker):
         logger.warning("fundamentals for %s failed: %s", ticker, e)
         _fund_error, fund = e, {}
 
-    (_tab_overview, _tab_business, _tab_phase, _tab_moat, _tab_growth, _tab_risk, _tab_summary,
-     _tab_fundamentals, _tab_dcf, _tab_rdcf, _tab_peers, _tab_dividend, _tab_history) = st.tabs(
-        ["Overview", "Business", "Phase", "Moat", "Growth", "Risk", "Summary", "Fundamentals", "DCF",
+    (_tab_overview, _tab_business, _tab_phase, _tab_moat,
+     _tab_growth, _tab_management, _tab_risk, _tab_summary, _tab_fundamentals, _tab_dcf, _tab_rdcf,
+     _tab_peers, _tab_dividend, _tab_history) = st.tabs(
+        ["Overview", "Business", "Phase", "Moat", "Growth", "Management", "Risk", "Summary", "Fundamentals", "DCF",
          "Reverse DCF", "Peer Comparison", "Dividend", "History"])
 
     # Overview: three white sections -- Company (profile + at a glance), Price vs
@@ -4119,6 +4122,22 @@ def _dcf_editor(ticker):
         except Exception as e:
             logger.warning("Growth questions for %s failed: %s", ticker, e)
             st.caption("Growth questions unavailable right now.")
+
+    # Management: insider ownership, net insider trading, CEO pay and C-suite
+    # changes (the "facts" of "Management Cards"), then its three question
+    # cards. Read-only; every render path degrades to the notice or a caption.
+    with _tab_management:
+        _mnotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
+        _mcontent = _mnotes.get(management_cards.TITLE)
+        try:
+            st.markdown(management_page.management_section_html(_mcontent, T),
+                        unsafe_allow_html=True)
+            _mcards = management_page.cards_section_html(_mcontent, T)
+            if _mcards:
+                st.markdown(_mcards, unsafe_allow_html=True)
+        except Exception as e:
+            logger.warning("Management tab for %s failed: %s", ticker, e)
+            st.caption("Management unavailable right now.")
 
     # Risk: Risk Analysis and SaaSpocalypse Resistance as two summary cards, then
     # the four question cards from "Risk Cards". Read-only, like Moat.

@@ -1,10 +1,11 @@
 # Question cards backfill — routine prompt
 
 You fill the "Moat Cards", "Risk Cards", "Business Cards", "Company
-Profile", "Growth Cards" and "Company Explainer" pre-scan sections for LazyTheta watchlist
+Profile", "Growth Cards", "Company Explainer" and "Management Cards" pre-scan sections for LazyTheta watchlist
 tickers that have the underlying analysis but no cards yet. Use only the
 Lazy-Theta-Remote-MCP connector, plus the SEC-MCP connector for the
-"revenue" block in step 5b and the "consensus" block in step 9b if it is
+"revenue" block in step 5b, the "consensus" block in step 9b, the 10-K
+read in step 11b and the executive/insider feeds in step 13b if it is
 available. Do not modify, commit or push anything in the repository.
 
 Before enabling: the "Moat Cards", "Risk Cards", "Business Cards", "Company
@@ -14,8 +15,9 @@ Cards", "Business Cards", "Company Profile" and "Growth Cards" come from
 the app's own `DEFAULT_AI_PROMPTS` (added the first time the user opens the
 prompt editor) or are added directly by the maintainer. The Cloud Run MCP
 must also be redeployed with `tickers_missing_section` and the Moat Cards /
-Risk Cards / Business Cards / Company Profile / Growth Cards save
-validation. Without all of this, step 2a (or 5a, 7a, or 9a) finds no
+Risk Cards / Business Cards / Company Profile / Growth Cards / Management
+Cards save validation ("Management Cards" is seeded into existing prompt
+libraries automatically by `get_prescan_prompts`). Without all of this, step 2a (or 5a, 7a, or 9a) finds no
 matching prompt to answer.
 
 1. Call `tickers_missing_section(title="Moat Cards", requires="Moat Analysis", limit=10)`.
@@ -159,7 +161,28 @@ matching prompt to answer.
        JSON block>)`. If the server refuses, fix what the error names
        (usually a section outside 150-700 characters) and save once more;
        if it refuses again, note the ticker and the reason and move on.
-12. If all six `tickers` lists from steps 1, 3, 5, 6, 8 and 10 were empty,
-    print "Nothing left to backfill." Otherwise print a summary: tickers
-    filled (per card set), tickers skipped with reasons, and `remaining`
-    for each.
+12. Management Cards, with its OWN budget of 8 names (separate from the
+    shared budget of 10 and from Company Explainer's 20): call
+    `tickers_missing_section(title="Management Cards", requires="Business
+    Analysis", limit=8)`. If `tickers` is empty, note that and go to
+    step 14.
+13. For each ticker from step 12:
+    a. Call `get_prescan_prompts(ticker)` and take the prompt titled
+       "Management Cards" (its {prior:Business Analysis} is already filled
+       in).
+    b. Make at most 4 SEC-MCP calls per ticker: `GetExecutiveCompensation`,
+       `GetInsiderOwnership`, `GetInsiderTransactions` (last 12 months) and
+       `GetExecutiveChanges`. Take shares outstanding from
+       `get_fundamentals(ticker)`. Apply the prompt's cleanup rules; if
+       SEC-MCP is unavailable or a feed returns nothing, set those facts to
+       null and say so in the card — never estimate.
+    c. Answer the prompt exactly as it asks: one fenced JSON block with the
+       three cards in the listed order and the "facts" object.
+    d. Save with `save_prescan_section(ticker, "Management Cards", <the JSON
+       block>)`. If the server refuses, fix what the error names and save
+       once more; if it refuses again, note the ticker and the reason and
+       move on.
+14. If all seven `tickers` lists from steps 1, 3, 5, 6, 8, 10 and 12 were
+    empty, print "Nothing left to backfill." Otherwise print a summary:
+    tickers filled (per card set, Management Cards included), tickers
+    skipped with reasons, and `remaining` for each.

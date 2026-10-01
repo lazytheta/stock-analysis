@@ -7,19 +7,19 @@ SRC = (Path(__file__).resolve().parent.parent / "streamlit_app.py").read_text(en
 
 def _growth_block():
     start = SRC.index("with _tab_growth:")
-    end = SRC.index("with _tab_risk:", start)
+    end = SRC.index("with _tab_management:", start)
     return SRC[start:end]
 
 
 def test_tab_list_has_growth_after_moat():
-    assert ('["Overview", "Business", "Phase", "Moat", "Growth", "Risk", "Summary", '
+    assert ('["Overview", "Business", "Phase", "Moat", "Growth", "Management", "Risk", "Summary", '
             '"Fundamentals", "DCF",') in SRC
-    assert "_tab_phase, _tab_moat, _tab_growth, _tab_risk" in SRC
+    assert "_tab_growth, _tab_management, _tab_risk" in SRC
 
 
 def test_growth_block_follows_moat_block():
     assert SRC.index("with _tab_moat:") < SRC.index("with _tab_growth:") < SRC.index(
-        "with _tab_risk:")
+        "with _tab_management:")
 
 
 def test_growth_modules_imported():

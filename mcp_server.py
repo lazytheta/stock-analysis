@@ -75,6 +75,7 @@ import business_cards
 import company_explainer
 import company_profile
 import growth_cards
+import management_cards
 import prescan_prompts
 
 # Structured pre-scan sections: a malformed block would render as a broken
@@ -85,7 +86,8 @@ _CARD_PARSERS = {moat_cards.TITLE: moat_cards.parse_moat_cards,
                   business_cards.TITLE: business_cards.parse_business_cards,
                   company_profile.TITLE: company_profile.parse_company_profile,
                   company_explainer.TITLE: company_explainer.parse_company_explainer,
-                  growth_cards.TITLE: growth_cards.parse_growth_cards}
+                  growth_cards.TITLE: growth_cards.parse_growth_cards,
+                  management_cards.TITLE: management_cards.parse_management_cards}
 
 
 # ---------------------------------------------------------------------------
