@@ -65,8 +65,10 @@ and the SEC connector only.
       the "consensus" key entirely — never estimate it by hand. "Management
       Cards" comes right after Risk Cards and uses at most 4 SEC calls
       (GetExecutiveCompensation, GetInsiderOwnership, GetInsiderTransactions,
-      GetExecutiveChanges) as its prompt describes. If `save_prescan_section`
-      refuses "Moat Cards", "Risk Cards", "Management Cards", "Business
+      GetExecutiveChanges) as its prompt describes. "Earnings Brief" comes
+      after Management Cards and uses at most 2 SEC calls
+      (GetEarningsCallToneAndThemes, GetAnalystEstimates). If `save_prescan_section`
+      refuses "Moat Cards", "Risk Cards", "Management Cards", "Earnings Brief", "Business
       Cards", "Company Profile" or "Growth Cards", fix what the error names
       and save once more; if it refuses again, note it and move on.
    c. Always fill in the full DCF, whatever the Moat verdict. Read

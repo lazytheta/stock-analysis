@@ -174,6 +174,12 @@ async def _tool_tickers_missing_section(user_id: str, args: dict) -> Any:
         limit=args.get("limit") or 10, user_id=user_id)
 
 
+async def _tool_tickers_stale_earnings_brief(user_id: str, args: dict) -> Any:
+    limit = args.get("limit")
+    return mcp_server._tickers_stale_earnings_brief_impl(
+        limit=6 if limit is None else limit, user_id=user_id)
+
+
 async def _tool_set_robustness(user_id: str, args: dict) -> Any:
     return mcp_server._set_robustness_impl(args["ticker"], args["axes"], user_id=user_id)
 
@@ -543,6 +549,19 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "tickers_stale_earnings_brief",
+        "description": (
+            "Watchlist tickers whose Earnings Brief is missing or older than "
+            "the newest reported quarter (earnings_history), for the routine."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer"},
+            },
+        },
+    },
+    {
         "name": "set_robustness",
         "description": (
             "Set the 4 qualitative robustness axes (customers, barriers, "
@@ -765,6 +784,7 @@ TOOL_HANDLERS: dict[str, Callable[[str, dict], Awaitable[Any]]] = {
     "get_prescan_sections": _tool_get_prescan_sections,
     "save_prescan_section": _tool_save_prescan_section,
     "tickers_missing_section": _tool_tickers_missing_section,
+    "tickers_stale_earnings_brief": _tool_tickers_stale_earnings_brief,
     "set_robustness": _tool_set_robustness,
     "set_premortem": _tool_set_premortem,
     "add_reminder": _tool_add_reminder,

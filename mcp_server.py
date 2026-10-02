@@ -74,6 +74,7 @@ import risk_cards
 import business_cards
 import company_explainer
 import company_profile
+import earnings_brief
 import growth_cards
 import management_cards
 import prescan_prompts
@@ -87,7 +88,8 @@ _CARD_PARSERS = {moat_cards.TITLE: moat_cards.parse_moat_cards,
                   company_profile.TITLE: company_profile.parse_company_profile,
                   company_explainer.TITLE: company_explainer.parse_company_explainer,
                   growth_cards.TITLE: growth_cards.parse_growth_cards,
-                  management_cards.TITLE: management_cards.parse_management_cards}
+                  management_cards.TITLE: management_cards.parse_management_cards,
+                  earnings_brief.TITLE: earnings_brief.parse_earnings_brief}
 
 
 # ---------------------------------------------------------------------------
@@ -1399,6 +1401,77 @@ def _tickers_missing_section_impl(title, requires="", limit=10,
     return json.dumps({"tickers": missing[:n], "remaining": len(missing) - len(missing[:n])})
 
 
+EARNINGS_TABLE = "earnings_history"
+_EARNINGS_PAGE = 1000
+# Nasdaq stores a quarter as its month-end (2026-06-30); a brief written from
+# the filing may carry the exact 52/53-week end (2026-06-27). Same quarter.
+_EARNINGS_SAME_QUARTER_DAYS = 10
+
+
+def _newest_earnings_quarters(client, tickers):
+    """{ticker: newest fiscal_qtr_end (date)} from earnings_history for
+    `tickers`, paging until an empty page (the row cap may be below the page
+    size)."""
+    from datetime import date
+    newest, start = {}, 0
+    if not tickers:
+        return newest
+    while True:
+        data = (client.table(EARNINGS_TABLE).select("ticker, fiscal_qtr_end")
+                .in_("ticker", list(tickers)).order("ticker").order("fiscal_qtr_end")
+                .range(start, start + _EARNINGS_PAGE - 1).execute().data or [])
+        if not data:
+            break
+        for r in data:
+            try:
+                d = date.fromisoformat(str(r.get("fiscal_qtr_end"))[:10])
+            except ValueError:
+                continue
+            t = str(r.get("ticker") or "").upper()
+            if t and (t not in newest or d > newest[t]):
+                newest[t] = d
+        start += len(data)
+    return newest
+
+
+def _tickers_stale_earnings_brief_impl(limit=6, user_id: str | None = None):
+    """Watchlist tickers whose "Earnings Brief" is missing (or no longer
+    valid) or covers an older quarter than the newest one in
+    earnings_history, alphabetical. A ticker with neither a brief nor any
+    earnings_history rows only counts when it has a "Business Analysis" (the
+    prompt's prior). A failed earnings_history read leaves only the missing
+    briefs."""
+    from datetime import date
+    user_id = user_id or USER_ID
+    client = get_supabase_client()
+    cfgs = config_store.load_all_configs(client, user_id=user_id)
+    try:
+        newest = _newest_earnings_quarters(client, sorted(cfgs))
+    except Exception as e:
+        logger.warning("earnings_history read failed: %s", e)
+        newest = {}
+    due = []
+    for t, cfg in sorted(cfgs.items()):
+        notes = cfg.get("ai_notes") if isinstance(cfg.get("ai_notes"), dict) else {}
+        latest = newest.get(t.upper())
+        raw = notes.get(earnings_brief.TITLE)
+        brief = None
+        if str(raw or "").strip():
+            try:
+                brief = earnings_brief.parse_earnings_brief(raw)
+            except ValueError:
+                brief = None
+        if brief is None:
+            if latest is not None or str(notes.get("Business Analysis") or "").strip():
+                due.append(t)
+            continue
+        covered = date.fromisoformat(brief["quarter"]["fiscal_qtr_end"])
+        if latest is not None and (latest - covered).days > _EARNINGS_SAME_QUARTER_DAYS:
+            due.append(t)
+    n = max(int(6 if limit is None else limit), 0)
+    return json.dumps({"tickers": due[:n], "remaining": len(due) - len(due[:n])})
+
+
 def _get_screener_candidates_impl(limit=5, user_id: str | None = None):
     """Names for the nightly Aspirant run, requested ones first.
 
@@ -1619,6 +1692,19 @@ def tickers_missing_section(title: str, requires: str = "", limit: int = 10) -> 
     """
     try:
         return _tickers_missing_section_impl(title, requires, limit)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def tickers_stale_earnings_brief(limit: int = 6) -> str:
+    """Watchlist tickers whose "Earnings Brief" is missing or covers an older
+    quarter than the newest reported one in earnings_history (Nasdaq); a
+    ticker with neither a brief nor earnings rows only when it has a
+    "Business Analysis". Returns JSON {tickers: [...], remaining: n}.
+    """
+    try:
+        return _tickers_stale_earnings_brief_impl(limit)
     except Exception as e:
         return json.dumps({"error": str(e)})
 

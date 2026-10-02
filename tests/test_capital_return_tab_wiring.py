@@ -7,14 +7,14 @@ SRC = (Path(__file__).resolve().parent.parent / "streamlit_app.py").read_text(en
 
 def _block():
     start = SRC.index("with _tab_capital:")
-    end = SRC.index("with _tab_dcf:", start)
+    end = SRC.index("with _tab_earnings:", start)
     return SRC[start:end]
 
 
 def test_tab_list_has_capital_return_after_summary_and_no_dividend_tab():
-    assert ('"Risk", "Summary", "Capital Return", "Fundamentals", "DCF", '
+    assert ('"Risk", "Summary", "Capital Return", "Earnings", "Fundamentals", "DCF", '
             '"Reverse DCF", "Peer Comparison", "History"]') in SRC
-    assert "_tab_summary, _tab_capital, _tab_fundamentals" in SRC
+    assert "_tab_summary, _tab_capital, _tab_earnings" in SRC
     tabs = SRC[SRC.index("= st.tabs(\n        [\"Overview\""):]
     tabs = tabs[:tabs.index("])")]
     assert '"Dividend"' not in tabs

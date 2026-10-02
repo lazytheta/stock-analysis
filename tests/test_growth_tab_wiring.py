@@ -13,7 +13,7 @@ def _growth_block():
 
 def test_tab_list_has_growth_after_moat():
     assert ('["Overview", "Business", "Phase", "Moat", "Growth", "Management", "Risk", "Summary", '
-            '"Capital Return", "Fundamentals", "DCF",') in SRC
+            '"Capital Return", "Earnings", "Fundamentals", "DCF",') in SRC
     assert "_tab_growth, _tab_management, _tab_risk" in SRC
 
 

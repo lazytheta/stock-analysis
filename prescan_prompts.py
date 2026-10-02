@@ -9,6 +9,7 @@ to add defaults shipped after the library was saved.
 import business_cards
 import company_explainer
 import company_profile
+import earnings_brief
 import growth_cards
 import management_cards
 import moat_cards
@@ -608,6 +609,12 @@ if nothing plausible exists, say what you looked for.]
         # pay facts behind them, from the SEC connector's executive feeds.
         "title": management_cards.TITLE,
         "prompt": management_cards.PROMPT,
+    },
+    {
+        # What the latest earnings call said and the next quarter's consensus,
+        # for the Earnings tab's "Latest call" section (two SEC calls).
+        "title": earnings_brief.TITLE,
+        "prompt": earnings_brief.PROMPT,
     },
     {
         "title": "Investment Summary",

@@ -1,12 +1,13 @@
 # Question cards backfill — routine prompt
 
 You fill the "Moat Cards", "Risk Cards", "Business Cards", "Company
-Profile", "Growth Cards", "Company Explainer" and "Management Cards" pre-scan sections for LazyTheta watchlist
-tickers that have the underlying analysis but no cards yet. Use only the
+Profile", "Growth Cards", "Company Explainer", "Management Cards" and "Earnings Brief" pre-scan sections for LazyTheta watchlist
+tickers that have the underlying analysis but no cards yet (and refresh an
+"Earnings Brief" once a newer quarter has been reported). Use only the
 Lazy-Theta-Remote-MCP connector, plus the SEC-MCP connector for the
 "revenue" block in step 5b, the "consensus" block in step 9b, the 10-K
-read in step 11b and the executive/insider feeds in step 13b if it is
-available. Do not modify, commit or push anything in the repository.
+read in step 11b, the executive/insider feeds in step 13b and the earnings
+call and estimates in step 15b if it is available. Do not modify, commit or push anything in the repository.
 
 Before enabling: the "Moat Cards", "Risk Cards", "Business Cards", "Company
 Profile" and "Growth Cards" prompts must already be in the user's prompt
@@ -16,7 +17,8 @@ the app's own `DEFAULT_AI_PROMPTS` (added the first time the user opens the
 prompt editor) or are added directly by the maintainer. The Cloud Run MCP
 must also be redeployed with `tickers_missing_section` and the Moat Cards /
 Risk Cards / Business Cards / Company Profile / Growth Cards / Management
-Cards save validation ("Management Cards" is seeded into existing prompt
+Cards / Earnings Brief save validation and `tickers_stale_earnings_brief`
+("Management Cards" and "Earnings Brief" are seeded into existing prompt
 libraries automatically by `get_prescan_prompts`). Without all of this, step 2a (or 5a, 7a, or 9a) finds no
 matching prompt to answer.
 
@@ -182,7 +184,29 @@ matching prompt to answer.
        block>)`. If the server refuses, fix what the error names and save
        once more; if it refuses again, note the ticker and the reason and
        move on.
-14. If all seven `tickers` lists from steps 1, 3, 5, 6, 8, 10 and 12 were
-    empty, print "Nothing left to backfill." Otherwise print a summary:
-    tickers filled (per card set, Management Cards included), tickers
-    skipped with reasons, and `remaining` for each.
+14. Earnings Brief, with its OWN budget of 6 names (separate from the shared
+    budget of 10 and from the Company Explainer and Management Cards
+    budgets): call `tickers_stale_earnings_brief(limit=6)`. It returns the
+    tickers whose brief is missing or covers an older quarter than the
+    newest one reported (so a ticker can come back every quarter). If
+    `tickers` is empty, note that and go to step 16.
+15. For each ticker from step 14:
+    a. Call `get_prescan_prompts(ticker)` and take the prompt titled
+       "Earnings Brief" (its {prior:Business Analysis} is filled in when
+       that section exists; a missing one is acceptable).
+    b. Make at most 2 SEC-MCP calls per ticker:
+       `GetEarningsCallToneAndThemes` (latest call) and
+       `GetAnalystEstimates` (next quarter's consensus). The quarter is the
+       most recently REPORTED fiscal quarter. Copy the level estimates; if
+       SEC-MCP is unavailable or a call returns nothing usable, set those
+       "next" values to null — never estimate.
+    c. Answer the prompt exactly as it asks: one fenced JSON block with
+       quarter, tone, summary, three points, next, as_of and source.
+    d. Save with `save_prescan_section(ticker, "Earnings Brief", <the JSON
+       block>)`. If the server refuses, fix what the error names and save
+       once more; if it refuses again, note the ticker and the reason and
+       move on.
+16. If all eight `tickers` lists from steps 1, 3, 5, 6, 8, 10, 12 and 14
+    were empty, print "Nothing left to backfill." Otherwise print a summary:
+    tickers filled (per card set, Management Cards and Earnings Brief
+    included), tickers skipped with reasons, and `remaining` for each.

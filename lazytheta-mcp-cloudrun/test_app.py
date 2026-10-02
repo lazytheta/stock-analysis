@@ -544,9 +544,9 @@ def test_oauth_magic_finalize_rejects_invalid_supabase_token(monkeypatch):
 
 
 def test_tools_list_returns_32_tools():
-    """tools/list returns 33 tools (incl. notification, price-alert, the
-    read-only Trading 212 tools, the aspirant-pipeline tools, and
-    tickers_missing_section)."""
+    """tools/list returns 34 tools (incl. notification, price-alert, the
+    read-only Trading 212 tools, the aspirant-pipeline tools,
+    tickers_missing_section and tickers_stale_earnings_brief)."""
     from starlette.testclient import TestClient
     from mcp_auth import sign_jwt
     from main import app
@@ -560,7 +560,7 @@ def test_tools_list_returns_32_tools():
     )
     assert r.status_code == 200
     tools = r.json()["result"]["tools"]
-    assert len(tools) == 33
+    assert len(tools) == 34
     names = {t["name"] for t in tools}
     assert names == {
         "build_dcf_config", "calculate_valuation", "calculate_multi_lens_valuation",
@@ -571,7 +571,7 @@ def test_tools_list_returns_32_tools():
         "get_fundamentals", "update_fundamentals",
         "t212_positions", "t212_balance", "t212_transactions",
         "get_prescan_prompts", "get_prescan_sections", "save_prescan_section",
-        "tickers_missing_section",
+        "tickers_missing_section", "tickers_stale_earnings_brief",
         "set_robustness", "set_premortem",
         "add_reminder", "list_reminders", "delete_reminder", "set_ticker_alert",
         "add_price_alert", "list_price_alerts", "delete_price_alert",
@@ -648,6 +648,34 @@ def test_tools_call_set_category_passes_user_id_from_jwt_not_arguments(monkeypat
     assert captured["ticker"] == "MSFT"
     assert captured["category"] == "No"
     assert captured["user_id"] == "jwt-uid"
+
+
+def test_tools_call_tickers_stale_earnings_brief_passes_limit_and_jwt_user(monkeypatch):
+    """tools/call -> tickers_stale_earnings_brief: limit from the arguments
+    (default 6), user_id from the JWT."""
+    from starlette.testclient import TestClient
+    from mcp_auth import sign_jwt
+    from main import app
+    import mcp_server
+
+    calls = []
+    def fake_impl(limit=6, user_id=None):
+        calls.append((limit, user_id))
+        return '{"tickers": ["MSFT"], "remaining": 0}'
+    monkeypatch.setattr(mcp_server, "_tickers_stale_earnings_brief_impl", fake_impl)
+
+    token = sign_jwt({"type": "access_token", "user_id": "jwt-uid"}, ttl_seconds=60)
+    client = TestClient(app)
+    for args in ({"limit": 3, "user_id": "spoofed-uid"}, {}):
+        r = client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "method": "tools/call", "id": 1,
+                  "params": {"name": "tickers_stale_earnings_brief", "arguments": args}},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 200
+        assert "result" in r.json()
+    assert calls == [(3, "jwt-uid"), (6, "jwt-uid")]
 
 
 def test_tools_call_unknown_tool_returns_error():

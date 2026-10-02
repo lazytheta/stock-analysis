@@ -36,6 +36,10 @@ import overview_page
 import phase_page
 import phase_payouts
 import capital_return
+import earnings_brief
+import earnings_history
+import earnings_page
+import quarterly_results
 import question_cards
 import price_history
 import summary_page
@@ -347,6 +351,24 @@ def _overview_prices(ticker, since_iso):
     client = st.session_state["supabase_client"]
     return price_history.load_series(client, [ticker, "SPY"],
                                      date.fromisoformat(since_iso))
+
+
+# Earnings tab loaders. Like the Overview loaders above, exceptions propagate
+# so st.cache_data never stores a failed read; the tab catches them and shows
+# what it can without the source.
+@st.cache_data(ttl=3600, show_spinner=False)
+def _earnings_history(ticker):
+    """Nasdaq EPS actual vs consensus per quarter from the shared
+    earnings_history table, ascending. The Supabase client comes from
+    session state, as in _overview_prices."""
+    client = st.session_state["supabase_client"]
+    return earnings_history.load(client, ticker)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _quarterly_results(ticker):
+    """The last 12 quarters of revenue and diluted EPS from SEC companyfacts."""
+    return quarterly_results.fetch_quarterly_results(ticker)
 
 
 def _merge_track_rows(rows: list) -> list:
@@ -1464,7 +1486,8 @@ st.markdown(f"""
     /* Capital Return tab: the three chart sections (cash use, dividend,
        share count) hold Plotly charts, so they are keyed containers styled
        like .st-key-qc_phase_chart. */
-    .st-key-qc_cr_cash, .st-key-qc_cr_dividend, .st-key-qc_cr_shares {{
+    .st-key-qc_cr_cash, .st-key-qc_cr_dividend, .st-key-qc_cr_shares,
+    .st-key-qc_er_eps, .st-key-qc_er_quarters {{
         background: var(--card);
         border-top: 3px solid var(--accent);
         border-radius: 24px;
@@ -3712,9 +3735,9 @@ def _dcf_editor(ticker):
         _fund_error, fund = e, {}
 
     (_tab_overview, _tab_business, _tab_phase, _tab_moat,
-     _tab_growth, _tab_management, _tab_risk, _tab_summary, _tab_capital, _tab_fundamentals,
-     _tab_dcf, _tab_rdcf, _tab_peers, _tab_history) = st.tabs(
-        ["Overview", "Business", "Phase", "Moat", "Growth", "Management", "Risk", "Summary", "Capital Return", "Fundamentals", "DCF", "Reverse DCF", "Peer Comparison", "History"])
+     _tab_growth, _tab_management, _tab_risk, _tab_summary, _tab_capital, _tab_earnings,
+     _tab_fundamentals, _tab_dcf, _tab_rdcf, _tab_peers, _tab_history) = st.tabs(
+        ["Overview", "Business", "Phase", "Moat", "Growth", "Management", "Risk", "Summary", "Capital Return", "Earnings", "Fundamentals", "DCF", "Reverse DCF", "Peer Comparison", "History"])
 
     # Overview: three white sections -- Company (profile + at a glance), Price vs
     # S&P 500 and Key figures. Read-only; the profile comes from the "Company
@@ -4097,6 +4120,64 @@ def _dcf_editor(ticker):
             except Exception as e:
                 logger.warning("Capital return share count for %s failed: %s", ticker, e)
                 st.caption("Share count unavailable right now.")
+
+    # Earnings: the EPS record against Nasdaq's consensus (earnings_history),
+    # quarterly revenue and EPS from SEC filings (quarterly_results) and what
+    # the latest call said ("Earnings Brief"). A failed source degrades to an
+    # empty list; every section degrades to a caption.
+    with _tab_earnings:
+        try:
+            _erhist = _earnings_history(ticker)
+        except Exception as e:
+            logger.warning("earnings history for %s failed: %s", ticker, e)
+            _erhist = []
+        try:
+            _erqtrs = _quarterly_results(ticker)
+        except Exception as e:
+            logger.warning("quarterly results for %s failed: %s", ticker, e)
+            _erqtrs = []
+        _ernotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
+        _erbrief = _ernotes.get(earnings_brief.TITLE)
+
+        try:
+            st.markdown(earnings_page.summary_section_html(_erhist, _erbrief, T),
+                        unsafe_allow_html=True)
+        except Exception as e:
+            logger.warning("Earnings summary for %s failed: %s", ticker, e)
+            st.caption("Earnings summary unavailable right now.")
+
+        with st.container(key="qc_er_eps"):
+            st.markdown('<div class="qc-label">EPS vs estimate</div>', unsafe_allow_html=True)
+            try:
+                _erfig = earnings_page.eps_figure(_erhist, T, _erqtrs)
+            except Exception as e:
+                logger.warning("EPS chart for %s failed: %s", ticker, e)
+                _erfig = None
+            if _erfig is not None:
+                st.plotly_chart(_erfig, width="stretch", config={"displayModeBar": False},
+                                key=f"er_eps_{ticker}")
+            else:
+                st.caption("No EPS estimates on record yet.")
+
+        with st.container(key="qc_er_quarters"):
+            st.markdown('<div class="qc-label">Quarterly results</div>', unsafe_allow_html=True)
+            try:
+                _erqfig = earnings_page.quarterly_figure(_erqtrs, T)
+                if _erqfig is not None:
+                    st.plotly_chart(_erqfig, width="stretch", config={"displayModeBar": False},
+                                    key=f"er_quarters_{ticker}")
+                st.markdown(earnings_page.quarterly_table_html(_erqtrs, _erhist),
+                            unsafe_allow_html=True)
+            except Exception as e:
+                logger.warning("Quarterly results for %s failed: %s", ticker, e)
+                st.caption("Quarterly results unavailable right now.")
+
+        try:
+            st.markdown(earnings_page.latest_call_section_html(_erbrief, _erhist, T),
+                        unsafe_allow_html=True)
+        except Exception as e:
+            logger.warning("Latest call for %s failed: %s", ticker, e)
+            st.caption("Latest call unavailable right now.")
 
     with _tab_dcf:
         with st.container(key="tabcard_dcf_1"):
