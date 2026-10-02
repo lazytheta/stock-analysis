@@ -13,7 +13,7 @@ def _phase_block():
 
 def test_tab_list_has_phase_after_business():
     assert ('["Overview", "Business", "Phase", "Moat", "Growth", "Management", "Risk", "Summary", '
-            '"Capital Return", "Earnings", "Fundamentals", "DCF",') in SRC
+            '"Capital Return", "Earnings", "Financials", "DCF",') in SRC
     assert "_tab_business, _tab_phase, _tab_moat" in SRC
 
 

@@ -39,6 +39,7 @@ import capital_return
 import earnings_brief
 import earnings_history
 import earnings_page
+import financials_page
 import quarterly_results
 import question_cards
 import price_history
@@ -3275,7 +3276,7 @@ def _watchlist_overview():
 
     def _cap_cell_md(row):
         """HTML for the Capital cell: the figure plus the same circle-"?" hover
-        tooltip used on the Fundamentals tab (CSS hover-span, not a `title` attr
+        tooltip used on the Financials tab (CSS hover-span, not a `title` attr
         which Streamlit strips). The tooltip explains exactly what the figure is
         for this ticker's phase. Colour follows the robustness band (phase-aware)
         or the 20% screen-bar (fallback)."""
@@ -3713,10 +3714,10 @@ def _dcf_editor(ticker):
     growth = list(cfg.get('revenue_growth', []))
     margins = list(cfg.get('op_margins', []))
 
-    # ── Tabs: DCF / Reverse DCF / Peer Comparison / Dividend / Fundamentals ──
-    # Fundamentals are shared by Overview and the Fundamentals tab: one cached
+    # ── Tabs: DCF / Reverse DCF / Peer Comparison / Dividend / Financials ──
+    # Fundamentals are shared by Overview and the Financials tab: one cached
     # fetch, per-year overrides applied once, so both tabs see the same data.
-    # A fetch error (SEC outage) is held and re-raised inside the Fundamentals
+    # A fetch error (SEC outage) is held and re-raised inside the Financials
     # tab, where it surfaced before; here it would blank every tab.
     @st.cache_data(ttl=300, show_spinner="Loading fundamentals...")
     def _cached_fundamentals(t):
@@ -3736,8 +3737,8 @@ def _dcf_editor(ticker):
 
     (_tab_overview, _tab_business, _tab_phase, _tab_moat,
      _tab_growth, _tab_management, _tab_risk, _tab_summary, _tab_capital, _tab_earnings,
-     _tab_fundamentals, _tab_dcf, _tab_rdcf, _tab_peers, _tab_history) = st.tabs(
-        ["Overview", "Business", "Phase", "Moat", "Growth", "Management", "Risk", "Summary", "Capital Return", "Earnings", "Fundamentals", "DCF", "Reverse DCF", "Peer Comparison", "History"])
+     _tab_financials, _tab_dcf, _tab_rdcf, _tab_peers, _tab_history) = st.tabs(
+        ["Overview", "Business", "Phase", "Moat", "Growth", "Management", "Risk", "Summary", "Capital Return", "Earnings", "Financials", "DCF", "Reverse DCF", "Peer Comparison", "History"])
 
     # Overview: three white sections -- Company (profile + at a glance), Price vs
     # S&P 500 and Key figures. Read-only; the profile comes from the "Company
@@ -5094,9 +5095,7 @@ def _dcf_editor(ticker):
                     else:
                         st.warning("Could not fetch peer data. Check the ticker(s).")
 
-    with _tab_fundamentals:
-        st.markdown("#### Fundamentals")
-
+    with _tab_financials:
         if _fund_error is not None:
             raise _fund_error
         _yrs = fund['years']
@@ -5106,30 +5105,13 @@ def _dcf_editor(ticker):
         _COLORS = {
             'primary': T['accent'],
             'secondary': T['red'],
-            'accent': '#3d405b',
+            'accent': financials_page.SECOND_COLOUR,
             'tertiary': '#f2cc8f',
             'text_muted': T['text_muted'],
         }
 
-        def _base_layout(fig, height=280):
-            fig.update_layout(
-                margin=dict(t=10, b=20, l=50, r=20),
-                height=height,
-                font=dict(
-                    family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
-                    color=T['chart_font'],
-                ),
-                paper_bgcolor=T['chart_paper'],
-                plot_bgcolor=T['chart_plot'],
-                xaxis=dict(gridcolor=T['chart_grid'], dtick=1),
-                yaxis=dict(gridcolor=T['chart_grid']),
-                legend=dict(
-                    orientation="h", yanchor="top", y=-0.15,
-                    xanchor="center", x=0.5, font=dict(size=11),
-                ),
-                hovermode="x unified",
-            )
-            return fig
+        def _base_layout(fig, height=financials_page.CHART_HEIGHT):
+            return financials_page.apply_chart_layout(fig, T, height)
 
         def _pct_growth(values):
             result = [None]
@@ -5141,20 +5123,55 @@ def _dcf_editor(ticker):
                     result.append(None)
             return result
 
-        st.markdown(
-            '<style>'
-            f'[class*="st-key-fund_sec_"] {{'
-            f'  background: {T["card"]} !important;'
-            f'  border-top: 3px solid {T["accent"]} !important;'
-            f'  border-radius: 24px !important; box-shadow: {T["shadow"]} !important;'
-            f'  padding: 18px 28px 22px 28px !important; margin-bottom: 22px !important; }}'
-            '</style>',
-            unsafe_allow_html=True,
-        )
-        with st.container(key="fund_sec_0_roce"):
+        def _fin_caption(text):
+            st.markdown(financials_page.caption_html(text), unsafe_allow_html=True)
+
+        def _fin_section(name, n_cols=2):
+            """A themed white section: label, then its chart columns. The
+            columns keep their place in the container, so the metric blocks
+            below fill them without nesting another level."""
+            box = st.container(key=financials_page.section_key(name))
+            with box:
+                st.markdown(financials_page.section_label_html(name), unsafe_allow_html=True)
+                return st.columns(n_cols, gap="large") if n_cols > 1 else box
+
+        st.markdown(financials_page.style_html(), unsafe_allow_html=True)
+
+        # ── Returns on capital: ROCE/ROE and ROIC; the float toggle sits in the
+        # section's header row ──
+        _fund_metric, _ = compute_roce_metric(fund, cfg)
+        _roce_override = cfg.get('roce_metric_override') == 'ROE'
+        with st.container(key=financials_page.section_key("returns")):
+            _fin_hl, _fin_hr = st.columns([3, 2], vertical_alignment="center")
+            with _fin_hl:
+                st.markdown(financials_page.section_label_html("returns"),
+                            unsafe_allow_html=True)
+            with _fin_hr:
+                # Float-business flag — forces ROE (Net Income / Equity) instead of
+                # ROCE. For genuine float businesses (banks, insurers, settlement
+                # networks) where capital employed is too small for ROCE to mean
+                # anything. The auto-detector (avg CE/TA < 25%) already catches
+                # extreme cases; this is the manual override for the rest.
+                _float_flag = st.toggle(
+                    "Float-bedrijf (toon ROE i.p.v. ROCE)",
+                    value=_roce_override,
+                    key=f"roce_float_{ticker}",
+                    help="Forceert ROE = Net Income / Equity. Alleen aanzetten voor "
+                         "echte float-bedrijven (banken, verzekeraars, pure "
+                         "betaalverwerkers). Auto-detectie pakt extreme gevallen "
+                         "(gem. CE/TA < 25%) al zelf op.",
+                )
+            if _float_flag != _roce_override:
+                if _float_flag:
+                    cfg['roce_metric_override'] = 'ROE'
+                else:
+                    cfg.pop('roce_metric_override', None)
+                save_config(_sb_client, ticker, cfg)
+                st.rerun()
+            _fin_ret_l, _fin_ret_r = st.columns(2, gap="large")
+
+        with _fin_ret_l:
             # ── ROCE / ROE (float businesses) ──
-            _fund_metric, _ = compute_roce_metric(fund, cfg)
-            _roce_override = cfg.get('roce_metric_override') == 'ROE'
             if _fund_metric == 'ROE':
                 _roce_tip = (
                     'Net Income / Total Equity — return on shareholders’ equity.<br><br>'
@@ -5180,45 +5197,8 @@ def _dcf_editor(ticker):
                     'geen float-bedrijf van je maakt.<br>'
                     'PE-conventie zoals Nalanda Capital, gebruikt EBIT (pre-tax) ipv NOPAT.'
                 )
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:6px">'
-                f'<span style="font-weight:700">{_fund_metric}</span>'
-                f'<span class="roce-tip" style="position:relative;cursor:help">'
-                f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
-                f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
-                f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
-                f'</svg>'
-                f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
-                f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
-                f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
-                f'font-weight:400;width:260px;z-index:999;box-shadow:{T["shadow_hover"]};'
-                f'pointer-events:none;transition:opacity 0.15s ease">'
-                f'{_roce_tip}'
-                f'</span></span></div>'
-                f'<style>.roce-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
-                unsafe_allow_html=True,
-            )
-            # Float-business flag — forces ROE (Net Income / Equity) instead of
-            # ROCE. For genuine float businesses (banks, insurers, settlement
-            # networks) where capital employed is too small for ROCE to mean
-            # anything. The auto-detector (avg CE/TA < 25%) already catches
-            # extreme cases; this is the manual override for the rest.
-            _float_flag = st.toggle(
-                "Float-bedrijf (toon ROE i.p.v. ROCE)",
-                value=_roce_override,
-                key=f"roce_float_{ticker}",
-                help="Forceert ROE = Net Income / Equity. Alleen aanzetten voor "
-                     "echte float-bedrijven (banken, verzekeraars, pure "
-                     "betaalverwerkers). Auto-detectie pakt extreme gevallen "
-                     "(gem. CE/TA < 25%) al zelf op.",
-            )
-            if _float_flag != _roce_override:
-                if _float_flag:
-                    cfg['roce_metric_override'] = 'ROE'
-                else:
-                    cfg.pop('roce_metric_override', None)
-                save_config(_sb_client, ticker, cfg)
-                st.rerun()
+            st.markdown(financials_page.chart_title_html(
+                _fund_metric, _roce_tip, T, width=260), unsafe_allow_html=True)
             if _n >= 3:
                 # Numerator/denominator follow the chosen metric: ROCE uses
                 # EBIT / (Total Assets − Current Liabilities); ROE uses
@@ -5288,7 +5268,8 @@ def _dcf_editor(ticker):
                     )
                 fig.update_yaxes(ticksuffix='%')
                 _base_layout(fig)
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, width="stretch", config=financials_page.CHART_CONFIG,
+                                key=f"fin_roce_{ticker}")
 
                 with st.expander("Details", expanded=False):
                     _rce_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
@@ -5346,9 +5327,9 @@ def _dcf_editor(ticker):
                     _rce_html += '</tbody></table></div>'
                     st.markdown(_rce_html, unsafe_allow_html=True)
                     if _fund_metric == 'ROE':
-                        st.caption("In $M. ROE = Net Income / Total Equity (float-business weergave).")
+                        _fin_caption("In $M. ROE = Net Income / Total Equity (float-business weergave).")
                     else:
-                        st.caption(
+                        _fin_caption(
                             "In $M. EBIT = Operating Income (proxy). Capital Employed = "
                             "Total Assets − Current Liabilities − cash − kortlopende "
                             "beleggingen. Goodwill blijft erin, cash niet. Laatste "
@@ -5356,313 +5337,250 @@ def _dcf_editor(ticker):
                             f"{int(ROCE_CEILING)}%."
                         )
             else:
-                st.info(f"Insufficient data for {_fund_metric} (need 3+ years)")
+                _fin_caption(f"Insufficient data for {_fund_metric} (need 3+ years)")
 
-        with st.container(key="fund_sec_1_fcf_yield"):
-            # ── FCF Yield ──
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:6px">'
-                f'<span style="font-weight:700">FCF Yield</span>'
-                f'<span class="fy-tip" style="position:relative;cursor:help">'
-                f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
-                f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
-                f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
-                f'</svg>'
-                f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
-                f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
-                f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
-                f'font-weight:400;width:240px;z-index:999;box-shadow:{T["shadow_hover"]};'
-                f'pointer-events:none;transition:opacity 0.15s ease">'
-                f'(FCF per Share / Price) × 100.<br>'
-                f'Cash return percentage on your investment.<br><br>'
-                f'<b>&gt;5%</b> attractively priced<br>'
-                f'<b>3–5%</b> redelijk<br>'
-                f'<b>&lt;1%</b> expensive or low cash generation'
-                f'</span></span></div>'
-                f'<style>.fy-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
-                unsafe_allow_html=True,
-            )
-            if _n >= 2 and live_price > 0:
-                # Prefer per-share path when shares are available; otherwise fall
-                # back to FCF / Market Cap using the current market cap from cfg
-                # (e.g. V doesn't report shares in XBRL).
-                _mcap_total = cfg.get('equity_market_value', 0) or 0  # $M
-                fcf_yield = []
-                _fcf_ps = []
+        with _fin_ret_r:
+            # ── ROIC ──
+            st.markdown(financials_page.chart_title_html(
+                "ROIC",
+                f'NOPAT / Invested Capital — measures how well a company generates returns on its capital.<br><br>'
+                f'<b>&gt;Discount rate</b> creates value<br>'
+                f'<b>&gt;20%</b> excellent<br>'
+                f'<b>&lt;Discount rate</b> destroys value',
+                T, width=240), unsafe_allow_html=True)
+            if _n >= 3:
+                roic_vals = []
+                _nopat_tbl = []
+                _ic_tbl = []
                 for i in range(_n):
-                    sh = fund['shares'][i]
-                    if sh and sh > 0 and fund['fcf'][i] is not None:
-                        fps = fund['fcf'][i] * 1e6 / sh
-                        _fcf_ps.append(fps)
-                        fcf_yield.append(fps / live_price * 100)
-                    elif fund['fcf'][i] is not None and _mcap_total > 0:
-                        _fcf_ps.append(None)
-                        fcf_yield.append(fund['fcf'][i] / _mcap_total * 100)
-                    else:
-                        _fcf_ps.append(None)
-                        fcf_yield.append(None)
-
-                current_fy = fcf_yield[-1] if fcf_yield[-1] is not None else 0
-                fy_color = T['accent'] if current_fy > 3 else (T['red'] if current_fy < 1 else T['text'])
-                st.markdown(
-                    f'<div style="text-align:center;padding:8px 0">'
-                    f'<span style="font-size:2rem;font-weight:700;color:{fy_color}">{current_fy:.1f}%</span>'
-                    f'<span style="color:{T["text_muted"]};font-size:0.9rem;margin-left:8px">current FCF Yield</span>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=_yrs, y=fcf_yield, name='FCF Yield',
-                    line=dict(color=_COLORS['primary'], width=2.5),
-                    fill='tozeroy', fillcolor=T['accent_fill'],
-                    hovertemplate='%{y:.1f}%<extra>FCF Yield</extra>',
-                ))
-                fig.update_yaxes(ticksuffix='%')
-                _base_layout(fig, height=250)
-                st.plotly_chart(fig, width="stretch")
-
-                with st.expander("Details", expanded=False):
-                    _fy_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
-                    _fy_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
-                    _fy_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
-                    _fy_avg_s = f'{_fy_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
-                    _fy_div = f'border-top:3px solid {T["text"]}'
-                    _fy_html = (
-                        '<div style="overflow-x:auto">'
-                        '<table style="width:100%;border-collapse:collapse">'
-                        '<thead><tr>'
-                        f'<th style="{_fy_hdr};text-align:left"></th>'
-                    )
-                    for yr in _yrs:
-                        _fy_html += f'<th style="{_fy_hdr}">{yr}</th>'
-                    _fy_html += f'<th style="{_fy_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
-                    _fy_html += '</tr></thead><tbody>'
-
-                    # FCF/Share row
-                    _fps_valid = [v for v in _fcf_ps if v is not None]
-                    _fps_avg = sum(_fps_valid) / len(_fps_valid) if _fps_valid else None
-                    _fy_html += f'<tr><td style="{_fy_label}">FCF / Share</td>'
-                    for v in _fcf_ps:
-                        _fy_html += f'<td style="{_fy_cell}">${v:,.2f}</td>' if v is not None else f'<td style="{_fy_cell}">—</td>'
-                    _fy_html += f'<td style="{_fy_avg_s}">${_fps_avg:,.2f}</td>' if _fps_avg is not None else f'<td style="{_fy_avg_s}">—</td>'
-                    _fy_html += '</tr>'
-
-                    # Price row
-                    _fy_html += f'<tr><td style="{_fy_label}">Price</td>'
-                    for _ in _yrs:
-                        _fy_html += f'<td style="{_fy_cell}">${live_price:,.2f}</td>'
-                    _fy_html += f'<td style="{_fy_avg_s}">${live_price:,.2f}</td>'
-                    _fy_html += '</tr>'
-
-                    # Yield row — thick border
-                    _fyl_valid = [v for v in fcf_yield if v is not None]
-                    _fyl_avg = sum(_fyl_valid) / len(_fyl_valid) if _fyl_valid else None
-                    _fy_html += f'<tr><td style="{_fy_label};{_fy_div}">FCF Yield</td>'
-                    for v in fcf_yield:
-                        if v is not None:
-                            _y_color = T['accent'] if v > 3 else (T['red'] if v < 1 else T['text'])
-                            _fy_html += f'<td style="{_fy_cell};{_fy_div};color:{_y_color};font-weight:600">{v:.1f}%</td>'
-                        else:
-                            _fy_html += f'<td style="{_fy_cell};{_fy_div}">—</td>'
-                    if _fyl_avg is not None:
-                        _ya_color = T['accent'] if _fyl_avg > 3 else (T['red'] if _fyl_avg < 1 else T['text'])
-                        _fy_html += f'<td style="{_fy_avg_s};{_fy_div};color:{_ya_color}">{_fyl_avg:.1f}%</td>'
-                    else:
-                        _fy_html += f'<td style="{_fy_avg_s};{_fy_div}">—</td>'
-                    _fy_html += '</tr>'
-
-                    _fy_html += '</tbody></table></div>'
-                    st.markdown(_fy_html, unsafe_allow_html=True)
-                    st.caption("FCF Yield = (FCF per Share / Price) × 100. Price = current price for all years.")
-            else:
-                st.info("Insufficient data for FCF Yield")
-
-        with st.container(key="fund_sec_2_ebit_ev"):
-            # ── EBIT / EV (Greenblatt Earnings Yield) ──
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:6px">'
-                f'<span style="font-weight:700">EBIT / EV</span>'
-                f'<span class="ey-tip" style="position:relative;cursor:help">'
-                f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
-                f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
-                f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
-                f'</svg>'
-                f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
-                f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
-                f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
-                f'font-weight:400;width:280px;z-index:999;box-shadow:{T["shadow_hover"]};'
-                f'pointer-events:none;transition:opacity 0.15s ease">'
-                f'<b>Greenblatt Earnings Yield</b> — EBIT als percentage van Enterprise Value. Pre-tax, capital-structure-agnostic — paart met ROCE de "high quality at reasonable price"-screen uit de Magic Formula.<br><br>'
-                f'EV = Market Cap + Total Debt − Cash.<br><br>'
-                f'<b>&gt; 12%</b> goedkoop (hoge earnings yield)<br>'
-                f'<b>8 − 12%</b> fairly valued<br>'
-                f'<b>&lt; 6%</b> duur — alleen rechtvaardig bij hoge groei + sterke ROCE<br><br>'
-                f'Onafhankelijk van rente en belasting → vergelijkbaar tussen sectoren en jurisdicties, dat is z\'n kracht boven P/E.'
-                f'</span></span></div>'
-                f'<style>.ey-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
-                unsafe_allow_html=True,
-            )
-            if _n >= 2:
-                # Fetch historical year-end prices to reconstruct EV per year
-                @st.cache_data(ttl=86400, show_spinner=False)
-                def _ey_historical_prices(t, years_tuple):
-                    try:
-                        return fetch_historical_prices(t, list(years_tuple))
-                    except Exception:
-                        return {}
-                _ey_prices = _ey_historical_prices(ticker, tuple(_yrs))
-
-                ey_vals = []
-                _ey_ebit_tbl = []
-                _ey_ev_tbl = []
-                _ey_mcap_tbl = []
-                for i in range(_n):
-                    yr = _yrs[i]
                     oi = fund['operating_income'][i]
-                    sh = fund['shares'][i] if i < len(fund['shares']) else None
-                    debt_v = fund['total_debt'][i] if i < len(fund['total_debt']) else None
-                    cash_v = fund['cash'][i] if i < len(fund['cash']) else 0
-                    price_v = _ey_prices.get(yr)
-                    # Year-end market cap = price × shares; fallback to current
-                    # market cap × (shares[i] / shares[-1]) when historical price
-                    # missing, then last resort: current market cap from cfg.
-                    mcap_m = None
-                    if price_v and sh and sh > 0:
-                        mcap_m = price_v * sh / 1e6  # → $M
-                    elif i == _n - 1:
-                        # latest year — use current market cap if XBRL prices missing
-                        mcap_m = cfg.get('equity_market_value', 0) or 0
-                    _ey_mcap_tbl.append(mcap_m)
-                    if mcap_m and debt_v is not None and oi is not None:
-                        ev = mcap_m + debt_v - (cash_v or 0)
-                        _ey_ebit_tbl.append(oi)
-                        _ey_ev_tbl.append(ev)
-                        ey_vals.append(oi / ev * 100 if ev > 0 else None)
-                    else:
-                        _ey_ebit_tbl.append(oi)
-                        _ey_ev_tbl.append(None)
-                        ey_vals.append(None)
-
-                # Big number — current EBIT/EV (most recent valid year)
-                current_ey = next((v for v in reversed(ey_vals) if v is not None), None)
-                if current_ey is not None:
-                    _ey_color = T['accent'] if current_ey > 12 else (T['red'] if current_ey < 6 else T['text'])
-                    st.markdown(
-                        f'<div style="text-align:center;padding:8px 0">'
-                        f'<span style="font-size:2rem;font-weight:700;color:{_ey_color}">{current_ey:.1f}%</span>'
-                        f'<span style="color:{T["text_muted"]};font-size:0.9rem;margin-left:8px">current EBIT / EV</span>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
+                    eq = fund['total_equity'][i]
+                    debt = fund['total_debt'][i]
+                    cash_v = fund['cash'][i]
+                    tp = fund['tax_provision'][i]
+                    pti = fund['pretax_income'][i]
+                    tax_rate = tp / pti if tp is not None and pti and pti != 0 else 0.21
+                    nopat = oi * (1 - tax_rate) if oi is not None else None
+                    ic = (eq or 0) + (debt or 0) - (cash_v or 0)
+                    _nopat_tbl.append(nopat)
+                    _ic_tbl.append(ic if ic != 0 else None)
+                    roic_vals.append(nopat / ic * 100 if nopat is not None and ic and ic > 0 else None)
 
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
-                    x=_yrs, y=ey_vals, name='EBIT / EV',
+                    x=_yrs, y=roic_vals, name='ROIC',
                     line=dict(color=_COLORS['primary'], width=2.5),
-                    fill='tozeroy', fillcolor=T['accent_fill'],
-                    hovertemplate='%{y:.1f}%<extra>EBIT/EV</extra>',
+                    hovertemplate='%{y:.1f}%<extra>ROIC</extra>',
                 ))
-                fig.add_hline(y=12, line_dash="dash", line_color=_COLORS['accent'],
-                              annotation_text="12% (cheap)", annotation_position="top right")
-                fig.add_hline(y=6, line_dash="dot", line_color=_COLORS['secondary'],
-                              annotation_text="6% (expensive)", annotation_position="bottom right")
-                # Historic avg
-                _ey_valid = [v for v in ey_vals if v is not None]
-                if _ey_valid:
-                    _ey_avg = sum(_ey_valid) / len(_ey_valid)
+                wacc_pct = val.get('wacc', 0) * 100
+                if wacc_pct > 0:
                     fig.add_hline(
-                        y=_ey_avg, line_dash="dot",
+                        y=wacc_pct, line_dash="dash",
+                        line_color=_COLORS['secondary'],
+                        annotation_text=f"Hurdle rate {wacc_pct:.1f}%",
+                        annotation_position="top right",
+                    )
+                # Historic average — same convention as ROCE chart
+                _roic_valid_chart = [v for v in roic_vals if v is not None]
+                if _roic_valid_chart:
+                    _roic_chart_avg = sum(_roic_valid_chart) / len(_roic_valid_chart)
+                    fig.add_hline(
+                        y=_roic_chart_avg, line_dash="dot",
                         line_color=_COLORS['text_muted'],
-                        annotation_text=f"Avg {_ey_avg:.1f}%",
+                        annotation_text=f"Avg {_roic_chart_avg:.1f}%",
                         annotation_position="top left",
                     )
                 fig.update_yaxes(ticksuffix='%')
                 _base_layout(fig)
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, width="stretch", config=financials_page.CHART_CONFIG,
+                                key=f"fin_roic_{ticker}")
 
                 with st.expander("Details", expanded=False):
-                    _ey_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
-                    _ey_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
-                    _ey_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
-                    _ey_avg_s = f'{_ey_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
-                    _ey_div = f'border-top:3px solid {T["text"]}'
-                    _ey_html = (
+                    _rc_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
+                    _rc_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
+                    _rc_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
+                    _rc_avg = f'{_rc_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
+                    _rc_div = f'border-top:3px solid {T["text"]}'
+                    _rc_html = (
                         '<div style="overflow-x:auto">'
                         '<table style="width:100%;border-collapse:collapse">'
                         '<thead><tr>'
-                        f'<th style="{_ey_hdr};text-align:left"></th>'
+                        f'<th style="{_rc_hdr};text-align:left"></th>'
                     )
                     for yr in _yrs:
-                        _ey_html += f'<th style="{_ey_hdr}">{yr}</th>'
-                    _ey_html += f'<th style="{_ey_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
-                    _ey_html += '</tr></thead><tbody>'
+                        _rc_html += f'<th style="{_rc_hdr}">{yr}</th>'
+                    _rc_html += f'<th style="{_rc_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
+                    _rc_html += '</tr></thead><tbody>'
 
-                    def _ey_row(label, values, fmt='{:,.0f}', divider=False, color_fn=None):
-                        nonlocal _ey_html
-                        label_style = _ey_label + (';' + _ey_div if divider else '')
-                        cell_base = _ey_cell + (';' + _ey_div if divider else '')
-                        avg_style = _ey_avg_s + (';' + _ey_div if divider else '')
-                        _ey_html += f'<tr><td style="{label_style}">{label}</td>'
-                        for v in values:
-                            if v is None:
-                                _ey_html += f'<td style="{cell_base}">—</td>'
-                            else:
-                                extra = ''
-                                if color_fn:
-                                    c = color_fn(v)
-                                    if c:
-                                        extra = f';color:{c};font-weight:600'
-                                _ey_html += f'<td style="{cell_base}{extra}">{fmt.format(v)}</td>'
-                        _valid = [v for v in values if v is not None]
-                        if _valid:
-                            a = sum(_valid) / len(_valid)
-                            extra = ''
-                            if color_fn:
-                                c = color_fn(a)
-                                if c:
-                                    extra = f';color:{c}'
-                            _ey_html += f'<td style="{avg_style}{extra}">{fmt.format(a)}</td>'
+                    # NOPAT row
+                    _np_valid = [v for v in _nopat_tbl if v is not None]
+                    _np_avg = sum(_np_valid) / len(_np_valid) if _np_valid else None
+                    _rc_html += f'<tr><td style="{_rc_label}">NOPAT</td>'
+                    for v in _nopat_tbl:
+                        _rc_html += f'<td style="{_rc_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rc_cell}">—</td>'
+                    _rc_html += f'<td style="{_rc_avg}">{_np_avg:,.0f}</td>' if _np_avg is not None else f'<td style="{_rc_avg}">—</td>'
+                    _rc_html += '</tr>'
+
+                    # Invested Capital row
+                    _ic_valid = [v for v in _ic_tbl if v is not None]
+                    _ic_avg = sum(_ic_valid) / len(_ic_valid) if _ic_valid else None
+                    _rc_html += f'<tr><td style="{_rc_label}">Invested Capital</td>'
+                    for v in _ic_tbl:
+                        _rc_html += f'<td style="{_rc_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rc_cell}">—</td>'
+                    _rc_html += f'<td style="{_rc_avg}">{_ic_avg:,.0f}</td>' if _ic_avg is not None else f'<td style="{_rc_avg}">—</td>'
+                    _rc_html += '</tr>'
+
+                    # ROIC % row — thick top border
+                    _roic_valid = [v for v in roic_vals if v is not None]
+                    _roic_avg = sum(_roic_valid) / len(_roic_valid) if _roic_valid else None
+                    _rc_html += f'<tr><td style="{_rc_label};{_rc_div}">ROIC</td>'
+                    for v in roic_vals:
+                        if v is not None:
+                            _r_color = T['accent'] if v >= 15 else (T['red'] if v < wacc_pct else T['text'])
+                            _rc_html += f'<td style="{_rc_cell};{_rc_div};color:{_r_color};font-weight:600">{v:.1f}%</td>'
                         else:
-                            _ey_html += f'<td style="{avg_style}">—</td>'
-                        _ey_html += '</tr>'
+                            _rc_html += f'<td style="{_rc_cell};{_rc_div}">—</td>'
+                    if _roic_avg is not None:
+                        _ra_color = T['accent'] if _roic_avg >= 15 else (T['red'] if _roic_avg < wacc_pct else T['text'])
+                        _rc_html += f'<td style="{_rc_avg};{_rc_div};color:{_ra_color}">{_roic_avg:.1f}%</td>'
+                    else:
+                        _rc_html += f'<td style="{_rc_avg};{_rc_div}">—</td>'
+                    _rc_html += '</tr>'
 
-                    _ey_row("EBIT", _ey_ebit_tbl)
-                    _ey_row("Market Cap", _ey_mcap_tbl)
-                    _ey_row("Enterprise Value", _ey_ev_tbl)
-                    _ey_row("EBIT / EV", ey_vals, fmt='{:.1f}%', divider=True,
-                            color_fn=lambda v: T['accent'] if v > 12 else (T['red'] if v < 6 else T['text']))
-
-                    _ey_html += '</tbody></table></div>'
-                    st.markdown(_ey_html, unsafe_allow_html=True)
-                    st.caption("In $M. EV = Market Cap (year-end price × shares) + Total Debt − Cash. EBIT = Operating Income. Greenblatt-style Earnings Yield.")
+                    _rc_html += '</tbody></table></div>'
+                    st.markdown(_rc_html, unsafe_allow_html=True)
+                    _fin_caption("In $M. NOPAT = Operating Income × (1 − Tax Rate). IC = Equity + Debt − Cash.")
             else:
-                st.info("Insufficient data for EBIT/EV")
+                _fin_caption("Insufficient data for ROIC (need 3+ years)")
 
-        with st.container(key="fund_sec_3_op_leverage"):
+        # ── Profitability: margins and operating leverage ──
+        _fin_prof_l, _fin_prof_r = _fin_section("profitability")
+
+        with _fin_prof_l:
+            # ── Margins ──
+            st.markdown(financials_page.chart_title_html(
+                "Margins",
+                f'Gross = (Revenue − COGS) / Revenue<br>'
+                f'Operating = OI / Revenue<br>'
+                f'FCF = Free Cash Flow / Revenue<br><br>'
+                f'Rising margins = pricing power and economies of scale.',
+                T, width=240), unsafe_allow_html=True)
+            if _n >= 3:
+                rev = fund['revenue']
+                _gp = fund.get('gross_profit') or [None] * _n
+                _cor = fund.get('cost_of_revenue') or [None] * _n
+                gross_m = []
+                for i in range(_n):
+                    if not rev[i]:
+                        gross_m.append(None)
+                    elif _gp[i] is not None:
+                        gross_m.append(_gp[i] / rev[i] * 100)
+                    elif _cor[i] is not None:
+                        gross_m.append((rev[i] - _cor[i]) / rev[i] * 100)
+                    else:
+                        gross_m.append(None)
+                op_m = [fund['operating_income'][i] / rev[i] * 100
+                        if rev[i] and fund['operating_income'][i] is not None else None
+                        for i in range(_n)]
+                fcf_m = [fund['fcf'][i] / rev[i] * 100
+                         if rev[i] and fund['fcf'][i] is not None else None
+                         for i in range(_n)]
+                # Detect when gross == operating (happens for financials like V
+                # where cost_of_revenue falls back to CostsAndExpenses, which
+                # already includes all operating costs). In that case the gross
+                # line carries no extra info and just obscures the operating line.
+                _gross_dup = (
+                    any(v is not None for v in gross_m)
+                    and all(
+                        (g is None and o is None)
+                        or (g is not None and o is not None and abs(g - o) < 0.5)
+                        for g, o in zip(gross_m, op_m)
+                    )
+                )
+                _series = [
+                    ('Operating', op_m, _COLORS['accent']),
+                    ('FCF', fcf_m, _COLORS['tertiary']),
+                ]
+                if not _gross_dup:
+                    _series.insert(0, ('Gross', gross_m, _COLORS['primary']))
+                fig = go.Figure()
+                for name, vals, color in _series:
+                    fig.add_trace(go.Scatter(
+                        x=_yrs, y=vals, name=name,
+                        line=dict(color=color, width=2.5),
+                        hovertemplate='%{y:.1f}%<extra>' + name + ' Margin</extra>',
+                    ))
+                fig.update_yaxes(ticksuffix='%')
+                _base_layout(fig)
+                st.plotly_chart(fig, width="stretch", config=financials_page.CHART_CONFIG,
+                                key=f"fin_margins_{ticker}")
+                if _gross_dup:
+                    _fin_caption("Gross margin weggelaten: dit bedrijf rapporteert geen aparte COGS, waardoor gross gelijk is aan operating margin.")
+
+                with st.expander("Details", expanded=False):
+                    _m_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
+                    _m_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
+                    _m_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
+                    _m_avg_style = f'{_m_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
+                    _m_html = (
+                        '<div style="overflow-x:auto">'
+                        '<table style="width:100%;border-collapse:collapse">'
+                        '<thead><tr>'
+                        f'<th style="{_m_hdr};text-align:left"></th>'
+                    )
+                    for yr in _yrs:
+                        _m_html += f'<th style="{_m_hdr}">{yr}</th>'
+                    _m_html += f'<th style="{_m_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
+                    _m_html += '</tr></thead><tbody>'
+
+                    for label, vals in [('Gross', gross_m), ('Operating', op_m), ('FCF', fcf_m)]:
+                        _valid = [v for v in vals if v is not None]
+                        _avg = sum(_valid) / len(_valid) if _valid else None
+                        _m_html += f'<tr style="border-top:1px solid {T["grid"]}"><td style="{_m_label}">{label}</td>'
+                        for v in vals:
+                            _m_html += f'<td style="{_m_cell}">{v:.1f}%</td>' if v is not None else f'<td style="{_m_cell}">—</td>'
+                        _m_html += f'<td style="{_m_avg_style}">{_avg:.1f}%</td>' if _avg is not None else f'<td style="{_m_avg_style}">—</td>'
+                        _m_html += '</tr>'
+
+                    # Operating Margin delta row — expanding margin = operating leverage
+                    _m_div = f'border-top:3px solid {T["text"]}'
+                    _m_html += f'<tr><td style="{_m_label};{_m_div}">Op Margin \u0394</td>'
+                    _delta_vals = []
+                    for i in range(_n):
+                        if i == 0:
+                            _m_html += f'<td style="{_m_cell};{_m_div}">—</td>'
+                        elif op_m[i] is not None and op_m[i - 1] is not None:
+                            d = op_m[i] - op_m[i - 1]
+                            _delta_vals.append(d)
+                            color = T['accent'] if d > 0 else T['red']
+                            sign = '+' if d > 0 else ''
+                            _m_html += f'<td style="{_m_cell};{_m_div};color:{color};font-weight:600">{sign}{d:.1f}pp</td>'
+                        else:
+                            _m_html += f'<td style="{_m_cell};{_m_div}">—</td>'
+                    _d_avg = sum(_delta_vals) / len(_delta_vals) if _delta_vals else None
+                    if _d_avg is not None:
+                        d_color = T['accent'] if _d_avg > 0 else T['red']
+                        d_sign = '+' if _d_avg > 0 else ''
+                        _m_html += f'<td style="{_m_avg_style};{_m_div};color:{d_color}">{d_sign}{_d_avg:.1f}pp</td>'
+                    else:
+                        _m_html += f'<td style="{_m_avg_style};{_m_div}">—</td>'
+                    _m_html += '</tr>'
+
+                    _m_html += '</tbody></table></div>'
+                    st.markdown(_m_html, unsafe_allow_html=True)
+                    _fin_caption("Op Margin \u0394 > 0 with growing revenue = operating leverage (cost scale advantage)")
+            else:
+                _fin_caption("Insufficient data for Margins (need 3+ years)")
+
+        with _fin_prof_r:
             # ── Operating Leverage ──
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:6px">'
-                f'<span style="font-weight:700">Operating Leverage</span>'
-                f'<span class="ol-tip" style="position:relative;cursor:help">'
-                f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
-                f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
-                f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
-                f'</svg>'
-                f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
-                f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
-                f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
-                f'font-weight:400;width:260px;z-index:999;box-shadow:{T["shadow_hover"]};'
-                f'pointer-events:none;transition:opacity 0.15s ease">'
+            st.markdown(financials_page.chart_title_html(
+                "Operating Leverage",
                 f'DOL = OI Growth / Revenue Growth — measures how much operating income amplifies revenue growth.<br><br>'
                 f'<b>&gt;1.0x</b> scale advantage (costs grow slower than revenue)<br>'
                 f'<b>=1.0x</b> neutraal<br>'
-                f'<b>&lt;1.0x</b> costs growing faster than revenue'
-                f'</span></span></div>'
-                f'<style>.ol-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
-                unsafe_allow_html=True,
-            )
+                f'<b>&lt;1.0x</b> costs growing faster than revenue',
+                T, width=260), unsafe_allow_html=True)
             rev_g = _pct_growth(fund['revenue'])
             oi_g = _pct_growth(fund['operating_income'])
             if _n >= 3:
@@ -5682,10 +5600,11 @@ def _dcf_editor(ticker):
                 ))
                 # Reference line at 1.0x
                 fig.add_hline(y=1.0, line_dash="dot", line_color=_COLORS['text_muted'],
-                              annotation_text="1.0x", annotation_position="right")
+                              annotation_text="1.0x", annotation_position="top right")
                 fig.update_yaxes(ticksuffix='x')
                 _base_layout(fig)
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, width="stretch", config=financials_page.CHART_CONFIG,
+                                key=f"fin_op_leverage_{ticker}")
 
                 with st.expander("Details", expanded=False):
                     _tbl_border = f'border-top:1px solid {T["grid"]}'
@@ -5764,155 +5683,379 @@ def _dcf_editor(ticker):
 
                     _ol_html += '</tbody></table></div>'
                     st.markdown(_ol_html, unsafe_allow_html=True)
-                    st.caption("DOL > 1 = each % revenue growth translates into more than 1% earnings growth (scale advantage)")
+                    _fin_caption("DOL > 1 = each % revenue growth translates into more than 1% earnings growth (scale advantage)")
             else:
-                st.info("Insufficient data for Operating Leverage (need 3+ years)")
+                _fin_caption("Insufficient data for Operating Leverage (need 3+ years)")
 
-        with st.container(key="fund_sec_4_margins"):
-            # ── Margins ──
-            st.markdown("")
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:6px">'
-                f'<span style="font-weight:700">Margins</span>'
-                f'<span class="mg-tip" style="position:relative;cursor:help">'
-                f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
-                f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
-                f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
-                f'</svg>'
-                f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
-                f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
-                f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
-                f'font-weight:400;width:240px;z-index:999;box-shadow:{T["shadow_hover"]};'
-                f'pointer-events:none;transition:opacity 0.15s ease">'
-                f'Gross = (Revenue − COGS) / Revenue<br>'
-                f'Operating = OI / Revenue<br>'
-                f'FCF = Free Cash Flow / Revenue<br><br>'
-                f'Rising margins = pricing power and economies of scale.'
-                f'</span></span></div>'
-                f'<style>.mg-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
-                unsafe_allow_html=True,
-            )
+        # ── Growth: revenue vs revenue per share (one chart, full width) ──
+        _fin_growth = _fin_section("growth", n_cols=1)
+
+        with _fin_growth:
+            # ── Revenue per Share Growth ──
+            st.markdown(financials_page.chart_title_html(
+                "Revenue per Share Growth",
+                f'Compares total revenue growth with revenue per share.<br><br>'
+                f'<b>Rev/Share &gt; Revenue</b> buybacks boost per-share growth<br>'
+                f'<b>Rev/Share &lt; Revenue</b> dilution from share issuance',
+                T, width=260), unsafe_allow_html=True)
             if _n >= 3:
-                rev = fund['revenue']
-                _gp = fund.get('gross_profit') or [None] * _n
-                _cor = fund.get('cost_of_revenue') or [None] * _n
-                gross_m = []
+                # Derive shares from EPS / Net Income when the direct share tags
+                # are missing (e.g. Visa only reports shares in non-standard tags)
+                _shares_eff = []
+                _eps_l = fund.get('eps') or [None] * _n
+                _ni_l = fund.get('net_income') or [None] * _n
                 for i in range(_n):
-                    if not rev[i]:
-                        gross_m.append(None)
-                    elif _gp[i] is not None:
-                        gross_m.append(_gp[i] / rev[i] * 100)
-                    elif _cor[i] is not None:
-                        gross_m.append((rev[i] - _cor[i]) / rev[i] * 100)
-                    else:
-                        gross_m.append(None)
-                op_m = [fund['operating_income'][i] / rev[i] * 100
-                        if rev[i] and fund['operating_income'][i] is not None else None
-                        for i in range(_n)]
-                fcf_m = [fund['fcf'][i] / rev[i] * 100
-                         if rev[i] and fund['fcf'][i] is not None else None
-                         for i in range(_n)]
-                # Detect when gross == operating (happens for financials like V
-                # where cost_of_revenue falls back to CostsAndExpenses, which
-                # already includes all operating costs). In that case the gross
-                # line carries no extra info and just obscures the operating line.
-                _gross_dup = (
-                    any(v is not None for v in gross_m)
-                    and all(
-                        (g is None and o is None)
-                        or (g is not None and o is not None and abs(g - o) < 0.5)
-                        for g, o in zip(gross_m, op_m)
-                    )
-                )
-                _series = [
-                    ('Operating', op_m, _COLORS['accent']),
-                    ('FCF', fcf_m, _COLORS['tertiary']),
-                ]
-                if not _gross_dup:
-                    _series.insert(0, ('Gross', gross_m, _COLORS['primary']))
+                    s = fund['shares'][i]
+                    if not s or s <= 0:  # noqa: SIM102 — nested form keeps "shares missing? derive from EPS×NI" intent clearer
+                        if _eps_l[i] and _ni_l[i] is not None and _eps_l[i] != 0:
+                            s = (_ni_l[i] * 1e6) / _eps_l[i]
+                    _shares_eff.append(s if s and s > 0 else None)
+                rps = [fund['revenue'][i] * 1e6 / _shares_eff[i]
+                       if _shares_eff[i] and fund['revenue'][i] is not None
+                       else None
+                       for i in range(_n)]
+                rps_g = _pct_growth(rps)
+                rev_g_clean = _pct_growth(fund['revenue'])
+                _has_shares = any(s is not None for s in _shares_eff)
                 fig = go.Figure()
-                for name, vals, color in _series:
+                fig.add_trace(go.Scatter(
+                    x=_yrs[1:], y=[r * 100 if r is not None else None for r in rev_g_clean[1:]],
+                    name='Revenue Growth',
+                    line=dict(color=_COLORS['primary'], width=2.5),
+                    hovertemplate='%{y:.1f}%<extra>Rev Growth</extra>',
+                ))
+                if _has_shares:
                     fig.add_trace(go.Scatter(
-                        x=_yrs, y=vals, name=name,
-                        line=dict(color=color, width=2.5),
-                        hovertemplate='%{y:.1f}%<extra>' + name + ' Margin</extra>',
+                        x=_yrs[1:], y=[r * 100 if r is not None else None for r in rps_g[1:]],
+                        name='Rev/Share Growth',
+                        line=dict(color=_COLORS['accent'], width=2.5, dash='dash'),
+                        hovertemplate='%{y:.1f}%<extra>Rev/Share Growth</extra>',
                     ))
                 fig.update_yaxes(ticksuffix='%')
                 _base_layout(fig)
-                st.plotly_chart(fig, width="stretch")
-                if _gross_dup:
-                    st.caption("Gross margin weggelaten: dit bedrijf rapporteert geen aparte COGS, waardoor gross gelijk is aan operating margin.")
+                st.plotly_chart(fig, width="stretch", config=financials_page.CHART_CONFIG,
+                                key=f"fin_rev_per_share_{ticker}")
+                if not _has_shares:
+                    _fin_caption("Rev/Share niet beschikbaar: dit bedrijf rapporteert geen share-counts in EDGAR (bv. V).")
 
                 with st.expander("Details", expanded=False):
-                    _m_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
-                    _m_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
-                    _m_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
-                    _m_avg_style = f'{_m_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
-                    _m_html = (
+                    _rps_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
+                    _rps_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
+                    _rps_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
+                    _rps_avg_s = f'{_rps_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
+                    _rps_div = f'border-top:3px solid {T["text"]}'
+                    _rps_html = (
                         '<div style="overflow-x:auto">'
                         '<table style="width:100%;border-collapse:collapse">'
                         '<thead><tr>'
-                        f'<th style="{_m_hdr};text-align:left"></th>'
+                        f'<th style="{_rps_hdr};text-align:left"></th>'
                     )
                     for yr in _yrs:
-                        _m_html += f'<th style="{_m_hdr}">{yr}</th>'
-                    _m_html += f'<th style="{_m_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
-                    _m_html += '</tr></thead><tbody>'
+                        _rps_html += f'<th style="{_rps_hdr}">{yr}</th>'
+                    _rps_html += f'<th style="{_rps_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
+                    _rps_html += '</tr></thead><tbody>'
 
-                    for label, vals in [('Gross', gross_m), ('Operating', op_m), ('FCF', fcf_m)]:
-                        _valid = [v for v in vals if v is not None]
-                        _avg = sum(_valid) / len(_valid) if _valid else None
-                        _m_html += f'<tr style="border-top:1px solid {T["grid"]}"><td style="{_m_label}">{label}</td>'
-                        for v in vals:
-                            _m_html += f'<td style="{_m_cell}">{v:.1f}%</td>' if v is not None else f'<td style="{_m_cell}">—</td>'
-                        _m_html += f'<td style="{_m_avg_style}">{_avg:.1f}%</td>' if _avg is not None else f'<td style="{_m_avg_style}">—</td>'
-                        _m_html += '</tr>'
+                    # Revenue row ($M)
+                    _rev_valid = [v for v in fund['revenue'] if v is not None]
+                    _rev_avg2 = sum(_rev_valid) / len(_rev_valid) if _rev_valid else None
+                    _rps_html += f'<tr><td style="{_rps_label}">Revenue (&#36;M)</td>'
+                    for v in fund['revenue']:
+                        _rps_html += f'<td style="{_rps_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rps_cell}">—</td>'
+                    _rps_html += f'<td style="{_rps_avg_s}">{_rev_avg2:,.0f}</td>' if _rev_avg2 is not None else f'<td style="{_rps_avg_s}">—</td>'
+                    _rps_html += '</tr>'
 
-                    # Operating Margin delta row — expanding margin = operating leverage
-                    _m_div = f'border-top:3px solid {T["text"]}'
-                    _m_html += f'<tr><td style="{_m_label};{_m_div}">Op Margin \u0394</td>'
-                    _delta_vals = []
-                    for i in range(_n):
-                        if i == 0:
-                            _m_html += f'<td style="{_m_cell};{_m_div}">—</td>'
-                        elif op_m[i] is not None and op_m[i - 1] is not None:
-                            d = op_m[i] - op_m[i - 1]
-                            _delta_vals.append(d)
-                            color = T['accent'] if d > 0 else T['red']
-                            sign = '+' if d > 0 else ''
-                            _m_html += f'<td style="{_m_cell};{_m_div};color:{color};font-weight:600">{sign}{d:.1f}pp</td>'
-                        else:
-                            _m_html += f'<td style="{_m_cell};{_m_div}">—</td>'
-                    _d_avg = sum(_delta_vals) / len(_delta_vals) if _delta_vals else None
-                    if _d_avg is not None:
-                        d_color = T['accent'] if _d_avg > 0 else T['red']
-                        d_sign = '+' if _d_avg > 0 else ''
-                        _m_html += f'<td style="{_m_avg_style};{_m_div};color:{d_color}">{d_sign}{_d_avg:.1f}pp</td>'
-                    else:
-                        _m_html += f'<td style="{_m_avg_style};{_m_div}">—</td>'
-                    _m_html += '</tr>'
+                    # Shares row
+                    _sh_vals = [_shares_eff[i] / 1e6 if _shares_eff[i] else None for i in range(_n)]
+                    _sh_valid = [v for v in _sh_vals if v is not None]
+                    _sh_avg = sum(_sh_valid) / len(_sh_valid) if _sh_valid else None
+                    _rps_html += f'<tr><td style="{_rps_label}">Shares (M)</td>'
+                    for v in _sh_vals:
+                        _rps_html += f'<td style="{_rps_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rps_cell}">—</td>'
+                    _rps_html += f'<td style="{_rps_avg_s}">{_sh_avg:,.0f}</td>' if _sh_avg is not None else f'<td style="{_rps_avg_s}">—</td>'
+                    _rps_html += '</tr>'
 
-                    _m_html += '</tbody></table></div>'
-                    st.markdown(_m_html, unsafe_allow_html=True)
-                    st.caption("Op Margin \u0394 > 0 with growing revenue = operating leverage (cost scale advantage)")
+                    # Rev/Share row — thick border
+                    _rps_vals = [fund['revenue'][i] / _sh_vals[i] if _sh_vals[i] and _sh_vals[i] > 0 and fund['revenue'][i] is not None else None for i in range(_n)]
+                    _rps_valid2 = [v for v in _rps_vals if v is not None]
+                    _rps_avg2 = sum(_rps_valid2) / len(_rps_valid2) if _rps_valid2 else None
+                    _rps_html += f'<tr><td style="{_rps_label};{_rps_div}">Rev/Share (&#36;)</td>'
+                    for v in _rps_vals:
+                        _rps_html += f'<td style="{_rps_cell};{_rps_div}">&#36;{v:,.2f}</td>' if v is not None else f'<td style="{_rps_cell};{_rps_div}">—</td>'
+                    _rps_html += f'<td style="{_rps_avg_s};{_rps_div}">&#36;{_rps_avg2:,.2f}</td>' if _rps_avg2 is not None else f'<td style="{_rps_avg_s};{_rps_div}">—</td>'
+                    _rps_html += '</tr>'
+
+                    _rps_html += '</tbody></table></div>'
+                    st.markdown(_rps_html, unsafe_allow_html=True)
+                    _fin_caption("Revenue in $M. Rev/Share = Revenue ($M) / Shares (M).")
             else:
-                st.info("Insufficient data for Margins (need 3+ years)")
+                _fin_caption("Insufficient data for Revenue per Share (need 3+ years)")
 
-        with st.container(key="fund_sec_5_net_debt"):
+        # ── Valuation yield: FCF yield and EBIT / EV ──
+        _fin_val_l, _fin_val_r = _fin_section("valuation")
+
+        with _fin_val_l:
+            # ── FCF Yield ──
+            st.markdown(financials_page.chart_title_html(
+                "FCF Yield",
+                f'(FCF per Share / Price) × 100.<br>'
+                f'Cash return percentage on your investment.<br><br>'
+                f'<b>&gt;5%</b> attractively priced<br>'
+                f'<b>3–5%</b> redelijk<br>'
+                f'<b>&lt;1%</b> expensive or low cash generation',
+                T, width=240), unsafe_allow_html=True)
+            if _n >= 2 and live_price > 0:
+                # Prefer per-share path when shares are available; otherwise fall
+                # back to FCF / Market Cap using the current market cap from cfg
+                # (e.g. V doesn't report shares in XBRL).
+                _mcap_total = cfg.get('equity_market_value', 0) or 0  # $M
+                fcf_yield = []
+                _fcf_ps = []
+                for i in range(_n):
+                    sh = fund['shares'][i]
+                    if sh and sh > 0 and fund['fcf'][i] is not None:
+                        fps = fund['fcf'][i] * 1e6 / sh
+                        _fcf_ps.append(fps)
+                        fcf_yield.append(fps / live_price * 100)
+                    elif fund['fcf'][i] is not None and _mcap_total > 0:
+                        _fcf_ps.append(None)
+                        fcf_yield.append(fund['fcf'][i] / _mcap_total * 100)
+                    else:
+                        _fcf_ps.append(None)
+                        fcf_yield.append(None)
+
+                current_fy = fcf_yield[-1] if fcf_yield[-1] is not None else 0
+                fy_color = T['accent'] if current_fy > 3 else (T['red'] if current_fy < 1 else T['text'])
+                st.markdown(
+                    f'<div style="text-align:center;padding:8px 0">'
+                    f'<span style="font-size:2rem;font-weight:700;color:{fy_color}">{current_fy:.1f}%</span>'
+                    f'<span style="color:{T["text_muted"]};font-size:0.9rem;margin-left:8px">current FCF Yield</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=_yrs, y=fcf_yield, name='FCF Yield',
+                    line=dict(color=_COLORS['primary'], width=2.5),
+                    fill='tozeroy', fillcolor=T['accent_fill'],
+                    hovertemplate='%{y:.1f}%<extra>FCF Yield</extra>',
+                ))
+                fig.update_yaxes(ticksuffix='%')
+                _base_layout(fig)
+                st.plotly_chart(fig, width="stretch", config=financials_page.CHART_CONFIG,
+                                key=f"fin_fcf_yield_{ticker}")
+
+                with st.expander("Details", expanded=False):
+                    _fy_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
+                    _fy_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
+                    _fy_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
+                    _fy_avg_s = f'{_fy_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
+                    _fy_div = f'border-top:3px solid {T["text"]}'
+                    _fy_html = (
+                        '<div style="overflow-x:auto">'
+                        '<table style="width:100%;border-collapse:collapse">'
+                        '<thead><tr>'
+                        f'<th style="{_fy_hdr};text-align:left"></th>'
+                    )
+                    for yr in _yrs:
+                        _fy_html += f'<th style="{_fy_hdr}">{yr}</th>'
+                    _fy_html += f'<th style="{_fy_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
+                    _fy_html += '</tr></thead><tbody>'
+
+                    # FCF/Share row
+                    _fps_valid = [v for v in _fcf_ps if v is not None]
+                    _fps_avg = sum(_fps_valid) / len(_fps_valid) if _fps_valid else None
+                    _fy_html += f'<tr><td style="{_fy_label}">FCF / Share</td>'
+                    for v in _fcf_ps:
+                        _fy_html += f'<td style="{_fy_cell}">&#36;{v:,.2f}</td>' if v is not None else f'<td style="{_fy_cell}">—</td>'
+                    _fy_html += f'<td style="{_fy_avg_s}">&#36;{_fps_avg:,.2f}</td>' if _fps_avg is not None else f'<td style="{_fy_avg_s}">—</td>'
+                    _fy_html += '</tr>'
+
+                    # Price row
+                    _fy_html += f'<tr><td style="{_fy_label}">Price</td>'
+                    for _ in _yrs:
+                        _fy_html += f'<td style="{_fy_cell}">&#36;{live_price:,.2f}</td>'
+                    _fy_html += f'<td style="{_fy_avg_s}">&#36;{live_price:,.2f}</td>'
+                    _fy_html += '</tr>'
+
+                    # Yield row — thick border
+                    _fyl_valid = [v for v in fcf_yield if v is not None]
+                    _fyl_avg = sum(_fyl_valid) / len(_fyl_valid) if _fyl_valid else None
+                    _fy_html += f'<tr><td style="{_fy_label};{_fy_div}">FCF Yield</td>'
+                    for v in fcf_yield:
+                        if v is not None:
+                            _y_color = T['accent'] if v > 3 else (T['red'] if v < 1 else T['text'])
+                            _fy_html += f'<td style="{_fy_cell};{_fy_div};color:{_y_color};font-weight:600">{v:.1f}%</td>'
+                        else:
+                            _fy_html += f'<td style="{_fy_cell};{_fy_div}">—</td>'
+                    if _fyl_avg is not None:
+                        _ya_color = T['accent'] if _fyl_avg > 3 else (T['red'] if _fyl_avg < 1 else T['text'])
+                        _fy_html += f'<td style="{_fy_avg_s};{_fy_div};color:{_ya_color}">{_fyl_avg:.1f}%</td>'
+                    else:
+                        _fy_html += f'<td style="{_fy_avg_s};{_fy_div}">—</td>'
+                    _fy_html += '</tr>'
+
+                    _fy_html += '</tbody></table></div>'
+                    st.markdown(_fy_html, unsafe_allow_html=True)
+                    _fin_caption("FCF Yield = (FCF per Share / Price) × 100. Price = current price for all years.")
+            else:
+                _fin_caption("Insufficient data for FCF Yield")
+
+        with _fin_val_r:
+            # ── EBIT / EV (Greenblatt Earnings Yield) ──
+            st.markdown(financials_page.chart_title_html(
+                "EBIT / EV",
+                f'<b>Greenblatt Earnings Yield</b> — EBIT als percentage van Enterprise Value. Pre-tax, capital-structure-agnostic — paart met ROCE de "high quality at reasonable price"-screen uit de Magic Formula.<br><br>'
+                f'EV = Market Cap + Total Debt − Cash.<br><br>'
+                f'<b>&gt; 12%</b> goedkoop (hoge earnings yield)<br>'
+                f'<b>8 − 12%</b> fairly valued<br>'
+                f'<b>&lt; 6%</b> duur — alleen rechtvaardig bij hoge groei + sterke ROCE<br><br>'
+                f'Onafhankelijk van rente en belasting → vergelijkbaar tussen sectoren en jurisdicties, dat is z\'n kracht boven P/E.',
+                T, width=280), unsafe_allow_html=True)
+            if _n >= 2:
+                # Fetch historical year-end prices to reconstruct EV per year
+                @st.cache_data(ttl=86400, show_spinner=False)
+                def _ey_historical_prices(t, years_tuple):
+                    try:
+                        return fetch_historical_prices(t, list(years_tuple))
+                    except Exception:
+                        return {}
+                _ey_prices = _ey_historical_prices(ticker, tuple(_yrs))
+
+                ey_vals = []
+                _ey_ebit_tbl = []
+                _ey_ev_tbl = []
+                _ey_mcap_tbl = []
+                for i in range(_n):
+                    yr = _yrs[i]
+                    oi = fund['operating_income'][i]
+                    sh = fund['shares'][i] if i < len(fund['shares']) else None
+                    debt_v = fund['total_debt'][i] if i < len(fund['total_debt']) else None
+                    cash_v = fund['cash'][i] if i < len(fund['cash']) else 0
+                    price_v = _ey_prices.get(yr)
+                    # Year-end market cap = price × shares; fallback to current
+                    # market cap × (shares[i] / shares[-1]) when historical price
+                    # missing, then last resort: current market cap from cfg.
+                    mcap_m = None
+                    if price_v and sh and sh > 0:
+                        mcap_m = price_v * sh / 1e6  # → $M
+                    elif i == _n - 1:
+                        # latest year — use current market cap if XBRL prices missing
+                        mcap_m = cfg.get('equity_market_value', 0) or 0
+                    _ey_mcap_tbl.append(mcap_m)
+                    if mcap_m and debt_v is not None and oi is not None:
+                        ev = mcap_m + debt_v - (cash_v or 0)
+                        _ey_ebit_tbl.append(oi)
+                        _ey_ev_tbl.append(ev)
+                        ey_vals.append(oi / ev * 100 if ev > 0 else None)
+                    else:
+                        _ey_ebit_tbl.append(oi)
+                        _ey_ev_tbl.append(None)
+                        ey_vals.append(None)
+
+                # Big number — current EBIT/EV (most recent valid year)
+                current_ey = next((v for v in reversed(ey_vals) if v is not None), None)
+                if current_ey is not None:
+                    _ey_color = T['accent'] if current_ey > 12 else (T['red'] if current_ey < 6 else T['text'])
+                    st.markdown(
+                        f'<div style="text-align:center;padding:8px 0">'
+                        f'<span style="font-size:2rem;font-weight:700;color:{_ey_color}">{current_ey:.1f}%</span>'
+                        f'<span style="color:{T["text_muted"]};font-size:0.9rem;margin-left:8px">current EBIT / EV</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=_yrs, y=ey_vals, name='EBIT / EV',
+                    line=dict(color=_COLORS['primary'], width=2.5),
+                    fill='tozeroy', fillcolor=T['accent_fill'],
+                    hovertemplate='%{y:.1f}%<extra>EBIT/EV</extra>',
+                ))
+                fig.add_hline(y=12, line_dash="dash", line_color=_COLORS['accent'],
+                              annotation_text="12% (cheap)", annotation_position="top right")
+                fig.add_hline(y=6, line_dash="dot", line_color=_COLORS['secondary'],
+                              annotation_text="6% (expensive)", annotation_position="bottom right")
+                # Historic avg
+                _ey_valid = [v for v in ey_vals if v is not None]
+                if _ey_valid:
+                    _ey_avg = sum(_ey_valid) / len(_ey_valid)
+                    fig.add_hline(
+                        y=_ey_avg, line_dash="dot",
+                        line_color=_COLORS['text_muted'],
+                        annotation_text=f"Avg {_ey_avg:.1f}%",
+                        annotation_position="top left",
+                    )
+                fig.update_yaxes(ticksuffix='%')
+                _base_layout(fig)
+                st.plotly_chart(fig, width="stretch", config=financials_page.CHART_CONFIG,
+                                key=f"fin_ebit_ev_{ticker}")
+
+                with st.expander("Details", expanded=False):
+                    _ey_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
+                    _ey_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
+                    _ey_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
+                    _ey_avg_s = f'{_ey_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
+                    _ey_div = f'border-top:3px solid {T["text"]}'
+                    _ey_html = (
+                        '<div style="overflow-x:auto">'
+                        '<table style="width:100%;border-collapse:collapse">'
+                        '<thead><tr>'
+                        f'<th style="{_ey_hdr};text-align:left"></th>'
+                    )
+                    for yr in _yrs:
+                        _ey_html += f'<th style="{_ey_hdr}">{yr}</th>'
+                    _ey_html += f'<th style="{_ey_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
+                    _ey_html += '</tr></thead><tbody>'
+
+                    def _ey_row(label, values, fmt='{:,.0f}', divider=False, color_fn=None):
+                        nonlocal _ey_html
+                        label_style = _ey_label + (';' + _ey_div if divider else '')
+                        cell_base = _ey_cell + (';' + _ey_div if divider else '')
+                        avg_style = _ey_avg_s + (';' + _ey_div if divider else '')
+                        _ey_html += f'<tr><td style="{label_style}">{label}</td>'
+                        for v in values:
+                            if v is None:
+                                _ey_html += f'<td style="{cell_base}">—</td>'
+                            else:
+                                extra = ''
+                                if color_fn:
+                                    c = color_fn(v)
+                                    if c:
+                                        extra = f';color:{c};font-weight:600'
+                                _ey_html += f'<td style="{cell_base}{extra}">{fmt.format(v)}</td>'
+                        _valid = [v for v in values if v is not None]
+                        if _valid:
+                            a = sum(_valid) / len(_valid)
+                            extra = ''
+                            if color_fn:
+                                c = color_fn(a)
+                                if c:
+                                    extra = f';color:{c}'
+                            _ey_html += f'<td style="{avg_style}{extra}">{fmt.format(a)}</td>'
+                        else:
+                            _ey_html += f'<td style="{avg_style}">—</td>'
+                        _ey_html += '</tr>'
+
+                    _ey_row("EBIT", _ey_ebit_tbl)
+                    _ey_row("Market Cap", _ey_mcap_tbl)
+                    _ey_row("Enterprise Value", _ey_ev_tbl)
+                    _ey_row("EBIT / EV", ey_vals, fmt='{:.1f}%', divider=True,
+                            color_fn=lambda v: T['accent'] if v > 12 else (T['red'] if v < 6 else T['text']))
+
+                    _ey_html += '</tbody></table></div>'
+                    st.markdown(_ey_html, unsafe_allow_html=True)
+                    _fin_caption("In $M. EV = Market Cap (year-end price × shares) + Total Debt − Cash. EBIT = Operating Income. Greenblatt-style Earnings Yield.")
+            else:
+                _fin_caption("Insufficient data for EBIT/EV")
+
+        # ── Balance sheet: net debt and net debt / FCF ──
+        _fin_bal_l, _fin_bal_r = _fin_section("balance")
+
+        with _fin_bal_l:
             # ── Net Debt ──
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:6px">'
-                f'<span style="font-weight:700">Net Debt</span>'
-                f'<span class="nd-tip" style="position:relative;cursor:help">'
-                f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
-                f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
-                f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
-                f'</svg>'
-                f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
-                f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
-                f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
-                f'font-weight:400;width:260px;z-index:999;box-shadow:{T["shadow_hover"]};'
-                f'pointer-events:none;transition:opacity 0.15s ease">'
+            st.markdown(financials_page.chart_title_html(
+                "Net Debt",
                 f'Adjusted Debt − Cash. Moody&apos;s/S&amp;P-stijl voor credit-analyse.<br><br>'
                 f'<b>Adjusted Debt</b> = LT Debt + ST Debt + Operating Leases + Finance Leases + Pension Underfunding. Pakt alle debt-like obligations mee.<br><br>'
                 f'<b style="color:{T["red"]}">Rood</b> (positief) = netto debiteur<br>'
@@ -5921,11 +6064,8 @@ def _dcf_editor(ticker):
                 f'<b>1.5 − 3×</b> EBITDA: acceptabel<br>'
                 f'<b>3 − 4×</b> EBITDA: opgerekt<br>'
                 f'<b>&gt; 4×</b> EBITDA: distress-risk<br><br>'
-                f'EBITDA = OI + D&amp;A (proxy). Lijnkleur volgt het meest recente jaar; per-jaar markers tonen historische sign-flips.'
-                f'</span></span></div>'
-                f'<style>.nd-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
-                unsafe_allow_html=True,
-            )
+                f'EBITDA = OI + D&amp;A (proxy). Lijnkleur volgt het meest recente jaar; per-jaar markers tonen historische sign-flips.',
+                T, width=260), unsafe_allow_html=True)
             if _n >= 3:
                 nd_vals = []
                 nd_ebitda_vals = []
@@ -5995,11 +6135,12 @@ def _dcf_editor(ticker):
                 ))
                 fig.add_hline(
                     y=0, line_dash="dot", line_color=_COLORS['text_muted'],
-                    annotation_text="0", annotation_position="right",
+                    annotation_text="0", annotation_position="top right",
                 )
                 fig.update_yaxes(tickprefix='$', ticksuffix='M')
                 _base_layout(fig)
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, width="stretch", config=financials_page.CHART_CONFIG,
+                                key=f"fin_net_debt_{ticker}")
 
                 with st.expander("Details", expanded=False):
                     _nd_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
@@ -6063,34 +6204,20 @@ def _dcf_editor(ticker):
 
                     _nd_html += '</tbody></table></div>'
                     st.markdown(_nd_html, unsafe_allow_html=True)
-                    st.caption("In $M. Adjusted Debt = LT + ST + Op Leases + Fin Leases + Pension. Net Debt = Adjusted Debt − Cash. EBITDA = OI + D&A. Velden zonder data tonen — (geen tag in EDGAR voor dat jaar).")
+                    _fin_caption("In $M. Adjusted Debt = LT + ST + Op Leases + Fin Leases + Pension. Net Debt = Adjusted Debt − Cash. EBITDA = OI + D&A. Velden zonder data tonen — (geen tag in EDGAR voor dat jaar).")
             else:
-                st.info("Insufficient data for Net Debt (need 3+ years)")
+                _fin_caption("Insufficient data for Net Debt (need 3+ years)")
 
-        with st.container(key="fund_sec_6_net_debt_fcf"):
+        with _fin_bal_r:
             # ── Net Debt / FCF ──
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:6px">'
-                f'<span style="font-weight:700">Net Debt / FCF</span>'
-                f'<span class="df-tip" style="position:relative;cursor:help">'
-                f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
-                f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
-                f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
-                f'</svg>'
-                f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
-                f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
-                f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
-                f'font-weight:400;width:260px;z-index:999;box-shadow:{T["shadow_hover"]};'
-                f'pointer-events:none;transition:opacity 0.15s ease">'
-                f'Years of FCF needed to repay net debt. Gebruikt Adjusted Net Debt (incl. leases + pension) uit de Net Debt-sectie hierboven.<br><br>'
+            st.markdown(financials_page.chart_title_html(
+                "Net Debt / FCF",
+                f'Years of FCF needed to repay net debt. Gebruikt Adjusted Net Debt (incl. leases + pension) uit de Net Debt-grafiek hiernaast.<br><br>'
                 f'<b>&lt; 0×</b> netto cash — geen schuld om af te lossen<br>'
                 f'<b>0 − 3×</b> healthy<br>'
                 f'<b>3 − 5×</b> acceptabel<br>'
-                f'<b>&gt; 5×</b> high debt burden'
-                f'</span></span></div>'
-                f'<style>.df-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
-                unsafe_allow_html=True,
-            )
+                f'<b>&gt; 5×</b> high debt burden',
+                T, width=260), unsafe_allow_html=True)
             if _n >= 3:
                 netdebt_fcf = []
                 for i in range(_n):
@@ -6108,14 +6235,15 @@ def _dcf_editor(ticker):
                 ))
                 # Reference lines: 0 (net-cash boundary), 3x (healthy), 5x (high)
                 fig.add_hline(y=0, line_dash="dot", line_color=_COLORS['text_muted'],
-                              annotation_text="0", annotation_position="right")
+                              annotation_text="0", annotation_position="top right")
                 fig.add_hline(y=3, line_dash="dash", line_color=_COLORS['primary'],
                               annotation_text="3x", annotation_position="top right")
                 fig.add_hline(y=5, line_dash="dash", line_color=_COLORS['secondary'],
                               annotation_text="5x", annotation_position="top right")
                 fig.update_yaxes(ticksuffix='x')
                 _base_layout(fig)
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, width="stretch", config=financials_page.CHART_CONFIG,
+                                key=f"fin_net_debt_fcf_{ticker}")
 
                 with st.expander("Details", expanded=False):
                     _df_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
@@ -6189,249 +6317,9 @@ def _dcf_editor(ticker):
 
                     _df_html += '</tbody></table></div>'
                     st.markdown(_df_html, unsafe_allow_html=True)
-                    st.caption("In $M. Net Debt = Adjusted Debt − Cash (zie Net Debt-sectie). Net Debt/FCF = Net Debt / Free Cash Flow.")
+                    _fin_caption("In $M. Net Debt = Adjusted Debt − Cash (zie Net Debt-sectie). Net Debt/FCF = Net Debt / Free Cash Flow.")
             else:
-                st.info("Insufficient data for Net Debt / FCF (need 3+ years)")
-
-        with st.container(key="fund_sec_7_roic"):
-            # ── ROIC ──
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:6px">'
-                f'<span style="font-weight:700">ROIC</span>'
-                f'<span class="roic-tip" style="position:relative;cursor:help">'
-                f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
-                f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
-                f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
-                f'</svg>'
-                f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
-                f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
-                f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
-                f'font-weight:400;width:240px;z-index:999;box-shadow:{T["shadow_hover"]};'
-                f'pointer-events:none;transition:opacity 0.15s ease">'
-                f'NOPAT / Invested Capital — measures how well a company generates returns on its capital.<br><br>'
-                f'<b>&gt;Discount rate</b> creates value<br>'
-                f'<b>&gt;20%</b> excellent<br>'
-                f'<b>&lt;Discount rate</b> destroys value'
-                f'</span></span></div>'
-                f'<style>.roic-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
-                unsafe_allow_html=True,
-            )
-            if _n >= 3:
-                roic_vals = []
-                _nopat_tbl = []
-                _ic_tbl = []
-                for i in range(_n):
-                    oi = fund['operating_income'][i]
-                    eq = fund['total_equity'][i]
-                    debt = fund['total_debt'][i]
-                    cash_v = fund['cash'][i]
-                    tp = fund['tax_provision'][i]
-                    pti = fund['pretax_income'][i]
-                    tax_rate = tp / pti if tp is not None and pti and pti != 0 else 0.21
-                    nopat = oi * (1 - tax_rate) if oi is not None else None
-                    ic = (eq or 0) + (debt or 0) - (cash_v or 0)
-                    _nopat_tbl.append(nopat)
-                    _ic_tbl.append(ic if ic != 0 else None)
-                    roic_vals.append(nopat / ic * 100 if nopat is not None and ic and ic > 0 else None)
-
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=_yrs, y=roic_vals, name='ROIC',
-                    line=dict(color=_COLORS['primary'], width=2.5),
-                    hovertemplate='%{y:.1f}%<extra>ROIC</extra>',
-                ))
-                wacc_pct = val.get('wacc', 0) * 100
-                if wacc_pct > 0:
-                    fig.add_hline(
-                        y=wacc_pct, line_dash="dash",
-                        line_color=_COLORS['secondary'],
-                        annotation_text=f"Hurdle rate {wacc_pct:.1f}%",
-                        annotation_position="top right",
-                    )
-                # Historic average — same convention as ROCE chart
-                _roic_valid_chart = [v for v in roic_vals if v is not None]
-                if _roic_valid_chart:
-                    _roic_chart_avg = sum(_roic_valid_chart) / len(_roic_valid_chart)
-                    fig.add_hline(
-                        y=_roic_chart_avg, line_dash="dot",
-                        line_color=_COLORS['text_muted'],
-                        annotation_text=f"Avg {_roic_chart_avg:.1f}%",
-                        annotation_position="top left",
-                    )
-                fig.update_yaxes(ticksuffix='%')
-                _base_layout(fig)
-                st.plotly_chart(fig, width="stretch")
-
-                with st.expander("Details", expanded=False):
-                    _rc_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
-                    _rc_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
-                    _rc_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
-                    _rc_avg = f'{_rc_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
-                    _rc_div = f'border-top:3px solid {T["text"]}'
-                    _rc_html = (
-                        '<div style="overflow-x:auto">'
-                        '<table style="width:100%;border-collapse:collapse">'
-                        '<thead><tr>'
-                        f'<th style="{_rc_hdr};text-align:left"></th>'
-                    )
-                    for yr in _yrs:
-                        _rc_html += f'<th style="{_rc_hdr}">{yr}</th>'
-                    _rc_html += f'<th style="{_rc_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
-                    _rc_html += '</tr></thead><tbody>'
-
-                    # NOPAT row
-                    _np_valid = [v for v in _nopat_tbl if v is not None]
-                    _np_avg = sum(_np_valid) / len(_np_valid) if _np_valid else None
-                    _rc_html += f'<tr><td style="{_rc_label}">NOPAT</td>'
-                    for v in _nopat_tbl:
-                        _rc_html += f'<td style="{_rc_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rc_cell}">—</td>'
-                    _rc_html += f'<td style="{_rc_avg}">{_np_avg:,.0f}</td>' if _np_avg is not None else f'<td style="{_rc_avg}">—</td>'
-                    _rc_html += '</tr>'
-
-                    # Invested Capital row
-                    _ic_valid = [v for v in _ic_tbl if v is not None]
-                    _ic_avg = sum(_ic_valid) / len(_ic_valid) if _ic_valid else None
-                    _rc_html += f'<tr><td style="{_rc_label}">Invested Capital</td>'
-                    for v in _ic_tbl:
-                        _rc_html += f'<td style="{_rc_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rc_cell}">—</td>'
-                    _rc_html += f'<td style="{_rc_avg}">{_ic_avg:,.0f}</td>' if _ic_avg is not None else f'<td style="{_rc_avg}">—</td>'
-                    _rc_html += '</tr>'
-
-                    # ROIC % row — thick top border
-                    _roic_valid = [v for v in roic_vals if v is not None]
-                    _roic_avg = sum(_roic_valid) / len(_roic_valid) if _roic_valid else None
-                    _rc_html += f'<tr><td style="{_rc_label};{_rc_div}">ROIC</td>'
-                    for v in roic_vals:
-                        if v is not None:
-                            _r_color = T['accent'] if v >= 15 else (T['red'] if v < wacc_pct else T['text'])
-                            _rc_html += f'<td style="{_rc_cell};{_rc_div};color:{_r_color};font-weight:600">{v:.1f}%</td>'
-                        else:
-                            _rc_html += f'<td style="{_rc_cell};{_rc_div}">—</td>'
-                    if _roic_avg is not None:
-                        _ra_color = T['accent'] if _roic_avg >= 15 else (T['red'] if _roic_avg < wacc_pct else T['text'])
-                        _rc_html += f'<td style="{_rc_avg};{_rc_div};color:{_ra_color}">{_roic_avg:.1f}%</td>'
-                    else:
-                        _rc_html += f'<td style="{_rc_avg};{_rc_div}">—</td>'
-                    _rc_html += '</tr>'
-
-                    _rc_html += '</tbody></table></div>'
-                    st.markdown(_rc_html, unsafe_allow_html=True)
-                    st.caption("In $M. NOPAT = Operating Income × (1 − Tax Rate). IC = Equity + Debt − Cash.")
-            else:
-                st.info("Insufficient data for ROIC (need 3+ years)")
-
-        with st.container(key="fund_sec_8_rev_per_share"):
-            # ── Revenue per Share Growth ──
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:6px">'
-                f'<span style="font-weight:700">Revenue per Share Growth</span>'
-                f'<span class="rps-tip" style="position:relative;cursor:help">'
-                f'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="opacity:0.35;vertical-align:middle">'
-                f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" stroke-width="1.5"/>'
-                f'<text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="{T["text_muted"]}">?</text>'
-                f'</svg>'
-                f'<span style="visibility:hidden;opacity:0;position:absolute;left:22px;top:-12px;'
-                f'background:{T["card"]};color:{T["text"]};border:1px solid {T["border_medium"]};'
-                f'border-radius:8px;padding:10px 14px;font-size:0.78rem;line-height:1.5;'
-                f'font-weight:400;width:260px;z-index:999;box-shadow:{T["shadow_hover"]};'
-                f'pointer-events:none;transition:opacity 0.15s ease">'
-                f'Compares total revenue growth with revenue per share.<br><br>'
-                f'<b>Rev/Share &gt; Revenue</b> buybacks boost per-share growth<br>'
-                f'<b>Rev/Share &lt; Revenue</b> dilution from share issuance'
-                f'</span></span></div>'
-                f'<style>.rps-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>',
-                unsafe_allow_html=True,
-            )
-            if _n >= 3:
-                # Derive shares from EPS / Net Income when the direct share tags
-                # are missing (e.g. Visa only reports shares in non-standard tags)
-                _shares_eff = []
-                _eps_l = fund.get('eps') or [None] * _n
-                _ni_l = fund.get('net_income') or [None] * _n
-                for i in range(_n):
-                    s = fund['shares'][i]
-                    if not s or s <= 0:  # noqa: SIM102 — nested form keeps "shares missing? derive from EPS×NI" intent clearer
-                        if _eps_l[i] and _ni_l[i] is not None and _eps_l[i] != 0:
-                            s = (_ni_l[i] * 1e6) / _eps_l[i]
-                    _shares_eff.append(s if s and s > 0 else None)
-                rps = [fund['revenue'][i] * 1e6 / _shares_eff[i]
-                       if _shares_eff[i] and fund['revenue'][i] is not None
-                       else None
-                       for i in range(_n)]
-                rps_g = _pct_growth(rps)
-                rev_g_clean = _pct_growth(fund['revenue'])
-                _has_shares = any(s is not None for s in _shares_eff)
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=_yrs[1:], y=[r * 100 if r is not None else None for r in rev_g_clean[1:]],
-                    name='Revenue Growth',
-                    line=dict(color=_COLORS['primary'], width=2.5),
-                    hovertemplate='%{y:.1f}%<extra>Rev Growth</extra>',
-                ))
-                if _has_shares:
-                    fig.add_trace(go.Scatter(
-                        x=_yrs[1:], y=[r * 100 if r is not None else None for r in rps_g[1:]],
-                        name='Rev/Share Growth',
-                        line=dict(color=_COLORS['accent'], width=2.5, dash='dash'),
-                        hovertemplate='%{y:.1f}%<extra>Rev/Share Growth</extra>',
-                    ))
-                fig.update_yaxes(ticksuffix='%')
-                _base_layout(fig)
-                st.plotly_chart(fig, width="stretch")
-                if not _has_shares:
-                    st.caption("Rev/Share niet beschikbaar: dit bedrijf rapporteert geen share-counts in EDGAR (bv. V).")
-
-                with st.expander("Details", expanded=False):
-                    _rps_cell = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text"]};border-top:1px solid {T["grid"]}'
-                    _rps_hdr = f'text-align:right;padding:5px 10px;font-size:0.85rem;color:{T["text_muted"]};border-bottom:1px solid {T["grid"]}'
-                    _rps_label = f'text-align:left;padding:5px 10px;font-size:0.85rem;font-weight:600;color:{T["text"]};white-space:nowrap;border-top:1px solid {T["grid"]}'
-                    _rps_avg_s = f'{_rps_cell};font-weight:600;border-left:2px solid {T["border_medium"]}'
-                    _rps_div = f'border-top:3px solid {T["text"]}'
-                    _rps_html = (
-                        '<div style="overflow-x:auto">'
-                        '<table style="width:100%;border-collapse:collapse">'
-                        '<thead><tr>'
-                        f'<th style="{_rps_hdr};text-align:left"></th>'
-                    )
-                    for yr in _yrs:
-                        _rps_html += f'<th style="{_rps_hdr}">{yr}</th>'
-                    _rps_html += f'<th style="{_rps_hdr};border-left:2px solid {T["border_medium"]}">Avg</th>'
-                    _rps_html += '</tr></thead><tbody>'
-
-                    # Revenue row ($M)
-                    _rev_valid = [v for v in fund['revenue'] if v is not None]
-                    _rev_avg2 = sum(_rev_valid) / len(_rev_valid) if _rev_valid else None
-                    _rps_html += f'<tr><td style="{_rps_label}">Revenue ($M)</td>'
-                    for v in fund['revenue']:
-                        _rps_html += f'<td style="{_rps_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rps_cell}">—</td>'
-                    _rps_html += f'<td style="{_rps_avg_s}">{_rev_avg2:,.0f}</td>' if _rev_avg2 is not None else f'<td style="{_rps_avg_s}">—</td>'
-                    _rps_html += '</tr>'
-
-                    # Shares row
-                    _sh_vals = [_shares_eff[i] / 1e6 if _shares_eff[i] else None for i in range(_n)]
-                    _sh_valid = [v for v in _sh_vals if v is not None]
-                    _sh_avg = sum(_sh_valid) / len(_sh_valid) if _sh_valid else None
-                    _rps_html += f'<tr><td style="{_rps_label}">Shares (M)</td>'
-                    for v in _sh_vals:
-                        _rps_html += f'<td style="{_rps_cell}">{v:,.0f}</td>' if v is not None else f'<td style="{_rps_cell}">—</td>'
-                    _rps_html += f'<td style="{_rps_avg_s}">{_sh_avg:,.0f}</td>' if _sh_avg is not None else f'<td style="{_rps_avg_s}">—</td>'
-                    _rps_html += '</tr>'
-
-                    # Rev/Share row — thick border
-                    _rps_vals = [fund['revenue'][i] / _sh_vals[i] if _sh_vals[i] and _sh_vals[i] > 0 and fund['revenue'][i] is not None else None for i in range(_n)]
-                    _rps_valid2 = [v for v in _rps_vals if v is not None]
-                    _rps_avg2 = sum(_rps_valid2) / len(_rps_valid2) if _rps_valid2 else None
-                    _rps_html += f'<tr><td style="{_rps_label};{_rps_div}">Rev/Share ($)</td>'
-                    for v in _rps_vals:
-                        _rps_html += f'<td style="{_rps_cell};{_rps_div}">${v:,.2f}</td>' if v is not None else f'<td style="{_rps_cell};{_rps_div}">—</td>'
-                    _rps_html += f'<td style="{_rps_avg_s};{_rps_div}">${_rps_avg2:,.2f}</td>' if _rps_avg2 is not None else f'<td style="{_rps_avg_s};{_rps_div}">—</td>'
-                    _rps_html += '</tr>'
-
-                    _rps_html += '</tbody></table></div>'
-                    st.markdown(_rps_html, unsafe_allow_html=True)
-                    st.caption("Revenue in $M. Rev/Share = Revenue ($M) / Shares (M).")
-            else:
-                st.info("Insufficient data for Revenue per Share (need 3+ years)")
+                _fin_caption("Insufficient data for Net Debt / FCF (need 3+ years)")
 
     with _tab_dcf:
         with _bridge_slot:
@@ -6723,7 +6611,7 @@ def _dcf_editor(ticker):
 
 
     # Quality + cash-yield pills (Avg ROCE/ROE + FCF Yield). Re-uses
-    # `fund` already loaded in the Fundamentals tab body above. Wrapped
+    # `fund` already loaded in the Financials tab body above. Wrapped
     # in try/except so the hero card still renders if fundamentals
     # fetching failed for this ticker.
     _quality_pills = ''
