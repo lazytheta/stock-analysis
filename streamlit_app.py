@@ -3761,15 +3761,16 @@ def _dcf_editor(ticker):
         except Exception as e:
             logger.warning("Overview at-a-glance for %s failed: %s", ticker, e)
             _oglance = None
-        st.markdown(overview_page.company_section_html(_oprofile, _omcap, _oglance),
-                    unsafe_allow_html=True)
+        st.markdown(overview_page.company_section_html(
+            _oprofile, _omcap, _oglance,
+            summary=company_explainer.lead_text(_onotes.get(company_explainer.TITLE))),
+            unsafe_allow_html=True)
 
         # What the company does (Company Explainer), then the same revenue
         # breakdown as the Business tab; that section is left out when
         # Business Cards has no revenue block.
         st.markdown(company_explainer.explainer_section_html(
-            _onotes.get(company_explainer.TITLE),
-            mission=(_oprofile or {}).get("mission", ""), theme=T),
+            _onotes.get(company_explainer.TITLE), theme=T),
             unsafe_allow_html=True)
         try:
             _orev_raw = _onotes.get(business_cards.TITLE)

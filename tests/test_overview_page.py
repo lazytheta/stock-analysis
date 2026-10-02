@@ -59,10 +59,11 @@ def test_company_section_with_profile():
     assert 'class="qc-section"' in html and ">Company</div>" in html
     for text in ("Profile", "At a glance", "SECTOR", "Communication Services",
                  "Entertainment", "&#36;343.2B", "Asset-light", "Moderate", "1997",
-                 "16,000", "Subscription", "Ad-based", "MISSION",
-                 "To entertain the world."):
+                 "16,000", "Subscription", "Ad-based"):
         assert text in html, text
-    assert "ov-chip" in html and "ov-diff" in html and "ov-mission" in _body(html)
+    assert "ov-chip" in html and "ov-diff" in html
+    # The mission statement is no longer shown; the summary replaces it.
+    assert "MISSION" not in html and "To entertain the world." not in html
     assert "$" not in html
     styles = _styles(html)
     assert styles and all("\n" not in s for s in styles)
@@ -70,9 +71,10 @@ def test_company_section_with_profile():
 
 
 def test_company_section_profile_order():
-    html = _body(op.company_section_html(GOOD_PROFILE, 343190.0, GLANCE))
+    html = _body(op.company_section_html(GOOD_PROFILE, 343190.0, GLANCE,
+                                         summary="Netflix streams films."))
     order = ["SECTOR", "INDUSTRY", "MARKET CAP", "CAPITAL TYPE", "DIFFICULTY",
-             "FOUNDED", "EMPLOYEES", "TAGS", "MISSION", "At a glance"]
+             "FOUNDED", "EMPLOYEES", "TAGS", "WHAT IT DOES", "At a glance"]
     positions = [html.index(label) for label in order]
     assert positions == sorted(positions)
 
@@ -135,9 +137,22 @@ def test_company_section_profile_without_mission():
     assert "MISSION" not in body and "At a glance" in body
 
 
+def test_company_section_shows_the_summary_under_what_it_does():
+    html = op.company_section_html(GOOD_PROFILE, None, GLANCE,
+                                   summary="Netflix streams films and series for a monthly fee.")
+    body = _body(html)
+    assert "WHAT IT DOES" in body and "Netflix streams films" in body
+    assert "MISSION" not in body
+
+
+def test_company_section_without_summary_shows_no_what_it_does_block():
+    body = _body(op.company_section_html(GOOD_PROFILE, None, GLANCE))
+    assert "WHAT IT DOES" not in body
+
+
 def test_company_section_escapes_text():
     html = op.company_section_html(
-        dict(GOOD_PROFILE, tags=["<b>x</b>", "$y"], mission="$1 <i>a</i>"), None)
+        dict(GOOD_PROFILE, tags=["<b>x</b>", "$y"]), None, summary="$1 <i>a</i>")
     assert "<b>x</b>" not in html and "&lt;b&gt;" in html
     assert "<i>a</i>" not in html
     assert "$" not in html

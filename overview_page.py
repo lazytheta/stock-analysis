@@ -43,7 +43,7 @@ COMPANY_STYLE = f"""<style>
   color:var(--text);font-size:13px}}
 .ov-empty{{margin-top:14px;font-size:13px;color:var(--text-muted);line-height:1.45}}
 .ov-mission{{margin-top:16px}}
-.ov-mission p{{margin:0;font-size:16px;font-style:italic;color:var(--text);line-height:1.55}}
+.ov-mission p{{margin:0;font-size:15px;color:var(--text);line-height:1.6}}
 .ov-glance{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 18px}}
 .ov-gval{{font-size:22px;font-weight:700;color:var(--text);line-height:1.2;margin:2px 0 2px;
   white-space:nowrap}}
@@ -105,7 +105,7 @@ def _card(title, body_html, extra_class=""):
             f'{body_html}</div>')
 
 
-def _profile_body(profile, market_cap_m):
+def _profile_body(profile, market_cap_m, summary=None):
     mcap = qc.esc(om.fmt_money_m(market_cap_m))
     if not profile:
         return (f'<div class="ov-profile">{_pair("Market cap", mcap)}</div>'
@@ -128,10 +128,11 @@ def _profile_body(profile, market_cap_m):
         chips = "".join(f'<span class="ov-chip">{qc.esc(t)}</span>' for t in tags)
         tags_html = (f'<div class="ov-tags"><div class="ov-lbl">TAGS</div>'
                      f'<div class="ov-chips">{chips}</div></div>')
-    mission = profile.get("mission")
-    mission_html = (f'<div class="ov-mission"><div class="ov-lbl">MISSION</div>'
-                    f'<p>{qc.esc(mission)}</p></div>' if mission else "")
-    return f'<div class="ov-profile">{"".join(pairs)}</div>{tags_html}{mission_html}'
+    # "What it does": the Company Explainer's 2-3 sentence lead. The profile's
+    # own mission statement is no longer shown (owner, 2026-10-02).
+    summary_html = (f'<div class="ov-mission ov-summary"><div class="ov-lbl">WHAT IT DOES</div>'
+                    f'<p>{qc.esc(summary)}</p></div>' if summary else "")
+    return f'<div class="ov-profile">{"".join(pairs)}</div>{tags_html}{summary_html}'
 
 
 def _tile(label, value, caption, positive=False):
@@ -170,13 +171,14 @@ def _glance_body(glance):
     return f'<div class="ov-glance">{"".join(tiles)}</div>'
 
 
-def company_section_html(profile, market_cap_m, glance: dict | None = None) -> str:
+def company_section_html(profile, market_cap_m, glance: dict | None = None,
+                         summary: str | None = None) -> str:
     """White "Company" section: a Profile card (label/value pairs, tags,
     mission; $M in for market cap) and, beside it, an "At a glance" card with
     four tiles from overview_metrics.glance. Without a profile the Profile
     card holds only Market cap and a muted note; the glance card always
     shows, with dashes for missing values."""
-    cards = [_card("Profile", _profile_body(profile, market_cap_m)),
+    cards = [_card("Profile", _profile_body(profile, market_cap_m, summary)),
              _card("At a glance", _glance_body(glance))]
     inner = f'<div class="ov-company">{"".join(cards)}</div>'
     return qc.css(CARD_STYLE, COMPANY_STYLE) + qc.section_html("Company", inner)

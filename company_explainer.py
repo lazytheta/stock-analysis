@@ -21,13 +21,13 @@ TITLE = "Company Explainer"
 # (key, heading) in display order.
 SECTIONS = (
     ("sell", "What they sell"),
-    ("customers", "Who pays"),
+    ("customers", "Customers"),
     ("model", "How they make money"),
     ("drivers", "What drives revenue"),
     ("chain", "Where they sit"),
 )
 
-LEAD_MAX = 240
+LEAD_MAX = 400
 SECTION_MIN, SECTION_MAX = 150, 700
 SOURCE_MAX = 120
 
@@ -63,14 +63,16 @@ Good (says what it does):
 Some lay down ultra-thin layers of material, others cut microscopic patterns
 into those layers, and others clean the wafer between steps."
 
-lead: ONE sentence, at most 240 characters, on what the company is at its
-core — what it makes or does and how that turns into money.
+lead: TWO or THREE short sentences, at most 400 characters, shown at the top
+of the Overview tab: what the company makes or does, how that turns into
+money, and who buys it. Plain words only, no product names; someone who has
+never heard of the company must understand it.
 
 sections: EXACTLY these five keys, each a short paragraph of 2 to 4 sentences
 (150 to 700 characters):
 - sell: what they sell — what the products and services do for the customer,
   in everyday words.
-- customers: who pays — which customers, out of which budget, and how
+- customers: who the customers are — which customers, out of which budget, and how
   concentrated (largest customers' share, main regions) where disclosed.
 - model: how they make money — the revenue model (one-off sale, subscription,
   usage, commission, spread, premiums), the pricing unit, and which segment
@@ -175,24 +177,31 @@ def _panel(heading, text, wide=False):
             f'<p>{qc.esc(text)}</p></div>')
 
 
-def explainer_section_html(content, mission="", theme=None):
-    """The white "What the company does" section. With a valid explainer: the
-    lead, five panels (the last full width) and the source. Without one (or an
-    invalid one): the Company Profile mission, if any, and a muted note."""
+def lead_text(content):
+    """The explainer's lead (2-3 sentences) for the Overview's Profile card,
+    or None when there is no valid explainer."""
+    try:
+        return parse_company_explainer(content)["lead"] if content else None
+    except ValueError:
+        return None
+
+
+def explainer_section_html(content, theme=None):
+    """The white "What the company does" section: five panels (the last full
+    width) and the source. The lead is not repeated here; the Overview shows
+    it in the Profile card. Without a valid explainer: a muted note."""
     try:
         data = parse_company_explainer(content) if content else None
     except ValueError:
         data = None
 
     if not data:
-        lead = f'<p class="ce-lead">{qc.esc(mission)}</p>' if mission else ""
-        inner = f'{lead}<div class="ce-empty">{qc.esc(_EMPTY_NOTE)}</div>'
+        inner = f'<div class="ce-empty">{qc.esc(_EMPTY_NOTE)}</div>'
         return qc.css(STYLE) + qc.section_html(_LABEL, inner)
 
     last = len(SECTIONS) - 1
     panels = "".join(_panel(heading, data["sections"][key], wide=(i == last))
                      for i, (key, heading) in enumerate(SECTIONS))
-    inner = (f'<p class="ce-lead">{qc.esc(data["lead"])}</p>'
-             f'<div class="ce-grid">{panels}</div>'
+    inner = (f'<div class="ce-grid">{panels}</div>'
              f'<div class="ce-source">Source: {qc.esc(data["source"])}</div>')
     return qc.css(STYLE) + qc.section_html(_LABEL, inner)

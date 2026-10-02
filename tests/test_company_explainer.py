@@ -54,7 +54,7 @@ def test_section_length_is_enforced(text):
         ce.parse_company_explainer(_block(sections=sections))
 
 
-@pytest.mark.parametrize("lead", ["", "x" * 241])
+@pytest.mark.parametrize("lead", ["", "x" * 401])
 def test_lead_length_is_enforced(lead):
     with pytest.raises(ValueError, match="lead"):
         ce.parse_company_explainer(_block(lead=lead))
@@ -70,10 +70,11 @@ def test_not_json_is_refused():
         ce.parse_company_explainer("no json here")
 
 
-def test_section_html_shows_lead_all_headings_and_source():
-    html = ce.explainer_section_html(_block(), mission="ignored", theme=T)
+def test_section_html_shows_all_headings_and_source_but_not_the_lead():
+    # The lead is shown in the Overview's Profile card ("What it does").
+    html = ce.explainer_section_html(_block(), theme=T)
     assert "What the company does" in html
-    assert "Lam Research builds" in html
+    assert "Lam Research builds" not in html
     for _, heading in ce.SECTIONS:
         assert ce.qc.esc(heading) in html
     assert "10-K FY2026" in html
@@ -82,23 +83,39 @@ def test_section_html_shows_lead_all_headings_and_source():
 def test_dollar_signs_are_escaped():
     sections = {key: PARA for key, _ in ce.SECTIONS}
     sections["model"] = PARA + " Service brought in $8.4B and systems $14.8B last year."
-    html = ce.explainer_section_html(_block(sections=sections), mission="", theme=T)
+    html = ce.explainer_section_html(_block(sections=sections), theme=T)
     assert "$8.4B" not in html and "&#36;8.4B" in html
 
 
-def test_without_explainer_falls_back_to_mission_with_a_note():
-    html = ce.explainer_section_html(None, mission="To make chips possible.", theme=T)
-    assert "To make chips possible." in html
+def test_without_explainer_shows_only_a_note():
+    html = ce.explainer_section_html(None, theme=T)
     assert "not filled yet" in html
 
 
+def test_lead_text_returns_the_lead_or_none():
+    assert ce.lead_text(_block()).startswith("Lam Research builds")
+    assert ce.lead_text(None) is None
+    assert ce.lead_text("```json\n{}\n```") is None
+
+
+def test_lead_may_run_to_three_sentences():
+    lead = ("Lam makes chip-making machines. It keeps earning on service for years. "
+            "Its customers are a few giant chipmakers, mostly in Asia, who buy in cycles. ") * 2
+    assert len(lead.strip()) <= ce.LEAD_MAX
+    assert ce.parse_company_explainer(_block(lead=lead.strip()))["lead"]
+
+
+def test_customers_heading_is_plain():
+    assert dict(ce.SECTIONS)["customers"] == "Customers"
+
+
 def test_invalid_explainer_falls_back_like_a_missing_one():
-    html = ce.explainer_section_html("```json\n{}\n```", mission="", theme=T)
+    html = ce.explainer_section_html("```json\n{}\n```", theme=T)
     assert "not filled yet" in html
 
 
 def test_style_blocks_are_single_line():
-    html = ce.explainer_section_html(_block(), mission="", theme=T)
+    html = ce.explainer_section_html(_block(), theme=T)
     for chunk in html.split("<style>")[1:]:
         assert "\n" not in chunk.split("</style>")[0]
 
@@ -122,7 +139,7 @@ def test_html_entities_in_the_text_are_decoded_once():
     sections["drivers"] = PARA + " It reports the G&amp;A ratio."
     out = ce.parse_company_explainer(_block(sections=sections))
     assert "G&A ratio" in out["sections"]["drivers"]
-    html = ce.explainer_section_html(_block(sections=sections), mission="", theme=T)
+    html = ce.explainer_section_html(_block(sections=sections), theme=T)
     assert "G&amp;A ratio" in html and "&amp;amp;" not in html
 
 
