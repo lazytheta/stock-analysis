@@ -633,17 +633,17 @@ def test_update_lens_weights_merges_partial(monkeypatch):
     monkeypatch.setattr(mcp_server, "USER_ID", "u1")
 
     result_json = mcp_server._update_lens_weights_impl(
-        "TEST", {"dividend": 0.20}
+        "TEST", {"reverse_dcf": 0.20}
     )
     result = _json.loads(result_json)
 
-    # dividend added, others preserved
-    assert result["dividend"] == 0.20
+    # reverse_dcf added, others preserved
+    assert result["reverse_dcf"] == 0.20
     assert result["dcf"] == 0.50
     assert result["multiples"] == 0.25
     assert result["historical"] == 0.25
     # saved to storage
-    assert storage["TEST"]["lens_weights"]["dividend"] == 0.20
+    assert storage["TEST"]["lens_weights"]["reverse_dcf"] == 0.20
 
 
 def test_update_lens_weights_empty_dict_resets_to_defaults(monkeypatch):
@@ -702,6 +702,33 @@ def test_update_lens_weights_rejects_unknown_key(monkeypatch):
     assert storage["TEST"]["lens_weights"] == {"dcf": 0.50}
 
 
+def test_update_lens_weights_rejects_removed_dividend_lens(monkeypatch):
+    """The dividend lens was removed: "dividend" is an unknown key with a
+    message that says so, and nothing is written."""
+    import json as _json
+    import mcp_server
+
+    storage = _make_lens_weights_fake_storage({"dcf": 0.50})
+
+    monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: object())
+    monkeypatch.setattr(
+        mcp_server.config_store, "load_config",
+        lambda c, t, user_id=None: dict(storage[t.upper()]),
+    )
+    monkeypatch.setattr(
+        mcp_server.config_store, "save_config",
+        lambda c, t, cfg, user_id=None: storage.update({t.upper(): dict(cfg)}),
+    )
+    monkeypatch.setattr(mcp_server, "USER_ID", "u1")
+
+    body = _json.loads(mcp_server._update_lens_weights_impl(
+        "TEST", {"dividend": 0.20}))
+    assert "error" in body
+    assert "unknown lens key" in body["error"]
+    assert "dividend lens has been removed" in body["error"]
+    assert storage["TEST"]["lens_weights"] == {"dcf": 0.50}
+
+
 def test_update_lens_weights_rejects_negative_value(monkeypatch):
     """Negative weight → error JSON, no write."""
     import json as _json
@@ -721,11 +748,11 @@ def test_update_lens_weights_rejects_negative_value(monkeypatch):
     monkeypatch.setattr(mcp_server, "USER_ID", "u1")
 
     result_json = mcp_server._update_lens_weights_impl(
-        "TEST", {"dividend": -0.1}
+        "TEST", {"multiples": -0.1}
     )
     body = _json.loads(result_json)
     assert "error" in body
-    assert "dividend" in body["error"]
+    assert "multiples" in body["error"]
     # Unchanged storage
     assert storage["TEST"]["lens_weights"] == {"dcf": 0.50}
 

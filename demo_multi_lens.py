@@ -28,9 +28,6 @@ cfg["valuation_inputs"] = {
     "forward_eps": 14.20,           # consensus FY2026 EPS
     "historical_fwd_pe": 28.0,      # MSFT 5-yr avg fwd P/E
     "ttm_ebitda": 145_000.0,        # ~$145B TTM EBITDA, in $M
-    "target_dividend_yield": 0.008,
-    "current_dividend": 3.32,
-    "expected_dividend_growth": 0.10,
 }
 
 # Add fwd_pe to peers (Phase-1 schema extension).

@@ -23,15 +23,16 @@ DEFAULT_LENS_WEIGHTS = {
     "multiples":   0.00,    # peer-relative cross-check — ticker-page tab only
     "historical":  0.00,    # own-history cross-check — ticker-page tab only
     "reverse_dcf": 0.0,     # anchors at current price by definition; not a true valuation
-    "dividend":    0.00,
+    # The dividend lens (two-stage DDM + yield mean-reversion) was removed on
+    # 2026-10-02 (owner decision). Stored configs may still carry a
+    # lens_weights["dividend"]; it is ignored because only computed lenses
+    # are weighted below.
 }
 
 # Canonical ordered list of forward-looking lenses surfaced in the watchlist
 # UI (lens-dots row, football field tooltip) and counted in the "{N} lenses"
 # label. Reverse DCF intentionally excluded — anchors at current price by
-# construction (see 2026-05-07 reverse-dcf-demote spec); Dividend stub is
-# excluded only when the user hasn't opted in via lens_weights, but the lens
-# ITSELF is forward-looking and belongs in this list.
+# construction (see 2026-05-07 reverse-dcf-demote spec).
 #
 # Single source of truth for 3 consumers:
 # - streamlit_app._render_lens_dots (order)
@@ -44,8 +45,8 @@ FORWARD_LENSES: tuple[tuple[str, str], ...] = (
     ("dcf",        "DCF"),
     # 2026-07-30: the watchlist surfaces ONLY the DCF lens. multiples ("Peers")
     # and historical proved too inaccurate — moved to the ticker page (peer
-    # multiples on the Peer Comparison tab, own-history on the DCF tab). Dividend
-    # and SOTP were also removed from the watchlist lens-dots / football-field /
+    # multiples on the Peer Comparison tab, own-history on the DCF tab). SOTP
+    # was also removed from the watchlist lens-dots / football-field /
     # "{N} lenses" count per the user's "only the one lens" request; SOTP can
     # still be weighted per-config (opt-in) but is no longer shown here.
     # Re-add a (key, label) tuple to bring a lens back to the watchlist.
@@ -80,113 +81,6 @@ def _share_count(cfg):
     """
     n = cfg.get("shares_outstanding")
     return float(n) if isinstance(n, (int, float)) and n > 0 else None
-
-
-def compute_dividend_lens(cfg):
-    """Hybrid Two-stage DDM + Yield Mean-Reversion lens.
-
-    Sub-anchor A (DDM): 5y explicit dividend growth + Gordon terminal,
-    discounted at cost of equity.
-    Sub-anchor B (yield mean-reversion): TTM dividend / median 5y yield.
-    Active only when ≥3y history (median_5y_yield available).
-
-    Returns None when:
-      - TTM dividend = 0 (non-payer)
-      - dividend_5y_cagr is None (insufficient growth history)
-      - cost_of_equity ≤ terminal_growth (Gordon would blow up)
-      - any input is non-finite (NaN guard)
-    """
-    ticker = cfg.get("ticker", "?")
-    inputs = cfg.get("valuation_inputs") or {}
-    ttm = inputs.get("ttm_dividend") or 0.0
-    raw_g = inputs.get("dividend_5y_cagr")
-    median_yield = inputs.get("median_5y_yield")
-
-    if ttm <= 0:
-        logger.info("Dividend lens: skipping %s (ttm_dividend=0, non-payer)", ticker)
-        return None
-    if raw_g is None:
-        logger.info(
-            "Dividend lens: skipping %s (no dividend_5y_cagr, insufficient history)",
-            ticker,
-        )
-        return None
-
-    # Cap growth at 15% (defense in depth — gather_data already caps,
-    # but a user override via update_valuation_inputs could be higher).
-    g = min(raw_g, 0.15)
-    g_term = cfg.get("terminal_growth", 0.025)
-
-    try:
-        ke = dcf_calculator.compute_cost_of_equity(cfg)
-    except (KeyError, ZeroDivisionError, TypeError) as e:
-        logger.info(
-            "Dividend lens: skipping %s (compute_cost_of_equity failed: %s)",
-            ticker, e,
-        )
-        return None
-
-    # NaN / non-finite guards
-    for v in (ttm, g, g_term, ke):
-        if v != v or v in (float("inf"), float("-inf")):
-            logger.info(
-                "Dividend lens: skipping %s (non-finite input: "
-                "ttm=%s g=%s g_term=%s ke=%s)",
-                ticker, ttm, g, g_term, ke,
-            )
-            return None
-
-    if ke <= g_term:
-        logger.info(
-            "Dividend lens: skipping %s (ke=%.4f <= g_term=%.4f, "
-            "Gordon perpetuity would blow up)",
-            ticker, ke, g_term,
-        )
-        return None
-
-    # ── Sub-anchor A: Two-stage DDM ─────────────────────────────
-    stage1_years = 5
-    pv_stage1 = 0.0
-    d = ttm
-    for n in range(1, stage1_years + 1):
-        d = d * (1 + g)
-        pv_stage1 += d / ((1 + ke) ** n)
-
-    d_terminal = d  # D_5
-    terminal_value = d_terminal * (1 + g_term) / (ke - g_term)
-    pv_terminal = terminal_value / ((1 + ke) ** stage1_years)
-    ddm_fv = pv_stage1 + pv_terminal
-
-    # ── Sub-anchor B: Yield Mean-Reversion ──────────────────────
-    yield_mr_fv = None
-    if median_yield is not None and median_yield > 0:
-        yield_mr_fv = ttm / median_yield
-
-    # ── Range derivation ───────────────────────────────────────
-    if yield_mr_fv is not None:
-        fv_low = min(ddm_fv, yield_mr_fv)
-        fv_high = max(ddm_fv, yield_mr_fv)
-        fv_mid = (ddm_fv + yield_mr_fv) / 2.0
-    else:
-        fv_low = ddm_fv * 0.85
-        fv_mid = ddm_fv
-        fv_high = ddm_fv * 1.15
-
-    return {
-        "fv_low": fv_low,
-        "fv_mid": fv_mid,
-        "fv_high": fv_high,
-        "details": {
-            "ttm_dividend": ttm,
-            "growth_rate_stage1": g,
-            "terminal_growth": g_term,
-            "cost_of_equity": ke,
-            "stage1_years": stage1_years,
-            "ddm_fv": ddm_fv,
-            "yield_mr_fv": yield_mr_fv,
-            "median_5y_yield": median_yield,
-        },
-    }
 
 
 def compute_dcf_lens(cfg, scenario_grid=False):
@@ -539,7 +433,6 @@ def calculate_multi_lens_valuation(cfg, scenario_grid=False):
         "multiples":   compute_multiples_lens(cfg),
         "historical":  compute_historical_lens(cfg),
         "reverse_dcf": compute_reverse_dcf_lens(cfg),
-        "dividend":    compute_dividend_lens(cfg),
     }
 
     weights_cfg = cfg.get("lens_weights") or DEFAULT_LENS_WEIGHTS

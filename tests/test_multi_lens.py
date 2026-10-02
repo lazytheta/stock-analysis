@@ -57,9 +57,6 @@ SAMPLE_VALUATION_INPUTS = {
     "forward_eps": 5.0,
     "historical_fwd_pe": 20.0,
     "ttm_ebitda": 12_000.0,
-    "target_dividend_yield": 0.02,
-    "current_dividend": 2.0,
-    "expected_dividend_growth": 0.07,
 }
 
 from scorecard_utils import parse_scorecard, parse_scorecard_json
@@ -205,10 +202,14 @@ def test_wacc_derives_equity_market_value_when_missing():
         dcf_calculator.compute_cost_of_equity(with_emv), abs=1e-9)
 
 
-# ---------------------------------------------------------------- dividend lens
+# ------------------------------------------------- dividend lens (removed)
 
-# Helpers for dividend-lens tests
-_DIVIDEND_BASE_CFG = {
+# The dividend lens (two-stage DDM + yield mean-reversion) was removed on
+# 2026-10-02. These tests pin that it is gone and that stored leftovers
+# (lens_weights["dividend"]) are ignored rather than breaking the blend.
+_LEFTOVER_CFG = {
+    "company": "Test",
+    "ticker": "TEST",
     "stock_price": 100.0,
     "equity_market_value": 1000,
     "debt_market_value": 100,
@@ -218,6 +219,15 @@ _DIVIDEND_BASE_CFG = {
     "erp": 0.05,
     "credit_spread": 0.01,
     "terminal_growth": 0.025,
+    "shares_outstanding": 1000,
+    "base_revenue": 50_000,
+    "revenue_growth": [0.05] * 5,
+    "op_margins": [0.20] * 5,
+    "terminal_margin": 0.20,
+    "sales_to_capital": 1.5,
+    "margin_of_safety": 0.20,
+    "cash_bridge": 1_000,
+    "securities": 0,
     "valuation_inputs": {
         "ttm_dividend": 4.00,
         "dividend_5y_cagr": 0.06,
@@ -226,115 +236,28 @@ _DIVIDEND_BASE_CFG = {
 }
 
 
-def test_dividend_lens_skips_non_payer():
-    """ttm_dividend = 0 → lens returns None."""
-    cfg = dict(_DIVIDEND_BASE_CFG)
-    cfg["valuation_inputs"] = {
-        "ttm_dividend": 0.0,
-        "dividend_5y_cagr": None,
-        "median_5y_yield": None,
-    }
-    assert valuation_lenses.compute_dividend_lens(cfg) is None
+def test_dividend_lens_is_gone():
+    assert not hasattr(valuation_lenses, "compute_dividend_lens")
+    assert "dividend" not in valuation_lenses.DEFAULT_LENS_WEIGHTS
+    assert "dividend" not in valuation_lenses.FORWARD_LENS_KEYS
 
 
-def test_dividend_lens_skips_no_growth_history():
-    """dividend_5y_cagr is None (insufficient history) → skip lens."""
-    cfg = dict(_DIVIDEND_BASE_CFG)
-    cfg["valuation_inputs"] = {
-        "ttm_dividend": 1.50,
-        "dividend_5y_cagr": None,        # no growth baseline
-        "median_5y_yield": None,
-    }
-    assert valuation_lenses.compute_dividend_lens(cfg) is None
+def test_orchestrator_has_no_dividend_lens_even_for_payer():
+    summary = valuation_lenses.calculate_multi_lens_valuation(dict(_LEFTOVER_CFG))
+    assert "dividend" not in summary["lenses"]
+    assert summary["lenses"]["dcf"] is not None
 
 
-def test_dividend_lens_skips_when_ke_le_terminal():
-    """cost_of_equity ≤ terminal_growth → Gordon perpetuity blows up → skip."""
-    cfg = dict(_DIVIDEND_BASE_CFG)
-    # rf and ERP only reach ke under a rate-driven mode; the default hurdle is
-    # fixed and would ignore them.
-    cfg["discount_mode"] = "capm"
-    cfg["risk_free_rate"] = 0.01  # very low rf → low ke
-    cfg["erp"] = 0.005             # very low erp
-    cfg["terminal_growth"] = 0.05  # high terminal growth → ke < g
-    lens = valuation_lenses.compute_dividend_lens(cfg)
-    assert lens is None
-
-
-def test_dividend_lens_active_with_both_anchors():
-    """Full payer with median_5y_yield → range spans both DDM and yield-MR."""
-    cfg = dict(_DIVIDEND_BASE_CFG)
-    lens = valuation_lenses.compute_dividend_lens(cfg)
-    assert lens is not None
-    assert lens["fv_low"] < lens["fv_high"]
-    assert lens["fv_low"] <= lens["fv_mid"] <= lens["fv_high"]
-    details = lens["details"]
-    assert details["ttm_dividend"] == 4.00
-    assert details["growth_rate_stage1"] == 0.06
-    assert details["terminal_growth"] == 0.025
-    assert details["cost_of_equity"] > 0
-    assert details["ddm_fv"] > 0
-    assert details["yield_mr_fv"] > 0
-    assert details["median_5y_yield"] == 0.030
-
-
-def test_dividend_lens_active_anchor_a_only_when_no_yield():
-    """No median_5y_yield → fv ±15% band on DDM result, not min/max."""
-    cfg = dict(_DIVIDEND_BASE_CFG)
-    cfg["valuation_inputs"] = {
-        "ttm_dividend": 4.00,
-        "dividend_5y_cagr": 0.06,
-        "median_5y_yield": None,
-    }
-    lens = valuation_lenses.compute_dividend_lens(cfg)
-    assert lens is not None
-    ddm = lens["details"]["ddm_fv"]
-    assert lens["fv_mid"] == pytest.approx(ddm, abs=0.01)
-    assert lens["fv_low"] == pytest.approx(ddm * 0.85, abs=0.01)
-    assert lens["fv_high"] == pytest.approx(ddm * 1.15, abs=0.01)
-    assert lens["details"]["yield_mr_fv"] is None
-
-
-def test_dividend_lens_caps_growth_at_15pct_in_details():
-    """Even if upstream produced an uncapped CAGR somehow, the lens caps at 15%."""
-    cfg = dict(_DIVIDEND_BASE_CFG)
-    cfg["valuation_inputs"] = dict(_DIVIDEND_BASE_CFG["valuation_inputs"])
-    cfg["valuation_inputs"]["dividend_5y_cagr"] = 0.25  # absurd
-    lens = valuation_lenses.compute_dividend_lens(cfg)
-    assert lens is not None
-    assert lens["details"]["growth_rate_stage1"] == 0.15
-
-
-def test_default_lens_weights_dividend_zero():
-    """Dividend default weight stays 0.0 — opt-in per ticker."""
-    assert valuation_lenses.DEFAULT_LENS_WEIGHTS["dividend"] == 0.0
-
-
-def test_orchestrator_includes_dividend_when_payer():
-    """Full dividend-paying cfg with all multi-lens inputs → 4 active lenses."""
-    cfg = dict(_DIVIDEND_BASE_CFG)
-    # We need the other lenses to be skipped or to also activate; easiest is
-    # to provide enough inputs to keep DCF active and skip multiples/historical.
-    cfg.update({
-        "company": "Test",
-        "ticker": "TEST",
-        "shares_outstanding": 1000,
-        "base_revenue": 50_000,
-        "revenue_growth": [0.05] * 5,
-        "op_margins": [0.20] * 5,
-        "terminal_margin": 0.20,
-        "sales_to_capital": 1.5,
-        "sbc_pct": 0.02,
-        "margin_of_safety": 0.20,
-        "cash_bridge": 1_000,
-        "securities": 0,
-    })
-    summary = valuation_lenses.calculate_multi_lens_valuation(cfg)
-    lenses = summary["lenses"]
-    assert lenses["dcf"] is not None
-    assert lenses["dividend"] is not None
-    # Dividend has weight 0 by default → contributes nothing to weighted_fv
-    assert lenses["dividend"]["weight_normalized"] == 0.0
+def test_leftover_dividend_weight_is_ignored():
+    """A stored lens_weights["dividend"] must not raise and must not dilute
+    the blend: the weighted FV equals the run without the leftover."""
+    clean = dict(_LEFTOVER_CFG, lens_weights={"dcf": 0.5})
+    leftover = dict(_LEFTOVER_CFG, lens_weights={"dcf": 0.5, "dividend": 0.5})
+    s_clean = valuation_lenses.calculate_multi_lens_valuation(clean)
+    s_left = valuation_lenses.calculate_multi_lens_valuation(leftover)
+    assert s_left["weighted_fv_mid"] == s_clean["weighted_fv_mid"]
+    assert s_left["lenses"]["dcf"]["weight_normalized"] == pytest.approx(1.0)
+    assert "dividend" not in s_left["lenses"]
 
 
 # ---------------------------------------------------------------- SOTP lens
@@ -582,10 +505,6 @@ def test_save_config_allows_intentional_empty_lens_weights():
 
 
 import valuation_lenses
-
-
-def test_dividend_lens_returns_none():
-    assert valuation_lenses.compute_dividend_lens(make_cfg()) is None
 
 
 def test_dcf_lens_basic_returns_band_around_intrinsic():
@@ -928,15 +847,15 @@ def test_all_lenses_active_weighted_in_range():
     # weights sum to 1.0
     total_norm = sum(lenses[n]["weight_normalized"] for n in active)
     assert total_norm == pytest.approx(1.0)
-    # dividend lens stays None
-    assert lenses["dividend"] is None
+    # the dividend lens was removed (2026-10-02)
+    assert "dividend" not in lenses
 
 
 def test_lens_weights_override_from_config():
     cfg = make_cfg(
         peers=[make_peer(fwd_pe=20.0, ev_ebitda=12.0)],
         valuation_inputs=dict(SAMPLE_VALUATION_INPUTS),
-        lens_weights={"dcf": 0.5, "multiples": 0.5, "historical": 0.0, "reverse_dcf": 0.0, "dividend": 0.0},
+        lens_weights={"dcf": 0.5, "multiples": 0.5, "historical": 0.0, "reverse_dcf": 0.0},
     )
     summary = valuation_lenses.calculate_multi_lens_valuation(cfg)
     # reverse_dcf has weight 0 → normalized 0 → drops out of weighted FV
@@ -956,6 +875,8 @@ def test_list_watchlist_enriched_shape():
         "weighted_fv_high": 100.0,
         "buy_price": 64.0,
         "current_vs_mid": 0.10,
+        # "dividend" is a leftover from configs stored before the dividend
+        # lens was removed; it must be tolerated and not counted.
         "lenses": {"dcf": {}, "multiples": {}, "historical": {}, "dividend": {}, "reverse_dcf": {}},
     }
     rows = [
@@ -1012,7 +933,7 @@ def test_list_watchlist_enriched_shape():
     assert with_row["buy_price"] == 64.0
     assert with_row["current_vs_mid"] == 0.10
     # Counted lenses = FORWARD_LENS_KEYS, which is DCF-only as of 2026-07-30
-    # (multiples/historical/dividend all removed from the watchlist).
+    # (multiples/historical removed from the watchlist; dividend lens deleted).
     assert with_row["lens_count"] == 1
     assert with_row["verdict"] == "deep_dive"
     assert with_row["phase"] == 3
@@ -1214,7 +1135,7 @@ def test_historical_lens_only_d_active():
 
 def test_orchestrator_includes_historical_lens():
     """Full config produces a valuation_summary with 4 active lenses
-    (dcf, multiples, historical, reverse_dcf), dividend stays None."""
+    (dcf, multiples, historical, reverse_dcf); there is no dividend lens."""
     peers = [
         make_peer(ticker="P1", fwd_pe=18.0, ev_ebitda=10.0),
         make_peer(ticker="P2", fwd_pe=20.0, ev_ebitda=12.0),
@@ -1236,7 +1157,7 @@ def test_orchestrator_includes_historical_lens():
     assert lenses["multiples"] is not None
     assert lenses["historical"] is not None
     assert lenses["reverse_dcf"] is not None
-    assert lenses["dividend"] is None  # Phase 2-C stub
+    assert "dividend" not in lenses  # removed 2026-10-02
 
 
 def test_default_lens_weights_post_split():
@@ -1247,13 +1168,12 @@ def test_default_lens_weights_post_split():
         "multiples":   0.00,
         "historical":  0.00,
         "reverse_dcf": 0.0,
-        "dividend":    0.00,
     }
 
 
 def test_multiples_and_historical_excluded_from_forward_lenses():
     """Peers + Historical are no longer surfaced on the watchlist (lens-dots,
-    football field, {N}-lens count) — only DCF/Dividend/SOTP remain."""
+    football field, {N}-lens count) — only DCF remains."""
     keys = valuation_lenses.FORWARD_LENS_KEYS
     assert "multiples" not in keys
     assert "historical" not in keys

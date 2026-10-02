@@ -276,9 +276,9 @@ TOOLS: list[dict] = [
     {
         "name": "calculate_multi_lens_valuation",
         "description": (
-            "Run the multi-lens fair value (DCF + Peers + Historical + Dividend "
-            "+ Reverse DCF) for a watchlist ticker. Auto-fetches market inputs, peer multiples, "
-            "and dividend history first. Stores summary back."
+            "Run the multi-lens fair value (DCF + Peers + Historical "
+            "+ Reverse DCF) for a watchlist ticker. Auto-fetches market inputs "
+            "and peer multiples first. Stores summary back."
         ),
         "inputSchema": {
             "type": "object",
@@ -344,8 +344,7 @@ TOOLS: list[dict] = [
         "name": "update_valuation_inputs",
         "description": (
             "Override one or more valuation_inputs fields for a watchlist "
-            "ticker. Valid keys per lens: Dividend (ttm_dividend, "
-            "dividend_5y_cagr, median_5y_yield); Historical "
+            "ticker. Valid keys per lens: Historical "
             "(historical_fwd_pe, historical_trailing_pe, "
             "historical_ev_ebitda, forward_eps, ttm_eps, ttm_ebitda); "
             "Multiples (forward_eps, ttm_ebitda). Any other key is silently "
@@ -369,7 +368,8 @@ TOOLS: list[dict] = [
         "name": "update_lens_weights",
         "description": (
             "Override one or more lens weights for a watchlist ticker. "
-            "Valid keys: dcf, multiples, historical, reverse_dcf, dividend. "
+            "Valid keys: dcf, multiples, historical, reverse_dcf "
+            "(the dividend lens was removed; 'dividend' is rejected). "
             "Specified keys merge into cfg.lens_weights; unspecified "
             "keys retain their value (or fall back to DEFAULT_LENS_WEIGHTS). "
             "Orchestrator renormalizes active weights to 1.0 at compute "
@@ -384,7 +384,7 @@ TOOLS: list[dict] = [
                     "type": "object",
                     "description": (
                         "Dict mapping lens keys (dcf, multiples, historical, "
-                        "reverse_dcf, dividend) to non-negative floats"
+                        "reverse_dcf) to non-negative floats"
                     ),
                 },
             },

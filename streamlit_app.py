@@ -35,6 +35,7 @@ import overview_metrics
 import overview_page
 import phase_page
 import phase_payouts
+import capital_return
 import question_cards
 import price_history
 import summary_page
@@ -151,7 +152,7 @@ def _range_bar_marker_position(price: float, low: float, high: float) -> tuple[f
 def _render_lens_dots(lenses: dict, theme: dict) -> str:
     """Render N dots showing which forward-looking lenses are active + a count label.
 
-    Order from FORWARD_LENSES: dcf · dividend. Reverse DCF anchors at
+    Order from FORWARD_LENSES (DCF only since 2026-07-30). Reverse DCF anchors at
     price by definition; multiples + historical demoted off the watchlist
     2026-07-30 (shown in the ticker-page "Multiples" tab) — all excluded here.
 
@@ -730,171 +731,6 @@ def _render_football_field(summary: dict | None, theme: dict,
         f'<div class="ff-markers">{markers_html}</div>'
         f'</div>'
     )
-
-
-def _ddm_at(ttm: float, g: float, ke: float, g_term: float,
-            stage1_years: int = 5) -> float:
-    """Two-stage DDM valuation at explicit assumptions.
-
-    Computes PV of stage-1 dividends (D₀ × (1+g)ⁿ discounted at ke for
-    n=1..stage1_years) plus PV of Gordon terminal value at end of stage 1.
-
-    Returns float("inf") when ke ≤ g_term (Gordon doesn't converge) so
-    callers can render the cell as "—" without raising. No growth cap —
-    the lens's 15% cap is upstream; the matrix is exploratory.
-    """
-    if ke <= g_term:
-        return float("inf")
-
-    pv_stage1 = 0.0
-    d = ttm
-    for n in range(1, stage1_years + 1):
-        d = d * (1 + g)
-        pv_stage1 += d / ((1 + ke) ** n)
-
-    terminal_value = d * (1 + g_term) / (ke - g_term)
-    pv_terminal = terminal_value / ((1 + ke) ** stage1_years)
-    return pv_stage1 + pv_terminal
-
-
-_DIVIDEND_FAIR_THRESHOLD = 0.10
-
-
-def _dividend_conclusion(lens_mid: float, price: float) -> str:
-    """Return one of three conclusion-sentence variants comparing the
-    Dividend lens midpoint to the current stock price.
-
-    Threshold: ±10% around price → "fairly priced". Above → undervaluation
-    signal. Below → overvaluation signal.
-
-    Returned string is plain text (no HTML); the caller wraps it for
-    styling via st.markdown with unsafe_allow_html.
-    """
-    upper = price * (1 + _DIVIDEND_FAIR_THRESHOLD)
-    lower = price * (1 - _DIVIDEND_FAIR_THRESHOLD)
-
-    if lens_mid > upper:
-        pct = (lens_mid / price - 1) * 100
-        return (
-            f"Lens midpoint ${lens_mid:.0f} is {pct:.1f}% above current "
-            f"${price:.0f} — potential undervaluation signal."
-        )
-    if lens_mid < lower:
-        pct = (1 - lens_mid / price) * 100
-        return (
-            f"Lens midpoint ${lens_mid:.0f} is {pct:.1f}% below current "
-            f"${price:.0f} — overvaluation signal."
-        )
-    return (
-        f"Lens midpoint ${lens_mid:.0f} ≈ current ${price:.0f} — "
-        f"fairly priced."
-    )
-
-
-def _render_dividend_sensitivity_matrix(
-    ttm: float,
-    g_range: tuple,
-    ke_range: tuple,
-    g_term: float,
-    stage1_years: int,
-    price: float,
-    theme: dict,
-) -> str:
-    """Render a DDM sensitivity matrix as an HTML <table>.
-
-    Rows = growth (g₁), columns = cost of equity (ke), cells = DDM FV.
-    Cell coloring mirrors the Reverse DCF matrix:
-    - Market-implied cell (FV closest to `price`): accent background, bold white
-    - Undervalued cells (FV ≥ price): accent_fill (light green) background
-    - Overvalued cells (FV < price): red_light (light peach) background
-    - Degenerate cells (ke ≤ g_term): "—" with neutral background
-
-    Pure function: returns HTML string. Theme dict must provide
-    border_medium/card/text/text_muted/accent/accent_fill/red_light keys.
-    """
-    g_min, g_max, g_step = g_range
-    ke_min, ke_max, ke_step = ke_range
-
-    def _arange(lo, hi, step):
-        out = []
-        v = lo
-        while v <= hi + step * 0.5:
-            out.append(round(v, 6))
-            v += step
-        return out
-
-    g_values = _arange(g_min, g_max, g_step)
-    ke_values = _arange(ke_min, ke_max, ke_step)
-
-    fv_grid = {}
-    for g in g_values:
-        for ke in ke_values:
-            fv_grid[(g, ke)] = _ddm_at(
-                ttm=ttm, g=g, ke=ke, g_term=g_term, stage1_years=stage1_years
-            )
-
-    finite_cells = [k for k, v in fv_grid.items() if v != float("inf")]
-    market_implied = (
-        min(finite_cells, key=lambda k: abs(fv_grid[k] - price))
-        if finite_cells else None
-    )
-
-    hdr_style = (
-        f"background:{theme['card']};color:{theme['text_muted']};"
-        f"font-size:0.7rem;font-weight:600;padding:6px 8px;"
-        f"text-align:center;position:sticky;top:0;z-index:1"
-    )
-    row_hdr_style = (
-        f"background:{theme['card']};color:{theme['text']};"
-        f"font-size:0.75rem;font-weight:600;padding:6px 8px;"
-        f"text-align:left;position:sticky;left:0;z-index:1"
-    )
-
-    html = (
-        f'<div style="overflow-x:auto;border:1px solid {theme["border_medium"]};'
-        f'border-radius:12px;background:{theme["card"]}">'
-        f'<table style="border-collapse:collapse;width:100%;font-size:0.75rem">'
-    )
-
-    html += f'<thead><tr><th style="{hdr_style};text-align:left">Growth \\ ke</th>'
-    for ke in ke_values:
-        html += f'<th style="{hdr_style}">{ke:.2%}</th>'
-    html += "</tr></thead><tbody>"
-
-    for g in g_values:
-        html += f'<tr><td style="{row_hdr_style}">{g:.1%}</td>'
-        for ke in ke_values:
-            fv = fv_grid[(g, ke)]
-            if fv == float("inf"):
-                cell_text = "—"
-                cell_style = (
-                    f"padding:6px 8px;text-align:center;"
-                    f"color:{theme['text_muted']};"
-                )
-            else:
-                cell_text = _fmt_fv_dollar(fv)
-                if (g, ke) == market_implied:
-                    cell_style = (
-                        f"background:{theme['accent']};color:#fff;"
-                        f"font-weight:700;padding:6px 8px;text-align:center;"
-                    )
-                elif fv >= price:
-                    cell_style = (
-                        f"background:{theme['accent_fill']};"
-                        f"color:{theme['text']};"
-                        f"padding:6px 8px;text-align:center;"
-                    )
-                else:
-                    cell_style = (
-                        f"background:{theme['red_light']};"
-                        f"color:{theme['text']};"
-                        f"padding:6px 8px;text-align:center;"
-                    )
-            html += f'<td style="{cell_style}">{cell_text}</td>'
-        html += "</tr>"
-
-    html += "</tbody></table></div>"
-    return html
 
 
 def _effective_stc(cfg):
@@ -1618,6 +1454,17 @@ st.markdown(f"""
     /* Growth tab: the "Revenue & net income" section holds the range control,
        the Plotly chart and the CAGR table, styled like .st-key-qc_phase_chart. */
     .st-key-qc_growth_chart {{
+        background: var(--card);
+        border-top: 3px solid var(--accent);
+        border-radius: 24px;
+        box-shadow: var(--shadow);
+        padding: 20px 24px 24px;
+        margin: 0 0 18px;
+    }}
+    /* Capital Return tab: the three chart sections (cash use, dividend,
+       share count) hold Plotly charts, so they are keyed containers styled
+       like .st-key-qc_phase_chart. */
+    .st-key-qc_cr_cash, .st-key-qc_cr_dividend, .st-key-qc_cr_shares {{
         background: var(--card);
         border-top: 3px solid var(--accent);
         border-radius: 24px;
@@ -3865,10 +3712,9 @@ def _dcf_editor(ticker):
         _fund_error, fund = e, {}
 
     (_tab_overview, _tab_business, _tab_phase, _tab_moat,
-     _tab_growth, _tab_management, _tab_risk, _tab_summary, _tab_fundamentals, _tab_dcf, _tab_rdcf,
-     _tab_peers, _tab_dividend, _tab_history) = st.tabs(
-        ["Overview", "Business", "Phase", "Moat", "Growth", "Management", "Risk", "Summary", "Fundamentals", "DCF",
-         "Reverse DCF", "Peer Comparison", "Dividend", "History"])
+     _tab_growth, _tab_management, _tab_risk, _tab_summary, _tab_capital, _tab_fundamentals,
+     _tab_dcf, _tab_rdcf, _tab_peers, _tab_history) = st.tabs(
+        ["Overview", "Business", "Phase", "Moat", "Growth", "Management", "Risk", "Summary", "Capital Return", "Fundamentals", "DCF", "Reverse DCF", "Peer Comparison", "History"])
 
     # Overview: three white sections -- Company (profile + at a glance), Price vs
     # S&P 500 and Key figures. Read-only; the profile comes from the "Company
@@ -4175,6 +4021,82 @@ def _dcf_editor(ticker):
             except Exception as e:
                 logger.warning("Summary %s for %s failed: %s", _sname, ticker, e)
                 st.caption(f"{_sname} unavailable right now.")
+
+    # Capital Return: what the company hands back and how -- headline tiles
+    # with one rule-based sentence, where the cash went, the dividend and the
+    # share count. Fully computed from EDGAR (capital_return), no AI text;
+    # reuses the Overview's cash-flow loader. Every section degrades to a caption.
+    with _tab_capital:
+        try:
+            _crcf = _overview_cashflow(ticker)
+        except Exception as e:
+            logger.warning("cash flow statement for %s failed: %s", ticker, e)
+            _crcf = None
+        _crprice = live_price if live_price and live_price > 0 else None
+        _crmuted = T.get("text_muted", "#888")
+
+        def _cr_caption(text):
+            st.markdown(
+                f'<div style="font-size:.78rem;color:{_crmuted};margin-top:4px">'
+                f'{question_cards.esc(text)}</div>', unsafe_allow_html=True)
+
+        try:
+            st.markdown(capital_return.headline_section_html(
+                capital_return.headline(fund, _crcf, _crprice)), unsafe_allow_html=True)
+        except Exception as e:
+            logger.warning("Capital return headline for %s failed: %s", ticker, e)
+            st.caption("Capital return unavailable right now.")
+
+        with st.container(key="qc_cr_cash"):
+            st.markdown('<div class="qc-label">Where the cash went</div>',
+                        unsafe_allow_html=True)
+            try:
+                _crflows = capital_return.annual_flows(fund, _crcf)
+                _crfig = (capital_return.cash_use_figure(_crflows, T) if _crflows else None)
+                _crcap = capital_return.cash_use_caption(fund, _crcf)
+            except Exception as e:
+                logger.warning("Capital return cash chart for %s failed: %s", ticker, e)
+                _crfig = None
+            if _crfig is not None:
+                st.plotly_chart(_crfig, width="stretch", config={"displayModeBar": False},
+                                key=f"cr_cash_{ticker}")
+                _cr_caption(_crcap)
+            else:
+                st.caption("No cash-flow history available.")
+
+        with st.container(key="qc_cr_dividend"):
+            st.markdown('<div class="qc-label">Dividend</div>', unsafe_allow_html=True)
+            try:
+                _crdiv = capital_return.dividend_stats(fund, _crcf)
+                if _crdiv.get("pays") and _crdiv.get("years"):
+                    st.plotly_chart(
+                        capital_return.dps_figure(_crdiv["years"], _crdiv["dps"], T),
+                        width="stretch", config={"displayModeBar": False},
+                        key=f"cr_dps_{ticker}")
+                    _cr_caption("Dividend per share: dividends paid / split-adjusted "
+                                "shares (SEC filings).")
+                st.markdown(capital_return.dividend_section_body_html(_crdiv),
+                            unsafe_allow_html=True)
+            except Exception as e:
+                logger.warning("Capital return dividend for %s failed: %s", ticker, e)
+                st.caption("Dividend figures unavailable right now.")
+
+        with st.container(key="qc_cr_shares"):
+            st.markdown('<div class="qc-label">Share count</div>', unsafe_allow_html=True)
+            try:
+                _cryears, _crshares = capital_return.share_count_series(fund)
+                if _cryears:
+                    st.plotly_chart(
+                        capital_return.shares_figure(_cryears, _crshares, T),
+                        width="stretch", config={"displayModeBar": False},
+                        key=f"cr_shares_{ticker}")
+                else:
+                    st.caption("No share count history available.")
+                st.markdown(capital_return.share_table_html(
+                    capital_return.share_count_rows(fund, _crcf)), unsafe_allow_html=True)
+            except Exception as e:
+                logger.warning("Capital return share count for %s failed: %s", ticker, e)
+                st.caption("Share count unavailable right now.")
 
     with _tab_dcf:
         with st.container(key="tabcard_dcf_1"):
@@ -5090,242 +5012,6 @@ def _dcf_editor(ticker):
                         st.rerun()
                     else:
                         st.warning("Could not fetch peer data. Check the ticker(s).")
-
-    with _tab_dividend:
-        with st.container(key="tabcard_dividend"):
-            st.markdown("#### Dividend Lens")
-
-            # Locate the lens output in the stored summary.
-            _summary = cfg.get("valuation_summary") or {}
-            _lenses = _summary.get("lenses") or {}
-            _div_lens = _lenses.get("dividend")
-            _inputs = cfg.get("valuation_inputs") or {}
-            _ttm = _inputs.get("ttm_dividend") or 0.0
-            _price = cfg.get("stock_price") or 0.0
-
-            # ── Edge case: no stored summary at all ────────────────────
-            if not _summary:
-                st.info(
-                    "Run **Refresh All** on the watchlist (or call "
-                    "`calculate_multi_lens_valuation` via the MCP) to compute "
-                    "the Dividend lens for this ticker first."
-                )
-
-            # ── Edge case: non-payer (lens skipped due to ttm=0) ───────
-            elif _ttm <= 0:
-                st.info(
-                    f"**{ticker}** doesn't pay dividends — Dividend lens not "
-                    f"applicable. Use the `update_valuation_inputs` MCP tool "
-                    f"to inject a target dividend if you want scenario analysis."
-                )
-
-            # ── Edge case: lens computed but skipped (e.g. <3y history) ─
-            elif _div_lens is None:
-                st.warning(
-                    f"Dividend lens skipped for {ticker}. Likely reason: "
-                    f"insufficient dividend history (need ≥3y) or "
-                    f"`cost_of_equity ≤ terminal_growth`. Re-run Refresh All "
-                    f"after adjusting inputs."
-                )
-
-            else:
-                _details = _div_lens.get("details") or {}
-                _baseline_g = _details.get("growth_rate_stage1") or 0.0
-                _baseline_ke = _details.get("cost_of_equity") or 0.0
-                _g_term_used = _details.get("terminal_growth") or 0.025
-                _stage1_years = _details.get("stage1_years") or 5
-                _ddm_fv = _details.get("ddm_fv") or 0.0
-                _yield_mr_fv = _details.get("yield_mr_fv")
-                _median_yield = _details.get("median_5y_yield")
-
-                if _baseline_ke <= _g_term_used:
-                    st.warning(
-                        f"Cost of equity ({_baseline_ke:.2%}) ≤ terminal "
-                        f"growth ({_g_term_used:.2%}) — DDM formula doesn't "
-                        f"converge for these assumptions. Adjust the DCF "
-                        f"editor's risk-free rate, ERP, or terminal growth."
-                    )
-                else:
-                    _div_g_range = (0.0, 0.12, 0.01)
-                    _div_ke_range = (
-                        max(0.0, _baseline_ke - 0.02),
-                        _baseline_ke + 0.02,
-                        0.005,
-                    )
-
-                    with st.expander("Adjust ranges"):
-                        _dc_e1, _dc_e2 = st.columns(2)
-                        with _dc_e1:
-                            st.markdown("**Growth rate (g₁)**")
-                            _dg_min = st.number_input(
-                                "Min %", value=0.0,
-                                step=1.0, format="%.0f",
-                                key="div_gmin",
-                            ) / 100
-                            _dg_max = st.number_input(
-                                "Max %", value=12.0,
-                                step=1.0, format="%.0f",
-                                key="div_gmax",
-                            ) / 100
-                            _dg_step = st.number_input(
-                                "Step %", value=1.0,
-                                step=0.5, format="%.1f",
-                                key="div_gstep",
-                            ) / 100
-                            if _dg_step > 0 and _dg_max > _dg_min:
-                                _div_g_range = (_dg_min, _dg_max, _dg_step)
-                        with _dc_e2:
-                            st.markdown("**Cost of equity (ke)**")
-                            _dke_min = st.number_input(
-                                "Min %", value=max(0.0, _baseline_ke * 100 - 2),
-                                step=0.5, format="%.1f",
-                                key="div_kemin",
-                            ) / 100
-                            _dke_max = st.number_input(
-                                "Max %", value=_baseline_ke * 100 + 2,
-                                step=0.5, format="%.1f",
-                                key="div_kemax",
-                            ) / 100
-                            _dke_step = st.number_input(
-                                "Step %", value=0.5,
-                                step=0.1, format="%.1f",
-                                key="div_kestep",
-                            ) / 100
-                            if _dke_step > 0 and _dke_max > _dke_min:
-                                _div_ke_range = (_dke_min, _dke_max, _dke_step)
-
-                    _card_border = (
-                        f'border-top:1px solid {T["border_medium"]};'
-                        f'border-right:1px solid {T["border_medium"]};'
-                        f'border-bottom:1px solid {T["border_medium"]};'
-                        f'border-left:3px solid {T["accent"]}'
-                    )
-
-                    _dc1, _dc2 = st.columns(2)
-                    with _dc1:
-                        st.markdown(
-                            f'<div style="{_card_border};border-radius:12px;'
-                            f'padding:20px;text-align:center;'
-                            f'background:{T["card"]};box-shadow:{T["shadow"]}">'
-                            f'<div style="color:{T["text_muted"]};font-size:0.75rem;'
-                            f'text-transform:uppercase;letter-spacing:0.05em;'
-                            f'font-weight:600">DDM Fair Value</div>'
-                            f'<div style="font-size:1.8rem;font-weight:700;'
-                            f'margin:8px 0;color:{T["text"]}">{_fmt_fv_dollar(_ddm_fv)}</div>'
-                            f'<div style="color:{T["text_muted"]};font-size:0.85rem">'
-                            f'{_baseline_g:.1%} growth · ke {_baseline_ke:.1%} · '
-                            f'terminal {_g_term_used:.1%}</div>'
-                            f'</div>',
-                            unsafe_allow_html=True,
-                        )
-                    with _dc2:
-                        if _yield_mr_fv is not None and _median_yield is not None:
-                            _y_card_body = (
-                                f'<div style="font-size:1.8rem;font-weight:700;'
-                                f'margin:8px 0;color:{T["text"]}">'
-                                f'{_fmt_fv_dollar(_yield_mr_fv)}</div>'
-                                f'<div style="color:{T["text_muted"]};'
-                                f'font-size:0.85rem">'
-                                f'${_ttm:.2f} TTM / '
-                                f'{_median_yield:.2%} historic median yield</div>'
-                            )
-                        else:
-                            _y_card_body = (
-                                f'<div style="font-size:1.4rem;font-weight:700;'
-                                f'margin:8px 0;color:{T["text_muted"]}">'
-                                f'Insufficient history</div>'
-                                f'<div style="color:{T["text_muted"]};'
-                                f'font-size:0.85rem">Needs ≥3y of dividend data</div>'
-                            )
-                        st.markdown(
-                            f'<div style="{_card_border};border-radius:12px;'
-                            f'padding:20px;text-align:center;'
-                            f'background:{T["card"]};box-shadow:{T["shadow"]}">'
-                            f'<div style="color:{T["text_muted"]};font-size:0.75rem;'
-                            f'text-transform:uppercase;letter-spacing:0.05em;'
-                            f'font-weight:600">Yield Mean-Reversion</div>'
-                            f'{_y_card_body}'
-                            f'</div>',
-                            unsafe_allow_html=True,
-                        )
-
-                    if _yield_mr_fv is not None:
-                        _lens_mid = (_ddm_fv + _yield_mr_fv) / 2.0
-                    else:
-                        _lens_mid = _ddm_fv
-                    _conclusion = _dividend_conclusion(
-                        lens_mid=_lens_mid, price=_price
-                    )
-                    st.markdown(
-                        f'<div style="color:{T["text_muted"]};font-size:0.85rem;'
-                        f'text-align:center;margin:12px 0 16px">{_conclusion}</div>',
-                        unsafe_allow_html=True,
-                    )
-
-                    st.markdown(
-                        f'<div style="display:flex;align-items:center;gap:6px;'
-                        f'flex-wrap:wrap;margin-bottom:8px">'
-                        f'<span style="font-weight:700">Sensitivity Matrix</span>'
-                        f'<span style="color:{T["text_muted"]}">— ke: '
-                        f'{_baseline_ke:.2%} | Market: ${_price:.2f}</span>'
-                        f'<span class="dvd-tip" style="position:relative;'
-                        f'cursor:help;display:inline-flex;align-items:center">'
-                        f'<svg width="15" height="15" viewBox="0 0 16 16" '
-                        f'fill="none" style="opacity:0.4;vertical-align:middle">'
-                        f'<circle cx="8" cy="8" r="7" stroke="{T["text_muted"]}" '
-                        f'stroke-width="1.5"/>'
-                        f'<text x="8" y="11.5" text-anchor="middle" font-size="10" '
-                        f'font-weight="600" fill="{T["text_muted"]}">?</text>'
-                        f'</svg>'
-                        f'<span style="visibility:hidden;opacity:0;position:absolute;'
-                        f'left:22px;top:-8px;background:{T["card"]};color:{T["text"]};'
-                        f'border:1px solid {T["border_medium"]};border-radius:8px;'
-                        f'padding:10px 14px;font-size:0.78rem;line-height:1.5;'
-                        f'font-weight:400;width:280px;z-index:999;'
-                        f'box-shadow:{T["shadow_hover"]};pointer-events:none;'
-                        f'transition:opacity 0.15s ease">'
-                        f'<b>g</b> = aanname voor toekomstige dividendgroei '
-                        f'(jouw input — rijen).<br><br>'
-                        f'<b>ke</b> = cost of equity, rendementseis van '
-                        f'aandeelhouders. Automatisch berekend via CAPM: '
-                        f'risicovrije rente + beta × equity risk premium '
-                        f'(kolommen).'
-                        f'</span></span></div>'
-                        f'<style>.dvd-tip:hover > span:last-child'
-                        f'{{visibility:visible!important;opacity:1!important}}</style>',
-                        unsafe_allow_html=True,
-                    )
-                    _matrix_html = _render_dividend_sensitivity_matrix(
-                        ttm=_ttm,
-                        g_range=_div_g_range,
-                        ke_range=_div_ke_range,
-                        g_term=_g_term_used,
-                        stage1_years=_stage1_years,
-                        price=_price,
-                        theme=T,
-                    )
-                    st.markdown(_matrix_html, unsafe_allow_html=True)
-
-                    st.markdown(
-                        f'<div style="display:flex;gap:20px;font-size:0.8rem;'
-                        f'color:{T["text_muted"]};margin-top:4px">'
-                        f'<span><span style="display:inline-block;width:12px;'
-                        f'height:12px;background:{T["accent"]};border-radius:2px;'
-                        f'vertical-align:middle;margin-right:4px"></span>'
-                        f'Market-implied</span>'
-                        f'<span><span style="display:inline-block;width:12px;'
-                        f'height:12px;background:{T["accent_fill"]};'
-                        f'border:1px solid {T["accent"]};border-radius:2px;'
-                        f'vertical-align:middle;margin-right:4px"></span>'
-                        f'Undervalued</span>'
-                        f'<span><span style="display:inline-block;width:12px;'
-                        f'height:12px;background:{T["red_light"]};'
-                        f'border:1px solid {T["red"]};border-radius:2px;'
-                        f'vertical-align:middle;margin-right:4px"></span>'
-                        f'Overvalued</span>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
 
     with _tab_fundamentals:
         st.markdown("#### Fundamentals")

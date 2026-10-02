@@ -695,7 +695,7 @@ def test_tools_call_update_valuation_inputs_passes_args(monkeypatch):
             "id": 1,
             "params": {
                 "name": "update_valuation_inputs",
-                "arguments": {"ticker": "PEP", "fields": {"dividend_5y_cagr": 0.08}},
+                "arguments": {"ticker": "PEP", "fields": {"forward_eps": 6.5}},
             },
         },
         headers={"Authorization": f"Bearer {token}"},
@@ -703,7 +703,7 @@ def test_tools_call_update_valuation_inputs_passes_args(monkeypatch):
     assert r.status_code == 200
     assert captured == {
         "ticker": "PEP",
-        "fields": {"dividend_5y_cagr": 0.08},
+        "fields": {"forward_eps": 6.5},
         "user_id": "jwt-uid",
     }
 
@@ -718,7 +718,7 @@ def test_tools_call_update_lens_weights_passes_args(monkeypatch):
     captured = {}
     def fake_impl(ticker, weights, user_id=None):
         captured.update({"ticker": ticker, "weights": weights, "user_id": user_id})
-        return '{"dividend": 0.20}'
+        return '{"multiples": 0.20}'
     monkeypatch.setattr(mcp_server, "_update_lens_weights_impl", fake_impl)
 
     token = sign_jwt({"type": "access_token", "user_id": "jwt-uid"}, ttl_seconds=60)
@@ -731,7 +731,7 @@ def test_tools_call_update_lens_weights_passes_args(monkeypatch):
             "id": 1,
             "params": {
                 "name": "update_lens_weights",
-                "arguments": {"ticker": "PEP", "weights": {"dividend": 0.20}},
+                "arguments": {"ticker": "PEP", "weights": {"multiples": 0.20}},
             },
         },
         headers={"Authorization": f"Bearer {token}"},
@@ -739,7 +739,7 @@ def test_tools_call_update_lens_weights_passes_args(monkeypatch):
     assert r.status_code == 200
     assert captured == {
         "ticker": "PEP",
-        "weights": {"dividend": 0.20},
+        "weights": {"multiples": 0.20},
         "user_id": "jwt-uid",
     }
 

@@ -567,10 +567,12 @@ def _update_lens_weights_impl(ticker: str, weights: dict,
     valid_keys = set(valuation_lenses.DEFAULT_LENS_WEIGHTS.keys())
     unknown = sorted(k for k in weights if k not in valid_keys)
     if unknown:
-        return json.dumps({
-            "error": f"unknown lens key(s): {unknown}. "
-                     f"Valid: {sorted(valid_keys)}",
-        })
+        msg = (f"unknown lens key(s): {unknown}. "
+               f"Valid: {sorted(valid_keys)}")
+        if "dividend" in unknown:
+            msg += (". The dividend lens has been removed; dividends are "
+                    "shown on the ticker page's Capital Return tab instead.")
+        return json.dumps({"error": msg})
 
     for k, v in weights.items():
         if not isinstance(v, (int, float)) or isinstance(v, bool) or v < 0:
@@ -1154,8 +1156,8 @@ def get_watchlist() -> str:
 def update_valuation_inputs(ticker: str, fields: dict) -> str:
     """Override one or more valuation_inputs fields for a watchlist ticker.
 
-    Use this to inject your own view (e.g. expected dividend growth, forward
-    EPS, own historical multiples) that should NOT be overwritten by the next
+    Use this to inject your own view (e.g. forward EPS, own historical
+    multiples) that should NOT be overwritten by the next
     yfinance auto-refresh. Each updated field is removed from `_auto_filled`
     so subsequent refreshes preserve the override.
 
@@ -1167,11 +1169,6 @@ def update_valuation_inputs(ticker: str, fields: dict) -> str:
         ticker: Stock ticker (e.g. "PEP")
         fields: Dict of valuation_inputs keys to set. Valid keys, grouped by
             which lens consumes them:
-
-            Dividend lens (compute_dividend_lens):
-                ttm_dividend         (float, $/share)
-                dividend_5y_cagr     (float, decimal, e.g. 0.08 = 8%)
-                median_5y_yield      (float, decimal, e.g. 0.025 = 2.5%)
 
             Historical lens (compute_historical_lens) — own-history multiples:
                 historical_fwd_pe       (float, own 5y median forward P/E)
@@ -1187,7 +1184,6 @@ def update_valuation_inputs(ticker: str, fields: dict) -> str:
                 (peer multiples come from cfg["peers"], not from this tool)
 
             Examples:
-                {"dividend_5y_cagr": 0.08}
                 {"forward_eps": 6.50, "ttm_ebitda": 15000}
                 {"historical_trailing_pe": 50.0,
                  "historical_ev_ebitda": 35.0,
@@ -1245,7 +1241,7 @@ def update_lens_weights(ticker: str, weights: dict) -> str:
     """Override one or more lens weights for a watchlist ticker.
 
     Controls how much each lens contributes to weighted_fv_mid. By default
-    DCF=0.50, Peers=0.25, Historical=0.25, Dividend=0.0, Reverse DCF=0.0.
+    DCF=0.50, Peers=0.0, Historical=0.0, Reverse DCF=0.0.
     Specified keys merge into cfg["lens_weights"]; unspecified keys retain
     their current value (or fall back to defaults). The orchestrator
     renormalizes active lens weights to sum to 1.0 at compute time, so
@@ -1254,9 +1250,10 @@ def update_lens_weights(ticker: str, weights: dict) -> str:
     Args:
         ticker: Stock ticker (e.g. "PEP")
         weights: Dict mapping lens keys to non-negative floats. Valid
-            keys: dcf, multiples, historical, reverse_dcf, dividend.
+            keys: dcf, multiples, historical, reverse_dcf. ("dividend" is
+            rejected: that lens has been removed.)
             Examples:
-                {"dividend": 0.20}              # opt in dividend lens for PEP
+                {"multiples": 0.20}             # weigh the peer lens in
                 {"dcf": 0.60, "multiples": 0.20, "historical": 0.20}
                 {}                              # reset to DEFAULT_LENS_WEIGHTS
 
