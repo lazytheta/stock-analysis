@@ -97,6 +97,70 @@ class TestPositions(_Base):
         self.assertIn("USD", self._run())
 
 
+# META as reported by the owner on 2026-10-05: 3 shares bought at $556.46,
+# now $739.61, in a EUR account. total_pl is the net cash moved (-$1,669.37),
+# which the tool used to hand back as unrealized_pl.
+_META = {"META": {"shares_held": 3.0, "purchase_price": 556.46, "broker_price": 739.61,
+                  "equity_cost": -1669.38, "total_pl": -1669.37,
+                  "currency": "USD", "native_currency": "USD",
+                  "native_purchase_price": 556.46, "native_price": 739.61,
+                  "isin": "US30303M1027", "exchange": "US", "trades": [],
+                  "account_currency": "EUR", "account_cost": 1442.01,
+                  "account_value": 1975.55, "account_pl": 533.54,
+                  "account_fx_pl": 49.36},
+         "IEQU": {"shares_held": 250.0, "purchase_price": 14.0, "broker_price": 13.8,
+                  "equity_cost": -3500.0, "total_pl": -3500.0,
+                  "currency": "USD", "native_currency": "EUR",
+                  "native_purchase_price": 12.176, "native_price": 11.957,
+                  "isin": "IE00BKM4GZ66", "exchange": "", "trades": [],
+                  "account_currency": "EUR", "account_cost": 3044.0,
+                  "account_value": 2989.25, "account_pl": -54.75,
+                  "account_fx_pl": None}}
+
+
+class TestPositionReturns(_Base):
+    def _rows(self):
+        import json
+        with patch("t212_api.fetch_portfolio_data", return_value=(_META, "42")):
+            out = json.loads(mcp_server._t212_positions_impl(user_id="user-a"))
+        return {p["ticker"]: p for p in out["positions"]}
+
+    def test_unrealized_pl_is_value_minus_cost_not_the_outlay(self):
+        meta = self._rows()["META"]
+        self.assertAlmostEqual(meta["market_value"], 2218.83, places=2)
+        self.assertAlmostEqual(meta["unrealized_pl"], 549.45, places=2)
+
+    def test_unrealized_pl_sign_follows_value_minus_cost_for_every_position(self):
+        for p in self._rows().values():
+            self.assertAlmostEqual(p["unrealized_pl"],
+                                   p["market_value"] - p["shares"] * p["cost_per_share"],
+                                   places=1)
+        self.assertLess(self._rows()["IEQU"]["unrealized_pl"], 0)
+
+    def test_price_return_is_the_share_s_own_move(self):
+        self.assertAlmostEqual(self._rows()["META"]["price_return_pct"], 32.91, places=2)
+
+    def test_account_currency_figures_come_straight_from_trading_212(self):
+        meta = self._rows()["META"]
+        self.assertEqual(meta["account_currency"], "EUR")
+        self.assertEqual(meta["pl_account_ccy"], 533.54)
+        self.assertEqual(meta["fx_pl_account_ccy"], 49.36)
+        # 533.54 / 1442.01 — the number the Trading 212 app shows (~37%).
+        self.assertAlmostEqual(meta["total_return_pct_account_ccy"], 37.0, places=1)
+
+    def test_same_currency_position_has_no_fx_part(self):
+        iequ = self._rows()["IEQU"]
+        self.assertIsNone(iequ["fx_pl_account_ccy"])
+        # Price return uses the native EUR prices, not the USD conversion.
+        self.assertAlmostEqual(iequ["price_return_pct"], (11.957 / 12.176 - 1) * 100, places=2)
+
+    def test_tool_description_separates_the_two_returns(self):
+        doc = mcp_server.t212_positions.__doc__ if hasattr(mcp_server.t212_positions, "__doc__") else ""
+        doc = doc or getattr(getattr(mcp_server.t212_positions, "fn", None), "__doc__", "")
+        self.assertIn("What did the stock do?", doc)
+        self.assertIn("What did I earn", doc)
+
+
 class TestBalance(_Base):
     def test_it_reports_the_converted_figures_and_the_rate(self):
         with patch("t212_api.fetch_account_balances", return_value=_BALANCES):

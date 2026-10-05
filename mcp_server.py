@@ -2053,19 +2053,49 @@ def _t212_positions_impl(user_id: str | None = None) -> str:
         # table. Reading the key gave every position a value of zero.
         shares = d["shares_held"]
         price = d.get("broker_price") or 0.0
+        avg = d.get("purchase_price") or 0.0
+        market_value = shares * price
+        # Not total_pl: that field is the net cash the name has moved (negative
+        # for a plain buy), which is what the portfolio page needs but not a
+        # profit. Reading it reported META's -$1,669 outlay as its P/L.
+        unrealized = market_value - shares * avg
+        # What the share did, in the currency it trades in — no FX in it.
+        native_avg = d.get("native_purchase_price") or 0.0
+        native_price = d.get("native_price") or 0.0
+        price_ret = ((native_price / native_avg - 1) * 100
+                     if native_avg > 0 and native_price > 0 else None)
+        # What the user earned in the account's currency: T212's own numbers
+        # (walletImpact), so it matches the app instead of a rate we picked.
+        acct_cost = d.get("account_cost")
+        acct_pl = d.get("account_pl")
+        acct_fx = d.get("account_fx_pl")
+        total_ret = (acct_pl / acct_cost * 100
+                     if acct_pl is not None and acct_cost else None)
         rows.append({
             "ticker": symbol,
             "shares": round(shares, 4),
-            "cost_per_share": round(d.get("purchase_price") or 0.0, 2),
+            "cost_per_share": round(avg, 2),
             "price": round(price, 2),
-            "market_value": round(shares * price, 2),
-            "unrealized_pl": round(d.get("total_pl") or 0.0, 2),
+            "market_value": round(market_value, 2),
+            "unrealized_pl": round(unrealized, 2),
             "currency": d.get("currency", "USD"),
             "isin": d.get("isin", ""),
+            "instrument_currency": d.get("native_currency", ""),
+            "price_return_pct": None if price_ret is None else round(price_ret, 2),
+            "account_currency": d.get("account_currency", ""),
+            "pl_account_ccy": None if acct_pl is None else round(acct_pl, 2),
+            "fx_pl_account_ccy": None if acct_fx is None else round(acct_fx, 2),
+            "total_return_pct_account_ccy": (None if total_ret is None
+                                             else round(total_ret, 2)),
         })
     return json.dumps({
         "account_id": account_id,
-        "currency_note": "All figures converted to USD.",
+        "currency_note": ("shares/cost_per_share/price/market_value/unrealized_pl "
+                          "are converted to USD. price_return_pct is the share's "
+                          "own move in its trading currency (no FX). "
+                          "pl_account_ccy, fx_pl_account_ccy and "
+                          "total_return_pct_account_ccy are Trading 212's own "
+                          "figures in account_currency, including the FX effect."),
         "positions": rows,
     }, default=str)
 
@@ -2132,15 +2162,32 @@ def _t212_transactions_impl(ticker: str | None = None,
 
 @mcp.tool()
 def t212_positions() -> str:
-    """Open Trading 212 positions, converted to USD.
+    """Open Trading 212 positions: what each share did, and what the user
+    earned on it in their account currency (e.g. EUR).
 
     Read-only. Requires a Trading 212 API key connected in Lazy Theta
     (Account → Broker Connections).
 
+    Two different returns per position — pick the one the question is about:
+    - "What did the stock do?" → price_return_pct: the share price change
+      since the average purchase price, in the currency the share trades in
+      (USD for META), so without any currency effect.
+    - "What did I earn (in euros)?" → pl_account_ccy and
+      total_return_pct_account_ccy: Trading 212's own profit/loss in the
+      account currency, including the currency effect; these match the
+      Trading 212 app. fx_pl_account_ccy is the part of pl_account_ccy that
+      comes from exchange-rate moves (null when the share trades in the
+      account currency).
+
     Returns:
-        JSON with account_id and a list of positions: ticker, shares,
-        cost_per_share (FIFO), price, market_value, unrealized_pl,
-        currency, isin.
+        JSON with account_id, currency_note and a list of positions:
+        ticker; shares; cost_per_share (average price paid, USD); price (USD);
+        market_value (USD); unrealized_pl (USD, market_value − shares ×
+        cost_per_share, converted at today's rate); currency (unit of the USD
+        fields); isin; instrument_currency; price_return_pct (%);
+        account_currency; pl_account_ccy; fx_pl_account_ccy;
+        total_return_pct_account_ccy (%, pl_account_ccy ÷ Trading 212's cost
+        in account currency).
     """
     try:
         return _t212_positions_impl()

@@ -272,6 +272,9 @@ def fetch_portfolio_data(creds: dict):
             "account_cost": wallet.get("totalCost"),
             "account_value": wallet.get("currentValue"),
             "account_pl": wallet.get("unrealizedProfitLoss"),
+            # The currency part of account_pl, from T212 itself (null when the
+            # instrument trades in the account's own currency).
+            "account_fx_pl": wallet.get("fxImpact"),
         }
     # Names that were traded but are no longer held. T212 returns only open
     # positions, so a name you sold in full would disappear from the app the
@@ -303,6 +306,7 @@ def fetch_portfolio_data(creds: dict):
             "account_cost": None,
             "account_value": None,
             "account_pl": None,
+            "account_fx_pl": None,
         }
 
     info = fetch_account_info(creds)

@@ -142,7 +142,8 @@ class TestPortfolio(unittest.TestCase):
                      "currentPrice": 170.0,
                      "walletImpact": {"currency": "EUR", "totalCost": 1500.0,
                                       "currentValue": 1700.0,
-                                      "unrealizedProfitLoss": 200.0}},
+                                      "unrealizedProfitLoss": 200.0,
+                                      "fxImpact": 12.5}},
                     {"instrument": {"ticker": "ASML_NL_EQ", "name": "ASML",
                                     "isin": "NL0010273215", "currency": "EUR"},
                      "quantity": 5, "averagePricePaid": 600.0,
@@ -158,6 +159,9 @@ class TestPortfolio(unittest.TestCase):
 
         cb, acct = t212_api.fetch_portfolio_data(_CREDS)
         self.assertEqual(acct, "42")
+        # fxImpact, the currency part of the EUR P/L, is passed through as-is.
+        self.assertEqual(cb["AAPL"]["account_fx_pl"], 12.5)
+        self.assertIsNone(cb["ASML"]["account_fx_pl"])
         self.assertEqual(cb["AAPL"]["shares_held"], 10)
         # Negative by convention — see TestSignConvention.
         self.assertEqual(cb["AAPL"]["cost_per_share"], -150.0)
