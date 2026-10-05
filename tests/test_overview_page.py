@@ -175,7 +175,8 @@ def test_key_figures_section():
     assert 'class="qc-section"' in html and ">Key figures</div>" in html
     for text in ("Profitability", "Financial Health", "Growth", "Valuation",
                  "Shareholder Returns", "LATEST FISCAL YEAR (FY2026)",
-                 "COMPOUND ANNUAL GROWTH", "AT CURRENT PRICE",
+                 "PER YEAR", "AT CURRENT PRICE", "END OF FY2026",
+                 "FY2026 PAYOUTS ÷ MARKET CAP",
                  "3Y", "5Y", "10Y", "×", "&#36;5.0B", "Gross margin", "50.0%",
                  "+10.0%", "Total shareholder yield"):
         assert text in html, text
@@ -196,6 +197,14 @@ def test_key_figures_growth_table_layout():
     assert table.index("Revenue") < table.index("EPS") < table.index("FCF")
     assert table.count("<tr>") == 4  # header + three rows
     assert table.count("<td>") == 12
+
+
+def test_key_figures_every_card_has_one_subtitle_line():
+    # Rows only line up across the five cards when each has exactly one
+    # subtitle line above them (Growth's sits in its table header row).
+    body = _body(op.key_figures_section_html(_metrics()))
+    assert body.count('class="ov-sub"') == 4
+    assert "<th>PER YEAR</th>" in body
 
 
 def test_key_figures_css_equal_heights_and_plain_table():

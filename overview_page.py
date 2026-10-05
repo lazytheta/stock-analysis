@@ -63,21 +63,25 @@ METRICS_STYLE = f"""<style>
 @media (min-width:1200px){{.ov-metrics{{grid-template-columns:repeat(5,minmax(0,1fr))}}}}
 .ov-metrics .ov-ctitle{{margin:0 0 2px}}
 .ov-sub{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
-  color:var(--text-muted);margin:0 0 6px}}
+  color:var(--text-muted);margin:0 0 6px;line-height:14px}}
 .ov-row{{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
-  padding:7px 0;border-bottom:1px solid {_HAIRLINE};font-size:14px;color:var(--text)}}
+  padding:7px 0;border-bottom:1px solid {_HAIRLINE};font-size:14px;line-height:20px;
+  color:var(--text)}}
 .ov-row:last-child{{border-bottom:none}}
 .ov-row b{{font-weight:600;white-space:nowrap}}
 .ov-gtab{{width:100%;border-collapse:collapse;font-size:14px;color:var(--text);margin:0}}
 .ov-gtab,.ov-gtab tr,.ov-gtab th,.ov-gtab td{{border:none !important;background:transparent !important}}
 .ov-gtab tr:nth-child(even),.ov-gtab tr:nth-child(odd){{background:transparent !important}}
 .ov-gtab th{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
-  color:var(--text-muted);text-align:right;padding:4px 0 6px 8px}}
-.ov-gtab td{{padding:7px 0 7px 8px;text-align:right;font-weight:600;white-space:nowrap}}
+  color:var(--text-muted);text-align:right;padding:0 0 6px 6px;line-height:14px}}
+.ov-gtab td{{padding:7px 0 7px 6px;text-align:right;font-weight:600;white-space:nowrap;
+  line-height:20px;font-variant-numeric:tabular-nums}}
 .ov-gtab tr td{{border-bottom:1px solid {_HAIRLINE} !important}}
 .ov-gtab tr:last-child td{{border-bottom:none !important}}
 .ov-gtab th:first-child,.ov-gtab td:first-child{{text-align:left;padding-left:0;
-  font-weight:400;white-space:normal}}
+  white-space:normal}}
+.ov-gtab th:first-child{{white-space:nowrap}}
+.ov-gtab td:first-child{{font-weight:400}}
 </style>"""
 
 # Complexity is shown as a neutral 1-3 meter, not traffic-light colours: a
@@ -205,9 +209,10 @@ def _group(title, sub, rows):
 _MONEY = {"Cash & investments", "Total debt"}
 
 
-def _growth_table(growth):
+def _growth_table(growth, sub):
     """Rows Revenue / EPS / FCF, columns 3Y / 5Y / 10Y, from compute()'s
-    (label, years, value) triples."""
+    (label, years, value) triples. The subtitle sits in the header row's
+    first cell, so the rows line up with the other cards' rows."""
     labels, horizons, values = [], [], {}
     for label, n, v in growth:
         if label not in labels:
@@ -222,26 +227,29 @@ def _growth_table(growth):
                   for n in horizons)
         + "</tr>"
         for label in labels)
-    return f'<table class="ov-gtab"><tr><th></th>{head}</tr>{rows}</table>'
+    return (f'<table class="ov-gtab"><tr><th>{qc.esc(sub.upper())}</th>{head}</tr>'
+            f'{rows}</table>')
 
 
 def key_figures_section_html(metrics: dict) -> str:
     """White "Key figures" section: five flat cards (Profitability, Financial
     Health, Growth, Valuation, Shareholder Returns) in a grid of 5/3/2/1
-    columns by width."""
+    columns by width. Every card has a one-line subtitle naming its basis,
+    so the rows of all five line up."""
     fy = metrics.get("fy")
     fy_sub = f"Latest fiscal year (FY{fy})" if fy else "Latest fiscal year"
+    fy_end = f"End of FY{fy}" if fy else "Latest balance sheet"
+    fy_paid = f"FY{fy} payouts ÷ market cap" if fy else "Payouts ÷ market cap"
     cards = [
         _group("Profitability", fy_sub, [
             _row(label, om.fmt_pct(v)) for label, v in metrics.get("profitability", [])]),
-        _group("Financial Health", None, [
+        _group("Financial Health", fy_end, [
             _row(label, om.fmt_money_m(v) if label in _MONEY else om.fmt_mult(v))
             for label, v in metrics.get("health", [])]),
-        _card("Growth", '<div class="ov-sub">COMPOUND ANNUAL GROWTH</div>'
-              + _growth_table(metrics.get("growth", []))),
+        _card("Growth", _growth_table(metrics.get("growth", []), "Per year")),
         _group("Valuation", "At current price", [
             _row(label, om.fmt_mult(v)) for label, v in metrics.get("valuation", [])]),
-        _group("Shareholder Returns", None, [
+        _group("Shareholder Returns", fy_paid, [
             _row(label, om.fmt_pct(v, signed=True))
             for label, v in metrics.get("returns", [])]),
     ]
