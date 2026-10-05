@@ -25,11 +25,15 @@ SECTIONS = (
     ("offer", "What they sell & how they earn"),
     ("customers", "Who their customers are"),
     ("drivers", "What drives revenue"),
-    ("chain", "Where they sit"),
+    ("competitors", "Who they compete with"),
 )
 # Explainers saved before 2026-10-05 carry these two instead of "offer"; the
 # parser joins them so they keep rendering until they are re-run.
 LEGACY_OFFER = ("sell", "model")
+# ...and "chain" (suppliers, buyers and competitors) instead of "competitors",
+# which since 2026-10-05 covers competitors only (owner). Shown under the
+# new heading until re-run.
+LEGACY_COMPETITORS = "chain"
 
 LEAD_MAX = 400
 SECTION_MIN, SECTION_MAX = 150, 700
@@ -41,8 +45,7 @@ _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
 PROMPT = """You are writing the Company Explainer for **{company} ({ticker})**: the part
 of the Overview tab that tells someone who has never heard of the company what
 it actually does. After reading it they must know what it sells, who pays for
-it, how it earns money, what moves its revenue and where it sits in its
-industry.
+it, how it earns money, what moves its revenue and who it competes with.
 
 Base it on the analyses below and on the latest 10-K's Item 1 "Business" and
 its segment note (read them with the SEC connector if you have it). Every
@@ -87,9 +90,11 @@ belongs in one section only — never repeat the revenue model outside "offer".
   the two or three levers that move it (e.g. units shipped, members, price
   per ad, take rate) and the latest figures the company itself reports for
   them. Do not explain the revenue model again.
-- chain (2 to 4 sentences, 150 to 700 characters): where they sit — whom
-  they buy from, whom they sell to, and who they compete with at that step
-  of the chain.
+- competitors (2 to 4 sentences, 150 to 700 characters): who they compete
+  with — the kinds of companies fighting for the same customers or the same
+  budget, where this company is bigger or smaller than them, and what it
+  wins or loses on (price, reach, quality, switching effort). Market share
+  only where a filing discloses it. No suppliers, no customers.
 
 source: the filing you relied on, e.g. "10-K FY2026, filed 2026-08-07".
 
@@ -98,7 +103,7 @@ Output ONLY a fenced JSON block, nothing before or after:
 ```json
 {"lead": "…",
  "sections": {"offer": "…", "customers": "…", "drivers": "…",
-              "chain": "…"},
+              "competitors": "…"},
  "source": "10-K FY2026, filed 2026-08-07"}
 ```
 """
@@ -141,9 +146,12 @@ def parse_company_explainer(content):
     if not isinstance(sections, dict):
         raise ValueError("sections must be an object")
     legacy = "offer" not in sections and any(k in sections for k in LEGACY_OFFER)
-    known = {key for key, _ in SECTIONS} - ({"offer"} if legacy else set())
+    legacy_comp = "competitors" not in sections and LEGACY_COMPETITORS in sections
+    known = {key for key, _ in SECTIONS}
     if legacy:
-        known |= set(LEGACY_OFFER)
+        known = (known - {"offer"}) | set(LEGACY_OFFER)
+    if legacy_comp:
+        known = (known - {"competitors"}) | {LEGACY_COMPETITORS}
     unknown = sorted(set(sections) - known)
     if unknown:
         raise ValueError(f"unknown section(s): {', '.join(unknown)}")
@@ -159,6 +167,8 @@ def parse_company_explainer(content):
     for key, _ in SECTIONS:
         if key == "offer" and legacy:
             out_sections[key] = " ".join(_section(k, SECTION_MAX) for k in LEGACY_OFFER)
+        elif key == "competitors" and legacy_comp:
+            out_sections[key] = _section(LEGACY_COMPETITORS, SECTION_MAX)
         else:
             out_sections[key] = _section(key, OFFER_MAX if key == "offer" else SECTION_MAX)
 

@@ -62,21 +62,37 @@ def test_offer_may_run_longer_than_the_other_sections():
 
 
 def test_four_sections_with_sell_and_model_merged():
-    assert [k for k, _ in ce.SECTIONS] == ["offer", "customers", "drivers", "chain"]
+    assert [k for k, _ in ce.SECTIONS] == ["offer", "customers", "drivers", "competitors"]
+    assert dict(ce.SECTIONS)["competitors"] == "Who they compete with"
     assert dict(ce.SECTIONS)["offer"] == "What they sell & how they earn"
 
 
 def _legacy_sections():
     return {"sell": "SELL " + PARA, "customers": PARA, "model": "MODEL " + PARA,
-            "drivers": PARA, "chain": PARA}
+            "drivers": PARA, "chain": "CHAIN " + PARA}
 
 
 def test_legacy_five_section_explainer_still_parses():
     # Explainers saved before 2026-10-05 have "sell" and "model"; they render
     # joined under the new "offer" heading until re-run.
     out = ce.parse_company_explainer(_block(sections=_legacy_sections()))
-    assert list(out["sections"]) == ["offer", "customers", "drivers", "chain"]
+    assert list(out["sections"]) == ["offer", "customers", "drivers", "competitors"]
     assert out["sections"]["offer"] == f"SELL {PARA} MODEL {PARA}"
+    assert out["sections"]["competitors"] == f"CHAIN {PARA}"
+
+
+def test_offer_with_legacy_chain_still_parses():
+    # META was re-run on 2026-10-05 with "offer" but still "chain".
+    sections = {"offer": PARA, "customers": PARA, "drivers": PARA, "chain": PARA}
+    out = ce.parse_company_explainer(_block(sections=sections))
+    assert out["sections"]["competitors"] == PARA
+
+
+def test_competitors_mixed_with_chain_is_refused():
+    sections = {key: PARA for key, _ in ce.SECTIONS}
+    sections["chain"] = PARA
+    with pytest.raises(ValueError, match="chain"):
+        ce.parse_company_explainer(_block(sections=sections))
 
 
 def test_legacy_explainer_missing_model_is_refused():
@@ -97,6 +113,7 @@ def test_prompt_asks_for_the_four_keys():
     for key, _ in ce.SECTIONS:
         assert f'"{key}"' in ce.PROMPT
     assert '"sell"' not in ce.PROMPT and '"model"' not in ce.PROMPT
+    assert '"chain"' not in ce.PROMPT and "No suppliers, no customers" in ce.PROMPT
 
 
 @pytest.mark.parametrize("lead", ["", "x" * 401])
