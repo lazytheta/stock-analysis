@@ -682,10 +682,20 @@ TOOLS: list[dict] = [
     {
         "name": "t212_positions",
         "description": (
-            "Open Trading 212 positions: shares, FIFO cost per share, current "
-            "price, market value and unrealized P/L. All figures converted to "
-            "USD. Read-only. Requires the user to have connected a Trading 212 "
-            "API key in Lazy Theta."
+            "Open Trading 212 positions. Read-only; requires a Trading 212 API "
+            "key connected in Lazy Theta. Two different returns per position — "
+            "use the one the question is about. 'What did the stock do?' -> "
+            "price_return_pct: the share price change since the average "
+            "purchase price, in the currency the share trades in (no currency "
+            "effect). 'What did I earn in euros?' -> pl_account_ccy and "
+            "total_return_pct_account_ccy: Trading 212's own profit/loss in "
+            "account_currency, including the currency effect; these match the "
+            "Trading 212 app. fx_pl_account_ccy is the part of pl_account_ccy "
+            "caused by exchange-rate moves (null when the share trades in the "
+            "account currency). The other fields are in USD: shares, "
+            "cost_per_share (average price paid), price, market_value and "
+            "unrealized_pl (market_value - shares x cost_per_share, at today's "
+            "rate); instrument_currency is the share's trading currency."
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },
