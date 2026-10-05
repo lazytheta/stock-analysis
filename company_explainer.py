@@ -23,7 +23,7 @@ TITLE = "Company Explainer"
 # revenue model, so the two said the same thing (owner).
 SECTIONS = (
     ("offer", "What they sell & how they earn"),
-    ("customers", "Customers"),
+    ("customers", "Who their customers are"),
     ("drivers", "What drives revenue"),
     ("chain", "Where they sit"),
 )

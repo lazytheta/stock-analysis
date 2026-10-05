@@ -151,7 +151,7 @@ def test_lead_may_run_to_three_sentences():
 
 
 def test_customers_heading_is_plain():
-    assert dict(ce.SECTIONS)["customers"] == "Customers"
+    assert dict(ce.SECTIONS)["customers"] == "Who their customers are"
 
 
 def test_invalid_explainer_falls_back_like_a_missing_one():
