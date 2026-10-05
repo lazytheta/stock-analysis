@@ -46,12 +46,57 @@ def test_unknown_section_is_refused():
         ce.parse_company_explainer(_block(sections=sections))
 
 
-@pytest.mark.parametrize("text", ["Too short.", "x" * 701])
-def test_section_length_is_enforced(text):
+@pytest.mark.parametrize("key,text", [("customers", "Too short."), ("customers", "x" * 701),
+                                      ("offer", "Too short."), ("offer", "x" * 901)])
+def test_section_length_is_enforced(key, text):
     sections = {key: PARA for key, _ in ce.SECTIONS}
-    sections["sell"] = text
+    sections[key] = text
+    with pytest.raises(ValueError, match=key):
+        ce.parse_company_explainer(_block(sections=sections))
+
+
+def test_offer_may_run_longer_than_the_other_sections():
+    sections = {key: PARA for key, _ in ce.SECTIONS}
+    sections["offer"] = "x" * 900
+    assert len(ce.parse_company_explainer(_block(sections=sections))["sections"]["offer"]) == 900
+
+
+def test_four_sections_with_sell_and_model_merged():
+    assert [k for k, _ in ce.SECTIONS] == ["offer", "customers", "drivers", "chain"]
+    assert dict(ce.SECTIONS)["offer"] == "What they sell & how they earn"
+
+
+def _legacy_sections():
+    return {"sell": "SELL " + PARA, "customers": PARA, "model": "MODEL " + PARA,
+            "drivers": PARA, "chain": PARA}
+
+
+def test_legacy_five_section_explainer_still_parses():
+    # Explainers saved before 2026-10-05 have "sell" and "model"; they render
+    # joined under the new "offer" heading until re-run.
+    out = ce.parse_company_explainer(_block(sections=_legacy_sections()))
+    assert list(out["sections"]) == ["offer", "customers", "drivers", "chain"]
+    assert out["sections"]["offer"] == f"SELL {PARA} MODEL {PARA}"
+
+
+def test_legacy_explainer_missing_model_is_refused():
+    sections = _legacy_sections()
+    del sections["model"]
+    with pytest.raises(ValueError, match="model"):
+        ce.parse_company_explainer(_block(sections=sections))
+
+
+def test_offer_mixed_with_legacy_keys_is_refused():
+    sections = {key: PARA for key, _ in ce.SECTIONS}
+    sections["sell"] = PARA
     with pytest.raises(ValueError, match="sell"):
         ce.parse_company_explainer(_block(sections=sections))
+
+
+def test_prompt_asks_for_the_four_keys():
+    for key, _ in ce.SECTIONS:
+        assert f'"{key}"' in ce.PROMPT
+    assert '"sell"' not in ce.PROMPT and '"model"' not in ce.PROMPT
 
 
 @pytest.mark.parametrize("lead", ["", "x" * 401])
@@ -82,7 +127,7 @@ def test_section_html_shows_all_headings_and_source_but_not_the_lead():
 
 def test_dollar_signs_are_escaped():
     sections = {key: PARA for key, _ in ce.SECTIONS}
-    sections["model"] = PARA + " Service brought in $8.4B and systems $14.8B last year."
+    sections["offer"] = PARA + " Service brought in $8.4B and systems $14.8B last year."
     html = ce.explainer_section_html(_block(sections=sections), theme=T)
     assert "$8.4B" not in html and "&#36;8.4B" in html
 

@@ -1,4 +1,4 @@
-"""Company Explainer: what the company actually does, under five fixed headings,
+"""Company Explainer: what the company actually does, under four fixed headings,
 for the Overview tab's "What the company does" section.
 
 Built on the Business Analysis, Business Cards and Key Metrics prior sections
@@ -18,17 +18,22 @@ import question_cards as qc
 
 TITLE = "Company Explainer"
 
-# (key, heading) in display order.
+# (key, heading) in display order. "offer" replaced the separate "sell" and
+# "model" sections on 2026-10-05: for platform companies the product is the
+# revenue model, so the two said the same thing (owner).
 SECTIONS = (
-    ("sell", "What they sell"),
+    ("offer", "What they sell & how they earn"),
     ("customers", "Customers"),
-    ("model", "How they make money"),
     ("drivers", "What drives revenue"),
     ("chain", "Where they sit"),
 )
+# Explainers saved before 2026-10-05 carry these two instead of "offer"; the
+# parser joins them so they keep rendering until they are re-run.
+LEGACY_OFFER = ("sell", "model")
 
 LEAD_MAX = 400
 SECTION_MIN, SECTION_MAX = 150, 700
+OFFER_MAX = 900
 SOURCE_MAX = 120
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
@@ -68,20 +73,23 @@ of the Overview tab: what the company makes or does, how that turns into
 money, and who buys it. Plain words only, no product names; someone who has
 never heard of the company must understand it.
 
-sections: EXACTLY these five keys, each a short paragraph of 2 to 4 sentences
-(150 to 700 characters):
-- sell: what they sell — what the products and services do for the customer,
-  in everyday words.
-- customers: who the customers are — which customers, out of which budget, and how
-  concentrated (largest customers' share, main regions) where disclosed.
-- model: how they make money — the revenue model (one-off sale, subscription,
-  usage, commission, spread, premiums), the pricing unit, and which segment
+sections: EXACTLY these four keys, each a short paragraph. Every fact
+belongs in one section only — never repeat the revenue model outside "offer".
+- offer (3 to 5 sentences, 150 to 900 characters): what they sell and how
+  they earn — what the products and services do for the customer in everyday
+  words, then the revenue model (one-off sale, subscription, usage,
+  commission, spread, premiums) and the pricing unit, and which segment
   brings in how much of revenue and operating profit, with the fiscal year.
-- drivers: what drives revenue — the two or three levers that move it (volume
-  times price, e.g. units shipped, members, take rate) and the measures the
-  company itself reports.
-- chain: where they sit — whom they buy from, whom they sell to, and who they
-  compete with at that step of the chain.
+- customers (2 to 4 sentences, 150 to 700 characters): who the customers
+  are — which customers, out of which budget, and how concentrated (largest
+  customers' share, main regions) where disclosed.
+- drivers (2 to 4 sentences, 150 to 700 characters): what drives revenue —
+  the two or three levers that move it (e.g. units shipped, members, price
+  per ad, take rate) and the latest figures the company itself reports for
+  them. Do not explain the revenue model again.
+- chain (2 to 4 sentences, 150 to 700 characters): where they sit — whom
+  they buy from, whom they sell to, and who they compete with at that step
+  of the chain.
 
 source: the filing you relied on, e.g. "10-K FY2026, filed 2026-08-07".
 
@@ -89,8 +97,8 @@ Output ONLY a fenced JSON block, nothing before or after:
 
 ```json
 {"lead": "…",
- "sections": {"sell": "…", "customers": "…", "model": "…",
-              "drivers": "…", "chain": "…"},
+ "sections": {"offer": "…", "customers": "…", "drivers": "…",
+              "chain": "…"},
  "source": "10-K FY2026, filed 2026-08-07"}
 ```
 """
@@ -132,17 +140,27 @@ def parse_company_explainer(content):
     sections = data.get("sections")
     if not isinstance(sections, dict):
         raise ValueError("sections must be an object")
-    known = {key for key, _ in SECTIONS}
+    legacy = "offer" not in sections and any(k in sections for k in LEGACY_OFFER)
+    known = {key for key, _ in SECTIONS} - ({"offer"} if legacy else set())
+    if legacy:
+        known |= set(LEGACY_OFFER)
     unknown = sorted(set(sections) - known)
     if unknown:
         raise ValueError(f"unknown section(s): {', '.join(unknown)}")
+
+    def _section(key, max_len):
+        text = _text(sections.get(key), f"sections.{key}")
+        if not (SECTION_MIN <= len(text) <= max_len):
+            raise ValueError(f"sections.{key} must be {SECTION_MIN}-{max_len} "
+                             f"characters (has {len(text)})")
+        return text
+
     out_sections = {}
     for key, _ in SECTIONS:
-        text = _text(sections.get(key), f"sections.{key}")
-        if not (SECTION_MIN <= len(text) <= SECTION_MAX):
-            raise ValueError(f"sections.{key} must be {SECTION_MIN}-{SECTION_MAX} "
-                             f"characters (has {len(text)})")
-        out_sections[key] = text
+        if key == "offer" and legacy:
+            out_sections[key] = " ".join(_section(k, SECTION_MAX) for k in LEGACY_OFFER)
+        else:
+            out_sections[key] = _section(key, OFFER_MAX if key == "offer" else SECTION_MAX)
 
     source = _text(data.get("source"), "source")
     if not source or len(source) > SOURCE_MAX:
@@ -158,7 +176,6 @@ STYLE = f"""<style>
 .ce-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}}
 @media (max-width:800px){{.ce-grid{{grid-template-columns:minmax(0,1fr)}}}}
 .ce-panel{{background:{_INNER};border-radius:16px;padding:16px 18px;min-width:0}}
-.ce-panel.ce-wide{{grid-column:1 / -1}}
 .ce-head{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
   color:var(--text-muted);margin:0 0 6px}}
 .ce-panel p{{margin:0;font-size:14px;color:var(--text);line-height:1.6}}
@@ -171,9 +188,8 @@ _EMPTY_NOTE = ('Company Explainer not filled yet. Ask Claude via the MCP to fill
                '"Company Explainer" pre-scan section for this ticker.')
 
 
-def _panel(heading, text, wide=False):
-    cls = "ce-panel ce-wide" if wide else "ce-panel"
-    return (f'<div class="{cls}"><div class="ce-head">{qc.esc(heading)}</div>'
+def _panel(heading, text):
+    return (f'<div class="ce-panel"><div class="ce-head">{qc.esc(heading)}</div>'
             f'<p>{qc.esc(text)}</p></div>')
 
 
@@ -187,8 +203,8 @@ def lead_text(content):
 
 
 def explainer_section_html(content, theme=None):
-    """The white "What the company does" section: five panels (the last full
-    width) and the source. The lead is not repeated here; the Overview shows
+    """The white "What the company does" section: four panels in a 2x2 grid
+    and the source. The lead is not repeated here; the Overview shows
     it in the Profile card. Without a valid explainer: a muted note."""
     try:
         data = parse_company_explainer(content) if content else None
@@ -199,9 +215,7 @@ def explainer_section_html(content, theme=None):
         inner = f'<div class="ce-empty">{qc.esc(_EMPTY_NOTE)}</div>'
         return qc.css(STYLE) + qc.section_html(_LABEL, inner)
 
-    last = len(SECTIONS) - 1
-    panels = "".join(_panel(heading, data["sections"][key], wide=(i == last))
-                     for i, (key, heading) in enumerate(SECTIONS))
+    panels = "".join(_panel(heading, data["sections"][key]) for key, heading in SECTIONS)
     inner = (f'<div class="ce-grid">{panels}</div>'
              f'<div class="ce-source">Source: {qc.esc(data["source"])}</div>')
     return qc.css(STYLE) + qc.section_html(_LABEL, inner)
