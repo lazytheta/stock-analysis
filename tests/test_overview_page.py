@@ -73,7 +73,7 @@ def test_company_section_with_profile():
 def test_company_section_profile_order():
     html = _body(op.company_section_html(GOOD_PROFILE, 343190.0, GLANCE,
                                          summary="Netflix streams films."))
-    order = ["SECTOR", "INDUSTRY", "MARKET CAP", "CAPITAL TYPE", "DIFFICULTY",
+    order = ["SECTOR", "INDUSTRY", "MARKET CAP", "CAPITAL TYPE", "COMPLEXITY",
              "FOUNDED", "EMPLOYEES", "TAGS", "WHAT IT DOES", "At a glance"]
     positions = [html.index(label) for label in order]
     assert positions == sorted(positions)
@@ -105,13 +105,24 @@ def test_company_section_glance_missing_values_are_dashes():
         assert body.count('class="ov-gval">—<') == 4, glance
 
 
-def test_company_section_difficulty_colours():
-    easy = op.company_section_html(dict(GOOD_PROFILE, difficulty="Easy"), None)
-    hard = op.company_section_html(dict(GOOD_PROFILE, difficulty="Hard"), None)
-    moderate = op.company_section_html(GOOD_PROFILE, None)
-    assert "var(--red)" in _body(hard)
-    assert "var(--accent)" in moderate.split('class="ov-diff"')[-1]
-    assert easy != moderate != hard
+def test_company_section_complexity_meter():
+    easy = _body(op.company_section_html(dict(GOOD_PROFILE, difficulty="Easy"), None))
+    hard = _body(op.company_section_html(dict(GOOD_PROFILE, difficulty="Hard"), None))
+    moderate = _body(op.company_section_html(GOOD_PROFILE, None))
+    assert "COMPLEXITY" in moderate and "DIFFICULTY" not in moderate
+    assert easy.count('<i class="on">') == 1
+    assert moderate.count('<i class="on">') == 2
+    assert hard.count('<i class="on">') == 3
+    # Neutral meter: no traffic-light colours.
+    assert "var(--red)" not in hard
+
+
+def test_company_section_complexity_reason():
+    with_reason = _body(op.company_section_html(
+        dict(GOOD_PROFILE, difficulty_reason="Three segments, ads plus subs"), None))
+    assert 'class="ov-why">Three segments, ads plus subs<' in with_reason
+    without = _body(op.company_section_html(GOOD_PROFILE, None))
+    assert 'class="ov-why"' not in without
 
 
 def test_company_section_none_values_are_dashes():

@@ -34,9 +34,13 @@ COMPANY_STYLE = f"""<style>
 .ov-profile{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 18px}}
 @media (max-width:520px){{.ov-profile{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 .ov-val{{font-size:14px;color:var(--text);line-height:1.35;overflow-wrap:anywhere}}
-.ov-diff{{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:8px;
+.ov-diff{{display:inline-flex;align-items:center;gap:7px;padding:2px 9px;border-radius:8px;
   background:{_CHIP};font-size:13px}}
-.ov-diff i{{display:inline-block;width:9px;height:9px;border-radius:2px}}
+.ov-diff i{{display:inline-block;width:7px;height:9px;border-radius:2px;margin-right:-4px;
+  background:color-mix(in srgb, var(--text) 18%, transparent)}}
+.ov-diff i.on{{background:var(--text)}}
+.ov-diff span{{margin-left:4px}}
+.ov-why{{margin-top:4px;font-size:12px;color:var(--text-muted);line-height:1.35}}
 .ov-tags{{margin-top:16px}}
 .ov-chips{{display:flex;flex-wrap:wrap;gap:6px}}
 .ov-chip{{display:inline-block;padding:3px 10px;border-radius:8px;background:{_CHIP};
@@ -76,7 +80,9 @@ METRICS_STYLE = f"""<style>
   font-weight:400;white-space:normal}}
 </style>"""
 
-_DIFF_COLOUR = {"Easy": "#2e9e5b", "Moderate": "var(--accent)", "Hard": "var(--red)"}
+# Complexity is shown as a neutral 1-3 meter, not traffic-light colours: a
+# hard-to-understand business is not a bad one (owner, 2026-10-05).
+_DIFF_LEVEL = {"Easy": 1, "Moderate": 2, "Hard": 3}
 
 _EMPTY_NOTE = ('Company profile not filled yet. It comes with the '
                '"Company Profile" section.')
@@ -91,12 +97,13 @@ def _text(value):
     return DASH if value is None or value == "" else qc.esc(value)
 
 
-def _difficulty_html(difficulty):
+def _difficulty_html(difficulty, reason=""):
     if not difficulty:
         return DASH
-    colour = _DIFF_COLOUR.get(difficulty, "var(--text-muted)")
-    return (f'<span class="ov-diff"><i style="background:{colour}"></i>'
-            f'{qc.esc(difficulty)}</span>')
+    level = _DIFF_LEVEL.get(difficulty, 0)
+    meter = "".join('<i class="on"></i>' if n <= level else "<i></i>" for n in (1, 2, 3))
+    why = f'<div class="ov-why">{qc.esc(reason)}</div>' if reason else ""
+    return f'<span class="ov-diff">{meter}<span>{qc.esc(difficulty)}</span></span>{why}'
 
 
 def _card(title, body_html, extra_class=""):
@@ -111,14 +118,15 @@ def _profile_body(profile, market_cap_m, summary=None):
         return (f'<div class="ov-profile">{_pair("Market cap", mcap)}</div>'
                 f'<div class="ov-empty">{qc.esc(_EMPTY_NOTE)}</div>')
     employees = profile.get("employees")
-    # Three columns: Sector | Industry | Market cap; Capital type | Difficulty;
+    # Three columns: Sector | Industry | Market cap; Capital type | Complexity;
     # Founded | Employees.
     pairs = [
         _pair("Sector", _text(profile.get("sector"))),
         _pair("Industry", _text(profile.get("industry"))),
         _pair("Market cap", mcap),
         _pair("Capital type", _text(profile.get("capital_type"))),
-        _pair("Difficulty", _difficulty_html(profile.get("difficulty"))),
+        _pair("Complexity", _difficulty_html(profile.get("difficulty"),
+                                             profile.get("difficulty_reason") or "")),
         _pair("Founded", _text(profile.get("founded"))),
         _pair("Employees", DASH if employees is None else qc.esc(f"{employees:,}")),
     ]

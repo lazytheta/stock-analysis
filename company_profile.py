@@ -40,6 +40,9 @@ difficulty: how hard the business is to understand. "Easy" = one product and
 a simple revenue model. "Moderate" = several segments or a less obvious
 model. "Hard" = conglomerates, banks/insurers, biotech pipelines, or heavy
 accounting judgement.
+difficulty_reason: why it got that rating, in plain words, at most 60
+characters, e.g. "Three segments, ads plus subscriptions" or "One product,
+simple subscription model".
 founded: the company's founding year, or null if not stated.
 employees: full-time employees from the latest 10-K, or null if not stated.
 tags: 2 to 4 short business-model tags, e.g. "Subscription", "Marketplace",
@@ -52,7 +55,8 @@ Output ONLY a fenced JSON block, nothing before or after:
 
 ```json
 {"sector": "Communication Services", "industry": "Entertainment",
- "capital_type": "Asset-light", "difficulty": "Moderate", "founded": 1997,
+ "capital_type": "Asset-light", "difficulty": "Moderate",
+ "difficulty_reason": "Subscriptions plus a young ad business", "founded": 1997,
  "employees": 16000, "tags": ["Subscription", "Ad-based"],
  "mission": "To entertain the world."}
 ```
@@ -86,8 +90,9 @@ def _load_json(content):
 
 
 def parse_company_profile(content):
-    """The validated profile dict (exactly the eight keys), or ValueError
-    saying what is wrong."""
+    """The validated profile dict (exactly the nine keys), or ValueError
+    saying what is wrong. difficulty_reason is optional ("" when absent):
+    profiles written before 2026-10-05 do not have it."""
     data = _load_json(content)
     if not isinstance(data, dict):
         raise ValueError("expected a JSON object")
@@ -107,6 +112,10 @@ def parse_company_profile(content):
     difficulty = data.get("difficulty")
     if difficulty not in DIFFICULTIES:
         raise ValueError(f"difficulty must be one of {', '.join(DIFFICULTIES)}")
+
+    difficulty_reason = _text(data.get("difficulty_reason"), "difficulty_reason")
+    if len(difficulty_reason) > 60:
+        raise ValueError("difficulty_reason must be at most 60 characters")
 
     current_year = date.today().year
     founded = data.get("founded")
@@ -136,7 +145,8 @@ def parse_company_profile(content):
         raise ValueError("mission must be 1-200 characters")
 
     return {"sector": sector, "industry": industry, "capital_type": capital_type,
-            "difficulty": difficulty, "founded": founded, "employees": employees,
+            "difficulty": difficulty, "difficulty_reason": difficulty_reason,
+            "founded": founded, "employees": employees,
             "tags": out_tags, "mission": mission}
 
 
@@ -154,7 +164,7 @@ def profile_list_html(content, theme):
         ("Sector", data["sector"]),
         ("Industry", data["industry"]),
         ("Capital type", data["capital_type"]),
-        ("Difficulty", data["difficulty"]),
+        ("Complexity", " — ".join(x for x in (data["difficulty"], data["difficulty_reason"]) if x)),
         ("Founded", data["founded"] if data["founded"] is not None else "—"),
         ("Employees", data["employees"] if data["employees"] is not None else "—"),
         ("Tags", ", ".join(data["tags"])),

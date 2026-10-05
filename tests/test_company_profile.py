@@ -9,7 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import company_profile as cp
 
 GOOD = {"sector": "Communication Services", "industry": "Entertainment",
-        "capital_type": "Asset-light", "difficulty": "Moderate", "founded": 1997,
+        "capital_type": "Asset-light", "difficulty": "Moderate",
+        "difficulty_reason": "Subscriptions plus a young ad business", "founded": 1997,
         "employees": 16000, "tags": ["Subscription", "Ad-based"],
         "mission": "To entertain the world."}
 
@@ -20,6 +21,13 @@ def _md(obj):
 
 def test_valid_profile_parses():
     assert cp.parse_company_profile(_md(GOOD)) == GOOD
+
+
+def test_difficulty_reason_is_optional():
+    # Profiles saved before 2026-10-05 have no reason; they must still render.
+    obj = dict(GOOD)
+    del obj["difficulty_reason"]
+    assert cp.parse_company_profile(_md(obj))["difficulty_reason"] == ""
 
 
 def test_nulls_allowed_for_founded_and_employees():
@@ -34,6 +42,7 @@ def test_nulls_allowed_for_founded_and_employees():
     ("employees", 12.5), ("tags", []), ("tags", ["a", "b", "c", "d", "e"]),
     ("tags", ["dup", "dup"]), ("tags", ["x" * 25]), ("tags", [""]),
     ("mission", ""), ("mission", "x" * 201),
+    ("difficulty_reason", "x" * 61), ("difficulty_reason", 3),
     ("sector", 123), ("industry", 4.5), ("mission", 7), ("tags", [42]),
     ("tags", ["ok", True])])
 def test_invalid_fields_raise(field, value):
@@ -51,7 +60,7 @@ def test_missing_field_and_bad_json_raise():
 
 
 def test_prompt_mentions_every_field_and_priors():
-    for word in ("sector", "industry", "capital_type", "difficulty", "founded",
+    for word in ("sector", "industry", "capital_type", "difficulty", "difficulty_reason", "founded",
                  "employees", "tags", "mission", "{prior:Business Analysis}",
                  "{prior:Moat Analysis}", "{company}", "{ticker}"):
         assert word in cp.PROMPT
