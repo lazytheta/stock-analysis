@@ -24,7 +24,7 @@ TITLE = "Company Explainer"
 SECTIONS = (
     ("offer", "What they sell & how they earn"),
     ("customers", "Who their customers are"),
-    ("drivers", "What drives revenue"),
+    ("drivers", "What to watch each quarter"),
     ("competitors", "Who they compete with"),
 )
 # Explainers saved before 2026-10-05 carry these two instead of "offer"; the
@@ -45,7 +45,7 @@ _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
 PROMPT = """You are writing the Company Explainer for **{company} ({ticker})**: the part
 of the Overview tab that tells someone who has never heard of the company what
 it actually does. After reading it they must know what it sells, who pays for
-it, how it earns money, what moves its revenue and who it competes with.
+it, how it earns money, which numbers to watch and who it competes with.
 
 Base it on the analyses below and on the latest 10-K's Item 1 "Business" and
 its segment note (read them with the SEC connector if you have it). Every
@@ -86,10 +86,12 @@ belongs in one section only — never repeat the revenue model outside "offer".
 - customers (2 to 4 sentences, 150 to 700 characters): who the customers
   are — which customers, out of which budget, and how concentrated (largest
   customers' share, main regions) where disclosed.
-- drivers (2 to 4 sentences, 150 to 700 characters): what drives revenue —
-  the two or three levers that move it (e.g. units shipped, members, price
-  per ad, take rate) and the latest figures the company itself reports for
-  them. Do not explain the revenue model again.
+- drivers (2 to 4 sentences, 150 to 700 characters): what to watch each
+  quarter — the two or three figures the company itself reports that move
+  revenue (e.g. units shipped, members, price per ad, take rate), each with
+  its latest value and change and the period, plus the one outside force
+  that moves them most (economy, interest rates, a product cycle). Do not
+  explain how the company charges; that is in "offer".
 - competitors (2 to 4 sentences, 150 to 700 characters): who they compete
   with — the kinds of companies fighting for the same customers or the same
   budget, where this company is bigger or smaller than them, and what it

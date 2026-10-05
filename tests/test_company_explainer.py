@@ -64,6 +64,7 @@ def test_offer_may_run_longer_than_the_other_sections():
 def test_four_sections_with_sell_and_model_merged():
     assert [k for k, _ in ce.SECTIONS] == ["offer", "customers", "drivers", "competitors"]
     assert dict(ce.SECTIONS)["competitors"] == "Who they compete with"
+    assert dict(ce.SECTIONS)["drivers"] == "What to watch each quarter"
     assert dict(ce.SECTIONS)["offer"] == "What they sell & how they earn"
 
 
