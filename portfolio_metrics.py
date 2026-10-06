@@ -552,6 +552,9 @@ _SUMMED_FIELDS = (
 )
 
 
+_EUR_FIELDS = ("equity_cost_eur", "option_pl_eur")
+
+
 # Short forms, used only when two brokers share a row. A single-broker row
 # keeps its full name: the abbreviation exists so one merged label cannot set
 # the width of a column every other row has to live in — "Tastytrade + Trading
@@ -620,6 +623,18 @@ def _merge_rows(symbol, rows):
 
     for field in _SUMMED_FIELDS:
         merged[field] = sum((r.get(field) or 0) for r in rows)
+
+    # EUR basis (reporting_currency.annotate), computed per broker before the
+    # merge so each keeps its own: Trading 212's own euro cost, Tastytrade's
+    # trades at their own dates. Summed only when every row has one -- half a
+    # basis is not a basis.
+    for field in _EUR_FIELDS:
+        if all(r.get(field) is not None for r in rows):
+            merged[field] = sum(r[field] for r in rows)
+        else:
+            merged.pop(field, None)
+    if any(field in r for r in rows for field in _EUR_FIELDS):
+        merged["fx_missing"] = any(r.get("fx_missing") for r in rows)
 
     # Oldest first, so FIFO retires the oldest lot of the whole holding rather
     # than the oldest lot at one broker.

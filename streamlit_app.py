@@ -52,6 +52,7 @@ from valuation_lenses import FORWARD_LENSES
 from thesis import thesis_vs_history, HEROIC_RATIO
 from config_store import ASSUMPTION_LOG_KEY, save_config, load_config, load_all_configs, list_watchlist, remove_from_watchlist, load_user_prefs, save_user_prefs, load_credential, delete_credential, load_ibkr_credentials, save_ibkr_credentials, delete_ibkr_credentials, load_t212_credentials, save_t212_credentials, delete_t212_credentials, log_page_view
 import gather_data
+import reporting_currency
 from gather_data import (
     get_cik,
     fetch_company_submissions,
@@ -264,6 +265,44 @@ def _set_strategy_start(day):
     prefs["strategy_start"] = day.isoformat() if day else None
     save_user_prefs(_sb_client, prefs)
     st.session_state["_strategy_start"] = day
+
+
+def _reporting_currency():
+    """"EUR" or "USD" from user_prefs, EUR when unset (owner, 2026-10-05:
+    results are judged as a euro investor)."""
+    if "_reporting_currency" not in st.session_state:
+        st.session_state["_reporting_currency"] = reporting_currency.normalise(
+            load_user_prefs(_sb_client).get("reporting_currency"))
+    return st.session_state["_reporting_currency"]
+
+
+def _set_reporting_currency(ccy):
+    prefs = load_user_prefs(_sb_client)
+    prefs["reporting_currency"] = ccy
+    save_user_prefs(_sb_client, prefs)
+    st.session_state["_reporting_currency"] = ccy
+
+
+def _currency_control(page_key):
+    """The € | $ switch. One preference for every page that uses it."""
+    ccy = _reporting_currency()
+    pick = st.segmented_control(
+        "Currency", ["€", "$"], default="€" if ccy == "EUR" else "$",
+        key=f"currency_{page_key}", label_visibility="collapsed")
+    new = {"€": "EUR", "$": "USD"}.get(pick, ccy)
+    if new != ccy:
+        _set_reporting_currency(new)
+    return new
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _usd_per_eur_now():
+    return gather_data.fetch_fx_rate("EUR")
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _eur_fx_history():
+    return gather_data.fetch_fx_history("EUR", years=10)
 
 
 def _dietz_return(series, transfers, start, end=None):
@@ -8455,7 +8494,50 @@ elif page == "Portfolio":
     # "does this match what my broker shows me", which is the only way to check
     # the combined figure is right. Both are worth keeping, so pick one rather
     # than replacing the old view with the sum.
-    portfolio_view = _broker_view_control("Portfolio")
+    _c_view, _c_ccy = st.columns([6, 1])
+    with _c_view:
+        portfolio_view = _broker_view_control("Portfolio")
+    with _c_ccy:
+        _ccy = _currency_control("Portfolio")
+
+    # ── Reporting currency ──
+    # EUR mode: each broker row gets its euro basis before rows of one symbol
+    # are merged, so a split holding keeps Trading 212's own euro cost for its
+    # part (spec 2026-10-06-reporting-currency-portfolio-design.md).
+    _eur_rate = _usd_per_eur_now() if _ccy == "EUR" else None
+    if _ccy == "EUR" and not _eur_rate:
+        st.caption("EUR rate unavailable — showing USD.")
+        _ccy = "USD"
+    _eur = _ccy == "EUR"
+    if _eur:
+        _eur_hist = _eur_fx_history() or {}
+        for _d in held.values():
+            reporting_currency.annotate(_d, _eur_rate, _eur_hist)
+    else:
+        _eur_hist = {}
+
+    def _money(amount, decimals=0, signed=False):
+        return reporting_currency.fmt_money(amount, _ccy, decimals, signed)
+
+    def _to_ccy(d, usd_amount):
+        """A live USD amount of row d (price, value) in the reporting currency."""
+        if not _eur:
+            return usd_amount
+        if d.get("native_currency") == "EUR" and d.get("fx_rate"):
+            return usd_amount / d["fx_rate"]
+        return usd_amount / _eur_rate
+
+    def _cost_ccy(d):
+        """The row's equity cost (negative) in the reporting currency."""
+        if _eur and d.get("equity_cost_eur") is not None:
+            return d["equity_cost_eur"]
+        return _to_ccy(d, d.get("equity_cost") or 0.0)
+
+    def _option_pl_ccy(d):
+        if _eur and d.get("option_pl_eur") is not None:
+            return d["option_pl_eur"]
+        return _to_ccy(d, d.get("option_pl") or 0.0)
+
     if portfolio_view != "Overview":
         held = {t: d for t, d in held.items()
                 if d.get("broker") == portfolio_view}
@@ -8553,6 +8635,11 @@ elif page == "Portfolio":
         target_pct = float(st.session_state.get("_target_pos_pct", DEFAULT_TARGET_POS_PCT))
 
         _prices = st.session_state.get("portfolio_prices", {}) or {}
+        def _dep_money(usd):
+            # Current amounts only (cash, values, gaps): today's rate is the
+            # right one. Option strikes stay in dollars.
+            return _money(usd / _eur_rate if _eur else usd)
+
         dep = compute_deployment(
             held, net_liq, cash, target_pct,
             prices={t: (p or {}).get("price") for t, p in _prices.items()},
@@ -8586,15 +8673,15 @@ elif page == "Portfolio":
         if total_assignment > 0:
             _after = cash - total_assignment
             _after_txt = (
-                f'leaves ${_after:,.0f}' if _after >= 0
-                else f'${abs(_after):,.0f} more than the cash on hand'
+                f'leaves {_dep_money(_after)}' if _after >= 0
+                else f'{_dep_money(abs(_after))} more than the cash on hand'
             )
             assign_note = (
                 f'<div style="margin-bottom:12px;padding:8px 12px;background:{T["info_bg"]};border-radius:8px;'
                 f'border:1px dashed {T["border_medium"]};font-size:0.85rem">'
                 f'<span style="color:{T["text_muted"]}">If assigned: </span>'
                 f'<b style="color:{T["text"]}">{" | ".join(assignment_entries)}</b>'
-                f'<span style="color:{T["text_muted"]}"> = ${total_assignment:,.0f} — {_after_txt}</span>'
+                f'<span style="color:{T["text_muted"]}"> = {_dep_money(total_assignment)} — {_after_txt}</span>'
                 f'</div>'
             )
 
@@ -8614,7 +8701,7 @@ elif page == "Portfolio":
         _n_held = len(held)
         _pos_line = f'{dep["full_count"]} of {_n_held} positions full'
         if dep["partial"]:
-            _pos_line += f' · {len(dep["partial"])} with room (${dep["top_up_cost"]:,.0f} to fill)'
+            _pos_line += f' · {len(dep["partial"])} with room ({_dep_money(dep["top_up_cost"])} to fill)'
 
         if not dep["partial"]:
             _cash_line = (
@@ -8628,8 +8715,8 @@ elif page == "Portfolio":
             )
         else:
             _cash_line = (
-                f'Cash covers ${dep["dry_powder"]:,.0f} of the '
-                f'${dep["top_up_cost"]:,.0f} needed to fill them'
+                f'Cash covers {_dep_money(dep["dry_powder"])} of the '
+                f'{_dep_money(dep["top_up_cost"])} needed to fill them'
             )
 
         _buy_line = ""
@@ -8646,7 +8733,7 @@ elif page == "Portfolio":
             f'<div style="margin:16px 0">'
             f'  <div style="display:flex;justify-content:space-between;margin-bottom:6px">'
             f'    <span style="font-size:0.85rem;color:{T["text_muted"]}">'
-            f'Invested ${dep["invested"]:,.0f} / ${net_liq:,.0f}</span>'
+            f'Invested {_dep_money(dep["invested"])} / {_dep_money(net_liq)}</span>'
             f'    <span style="font-size:0.85rem;font-weight:600;color:{bar_color}">'
             f'{status} ({dep["deployed_pct"]:.0f}% deployed)</span>'
             f'  </div>'
@@ -8661,9 +8748,9 @@ elif page == "Portfolio":
             f'<p style="margin:4px 0;font-size:0.9rem">{_pos_line}</p>'
             f'<p style="margin:4px 0;font-size:0.9rem;color:{T["text_muted"]}">{_cash_line}</p>'
             f'<div class="stat-row">'
-            f'<span class="stat-pill">Dry powder <b>${dep["dry_powder"]:,.0f}</b> '
+            f'<span class="stat-pill">Dry powder <b>{_dep_money(dep["dry_powder"])}</b> '
             f'({dep["dry_powder_pct"]:.0f}%)</span>'
-            f'<span class="stat-pill">Full position <b>${dep["target"]:,.0f}</b> '
+            f'<span class="stat-pill">Full position <b>{_dep_money(dep["target"])}</b> '
             f'({target_pct:.1f}%)</span>'
             f'{_buy_line}'
             f'</div>'
@@ -8681,9 +8768,9 @@ elif page == "Portfolio":
             _pt_rows = "".join(
                 f'<tr>'
                 f'<td style="{_pt_txt}"><b>{_p["ticker"]}</b></td>'
-                f'<td style="{_pt_num};color:{T["text_muted"]}">${_p["market_value"]:,.0f}</td>'
-                f'<td style="{_pt_num};color:{T["text_muted"]}">${dep["target"]:,.0f}</td>'
-                f'<td style="{_pt_num}"><b>${_p["gap"]:,.0f}</b></td>'
+                f'<td style="{_pt_num};color:{T["text_muted"]}">{_dep_money(_p["market_value"])}</td>'
+                f'<td style="{_pt_num};color:{T["text_muted"]}">{_dep_money(dep["target"])}</td>'
+                f'<td style="{_pt_num}"><b>{_dep_money(_p["gap"])}</b></td>'
                 f'</tr>'
                 for _p in dep["partial"]
             )
@@ -8762,17 +8849,25 @@ elif page == "Portfolio":
         if _view != "Overview":
             _bal_by_broker = {k: v for k, v in _bal_by_broker.items() if k == _view}
             _bal_failures = [f for f in _bal_failures if f[0] == _view]
-        if _bal_by_broker:
-            net_liq = sum(b.get("net_liquidating_value") or 0.0
-                          for b in _bal_by_broker.values())
-            cash = sum(b.get("cash_balance") or 0.0
-                       for b in _bal_by_broker.values())
+        # Per broker in the reporting currency: a EUR account converts back
+        # with its own rate (its own euros), a USD account at today's rate.
+        if _eur:
+            _bal_ccy = {k: reporting_currency.balance_eur(v, _eur_rate)
+                        for k, v in _bal_by_broker.items()}
         else:
-            net_liq = sum(d["market_value"] for d in held.values())
+            _bal_ccy = {k: (v.get("net_liquidating_value") or 0.0,
+                            v.get("cash_balance") or 0.0)
+                        for k, v in _bal_by_broker.items()}
+        if _bal_by_broker:
+            net_liq = sum(nlv for nlv, _c in _bal_ccy.values())
+            cash = sum(_c for _n, _c in _bal_ccy.values())
+        else:
+            net_liq = sum(_to_ccy(d, d["market_value"]) for d in held.values())
             cash = 0.0
 
-        total_value = sum(d["market_value"] for d in held.values())
-        total_prev = sum(d.get("previous_close", 0) * d["shares_held"] for d in held.values())
+        total_value = sum(_to_ccy(d, d["market_value"]) for d in held.values())
+        total_prev = sum(_to_ccy(d, d.get("previous_close", 0) * d["shares_held"])
+                         for d in held.values())
         day_chg_pct = ((total_value - total_prev) / total_prev * 100) if total_prev else 0.0
         day_chg_cls = "hero-green" if day_chg_pct >= 0 else "hero-red"
         day_chg_sign = "+" if day_chg_pct >= 0 else ""
@@ -8787,17 +8882,17 @@ elif page == "Portfolio":
         if len(_bal_by_broker) > 1:
             _broker_pills = "".join(
                 f'<span class="stat-pill">{_bn} '
-                f'<b>${(_bb.get("net_liquidating_value") or 0.0):,.0f}</b></span>'
-                for _bn, _bb in _bal_by_broker.items()
+                f'<b>{_money(_bal_ccy[_bn][0])}</b></span>'
+                for _bn in _bal_by_broker
             )
 
         st.markdown(
             f'<div class="hero-card">'
             f'<p class="hero-label">Net Liquidating Value</p>'
-            f'<p class="hero-value {nlv_cls}">${net_liq:,.0f}</p>'
-            f'<p class="hero-sub"><span class="{day_chg_cls}">{day_chg_sign}{day_chg_pct:.2f}% ({day_dollar_sign}${abs(day_chg_dollar):,.0f})</span> today &nbsp;·&nbsp; {len(held)} active positions</p>'
+            f'<p class="hero-value {nlv_cls}">{_money(net_liq)}</p>'
+            f'<p class="hero-sub"><span class="{day_chg_cls}">{day_chg_sign}{day_chg_pct:.2f}% ({day_dollar_sign}{_money(abs(day_chg_dollar))})</span> today &nbsp;·&nbsp; {len(held)} active positions</p>'
             f'<div class="stat-row">'
-            f'<span class="stat-pill">Cash <b>${cash:,.0f}</b></span>'
+            f'<span class="stat-pill">Cash <b>{_money(cash)}</b></span>'
             f'{_broker_pills}'
             f'</div>'
             f'</div>',
@@ -8920,7 +9015,16 @@ elif page == "Portfolio":
             else:
                 wheel_cps = -purchase_price
 
-            unrealized = data["market_value"] + wheel_equity_cost if last_wheel else data["market_value"] + data["equity_cost"]
+            # Reporting currency: the live value converts at today's rate, the
+            # cost at the rates it was paid at (see reporting_currency).
+            _value = _to_ccy(data, data["market_value"])
+            if last_wheel:
+                _wheel_cost = (reporting_currency.wheel_cost_eur(
+                    last_wheel["trades"], wheel_equity_cost, _eur_rate, _eur_hist)
+                    if _eur else wheel_equity_cost)
+                unrealized = _value + _wheel_cost
+            else:
+                unrealized = _value + _cost_ccy(data)
             # The cycle start is the purchase date whether or not options were
             # written, so a plain holding keeps a real holding period.
             days_held = (date.today() - _cycle["start"]).days if _cycle else 0
@@ -8929,7 +9033,7 @@ elif page == "Portfolio":
             cur = data["current_price"]
             day_change_pct = ((cur - prev) / prev * 100) if prev else 0.0
 
-            initial_investment = abs(wheel_equity_cost) if last_wheel else abs(data["equity_cost"])
+            initial_investment = abs(_wheel_cost) if last_wheel else abs(_cost_ccy(data))
             return_pct = (unrealized / initial_investment * 100) if initial_investment else 0.0
             if days_held > 0 and initial_investment:
                 ann_return = ((1 + unrealized / initial_investment) ** (365 / days_held) - 1) * 100
@@ -8938,6 +9042,29 @@ elif page == "Portfolio":
 
             shares = data["shares_held"]
             break_even = display_basis(wheel_cps) if last_wheel and shares else purchase_price
+            _premie = wheel_option_pl if last_wheel else 0.0
+
+            if _eur:
+                # Avg cost in EUR: Trading 212's own euro cost where it has
+                # one; otherwise the FIFO lots still held, each at the rate of
+                # its purchase day.
+                _lots = open_lots(_trades)
+                if (data.get("broker") == "Trading 212"
+                        and data.get("equity_cost_eur") is not None and shares):
+                    purchase_price = -data["equity_cost_eur"] / shares
+                elif _lots_ok and _lots:
+                    purchase_price = sum(
+                        lot["quantity"] * lot["price"]
+                        / (reporting_currency.rate_on(_eur_hist, lot["date"]) or _eur_rate)
+                        for lot in _lots) / shares
+                else:
+                    purchase_price = _to_ccy(data, purchase_price)
+                break_even = _to_ccy(data, break_even)
+                cur = _to_ccy(data, cur)
+                if last_wheel:
+                    _premie, _ = reporting_currency.convert_trades(
+                        last_wheel["trades"], wheel_option_pl, _eur_rate, _eur_hist,
+                        reporting_currency.is_option_trade)
 
             symbol = data.get("symbol", ticker)
             rows.append({
@@ -8953,11 +9080,11 @@ elif page == "Portfolio":
                 "Break-even": break_even,
                 "Current Price": cur,
                 "Day %": day_change_pct,
-                "Mkt Value": data["market_value"],
+                "Mkt Value": _value,
                 "Unrealized P/L": unrealized,
                 "Return %": return_pct,
                 "Ann. %": ann_return,
-                "Premie": wheel_option_pl if last_wheel else 0.0,
+                "Premie": _premie,
                 "Days": days_held,
                 # None where the band cannot be trusted, so the cell reads "—"
                 # rather than a signal built on a broken DCF.
@@ -9006,13 +9133,13 @@ elif page == "Portfolio":
             if col in color_cols_set:
                 cls = " pf-green" if val > 0 else " pf-red" if val < 0 else ""
             if col in ("Avg Cost", "Break-even", "Current Price"):
-                return f"${val:,.2f}", cls
+                return _money(val, 2), cls
             if col == "Mkt Value":
-                return f"${val:,.0f}", cls
+                return _money(val), cls
             if col == "Unrealized P/L":
-                return f"${val:+,.0f}", cls
+                return _money(val, signed=True), cls
             if col == "Premie":
-                return f"${val:,.0f}", cls
+                return _money(val), cls
             if col in ("Day %", "Return %", "Ann. %"):
                 return f"{val:+.2f}%", cls
             if col == "Weight":
@@ -9152,7 +9279,10 @@ elif page == "Portfolio":
         _sym = _d.get("symbol", _tk)
         _mv = _d.get("market_value") or 0.0
         # Contribution is in dollars: a 40% gain on a 1% position moved nothing.
-        _contrib = _mv + (_d.get("equity_cost") or 0.0) + (_d.get("option_pl") or 0.0)
+        # In the reporting currency: value at today's rate, cost and premiums
+        # at the rates they were paid at.
+        _mv = _to_ccy(_d, _mv)
+        _contrib = _mv + _cost_ccy(_d) + _option_pl_ccy(_d)
         _rel = None
         _lots = open_lots(_d.get("trades") or [])
         # Same guard as the cost basis: measuring a position against the index
@@ -9178,8 +9308,10 @@ elif page == "Portfolio":
         _nl_view = st.session_state.get("_portfolio_view", "Overview")
         if _nl_view != "Overview":
             _nl_by_broker = {k: v for k, v in _nl_by_broker.items() if k == _nl_view}
-        _pf_value = sum(b.get("net_liquidating_value") or 0.0
-                        for b in _nl_by_broker.values())
+        _pf_value = sum(
+            reporting_currency.balance_eur(b, _eur_rate)[0] if _eur
+            else (b.get("net_liquidating_value") or 0.0)
+            for b in _nl_by_broker.values())
     except Exception as e:
         logger.debug("Net liq unavailable for contribution weights: %s", e)
         _pf_value = 0.0
@@ -9247,7 +9379,7 @@ elif page == "Portfolio":
     if _perf_rows:
         _total_contrib = sum(r["contribution"] for r in _perf_rows)
         _rows = "".join(
-            _row_html(r["ticker"], f'${r["contribution"]:+,.0f}',
+            _row_html(r["ticker"], _money(r["contribution"], signed=True),
                       T["accent"] if r["contribution"] >= 0 else T["red"],
                       mid=f'{r["market_value"] / _pf_value * 100:.0f}%'
                           if _pf_value else "")
@@ -9259,7 +9391,7 @@ elif page == "Portfolio":
             f'<div style="text-align:center;margin-bottom:12px">'
             f'<span style="font-size:1.8rem;font-weight:700;'
             f'color:{T["accent"] if _total_contrib >= 0 else T["red"]}">'
-            f'${_total_contrib:+,.0f}</span>'
+            f'{_money(_total_contrib, signed=True)}</span>'
             f'<div style="font-size:0.75rem;color:{T["text_muted"]}">'
             f'open positions, unrealized &nbsp;·&nbsp; middle column is weight</div></div>'
             f'{_rows_grid(_rows)}'
@@ -9297,7 +9429,7 @@ elif page == "Portfolio":
         )
         _card_htmls.append(
             f'<div class="hero-card">'
-            f'<h4>vs S&amp;P 500{_help_icon(_note)}</h4>'
+            f'<h4>vs S&amp;P 500{" (USD)" if _eur else ""}{_help_icon(_note)}</h4>'
             f'<div style="text-align:center;margin-bottom:12px">'
             f'<span style="font-size:1.8rem;font-weight:700;color:{_summary_color}">'
             f'{_n_behind} of {len(_rated)}</span>'

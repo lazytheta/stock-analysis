@@ -785,7 +785,8 @@ def parse_financials(facts, n_years=6, ticker=None):
 
 # ── Market Data Module ────────────────────────────────────────────────
 
-_FX_CACHE: dict = {}
+_FX_CACHE: dict = {}  # code -> (rate, fetched_at)
+_FX_TTL = 3600
 
 
 def fetch_fx_rate(currency: str):
@@ -802,8 +803,11 @@ def fetch_fx_rate(currency: str):
     code = (currency or "USD").upper()
     if code in ("", "USD"):
         return 1.0
-    if code in _FX_CACHE:
-        return _FX_CACHE[code]
+    cached = _FX_CACHE.get(code)
+    # An hour, not the life of the process: on Streamlit Cloud that was days,
+    # and "today's rate" is what every EUR/USD figure in the app leans on.
+    if cached and time.time() - cached[1] < _FX_TTL:
+        return cached[0]
     # ECB eerst: gratis, zonder sleutel en zonder IP-blokkade. Yahoo alleen
     # als terugval -- die blokkeert op bron-IP en was tot 2026-09-22 de enige
     # bron voor elk niet-dollarbedrag in de app. Zie fx.py.
@@ -817,7 +821,7 @@ def fetch_fx_rate(currency: str):
             return None
     if not rate or rate <= 0:
         return None
-    _FX_CACHE[code] = rate
+    _FX_CACHE[code] = (rate, time.time())
     return rate
 
 
