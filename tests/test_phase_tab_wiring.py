@@ -23,16 +23,13 @@ def test_phase_block_renders_all_three_sections():
     assert '"Business Phase Analysis"' in block and '"Scorecard"' in block
     assert "phase_page.revenue_ocf_figure(" in block
     assert "phase_payouts.revenue_ocf_series(" in block
-    assert "phase_page.payouts_section_html(" in block
-    assert "phase_payouts.buyback_card(" in block and "phase_payouts.dividend_card(" in block
+    # Payouts moved out: Capital Return tells buybacks and dividend in full.
+    assert "payouts_section_html(" not in block
 
 
-def test_phase_block_reuses_overview_loaders():
+def test_phase_block_has_the_revenue_chart_fallback():
     block = _phase_block()
-    assert "_overview_cashflow(ticker)" in block and "_overview_income(ticker)" in block
-    assert "overview_metrics.glance(fund, cfg)" in block
     assert "No revenue history available." in block
-    assert "Payouts unavailable right now." in block
 
 
 def test_chart_container_and_css_rule():

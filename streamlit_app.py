@@ -3908,8 +3908,8 @@ def _dcf_editor(ticker):
     # Business: overview and customer profile, revenue by segment and region,
     # then the four business-quality cards. Read-only, like Moat and Risk.
     # Phase: the growth-cycle phase (from "Business Phase Analysis", else the
-    # Scorecard), revenue vs operating cash flow, and the two computed payout
-    # cards. Read-only; every render path degrades to a caption.
+    # Scorecard) and revenue vs operating cash flow. Read-only; every render
+    # path degrades to a caption.
     with _tab_phase:
         _pnotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
         try:
@@ -3947,29 +3947,8 @@ def _dcf_editor(ticker):
             else:
                 st.caption("No revenue history available.")
 
-        try:
-            _pcf = _overview_cashflow(ticker)
-        except Exception as e:
-            logger.warning("cash flow statement for %s failed: %s", ticker, e)
-            _pcf = None
-        try:
-            _pinc = _overview_income(ticker)
-        except Exception as e:
-            logger.warning("income statement for %s failed: %s", ticker, e)
-            _pinc = None
-        try:
-            _pprice = live_price if live_price > 0 else None
-            _pnet = (overview_metrics.glance(fund, cfg) or {}).get("net_cash_m")
-            _ppay_html = phase_page.payouts_section_html(
-                phase_payouts.buyback_card(fund, _pcf, _pprice),
-                phase_payouts.dividend_card(fund, _pcf, _pinc, _pprice, _pnet), T)
-        except Exception as e:
-            logger.warning("Phase payouts for %s failed: %s", ticker, e)
-            _ppay_html = None
-        if _ppay_html:
-            st.markdown(_ppay_html, unsafe_allow_html=True)
-        else:
-            st.caption("Payouts unavailable right now.")
+        # No Payouts section: buybacks and dividend are told in full on the
+        # Capital Return tab (owner, 2026-10-06).
 
     # Moat: the Moat Analysis as two summary cards, then the five question cards
     # from the "Moat Cards" section. Read-only; sections are written through the MCP.

@@ -5,7 +5,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import phase_page as pg
-import phase_payouts as pp
 
 THEME = {"text": "#222", "text_muted": "#888", "divider": "#ddd",
          "bg_secondary": "#f5f3ee", "accent": "#2f7d4f"}
@@ -184,34 +183,3 @@ def test_revenue_ocf_figure_ticks_in_millions():
     assert not any(t.endswith("B") for t in fig.layout.yaxis.ticktext)
 
 
-# ── payouts ────────────────────────────────────────────────────────────────
-
-def test_payouts_section_contains_both_questions():
-    fund = {"years": [2021, 2022, 2023, 2024, 2025, 2026],
-            "revenue": [100.0] * 6, "shares": [1e6, 1e6, 1e6, 1e6, 1e6, 0.9e6]}
-    cash = {"years": fund["years"], "stock_buybacks": [-5.0] * 6,
-            "dividends_paid": [0.0] * 6}
-    buy = pp.buyback_card(fund, cash, 10.0)
-    div = pp.dividend_card(fund, cash, None, 10.0, 50.0)
-    html = pg.payouts_section_html(buy, div, THEME)
-    assert html.startswith("<")
-    assert "Payouts" in html
-    assert "Are they buying back stock?" in html
-    assert "Do they pay a dividend?" in html
-    assert html.count('class="mc-card"') == 2
-    assert "$" not in html
-
-
-def test_payouts_section_renders_notice_card_for_unknown():
-    html = pg.payouts_section_html(None, None, THEME)
-    assert html.count('class="mc-card"') == 2
-    assert html.count("Not enough cash-flow data to tell.") == 2
-    assert "Are they buying back stock?" in html and "Do they pay a dividend?" in html
-    assert "mc-flip" not in html.split("</style>")[-1]  # neither card flips
-    fund = {"years": [2021, 2022, 2023, 2024, 2025, 2026],
-            "revenue": [100.0] * 6, "shares": [1e6] * 6}
-    cash = {"years": fund["years"], "stock_buybacks": [-5.0] * 6, "dividends_paid": [0.0] * 6}
-    mixed = pg.payouts_section_html(pp.buyback_card(fund, cash, 10.0), None, THEME)
-    body = mixed.split("</style>")[-1]
-    assert body.count('class="mc-card"') == 2 and body.count('class="mc-flip"') == 1
-    assert mixed.count("Not enough cash-flow data to tell.") == 1
