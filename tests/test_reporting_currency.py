@@ -278,3 +278,28 @@ def test_benchmark_yearly_return_in_eur():
     eur = tastytrade_api.yearly_returns_from_monthly(points, hist)
     assert usd[2026] == pytest.approx(10.0)
     assert eur[2026] == pytest.approx(0.0)    # the whole gain was the dollar's
+
+
+# ── Step 3: currency part of the P/L ──
+
+def test_fx_effect_of_a_dollar_share_in_eur_mode():
+    # $1,000 bought at 1.05 (EUR 952.38), worth $1,100 today at 1.17 (EUR 940.17).
+    usd = {"native_currency": "USD", "total_pl_real": 100.0}
+    eur = {"total_pl_real": 1100 / 1.17 - 1000 / 1.05}
+    fx = rc.fx_effect(usd, eur, "EUR", 1.17)
+    # P/L in EUR -12.2 = +85.5 from the share (100/1.17) and -97.7 from the dollar.
+    assert fx == pytest.approx(1000 / 1.17 - 1000 / 1.05)
+    assert eur["total_pl_real"] == pytest.approx(100 / 1.17 + fx)
+
+
+def test_fx_effect_of_a_euro_share_in_usd_mode():
+    # EUR 3,044 cost, EUR 2,989 now: -54.75 in euros. In USD (cost at 1.10, now 1.17).
+    usd = {"native_currency": "EUR", "total_pl_real": 2989.25 * 1.17 - 3044 * 1.10}
+    eur = {"total_pl_real": -54.75}
+    fx = rc.fx_effect(usd, eur, "USD", 1.17)
+    assert fx == pytest.approx(3044 * (1.17 - 1.10))
+
+
+def test_no_fx_effect_when_the_share_trades_in_the_reporting_currency():
+    assert rc.fx_effect({"native_currency": "EUR", "total_pl_real": 5}, {"total_pl_real": 3}, "EUR", 1.17) == 0.0
+    assert rc.fx_effect({"total_pl_real": 5}, {"total_pl_real": 3}, "USD", 1.17) == 0.0

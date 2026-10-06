@@ -296,3 +296,24 @@ def report_move(shares, close_start, close_end, day_start, day_end, row):
         if r0 and r1:
             return shares * (close_end / r1 - close_start / r0)
     return shares * (close_end - close_start) * (row.get("fx_rate") or 1.0)
+
+
+# ── Step 3: the currency part of a position's P/L (Holdings) ─────────────
+
+
+def fx_effect(usd_row, eur_row, ccy, usd_per_eur_now):
+    """How much of a position's P/L, in the reporting currency `ccy`, comes
+    from the exchange rate.
+
+    The P/L in the reporting currency minus the P/L in the currency the
+    share trades in, converted at today's rate: what is left is purely the
+    currency moving between the days money went in and today. Zero when the
+    share trades in the reporting currency. `usd_row` is the app's USD row,
+    `eur_row` its euro copy (to_eur_cost_basis); both carry total_pl_real.
+    """
+    native = (usd_row.get("native_currency") or "USD").upper()
+    pl_usd = usd_row.get("total_pl_real") or 0.0
+    pl_eur = eur_row.get("total_pl_real") or 0.0
+    if ccy == "EUR":
+        return 0.0 if native == "EUR" else pl_eur - pl_usd / usd_per_eur_now
+    return pl_usd - pl_eur * usd_per_eur_now if native == "EUR" else 0.0

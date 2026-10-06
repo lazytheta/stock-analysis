@@ -9299,6 +9299,14 @@ elif page == "Portfolio":
     except Exception as e:
         logger.warning("Index history unavailable: %s", e)
     _today = date.today()
+    # EUR mode: the lots, today's price and SPY in euros, each lot at the rate
+    # of its own day -- the same euro copy the Results and Holdings pages use.
+    if _eur:
+        _held_src = reporting_currency.to_eur_cost_basis(held, _eur_rate, _eur_hist)
+        if _index_closes:
+            _index_closes = reporting_currency.closes_to_eur(_index_closes, _eur_hist, _eur_rate)
+    else:
+        _held_src = held
     for _tk, _d in held.items():
         _sym = _d.get("symbol", _tk)
         _mv = _d.get("market_value") or 0.0
@@ -9308,7 +9316,7 @@ elif page == "Portfolio":
         _mv = _to_ccy(_d, _mv)
         _contrib = _mv + _cost_ccy(_d) + _option_pl_ccy(_d)
         _rel = None
-        _lots = open_lots(_d.get("trades") or [])
+        _lots = open_lots(_held_src[_tk].get("trades") or [])
         # Same guard as the cost basis: measuring a position against the index
         # from lots that do not add up to it compares the wrong money over the
         # wrong window.
@@ -9316,7 +9324,7 @@ elif page == "Portfolio":
             sum(lot["quantity"] for lot in _lots), _d.get("shares_held")
         ):
             _rel = relative_performance(
-                _lots, _d.get("current_price") or 0.0, _index_closes, _today,
+                _lots, _held_src[_tk].get("current_price") or 0.0, _index_closes, _today,
             )
         _perf_rows.append({
             "ticker": _sym, "broker": _d.get("broker", ""),
@@ -9453,7 +9461,7 @@ elif page == "Portfolio":
         )
         _card_htmls.append(
             f'<div class="hero-card">'
-            f'<h4>vs S&amp;P 500{" (USD)" if _eur else ""}{_help_icon(_note)}</h4>'
+            f'<h4>vs S&amp;P 500{_help_icon(_note)}</h4>'
             f'<div style="text-align:center;margin-bottom:12px">'
             f'<span style="font-size:1.8rem;font-weight:700;color:{_summary_color}">'
             f'{_n_behind} of {len(_rated)}</span>'
@@ -9568,17 +9576,47 @@ elif page == "Holdings":
     # Same picker as the Portfolio page, and the same reason: a card here is
     # meant to be laid next to the broker's own screen, which only works if you
     # can narrow the page to that broker.
-    _cb_view = _broker_view_control("Holdings")
+    _c_view, _c_ccy = st.columns([6, 1])
+    with _c_view:
+        _cb_view = _broker_view_control("Holdings")
+    with _c_ccy:
+        _h_ccy = _currency_control("Holdings")
     if _cb_view != "Overview":
         cost_basis = {t: d for t, d in cost_basis.items()
                       if d.get("broker") == _cb_view}
         if not cost_basis:
             st.info(f"No positions at {_cb_view}.")
             st.stop()
+
+    # ── Reporting currency ──
+    # As on Results: EUR mode works on the euro copy of the positions (every
+    # trade at its own date's rate). The euro copy is also built in USD mode
+    # when a rate is known, because the "Currency" row of a euro-quoted
+    # holding needs its euro P/L (reporting_currency.fx_effect).
+    _h_rate = _usd_per_eur_now()
+    if _h_ccy == "EUR" and not _h_rate:
+        st.caption("EUR rate unavailable — showing USD.")
+        _h_ccy = "USD"
+    _h_eur = _h_ccy == "EUR"
+    _h_hist = (_eur_fx_history() or {}) if _h_rate else {}
+    _h_sym = "€" if _h_eur else "$"
+    _usd_by_broker = dict(cost_basis)
+    _eur_by_broker = (reporting_currency.to_eur_cost_basis(_usd_by_broker, _h_rate, _h_hist)
+                      if _h_rate else {})
+    # Currency part of each position's P/L, per broker row then summed per
+    # symbol, so a holding split across brokers adds up its two parts.
+    _fx_by_symbol = {}
+    if _h_rate:
+        for _k, _d in _usd_by_broker.items():
+            _sym_k = _d.get("symbol", _k)
+            _fx_by_symbol[_sym_k] = _fx_by_symbol.get(_sym_k, 0.0) + reporting_currency.fx_effect(
+                _d, _eur_by_broker[_k], _h_ccy, _h_rate)
+
     # The track record is computed on these, per broker account, before the
     # symbol merge below: FIFO runs inside one account, and merging first let
     # a Tastytrade sale consume a Trading 212 lot.
-    _cost_basis_by_broker = dict(cost_basis)
+    _cost_basis_by_broker = dict(_eur_by_broker if _h_eur else _usd_by_broker)
+    cost_basis = dict(_cost_basis_by_broker)
     if _cb_view == "Overview":
         cost_basis = merge_by_symbol(cost_basis)
 
@@ -9661,7 +9699,7 @@ elif page == "Holdings":
                 f'    <p class="tr-date">{date_str}</p>'
                 f'  </div>'
                 f'  <p class="tr-amt" style="color:{amt_color}">'
-                f'{amt_sign}${abs(net):,.2f}</p>'
+                f'{amt_sign}{_h_sym}{abs(net):,.2f}</p>'
                 f'</div>'
             )
         st.markdown(html, unsafe_allow_html=True)
@@ -9751,7 +9789,7 @@ elif page == "Holdings":
                 display_pl = pl
 
             pl_badge = "pl-badge-green" if display_pl >= 0 else "pl-badge-red"
-            pl_sign = "+$" if display_pl >= 0 else "-$"
+            pl_sign = f"+{_h_sym}" if display_pl >= 0 else f"-{_h_sym}"
 
             # The bare symbol, not the dict key: with two brokers connected the
             # key can carry a broker suffix, and no logo host knows
@@ -9833,12 +9871,24 @@ elif page == "Holdings":
                 _rows.append(_row(
                     "vs S&amp;P",
                     f'<span style="color:{T["accent"] if _v >= 0 else T["red"]};font-weight:600">'
-                    f'${abs(_v):,.0f} {"ahead" if _v >= 0 else "behind"}'
+                    f'{_h_sym}{abs(_v):,.0f} {"ahead" if _v >= 0 else "behind"}'
                     f'</span> <span style="{_muted}">· {_tr["total_alpha"]:+.0f} pts'
                     f' · {_tr["days_held"]} days'
-                    + (f' · premium {"+" if _prem >= 0 else "-"}${abs(_prem):,.0f}'
+                    + (f' · premium {"+" if _prem >= 0 else "-"}{_h_sym}{abs(_prem):,.0f}'
                        if abs(_prem) >= 1 else "")
                     + '</span>'))
+
+            # The part of the P/L that is the exchange rate, not the share:
+            # only where the share trades in another currency than the one
+            # shown (dollar shares in EUR mode, euro shares in USD mode).
+            _fx = _fx_by_symbol.get(_card_symbol, 0.0)
+            if abs(_fx) >= 1 and not per_wheel:
+                _rows.append(_row(
+                    "Currency",
+                    f'<span style="color:{T["accent"] if _fx >= 0 else T["red"]};font-weight:600">'
+                    f'{"+" if _fx >= 0 else "-"}{_h_sym}{abs(_fx):,.0f}</span>'
+                    f' <span style="{_muted}">· of the '
+                    f'{"+" if pl >= 0 else "-"}{_h_sym}{abs(pl):,.0f}</span>'))
 
             # The percentage on the same basis as the S&P line: every lot
             # over its own days, premium and dividends in. Not for a single
@@ -9886,7 +9936,7 @@ elif page == "Holdings":
                     for i, wheel in reversed(list(enumerate(wheels))):
                         status = wheel["status"]
                         w_pl = wheel["pl"]
-                        w_pl_sign = "+$" if w_pl >= 0 else "-$"
+                        w_pl_sign = f"+{_h_sym}" if w_pl >= 0 else f"-{_h_sym}"
                         w_start = wheel['start'].strftime("%d-%m-%Y") if hasattr(wheel['start'], 'strftime') else wheel['start']
                         w_end = wheel['end'].strftime("%d-%m-%Y") if hasattr(wheel['end'], 'strftime') else wheel['end']
                         if status == "completed":
@@ -9933,7 +9983,7 @@ elif page == "Holdings":
                         else:
                             _pct = f"{_move:+.0f}%"
                         _label = (f'If I\'d held  ·  :{"red" if _d > 0 else "green"}'
-                                  f'[{_pct} (${abs(_d):,.0f})]')
+                                  f'[{_pct} ({_h_sym}{abs(_d):,.0f})]')
                         with st.expander(_label):
                             if _hs.get("closed_on"):
                                 st.caption(
@@ -9955,19 +10005,19 @@ elif page == "Holdings":
                                 f'</tr></thead><tbody>'
                                 f'<tr>'
                                 f'<td style="{_td};{_bd};text-align:left">Sold at</td>'
-                                f'<td style="{_td};{_bd}">${_hs["sale_price"]:,.2f}</td>'
-                                f'<td style="{_td};{_bd}">${_hs["proceeds"]:,.0f}</td>'
+                                f'<td style="{_td};{_bd}">{_h_sym}{_hs["sale_price"]:,.2f}</td>'
+                                f'<td style="{_td};{_bd}">{_h_sym}{_hs["proceeds"]:,.0f}</td>'
                                 f'</tr><tr>'
                                 f'<td style="{_td};{_bd};text-align:left">Today</td>'
-                                f'<td style="{_td};{_bd}">${_hs["price_now"]:,.2f}</td>'
-                                f'<td style="{_td};{_bd}">${_hs["value_now"]:,.0f}</td>'
+                                f'<td style="{_td};{_bd}">{_h_sym}{_hs["price_now"]:,.2f}</td>'
+                                f'<td style="{_td};{_bd}">{_h_sym}{_hs["value_now"]:,.0f}</td>'
                                 f'</tr><tr>'
                                 f'<td style="{_td};{_bd};text-align:left;'
                                 f'font-weight:600">Difference</td>'
                                 f'<td style="{_td};{_bd};color:{_c};font-weight:600">'
                                 f'{_move:+.1f}%</td>'
                                 f'<td style="{_td};{_bd};color:{_c};font-weight:600">'
-                                f'${_d:+,.0f}</td>'
+                                f'{_h_sym}{_d:+,.0f}</td>'
                                 f'</tr></tbody></table>',
                                 unsafe_allow_html=True,
                             )
@@ -10008,6 +10058,12 @@ elif page == "Holdings":
     _closed_prices = _cached_closed_prices(tuple(sorted(
         {(d.get("symbol") or t) for t, d in closed_tickers.items()}
     )))
+    if _h_eur:
+        # Quotes come in dollars; a closed card in EUR mode compares them with
+        # euro sale prices, so they convert at today's rate.
+        _closed_prices = {k: {**q, **{f: q[f] / _h_rate for f in ("price", "previousClose")
+                                      if q.get(f)}}
+                          for k, q in (_closed_prices or {}).items() if q}
 
     # ── Track record: every position ever held, against the index ──
     # The Portfolio page's "vs S&P 500" card stops at what is still held.
@@ -10023,6 +10079,9 @@ elif page == "Holdings":
         _tr_index = _cached_index_closes_h()
     except Exception as e:
         logger.warning("Index history unavailable: %s", e)
+    if _h_eur and _tr_index:
+        # Same money, same days, in SPY bought with euros.
+        _tr_index = reporting_currency.closes_to_eur(_tr_index, _h_hist, _h_rate)
     _tr_rows = _merge_track_rows(
         _track_record_rows(_cost_basis_by_broker, _tr_index, date.today()))
 
