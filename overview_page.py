@@ -41,6 +41,12 @@ COMPANY_STYLE = f"""<style>
 .ov-diff i.on{{background:var(--text)}}
 .ov-diff span{{margin-left:4px}}
 .ov-why{{margin-top:4px;font-size:12px;color:var(--text-muted);line-height:1.35}}
+.ov-phase{{display:inline-flex;align-items:center;gap:7px;cursor:help}}
+.ov-phase i{{font-style:normal;display:inline-flex;align-items:center;justify-content:center;
+  width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;
+  font-size:11px;font-weight:700;flex:none}}
+.ov-why.ov-clip{{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden}}
 .ov-tags{{margin-top:16px}}
 .ov-chips{{display:flex;flex-wrap:wrap;gap:6px}}
 .ov-chip{{display:inline-block;padding:3px 10px;border-radius:8px;background:{_CHIP};
@@ -110,20 +116,33 @@ def _difficulty_html(difficulty, reason=""):
     return f'<span class="ov-diff">{meter}<span>{qc.esc(difficulty)}</span></span>{why}'
 
 
+def _phase_html(phase):
+    """The phase number in a disc, its name, and the analysis's lead sentence
+    clipped to two lines; the full sentence plus what the phase looks like,
+    which valuation fits and what moves it on sit in the tooltip."""
+    if not phase:
+        return DASH
+    tip = qc.esc(phase.get("tooltip") or "").replace("\n", "&#10;")
+    why = (f'<div class="ov-why ov-clip">{qc.esc(phase["summary"])}</div>'
+           if phase.get("summary") else "")
+    return (f'<span class="ov-phase" title="{tip}"><i>{phase["number"]}</i>'
+            f'{qc.esc(phase["name"])}</span>{why}')
+
+
 def _card(title, body_html, extra_class=""):
     cls = f"ov-card {extra_class}".strip()
     return (f'<div class="{cls}"><div class="ov-ctitle">{qc.esc(title)}</div>'
             f'{body_html}</div>')
 
 
-def _profile_body(profile, market_cap_m, summary=None):
+def _profile_body(profile, market_cap_m, summary=None, phase=None):
     mcap = qc.esc(om.fmt_money_m(market_cap_m))
     if not profile:
         return (f'<div class="ov-profile">{_pair("Market cap", mcap)}</div>'
                 f'<div class="ov-empty">{qc.esc(_EMPTY_NOTE)}</div>')
     employees = profile.get("employees")
-    # Three columns: Sector | Industry | Market cap; Capital type | Complexity;
-    # Founded | Employees.
+    # Three columns: Sector | Industry | Market cap; Capital type | Complexity |
+    # Phase; Founded | Employees. Phase replaced the Phase tab (2026-10-06).
     pairs = [
         _pair("Sector", _text(profile.get("sector"))),
         _pair("Industry", _text(profile.get("industry"))),
@@ -131,6 +150,7 @@ def _profile_body(profile, market_cap_m, summary=None):
         _pair("Capital type", _text(profile.get("capital_type"))),
         _pair("Complexity", _difficulty_html(profile.get("difficulty"),
                                              profile.get("difficulty_reason") or "")),
+        _pair("Phase", _phase_html(phase)),
         _pair("Founded", _text(profile.get("founded"))),
         _pair("Employees", DASH if employees is None else qc.esc(f"{employees:,}")),
     ]
@@ -198,13 +218,13 @@ def _glance_body(glance):
 
 
 def company_section_html(profile, market_cap_m, glance: dict | None = None,
-                         summary: str | None = None) -> str:
+                         summary: str | None = None, phase: dict | None = None) -> str:
     """White "Company" section: a Profile card (label/value pairs, tags,
     mission; $M in for market cap) and, beside it, an "At a glance" card with
     eight tiles from overview_metrics.glance. Without a profile the Profile
     card holds only Market cap and a muted note; the glance card always
     shows, with dashes for missing values."""
-    cards = [_card("Profile", _profile_body(profile, market_cap_m, summary)),
+    cards = [_card("Profile", _profile_body(profile, market_cap_m, summary, phase)),
              _card("At a glance", _glance_body(glance))]
     inner = f'<div class="ov-company">{"".join(cards)}</div>'
     return qc.css(CARD_STYLE, COMPANY_STYLE) + qc.section_html("Company", inner)

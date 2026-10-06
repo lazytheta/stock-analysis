@@ -244,7 +244,7 @@ def test_key_figures_without_fiscal_year():
 
 def test_ticker_page_has_overview_tab_first():
     src = open("streamlit_app.py", encoding="utf-8").read()
-    assert '["Business", "Phase", "Moat", "Growth", "Management", "Risk", "Summary", "Capital Return", "Earnings", "Financials", "DCF"' in src
+    assert '["Business", "Moat", "Growth", "Management", "Risk", "Summary", "Capital Return", "Earnings", "Financials", "DCF"' in src
     assert "overview_page.company_section_html(" in src
     assert "overview_page.key_figures_section_html(" in src
 
@@ -279,3 +279,17 @@ def test_overview_cagr_only_for_year_ranges():
 def test_overview_market_cap_uses_fiscal_year_shares():
     src = open("streamlit_app.py", encoding="utf-8").read()
     assert "_oshares = overview_metrics.shares_at_fiscal_year(fund)" in src
+
+
+def test_profile_shows_the_phase_with_a_tooltip():
+    phase = {"number": 5, "name": "Capital Return", "summary": "Returns cash, $25B new debt.",
+             "tooltip": "Phase 5 of 6: Capital Return\nValuation fits: Trailing P/E"}
+    html = _body(op.company_section_html(GOOD_PROFILE, 1.0, GLANCE, phase=phase))
+    assert "PHASE" in html and "<i>5</i>Capital Return" in html
+    assert 'title="Phase 5 of 6: Capital Return&#10;Valuation fits: Trailing P/E"' in html
+    assert "&#36;25B" in html
+    order = ["CAPITAL TYPE", "COMPLEXITY", "PHASE", "FOUNDED"]
+    pos = [html.index(x) for x in order]
+    assert pos == sorted(pos)
+    # Unknown phase: a dash, not a missing field.
+    assert "PHASE" in _body(op.company_section_html(GOOD_PROFILE, 1.0, GLANCE))

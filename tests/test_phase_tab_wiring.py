@@ -1,41 +1,28 @@
-"""Source-level checks that the Phase tab is wired into the ticker page."""
-import re
+"""The Phase tab was folded into the Business tab (phase in the Profile card)
+and the Financials tab (revenue & operating cash flow chart) on 2026-10-06."""
 from pathlib import Path
 
 SRC = (Path(__file__).resolve().parent.parent / "streamlit_app.py").read_text(encoding="utf-8")
 
 
-def _phase_block():
-    start = SRC.index("with _tab_phase:")
-    end = SRC.index("with _tab_moat:", start)
-    return SRC[start:end]
-
-
-def test_tab_list_has_phase_after_business():
-    assert ('["Business", "Phase", "Moat", "Growth", "Management", "Risk", "Summary", '
+def test_there_is_no_phase_tab():
+    assert "_tab_phase" not in SRC
+    assert ('["Business", "Moat", "Growth", "Management", "Risk", "Summary", '
             '"Capital Return", "Earnings", "Financials", "DCF",') in SRC
-    assert "_tab_business, _tab_phase, _tab_moat" in SRC
 
 
-def test_phase_block_renders_all_three_sections():
-    block = _phase_block()
-    assert "phase_page.phase_section_html(" in block
+def test_business_tab_passes_the_phase_to_the_profile_card():
+    start = SRC.index("with _tab_business:")
+    block = SRC[start:SRC.index("with _tab_moat:", start)]
+    assert "phase_page.phase_info(" in block
     assert '"Business Phase Analysis"' in block and '"Scorecard"' in block
-    assert "phase_page.revenue_ocf_figure(" in block
+    assert "phase=_ophase" in block
+
+
+def test_financials_growth_section_has_the_revenue_ocf_chart():
+    start = SRC.index('_fin_growth = _fin_section("growth"')
+    block = SRC[start:SRC.index('_fin_section("valuation")', start)]
     assert "phase_payouts.revenue_ocf_series(" in block
-    # Payouts moved out: Capital Return tells buybacks and dividend in full.
-    assert "payouts_section_html(" not in block
-
-
-def test_phase_block_has_the_revenue_chart_fallback():
-    block = _phase_block()
+    assert "phase_page.revenue_ocf_figure(" in block
+    assert 'key=f"fin_rocf_range_{ticker}"' in block
     assert "No revenue history available." in block
-
-
-def test_chart_container_and_css_rule():
-    block = _phase_block()
-    assert 'st.container(key="qc_phase_chart")' in block
-    assert 'key=f"ph_range_{ticker}"' in block
-    rule = re.search(r"\.st-key-qc_phase_chart\s*\{\{(.*?)\}\}", SRC, re.S)
-    ov = re.search(r"\.st-key-qc_ov_price\s*\{\{(.*?)\}\}", SRC, re.S)
-    assert rule and ov and rule.group(1).split() == ov.group(1).split()

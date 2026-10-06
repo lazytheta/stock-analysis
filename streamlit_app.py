@@ -3775,10 +3775,10 @@ def _dcf_editor(ticker):
         logger.warning("fundamentals for %s failed: %s", ticker, e)
         _fund_error, fund = e, {}
 
-    (_tab_business, _tab_phase, _tab_moat,
+    (_tab_business, _tab_moat,
      _tab_growth, _tab_management, _tab_risk, _tab_summary, _tab_capital, _tab_earnings,
      _tab_financials, _tab_dcf, _tab_rdcf, _tab_peers, _tab_history) = st.tabs(
-        ["Business", "Phase", "Moat", "Growth", "Management", "Risk", "Summary", "Capital Return", "Earnings", "Financials", "DCF", "Reverse DCF", "Peer Comparison", "History"])
+        ["Business", "Moat", "Growth", "Management", "Risk", "Summary", "Capital Return", "Earnings", "Financials", "DCF", "Reverse DCF", "Peer Comparison", "History"])
 
     # Business (the former Overview and Business tabs, merged 2026-10-06):
     # Company (profile + at a glance), What the company does, Revenue
@@ -3803,9 +3803,16 @@ def _dcf_editor(ticker):
         except Exception as e:
             logger.warning("Overview at-a-glance for %s failed: %s", ticker, e)
             _oglance = None
+        try:
+            _ophase = phase_page.phase_info(_onotes.get("Business Phase Analysis"),
+                                            _onotes.get("Scorecard"))
+        except Exception as e:
+            logger.debug("Phase for %s unavailable: %s", ticker, e)
+            _ophase = None
         st.markdown(overview_page.company_section_html(
             _oprofile, _omcap, _oglance,
-            summary=company_explainer.lead_text(_onotes.get(company_explainer.TITLE))),
+            summary=company_explainer.lead_text(_onotes.get(company_explainer.TITLE)),
+            phase=_ophase),
             unsafe_allow_html=True)
 
         # What the company does (Company Explainer), then the same revenue
@@ -3907,49 +3914,6 @@ def _dcf_editor(ticker):
 
     # Business: overview and customer profile, revenue by segment and region,
     # then the four business-quality cards. Read-only, like Moat and Risk.
-    # Phase: the growth-cycle phase (from "Business Phase Analysis", else the
-    # Scorecard) and revenue vs operating cash flow. Read-only; every render
-    # path degrades to a caption.
-    with _tab_phase:
-        _pnotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
-        try:
-            st.markdown(phase_page.phase_section_html(
-                _pnotes.get("Business Phase Analysis"), _pnotes.get("Scorecard"), T),
-                unsafe_allow_html=True)
-        except Exception as e:
-            logger.warning("Phase section for %s failed: %s", ticker, e)
-            st.caption("Phase analysis unavailable right now.")
-
-        with st.container(key="qc_phase_chart"):
-            st.markdown('<div class="qc-label">Revenue &amp; operating cash flow</div>',
-                        unsafe_allow_html=True)
-            _prng = st.segmented_control(
-                "Range", ("5Y", "10Y"), default="5Y",
-                key=f"ph_range_{ticker}", label_visibility="collapsed",
-            ) or "5Y"
-            try:
-                _pyears, _prev, _pcfo = phase_payouts.revenue_ocf_series(
-                    fund, 10 if _prng == "10Y" else 5)
-                if not _pyears:
-                    raise ValueError("no revenue years")
-                _pfig = phase_page.revenue_ocf_figure(_pyears, _prev, _pcfo, T)
-                _pcap = phase_payouts.revenue_ocf_caption(_pyears, _prev, _pcfo)
-            except Exception as e:
-                logger.warning("Phase revenue chart for %s failed: %s", ticker, e)
-                _pfig = None
-            if _pfig is not None:
-                st.plotly_chart(_pfig, width="stretch", config={"displayModeBar": False})
-                if _pcap:
-                    st.markdown(
-                        f'<div style="font-size:.78rem;color:{T.get("text_muted", "#888")};'
-                        f'margin-top:4px">{question_cards.esc(_pcap)}</div>',
-                        unsafe_allow_html=True)
-            else:
-                st.caption("No revenue history available.")
-
-        # No Payouts section: buybacks and dividend are told in full on the
-        # Capital Return tab (owner, 2026-10-06).
-
     # Moat: the Moat Analysis as two summary cards, then the five question cards
     # from the "Moat Cards" section. Read-only; sections are written through the MCP.
     with _tab_moat:
@@ -5804,6 +5768,36 @@ def _dcf_editor(ticker):
                     _fin_caption("Revenue in $M. Rev/Share = Revenue ($M) / Shares (M).")
             else:
                 _fin_caption("Insufficient data for Revenue per Share (need 3+ years)")
+
+            # ── Revenue & Operating Cash Flow (moved from the Phase tab) ──
+            # Does revenue growth turn into cash? The evidence the phase
+            # verdict on the Business tab rests on.
+            st.markdown(financials_page.chart_title_html(
+                "Revenue & Operating Cash Flow",
+                "Revenue beside the cash the business generates from operations. "
+                "Cash flow rising with revenue means growth pays for itself.",
+                T, width=260), unsafe_allow_html=True)
+            _rocf_rng = st.segmented_control(
+                "Range", ("5Y", "10Y"), default="5Y",
+                key=f"fin_rocf_range_{ticker}", label_visibility="collapsed",
+            ) or "5Y"
+            try:
+                _rocf_years, _rocf_rev, _rocf_cfo = phase_payouts.revenue_ocf_series(
+                    fund, 10 if _rocf_rng == "10Y" else 5)
+                if not _rocf_years:
+                    raise ValueError("no revenue years")
+                _rocf_fig = phase_page.revenue_ocf_figure(_rocf_years, _rocf_rev, _rocf_cfo, T)
+                _rocf_cap = phase_payouts.revenue_ocf_caption(_rocf_years, _rocf_rev, _rocf_cfo)
+            except Exception as e:
+                logger.warning("Revenue & OCF chart for %s failed: %s", ticker, e)
+                _rocf_fig = None
+            if _rocf_fig is not None:
+                st.plotly_chart(_rocf_fig, width="stretch", config=financials_page.CHART_CONFIG,
+                                key=f"fin_rev_ocf_{ticker}")
+                if _rocf_cap:
+                    _fin_caption(_rocf_cap)
+            else:
+                _fin_caption("No revenue history available.")
 
         # ── Valuation yield: FCF yield and EBIT / EV ──
         _fin_val_l, _fin_val_r = _fin_section("valuation")

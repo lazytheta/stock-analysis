@@ -45,37 +45,6 @@ def test_phase_number_garbage_is_none():
 
 # ── phase section ───────────────────────────────────────────────────────────
 
-def test_section_html_with_analysis():
-    html = pg.phase_section_html(ANALYSIS, None, THEME)
-    assert html.startswith("<")
-    assert "Phase Analysis" in html and "Growth cycle" in html
-    assert "Capital Return" in html
-    assert "Lead sentence costs" in html
-    assert "$" not in html
-    for label in ("A", "B", "C"):
-        assert f"<b>{label}</b>" in html
-    for block in _style_blocks(html):
-        assert "\n" not in block
-    assert html.count('class="gc-band"') == 1
-    assert "No phase analysis yet." not in html
-
-
-def test_section_html_scorecard_only_shows_badge_and_notice():
-    html = pg.phase_section_html(None, SCORECARD_4, THEME)
-    assert "Operating Leverage" in html
-    assert "No phase analysis yet." in html
-    assert html.count('class="gc-band"') == 1
-
-
-def test_section_html_nothing_parses_shows_notice_without_highlight():
-    html = pg.phase_section_html("free prose", "nope", THEME)
-    assert html.startswith("<")
-    assert "No phase analysis yet." in html
-    assert "Business Phase Analysis" in html
-    assert 'class="gc-band"' not in html
-    assert 'class="ph-num"' not in html
-
-
 def test_phase_notes_cover_six_phases():
     assert sorted(pg.PHASE_NOTES) == [1, 2, 3, 4, 5, 6]
     for note in pg.PHASE_NOTES.values():
@@ -83,67 +52,10 @@ def test_phase_notes_cover_six_phases():
         assert all(0 < len(v) <= 80 for v in note.values())
 
 
-def test_section_html_phase_note_for_known_phase():
-    html = pg.phase_section_html(ANALYSIS, None, THEME)
-    for label in ("Looks like", "Valuation fits", "Moves on when"):
-        assert label in html
-    assert "Mature, rewarding shareholders" in html
-    assert 'class="ph-card ph-cycle"' in html and 'class="ph-cycle-fig"' in html
-
-
-def test_section_html_no_phase_note_when_unknown():
-    html = pg.phase_section_html("free prose", "nope", THEME)
-    for label in ("Looks like", "Valuation fits", "Moves on when"):
-        assert label not in html
-    assert pg.phase_note_html(None) == "" and pg.phase_note_html(7) == ""
-
-
-def test_phase_analysis_text_is_13px():
-    css = pg.PHASE_STYLE
-    assert ".ph-lead{margin:0 0 10px;font-size:13px" in css
-    assert ".ph-pt{margin:0 0 7px;font-size:13px" in css
-
-
 # ── growth cycle ────────────────────────────────────────────────────────────
 
 def _labels(svg):
     return " ".join(re.findall(r"<tspan[^>]*>([^<]*)</tspan>", svg))
-
-
-def test_growth_cycle_svg_six_labels_and_one_band():
-    svg = pg.growth_cycle_svg(5)
-    assert svg.startswith("<svg") and 'viewBox="0 0 900 198"' in svg
-    assert 'font-size="12"' not in svg and 'font-size="13"' not in svg
-    text = _labels(svg)
-    for word in ("Startup", "Hypergrowth", "Self Funding", "Operating", "Leverage",
-                 "Capital Return", "Decline"):
-        assert word in text
-    for n in range(1, 7):
-        assert re.search(rf">{n} ", svg)
-    assert svg.count('class="gc-band"') == 1
-    assert svg.count("<path") == 3
-    for name in ("Revenue", "Profits", "Payouts"):
-        assert name in svg
-    assert "#5b6cff" in svg and "var(--accent)" in svg
-
-
-def test_growth_cycle_labels_on_one_line():
-    svg = pg.growth_cycle_svg(4)
-    assert ">4 Operating Leverage</tspan>" in svg
-    assert svg.count("<tspan") == 6
-    assert "max-width:900px" in pg.PHASE_STYLE
-
-
-def test_growth_cycle_svg_without_phase_has_no_band():
-    svg = pg.growth_cycle_svg(None)
-    assert 'class="gc-band"' not in svg
-    assert pg.growth_cycle_svg(0).count('class="gc-band"') == 0
-
-
-def test_growth_cycle_band_sits_over_the_current_column():
-    svg = pg.growth_cycle_svg(3)
-    band = re.search(r'<rect class="gc-band" x="([\d.]+)"', svg)
-    assert band and float(band.group(1)) == 300.0
 
 
 # ── revenue / OCF figure ───────────────────────────────────────────────────
@@ -183,3 +95,17 @@ def test_revenue_ocf_figure_ticks_in_millions():
     assert not any(t.endswith("B") for t in fig.layout.yaxis.ticktext)
 
 
+
+
+def test_phase_info_for_the_profile_card():
+    analysis = ("**Phase: 5/6 · Capital Return**\n\nMeta **returns cash** to owners, "
+                "but paused buybacks in 2026.\n\n- **Payouts**: dividend since 2024")
+    info = pg.phase_info(analysis, None)
+    assert info["number"] == 5 and info["name"] == "Capital Return"
+    assert "**" not in info["summary"]
+    assert "Valuation fits:" in info["tooltip"] and "Phase 5 of 6" in info["tooltip"]
+
+
+def test_phase_info_none_when_unknown():
+    assert pg.phase_info(None, None) is None
+    assert pg.phase_info("garbage", "garbage") is None

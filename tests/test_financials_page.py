@@ -102,7 +102,7 @@ def test_block_has_no_markdown_header():
 def test_every_plotly_chart_has_a_unique_fin_key_and_no_modebar():
     block = _block()
     calls = re.findall(r"st\.plotly_chart\((.*?)\)\n", block, re.S)
-    assert len(calls) == 9
+    assert len(calls) == 10     # + Revenue & OCF, moved from the Phase tab
     keys = []
     for call in calls:
         m = re.search(r'key=f"(fin_[a-z_]+)_\{ticker\}"', call)
