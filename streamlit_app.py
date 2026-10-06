@@ -3819,12 +3819,13 @@ def _dcf_editor(ticker):
             _orev = business_cards.parse_business_cards(_orev_raw)["revenue"] if _orev_raw else None
         except (ValueError, KeyError):
             _orev = None
-        _render_revenue_section(_orev, "qc_ov")
         # The four question cards (predictability, pricing power, recession,
         # competitive position) -- the one part of the old Business tab the
-        # explainer does not cover.
+        # explainer does not cover -- right under it, then the revenue
+        # breakdown (owner, 2026-10-06).
         st.markdown(business_cards.quality_section_html(_orev_raw, T),
                     unsafe_allow_html=True)
+        _render_revenue_section(_orev, "qc_ov")
 
         with st.container(key="qc_ov_price"):
             st.markdown('<div class="qc-label">Price vs S&amp;P 500</div>',

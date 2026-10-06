@@ -172,8 +172,9 @@ def glance(fund: dict, cfg: dict | None = None, market_cap_m=None) -> dict:
     computed; nothing here raises on missing or odd data.
 
     roce_metric / roce_pct: scorecard_utils.compute_roce_metric (percent).
-    gross_margin / op_margin: gross profit / operating income over revenue at
-        the fiscal year (fractions).
+    gross_margin / op_margin: gross profit / operating income over revenue,
+        averaged over the last ten fiscal years with data (fractions);
+        margin_years: how many years went into that average.
     revenue_cagr_5y: revenue growth per year over five years (fraction).
     fcf_yield: FCF at the fiscal year / market cap (fraction); market_cap_m
         in $M, None without a price.
@@ -186,8 +187,8 @@ def glance(fund: dict, cfg: dict | None = None, market_cap_m=None) -> dict:
     fund = fund or {}
     out = {"roce_metric": None, "roce_pct": None, "net_cash_m": None,
            "fcf_conversion": None, "share_change_5y": None, "fy": None,
-           "gross_margin": None, "op_margin": None, "revenue_cagr_5y": None,
-           "fcf_yield": None}
+           "gross_margin": None, "op_margin": None, "margin_years": None,
+           "revenue_cagr_5y": None, "fcf_yield": None}
     try:
         metric, avg = scorecard_utils.compute_roce_metric(fund, cfg)
         out["roce_metric"] = metric
@@ -202,9 +203,16 @@ def glance(fund: dict, cfg: dict | None = None, market_cap_m=None) -> dict:
         return _at(fund, key, fy)
 
     out["fy"] = fy
-    revenue = f("revenue")
-    out["gross_margin"] = _div(f("gross_profit"), revenue, True)
-    out["op_margin"] = _div(f("operating_income"), revenue, True)
+    # A ten-year average, like ROCE beside it: one year's margin can be a
+    # peak or a trough; the average is what the business normally earns.
+    def _avg_margin(key):
+        vals = [m for m in (_div(_at(fund, key, y), _at(fund, "revenue", y), True)
+                            for y in range(fy - 9, fy + 1)) if m is not None]
+        return (sum(vals) / len(vals), len(vals)) if vals else (None, None)
+
+    out["gross_margin"], gm_n = _avg_margin("gross_profit")
+    out["op_margin"], om_n = _avg_margin("operating_income")
+    out["margin_years"] = max(n for n in (gm_n, om_n, 0) if n is not None) or None
     out["revenue_cagr_5y"] = _cagr(fund, "revenue", fy, 5)
 
     cash = f("cash")

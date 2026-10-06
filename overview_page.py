@@ -170,8 +170,8 @@ def _glance_body(glance):
     net = _num(g.get("net_cash_m"))
     conv = _num(g.get("fcf_conversion"))
     shares = _num(g.get("share_change_5y"))
-    fy = g.get("fy")
-    fy_cap = f"FY{fy}" if fy else "latest fiscal year"
+    n = g.get("margin_years")
+    margin_cap = f"{n}-year average" if n else "10-year average"
 
     def _pct(x):
         x = _num(x)
@@ -181,8 +181,8 @@ def _glance_body(glance):
     # two per row (owner, 2026-10-06).
     tiles = [
         _tile(metric, DASH if roce is None else f"{roce:.1f}%", "10-year average"),
-        _tile("Gross margin", _pct(g.get("gross_margin")), fy_cap),
-        _tile("Operating margin", _pct(g.get("op_margin")), fy_cap),
+        _tile("Gross margin", _pct(g.get("gross_margin")), margin_cap),
+        _tile("Operating margin", _pct(g.get("op_margin")), margin_cap),
         _tile("Revenue growth", om.fmt_pct(_num(g.get("revenue_cagr_5y")), signed=True),
               "per year, last 5 years"),
         _tile("FCF conversion", DASH if conv is None else f"{conv * 100:.0f}%",

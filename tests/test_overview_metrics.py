@@ -327,11 +327,22 @@ def test_glance_margins_growth_and_fcf_yield():
     assert om.glance(_gfund(), None)["fcf_yield"] is None
 
 
+def test_glance_margins_are_ten_year_averages():
+    # Gross margin 40% for six years, then 70% for the last five: the tile
+    # shows the ten-year average of the last ten years, not the latest 70%.
+    gp = [40.0] * 6 + [70.0] * 5
+    g = om.glance(_gfund(gross_profit=gp), None)
+    assert abs(g["gross_margin"] - (5 * 40 + 5 * 70) / 1000) < 1e-9
+    assert g["margin_years"] == 10
+    short = om.glance(_gfund(gross_profit=[None] * 8 + [50.0] * 3), None)
+    assert abs(short["gross_margin"] - 0.5) < 1e-9 and short["margin_years"] == 3
+
+
 def test_glance_empty_fund():
     g = om.glance({}, None)
     assert set(g) == {"roce_metric", "roce_pct", "net_cash_m", "fcf_conversion",
                       "share_change_5y", "fy", "gross_margin", "op_margin",
-                      "revenue_cagr_5y", "fcf_yield"}
+                      "margin_years", "revenue_cagr_5y", "fcf_yield"}
     assert g["net_cash_m"] is None and g["fcf_conversion"] is None
     assert g["share_change_5y"] is None
     assert om.glance(None, None)["net_cash_m"] is None
