@@ -470,15 +470,16 @@ def _track_record_pill_html(rows: list, theme: dict, label: str = "vs SPY") -> s
     color = theme["accent"] if total >= 0 else theme["red"]
     tip = (
         f"Same money, same days, in SPY instead of what you bought: "
-        f"{'you have' if total >= 0 else 'you could have had'} ${abs(total):,.0f} more. "
-        f"Stock picks alone {'beat' if stock >= 0 else 'trailed'} SPY by ${abs(stock):,.0f}; "
+        f"{'you have' if total >= 0 else 'you could have had'} {_money_sym()}{abs(total):,.0f} more. "
+        f"Stock picks alone {'beat' if stock >= 0 else 'trailed'} SPY by {_money_sym()}{abs(stock):,.0f}; "
         f"option premium and dividends {'won back' if won_back >= 0 else 'cost'} "
-        f"${abs(won_back):,.0f}. Every position ever held, each lot over its own days. "
-        f"SPY price return, last five years."
+        f"{_money_sym()}{abs(won_back):,.0f}. Every position ever held, each lot over its own days. "
+        f"SPY price return, last five years"
+        f"{' (in euros)' if _money_sym() == '€' else ''}."
     )
     sign = "+" if total >= 0 else "-"
     return (f'<span class="stat-pill" title="{_html.escape(tip, quote=True)}" '
-            f'style="cursor:help">{label} <b style="color:{color}">{sign}${abs(total):,.0f}</b> '
+            f'style="cursor:help">{label} <b style="color:{color}">{sign}{_money_sym()}{abs(total):,.0f}</b> '
             f'<span style="color:{color}">({pts:+.0f} pts)</span></span>')
 
 
@@ -7519,13 +7520,20 @@ sys.excepthook = _global_exception_handler
 
 # ── Monthly detail helpers ──
 
+def _money_sym():
+    """$ or €: the Results page sets it per run for the module-level
+    formatters below (reporting currency); every run starts at $."""
+    return st.session_state.get("_money_sym", "$")
+
+
 def _fmt_k(val):
-    """Format dollar amount: $1,234 -> '$1.2K', $500 -> '$500'."""
+    """Format a money amount: 1,234 -> '$1.2K', 500 -> '$500' (or €)."""
     sign = "+" if val > 0 else "-" if val < 0 else ""
     av = abs(val)
+    sym = _money_sym()
     if av >= 1000:
-        return f"{sign}${av / 1000:.1f}K"
-    return f"{sign}${av:,.0f}"
+        return f"{sign}{sym}{av / 1000:.1f}K"
+    return f"{sign}{sym}{av:,.0f}"
 
 
 def _report_yahoo_chart(ticker, data, query):
@@ -7695,8 +7703,14 @@ def _aggregate_month_trades(cost_basis, year, month):
                     # Yahoo noteert een Europese lijn in haar eigen valuta;
                     # het rapport telt in USD. De rij draagt de koers waarmee
                     # de positie al is omgerekend.
-                    unrealized = (shares * (price_end - price_start)
-                                  * (cost_basis[ticker].get("fx_rate") or 1.0))
+                    # In a euro copy (reporting currency EUR) a dollar line
+                    # converts each close at its own month-end rate.
+                    import calendar as _cal
+                    unrealized = reporting_currency.report_move(
+                        shares, price_start, price_end,
+                        date(prev_year, prev_month, _cal.monthrange(prev_year, prev_month)[1]),
+                        date(year, month, _cal.monthrange(year, month)[1]),
+                        cost_basis[ticker])
                     if abs(unrealized) >= 1.0:
                         ticker_data[ticker]["equity_pl"] += unrealized
                         ticker_data[ticker]["net_pl"] += unrealized
@@ -7865,15 +7879,17 @@ def _aggregate_week_trades(cost_basis, wk_start, wk_end):
                 daily_prices.sort()
                 price_before = None
                 price_end = None
+                day_before = day_end = None
                 for dt, close in daily_prices:
                     if dt < wk_start_d:
-                        price_before = close
+                        price_before, day_before = close, dt
                     if dt <= wk_end_d:
-                        price_end = close
+                        price_end, day_end = close, dt
                 if price_before and price_end:
                     # Zelfde omrekening als in het maandrapport hierboven.
-                    unrealized = (shares * (price_end - price_before)
-                                  * (cost_basis[ticker].get("fx_rate") or 1.0))
+                    unrealized = reporting_currency.report_move(
+                        shares, price_before, price_end, day_before, day_end,
+                        cost_basis[ticker])
                     if abs(unrealized) >= 1.0:
                         ticker_data[ticker]["equity_pl"] += unrealized
                         ticker_data[ticker]["net_pl"] += unrealized
@@ -8224,12 +8240,16 @@ def _show_month_detail(year, month, cost_basis, nl_all, transfers, monthly_retur
     _prem_roc = (agg["premium_total"] / _period_capital * 100) if _period_capital > 0 else 0.0
 
     # Benchmark monthly returns (cached)
-    if "benchmark_monthly" not in st.session_state:
+    # In the Results page's currency: EUR mode measures the index in euros.
+    _bm_eur = _money_sym() == "€"
+    _bm_key = f"benchmark_monthly::{'EUR' if _bm_eur else 'USD'}"
+    if _bm_key not in st.session_state:
         try:
-            st.session_state["benchmark_monthly"] = fetch_benchmark_monthly_returns()
+            st.session_state[_bm_key] = fetch_benchmark_monthly_returns(
+                (_eur_fx_history() or None) if _bm_eur else None)
         except Exception:
-            st.session_state["benchmark_monthly"] = {}
-    bench = st.session_state["benchmark_monthly"]
+            st.session_state[_bm_key] = {}
+    bench = st.session_state[_bm_key]
 
     # ── Color helpers ──
     _green = T['accent']
@@ -8453,6 +8473,10 @@ document.getElementById('dl-btn').addEventListener('click', function() {{
 
     components.html(report_html, height=_h, scrolling=True)
 
+
+# Module-level money formatters read this; Results switches it to € in EUR
+# mode for its own run.
+st.session_state["_money_sym"] = "$"
 
 if page == "Watchlist":
     st.markdown(
@@ -10097,13 +10121,33 @@ elif page == "Results":
     # cards are built per position, so they narrow cleanly. Net liq history and
     # deposits do not: Trading 212 exposes neither, so those two blocks stay
     # single-broker and say which one they are showing.
-    _res_view = _broker_view_control("Results")
+    _c_view, _c_ccy = st.columns([6, 1])
+    with _c_view:
+        _res_view = _broker_view_control("Results")
+    with _c_ccy:
+        _res_ccy = _currency_control("Results")
     if _res_view != "Overview":
         cost_basis = {t: d for t, d in cost_basis.items()
                       if d.get("broker") == _res_view}
         if not cost_basis:
             st.info(f"No positions at {_res_view}.")
             st.stop()
+
+    # ── Reporting currency ──
+    # EUR mode works on a euro copy of the positions (every trade at its own
+    # date's rate) so every computation below runs unchanged; the curve,
+    # deposits and benchmarks are converted where they are fetched (spec
+    # 2026-10-06-reporting-currency-results-design.md).
+    _res_rate = _usd_per_eur_now() if _res_ccy == "EUR" else None
+    if _res_ccy == "EUR" and not _res_rate:
+        st.caption("EUR rate unavailable — showing USD.")
+        _res_ccy = "USD"
+    _res_eur = _res_ccy == "EUR"
+    _res_hist = (_eur_fx_history() or {}) if _res_eur else {}
+    if _res_eur:
+        cost_basis = reporting_currency.to_eur_cost_basis(cost_basis, _res_rate, _res_hist)
+        st.session_state["_money_sym"] = "€"
+    _sym = "€" if _res_eur else "$"
 
     # ── Compute aggregates ──
     total_pl_real = sum(d["total_pl_real"] for d in cost_basis.values())
@@ -10131,7 +10175,7 @@ elif page == "Results":
     # only its own. Without the key, switching tabs served the previous
     # account's history under the new tab's heading.
     _nl_key = f"net_liq_all::{_res_view}"
-    _tr_key = f"yearly_transfers::{_res_view}"
+    _tr_key = f"yearly_transfers::{_res_view}::{_res_ccy}"
     cagr_pill = ""
     if _nl_key not in st.session_state:
         try:
@@ -10149,17 +10193,22 @@ elif page == "Results":
         try:
             with st.spinner("Loading cash transfer history..."):
                 with load_profiler.timed("yearly transfers"):
+                    _tr_eur = (_res_rate, _res_hist) if _res_eur else None
                     st.session_state[_tr_key] = (
-                        fetch_all_yearly_transfers() if _res_view == "Overview"
-                        else fetch_yearly_transfers())
+                        fetch_all_yearly_transfers(_tr_eur) if _res_view == "Overview"
+                        else fetch_yearly_transfers(_tr_eur))
         except Exception as e:
             if not _is_auth_error(e):
                 logger.warning("Yearly transfers fetch failed: %s", e)
                 log_error_with_trace("PORTFOLIO_ERROR", e, page="Portfolio", metadata={"component": "yearly_transfers"})
             st.session_state[_tr_key] = {}
 
-    # Names the rest of the page already reads.
-    st.session_state["net_liq_all"] = st.session_state.get(_nl_key)
+    # Names the rest of the page already reads. The curve is fetched in USD
+    # and divided per day by that day's rate: exact, since Trading 212's part
+    # was converted to USD with the same ECB series.
+    st.session_state["net_liq_all"] = (
+        reporting_currency.series_to_eur(st.session_state.get(_nl_key), _res_hist, _res_rate)
+        if _res_eur and st.session_state.get(_nl_key) else st.session_state.get(_nl_key))
     st.session_state["yearly_transfers"] = st.session_state.get(_tr_key) or {}
 
     nl_all_early = st.session_state.get("net_liq_all")
@@ -10196,6 +10245,8 @@ elif page == "Results":
     _strat = _strategy_start()
     try:
         _spy_closes_now = _cached_spy_closes()
+        if _res_eur:
+            _spy_closes_now = reporting_currency.closes_to_eur(_spy_closes_now, _res_hist, _res_rate)
         vs_spy_pill = _track_record_pill_html(
             _track_record_rows(cost_basis, _spy_closes_now, date.today()), T)
         if _strat:
@@ -10207,10 +10258,10 @@ elif page == "Results":
         vs_spy_pill = ""
     if nl_all_early:
         pv = df_cagr["close"].iloc[-1]
-        portfolio_val_pill = f'<span class="stat-pill">Portfolio Value <b>${pv:,.0f}</b></span>'
+        portfolio_val_pill = f'<span class="stat-pill">Portfolio Value <b>{_sym}{pv:,.0f}</b></span>'
 
         total_dep = sum(v["total"] for v in transfers_early.values()) if transfers_early else 0
-        total_dep_pill = f'<span class="stat-pill">Total Deposited <b>${total_dep:,.0f}</b></span>'
+        total_dep_pill = f'<span class="stat-pill">Total Deposited <b>{_sym}{total_dep:,.0f}</b></span>'
 
         true_pl = pv - total_dep
         true_pl_sign = "+" if true_pl >= 0 else ""
@@ -10263,7 +10314,7 @@ elif page == "Results":
       st.markdown(
         f'<div class="hero-card">'
         f'<p class="hero-label">Total P/L</p>'
-        f'<p class="hero-value {hero_pl_class}">{hero_pl_sign}${abs(hero_pl):,.0f}</p>'
+        f'<p class="hero-value {hero_pl_class}">{hero_pl_sign}{_sym}{abs(hero_pl):,.0f}</p>'
         f'<p class="hero-sub">{active_positions} active positions</p>'
         f'<div class="stat-row">'
         f'{portfolio_val_pill}'
@@ -10303,14 +10354,15 @@ elif page == "Results":
       #
       # The view belongs in the cache key too — without it, switching tabs
       # kept showing whichever broker was loaded first.
-      cache_key = f"net_liq_{api_time_back}::{_res_view}"
+      cache_key = f"net_liq_{api_time_back}::{_res_view}::{_res_ccy}"
       if cache_key not in st.session_state:
           # The full curve is already loaded above, under _nl_key, and "all"
           # contains every shorter period by definition. Cut the window out of
           # it instead of rebuilding from the same fills — that second build
           # was 3.65s of a 10.35s page. Only fall back to fetching when the
           # full curve is missing, which means its own load failed.
-          _all_series = st.session_state.get(_nl_key)
+          # The page's curve: already in EUR when that is the currency.
+          _all_series = st.session_state.get("net_liq_all")
           if _all_series:
               with load_profiler.timed(f"net liq window ({api_time_back}) uit 'all'"):
                   st.session_state[cache_key] = slice_net_liq(
@@ -10319,10 +10371,12 @@ elif page == "Results":
               try:
                   with st.spinner("Loading net liq history..."):
                       with load_profiler.timed(f"net liq history ({api_time_back})"):
+                          _win = (fetch_all_net_liq_history(api_time_back)
+                                  if _res_view == "Overview"
+                                  else fetch_net_liq_history(api_time_back))
                           st.session_state[cache_key] = (
-                              fetch_all_net_liq_history(api_time_back)
-                              if _res_view == "Overview"
-                              else fetch_net_liq_history(api_time_back))
+                              reporting_currency.series_to_eur(_win, _res_hist, _res_rate)
+                              if _res_eur and _win else _win)
               except Exception as e:
                   logger.warning("Net liq history fetch failed (%s): %s",
                                  api_time_back, e)
@@ -10354,6 +10408,8 @@ elif page == "Results":
                   pct_change = ((last_close - first_close) / first_close * 100) if first_close else 0
               try:
                   _spy = _cached_spy_closes()
+                  if _res_eur:
+                      _spy = reporting_currency.closes_to_eur(_spy, _res_hist, _res_rate)
                   _spy_start = next((_spy[d] for d in sorted(_spy) if d >= _strat), None)
                   if _spy and _spy_start:
                       _spy_pct = (_spy[max(_spy)] / _spy_start - 1) * 100
@@ -10381,7 +10437,7 @@ elif page == "Results":
               line=dict(color=T['accent'], width=2),
               fill="tozeroy",
               fillcolor=T['accent_fill'],
-              hovertemplate="$%{y:,.0f}<extra></extra>",
+              hovertemplate=_sym + "%{y:,.0f}<extra></extra>",
           ))
           fig_liq.update_layout(
               margin=dict(t=10, b=20, l=40, r=20),
@@ -10434,11 +10490,11 @@ elif page == "Results":
                 f'{logo}'
                 f'<span class="pf-ticker">{ticker}</span>'
                 f'<div class="pf-cell"><span class="pf-label">Total P/L</span>'
-                f'<span class="pf-val{pl_cls}">${pl:+,.0f}</span></div>'
+                f'<span class="pf-val{pl_cls}">{_sym}{pl:+,.0f}</span></div>'
                 f'<div class="pf-cell"><span class="pf-label">Options P/L</span>'
-                f'<span class="pf-val{opt_cls}">${opt:+,.0f}</span></div>'
+                f'<span class="pf-val{opt_cls}">{_sym}{opt:+,.0f}</span></div>'
                 f'<div class="pf-cell"><span class="pf-label">Dividends</span>'
-                f'<span class="pf-val">${data["dividends"]:,.0f}</span></div>'
+                f'<span class="pf-val">{_sym}{data["dividends"]:,.0f}</span></div>'
                 f'</div>'
             )
         return cards
@@ -10458,16 +10514,18 @@ elif page == "Results":
     )
 
     with st.container(key="cumulative_block"):
-        if "benchmark_returns" not in st.session_state:
+        _bench_key = f"benchmark_returns::{_res_ccy}"
+        if _bench_key not in st.session_state:
             try:
                 with st.spinner("Loading benchmark data..."):
-                    st.session_state["benchmark_returns"] = fetch_benchmark_returns()
+                    st.session_state[_bench_key] = fetch_benchmark_returns(
+                        _res_hist if _res_eur else None)
             except Exception as e:
                 logger.warning("Benchmark returns fetch failed: %s", e)
-                st.session_state["benchmark_returns"] = {}
+                st.session_state[_bench_key] = {}
 
         nl_all = st.session_state.get("net_liq_all")
-        bench_returns = st.session_state["benchmark_returns"]
+        bench_returns = st.session_state[_bench_key]
         transfers = st.session_state.get("yearly_transfers", {})
 
         if nl_all:
@@ -10798,7 +10856,7 @@ elif page == "Results":
             if has_deposits:
                 st.markdown(
                     f'<div class="section-title-bar dep-title-bar">Deposits &nbsp;<span style="font-weight:400;font-size:0.85rem;color:{T["text_muted"]}">'
-                    f'Total: <span class="pf-val{total_dep_cls}" style="font-size:0.85rem">${total_deposited:+,.0f}</span>'
+                    f'Total: <span class="pf-val{total_dep_cls}" style="font-size:0.85rem">{_sym}{total_deposited:+,.0f}</span>'
                     f'</span></div>',
                     unsafe_allow_html=True,
                 )
@@ -10815,14 +10873,14 @@ elif page == "Results":
                         mo_html += (
                             f'<div style="border-left:3px solid {mo_color};padding:6px 12px;margin-bottom:2px">'
                             f'<span style="font-weight:600;color:{T["text"]}">{MONTH_NAMES[mo]}</span> &nbsp; '
-                            f'<span style="color:{mo_color};font-weight:600">${mo_val:+,.0f}</span>'
+                            f'<span style="color:{mo_color};font-weight:600">{_sym}{mo_val:+,.0f}</span>'
                             f'</div>'
                         )
                     st.markdown(
                         f'<details class="yr-details" style="background:{T["card"]};border:1px solid {T["border"]};border-left:3px solid {dep_color};'
                         f'border-radius:8px;padding:10px 14px;margin-bottom:6px">'
                         f'<summary style="font-weight:600;color:{T["text"]}">'
-                        f'{yr} — <span style="color:{dep_color}">${amount:+,.0f}</span></summary>'
+                        f'{yr} — <span style="color:{dep_color}">{_sym}{amount:+,.0f}</span></summary>'
                         f'<div style="margin-top:8px">{mo_html}</div>'
                         f'</details>',
                         unsafe_allow_html=True)
@@ -10836,9 +10894,9 @@ elif page == "Results":
             if col in ("Options P/L", "Total P/L"):
                 cls = " pf-green" if val > 0 else " pf-red" if val < 0 else ""
             if col in ("Options P/L", "Equity Cost", "Total P/L", "Dividends"):
-                return f"${val:+,.0f}" if col in ("Options P/L", "Total P/L") else f"${val:,.0f}", cls
+                return f"{_sym}{val:+,.0f}" if col in ("Options P/L", "Total P/L") else f"{_sym}{val:,.0f}", cls
             if col == "Mkt Value":
-                return f"${val:,.0f}", cls
+                return f"{_sym}{val:,.0f}", cls
             if col == "Wheels":
                 return f"{val}", cls
             return f"{val}", cls

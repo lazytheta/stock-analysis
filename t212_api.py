@@ -567,14 +567,18 @@ def _clean_symbol_exchange(symbol: str, creds: dict) -> str:
     return ""
 
 
-def fetch_yearly_transfers(creds: dict) -> dict:
-    """Net deposits per year and month, in USD."""
+def fetch_yearly_transfers(creds: dict, currency: str = "USD") -> dict:
+    """Net deposits per year and month, in USD -- or, with currency="EUR",
+    in the account's own euros (the reporting-currency EUR mode)."""
     import gather_data
     from t212_history import yearly_transfers
 
     moves = fetch_cash_movements(creds)
     if not moves:
         return {}
+    if currency == "EUR":
+        # An empty rate table leaves each amount as it is: the account's euros.
+        return yearly_transfers(moves, {})
     years = max(1, (moves[-1]["date"] - moves[0]["date"]).days // 365 + 1)
     fx = gather_data.fetch_fx_history("EUR", years)
     return yearly_transfers(moves, fx)

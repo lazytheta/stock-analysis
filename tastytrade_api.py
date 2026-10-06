@@ -245,8 +245,12 @@ def calculate_cost_basis(transactions):
     return result
 
 
-def fetch_yearly_transfers(refresh_token=None):
+def fetch_yearly_transfers(refresh_token=None, eur_history=None):
     """Fetch net cash transfers (deposits minus withdrawals) per year and month.
+
+    With eur_history ({date: USD per EUR}) every transfer converts to EUR at
+    its own date's rate (reporting-currency EUR mode); the monthly totals
+    could not be converted exactly afterwards.
 
     Returns:
         Dict of {year: {"total": net_amount, "months": {month_int: net_amount}}}.
@@ -270,6 +274,11 @@ def fetch_yearly_transfers(refresh_token=None):
                 sub_type = txn.transaction_sub_type or ""
                 if txn_type == "Money Movement" and sub_type in ("Deposit", "Withdrawal"):
                     net = float(txn.net_value) if txn.net_value is not None else 0.0
+                    if eur_history:
+                        import reporting_currency
+                        rate = reporting_currency.rate_on(eur_history, txn.transaction_date)
+                        if rate:
+                            net /= rate
                     yr = txn.transaction_date.year
                     mo = txn.transaction_date.month
                     if yr not in yearly:
@@ -475,8 +484,10 @@ def fetch_net_liq_history(time_back="1y", refresh_token=None):
     return asyncio.run(_run())
 
 
-def _fetch_yearly_returns(symbol):
-    """Fetch yearly returns for a Yahoo Finance symbol.
+def _fetch_yearly_returns(symbol, eur_history=None):
+    """Fetch yearly returns for a Yahoo Finance symbol. With eur_history each
+    year-end close is divided by that day's USD-per-EUR rate first, so the
+    return is the one a euro investor got.
 
     Returns:
         Dict of {year: return_pct}, e.g. {2023: 24.2, 2024: 10.5}.
@@ -495,27 +506,46 @@ def _fetch_yearly_returns(symbol):
         closes = result["indicators"]["quote"][0]["close"]
 
         from datetime import datetime as _dt
-        year_close = {}
-        for ts, close in zip(timestamps, closes):
-            if close is None:
-                continue
-            yr = _dt.utcfromtimestamp(ts).year
-            year_close[yr] = close
-
-        years_sorted = sorted(year_close.keys())
-        returns = {}
-        for i in range(1, len(years_sorted)):
-            prev_yr = years_sorted[i - 1]
-            cur_yr = years_sorted[i]
-            returns[cur_yr] = (year_close[cur_yr] - year_close[prev_yr]) / year_close[prev_yr] * 100
-        return returns
+        points = [(_dt.utcfromtimestamp(ts).date(), close)
+                  for ts, close in zip(timestamps, closes) if close is not None]
+        return yearly_returns_from_monthly(points, eur_history)
     except Exception as e:
         logger.debug("Yearly returns fetch failed: %s", e)
         return {}
 
 
-def _fetch_monthly_returns(symbol):
-    """Fetch monthly returns for a Yahoo Finance symbol.
+def yearly_returns_from_monthly(points, eur_history=None):
+    """{year: return_pct} from monthly bars [(bar_date, close)].
+
+    A monthly bar is stamped on its first day and closes at month end, so
+    with eur_history the close is divided by the rate on the bar's last day
+    (today for the running month).
+    """
+    import calendar
+    from datetime import date as _date
+    year_close = {}
+    for day, close in points:
+        if eur_history:
+            import reporting_currency
+            last = _date(day.year, day.month, calendar.monthrange(day.year, day.month)[1])
+            rate = reporting_currency.rate_on(eur_history, min(last, _date.today()))
+            if not rate:
+                continue
+            close = close / rate
+        year_close[day.year] = close
+
+    years_sorted = sorted(year_close.keys())
+    returns = {}
+    for i in range(1, len(years_sorted)):
+        prev_yr = years_sorted[i - 1]
+        cur_yr = years_sorted[i]
+        returns[cur_yr] = (year_close[cur_yr] - year_close[prev_yr]) / year_close[prev_yr] * 100
+    return returns
+
+
+def _fetch_monthly_returns(symbol, eur_history=None):
+    """Fetch monthly returns for a Yahoo Finance symbol (in EUR with
+    eur_history: each month-end close divided by that day's rate).
 
     Returns:
         Dict of {(year, month): return_pct}, e.g. {(2025, 1): 2.3, (2025, 2): -1.1}.
@@ -533,12 +563,21 @@ def _fetch_monthly_returns(symbol):
         timestamps = result["timestamp"]
         closes = result["indicators"]["quote"][0]["close"]
 
+        import calendar
+        from datetime import date as _date
         from datetime import datetime as _dt
         month_close = {}
         for ts, close in zip(timestamps, closes):
             if close is None:
                 continue
             dt = _dt.utcfromtimestamp(ts)
+            if eur_history:
+                import reporting_currency
+                last = _date(dt.year, dt.month, calendar.monthrange(dt.year, dt.month)[1])
+                rate = reporting_currency.rate_on(eur_history, min(last, _date.today()))
+                if not rate:
+                    continue
+                close = close / rate
             month_close[(dt.year, dt.month)] = close
 
         periods = sorted(month_close.keys())
@@ -561,8 +600,8 @@ MONTHLY_BENCHMARKS = {
 }
 
 
-def fetch_benchmark_monthly_returns():
-    """Fetch monthly returns for benchmarks.
+def fetch_benchmark_monthly_returns(eur_history=None):
+    """Fetch monthly returns for benchmarks (in EUR with eur_history).
 
     Returns:
         Dict of {benchmark_name: {(year, month): return_pct}}.
@@ -572,7 +611,7 @@ def fetch_benchmark_monthly_returns():
     results = {}
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = {
-            executor.submit(_fetch_monthly_returns, symbol): name
+            executor.submit(_fetch_monthly_returns, symbol, eur_history): name
             for name, symbol in MONTHLY_BENCHMARKS.items()
         }
         for future in as_completed(futures):
@@ -593,8 +632,9 @@ BENCHMARKS = {
 }
 
 
-def fetch_benchmark_returns():
-    """Fetch yearly returns for all benchmarks in parallel.
+def fetch_benchmark_returns(eur_history=None):
+    """Fetch yearly returns for all benchmarks in parallel (in EUR when
+    eur_history is given, see _fetch_yearly_returns).
 
     Returns:
         Dict of {benchmark_name: {year: return_pct}}.
@@ -604,7 +644,7 @@ def fetch_benchmark_returns():
     results = {}
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {
-            executor.submit(_fetch_yearly_returns, symbol): name
+            executor.submit(_fetch_yearly_returns, symbol, eur_history): name
             for name, symbol in BENCHMARKS.items()
         }
         for future in as_completed(futures):

@@ -185,12 +185,24 @@ def fetch_beta_weighted_delta():
     return tastytrade_api.fetch_beta_weighted_delta(refresh_token=_get_refresh_token())
 
 
-def fetch_yearly_transfers():
-    if get_active_broker() == "t212":
-        return t212_api.fetch_yearly_transfers(_get_t212_creds())
-    if get_active_broker() == "ibkr":
-        return _get_ibkr().fetch_yearly_transfers()
-    return tastytrade_api.fetch_yearly_transfers(refresh_token=_get_refresh_token())
+def _yearly_transfers_one(broker, eur=None):
+    """One broker's transfers; eur=(usd_per_eur_now, history) converts each
+    transfer at its own date (reporting-currency EUR mode)."""
+    if broker == "t212":
+        return t212_api.fetch_yearly_transfers(
+            _get_t212_creds(), "EUR" if eur else "USD")
+    if broker == "ibkr":
+        out = _get_ibkr().fetch_yearly_transfers()
+        if eur:
+            import reporting_currency
+            out = reporting_currency.transfers_monthly_to_eur(out, eur[1], eur[0])
+        return out
+    return tastytrade_api.fetch_yearly_transfers(
+        refresh_token=_get_refresh_token(), eur_history=eur[1] if eur else None)
+
+
+def fetch_yearly_transfers(eur=None):
+    return _yearly_transfers_one(get_active_broker(), eur)
 
 
 def fetch_margin_interest():
@@ -507,15 +519,11 @@ def fetch_all_net_liq_history(time_back="1y"):
     return merge_net_liq_series(series)
 
 
-def fetch_all_yearly_transfers():
-    """Combined deposits across every connected broker."""
+def fetch_all_yearly_transfers(eur=None):
+    """Combined deposits across every connected broker (in EUR with
+    eur=(usd_per_eur_now, history), each transfer at its own date)."""
     def _one(broker):
-        if broker == "t212":
-            return t212_api.fetch_yearly_transfers(_get_t212_creds())
-        if broker == "ibkr":
-            return _get_ibkr().fetch_yearly_transfers()
-        return tastytrade_api.fetch_yearly_transfers(
-            refresh_token=_get_refresh_token())
+        return _yearly_transfers_one(broker, eur)
 
     brokers = connected_brokers()
     _prime_credentials(brokers)
@@ -615,12 +623,12 @@ def fetch_ticker_profiles(tickers):
     return tastytrade_api.fetch_ticker_profiles(tickers)
 
 
-def fetch_benchmark_returns():
-    return tastytrade_api.fetch_benchmark_returns()
+def fetch_benchmark_returns(eur_history=None):
+    return tastytrade_api.fetch_benchmark_returns(eur_history)
 
 
-def fetch_benchmark_monthly_returns():
-    return tastytrade_api.fetch_benchmark_monthly_returns()
+def fetch_benchmark_monthly_returns(eur_history=None):
+    return tastytrade_api.fetch_benchmark_monthly_returns(eur_history)
 
 
 def fetch_sp500_yearly_returns():

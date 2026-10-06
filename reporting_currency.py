@@ -175,3 +175,121 @@ def fmt_money(amount, ccy, decimals=0, signed=False):
     if signed:
         return f"{sym}{amount:+,.{decimals}f}"
     return f"{sym}{amount:,.{decimals}f}"
+
+
+# ── Step 2: a euro copy of the data for the Results page ──────────────────
+# Spec: docs/superpowers/specs/2026-10-06-reporting-currency-results-design.md
+
+
+def _trade_eur(t, usd_per_eur_now, history):
+    """A copy of one trade with net_value and price in EUR."""
+    out = dict(t)
+    qty = abs(t.get("quantity") or 0.0)
+    if t.get("wallet_net_value") is not None:
+        # Trading 212: the euros the account actually moved.
+        out["net_value"] = t["wallet_net_value"]
+        out["price"] = abs(out["net_value"]) / qty if qty else (t.get("price") or 0.0)
+        return out
+    rate = rate_on(history, t.get("date")) or usd_per_eur_now
+    out["net_value"] = (t.get("net_value") or 0.0) / rate
+    out["price"] = (t.get("price") or 0.0) / rate
+    return out
+
+
+def _is_dividend_row(t):
+    return t.get("instrument_type") == "Equity" and (t.get("type") or "") == "Money Movement"
+
+
+def to_eur_cost_basis(cost_basis, usd_per_eur_now, history):
+    """A new cost_basis with every amount in EUR (the input is not modified).
+
+    Trades convert at their own date (Trading 212 fills use their own euro
+    amount); sums are rebuilt from the converted trades, with any USD
+    remainder the trades do not explain at today's rate; live prices convert
+    at today's rate, EUR-quoted lines keep their euros. Every Results
+    computation can then run on it unchanged.
+    """
+    from trade_utils import detect_wheels
+
+    out = {}
+    for key, row in (cost_basis or {}).items():
+        r = dict(row)
+        usd_trades = row.get("trades") or []
+        trades = [_trade_eur(t, usd_per_eur_now, history) for t in usd_trades]
+        r["trades"] = trades
+
+        def _sum(pred, usd_field, _usd=usd_trades, _eur=trades, _row=row):
+            eur = sum(t.get("net_value") or 0.0 for t in _eur if pred(t))
+            usd_seen = sum(t.get("net_value") or 0.0 for t in _usd if pred(t))
+            return eur + ((_row.get(usd_field) or 0.0) - usd_seen) / usd_per_eur_now
+
+        r["equity_cost"] = _sum(is_equity_cost_trade, "equity_cost")
+        if row.get("broker") == "Trading 212":
+            own = _t212_eur_cost(row)
+            if own is not None and row.get("shares_held"):
+                r["equity_cost"] = own
+        r["option_pl"] = _sum(is_option_trade, "option_pl")
+        r["dividends"] = _sum(_is_dividend_row, "dividends")
+        r["total_pl"] = _sum(lambda t: True, "total_pl")
+        r["total_credits"] = sum(t["net_value"] for t in trades if t["net_value"] > 0)
+        r["total_debits"] = sum(t["net_value"] for t in trades if t["net_value"] < 0)
+        r["adjusted_cost"] = r["equity_cost"] + r["option_pl"]
+        shares = row.get("shares_held") or 0
+        r["cost_per_share"] = r["adjusted_cost"] / shares if shares else 0.0
+
+        if row.get("native_currency") == "EUR" and row.get("fx_rate"):
+            live_rate = row["fx_rate"]
+        else:
+            live_rate = usd_per_eur_now
+        for field in ("current_price", "previous_close", "broker_price", "purchase_price"):
+            if row.get(field) is not None:
+                r[field] = row[field] / live_rate
+        r["market_value"] = (r.get("current_price") or 0.0) * shares
+        r["total_pl_real"] = r["total_pl"] + r["market_value"]
+        r["wheels"] = detect_wheels(trades) if row.get("wheels") else []
+        r["currency"] = "EUR"
+        r["fx_rate"] = 1.0
+        r["_eur_history"] = history
+        out[key] = r
+    return out
+
+
+def series_to_eur(series, history, usd_per_eur_now):
+    """A curve [{"time", "close"}] in USD → EUR, each point at its day's rate."""
+    out = []
+    for p in series or []:
+        rate = rate_on(history, p.get("time")) or usd_per_eur_now
+        out.append({**p, "close": (p.get("close") or 0.0) / rate})
+    return out
+
+
+def closes_to_eur(closes, history, usd_per_eur_now):
+    """{date: close} in USD → EUR at each day's rate."""
+    return {d: c / (rate_on(history, d) or usd_per_eur_now)
+            for d, c in (closes or {}).items() if c}
+
+
+def transfers_monthly_to_eur(transfers, history, usd_per_eur_now):
+    """Fallback for a broker that only reports monthly totals (IBKR): each
+    month at its mid-month rate."""
+    out = {}
+    for year, entry in (transfers or {}).items():
+        months = {}
+        for month, amount in (entry.get("months") or {}).items():
+            rate = rate_on(history, date(int(year), int(month), 15)) or usd_per_eur_now
+            months[month] = amount / rate
+        out[year] = {"total": sum(months.values()), "months": months}
+    return out
+
+
+def report_move(shares, close_start, close_end, day_start, day_end, row):
+    """Unrealized move of a held position between two report dates, in the
+    row's currency. A euro copy (row has _eur_history) converts a non-EUR
+    close at each date's own rate, so the currency move is in it."""
+    hist = row.get("_eur_history")
+    if hist is not None and (row.get("native_currency") or "USD") != "EUR":
+        r0 = rate_on(hist, day_start)
+        r1 = rate_on(hist, day_end)
+        if r0 and r1:
+            return shares * (close_end / r1 - close_start / r0)
+    return shares * (close_end - close_start) * (row.get("fx_rate") or 1.0)
