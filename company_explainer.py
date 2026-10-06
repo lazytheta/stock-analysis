@@ -1,9 +1,9 @@
 """Company Explainer: what the company actually does, under four fixed headings,
-for the Overview tab's "What the company does" section.
+for the Business tab's "What the company does" section.
 
 Built on the Business Analysis, Business Cards and Key Metrics prior sections
 plus the latest 10-K's Business chapter. Validated like the card sections so a
-malformed block is refused before it can break the Overview tab's rendering.
+malformed block is refused before it can break the Business tab's rendering.
 
 No module-level import of prescan_render: mcp_server imports this module for
 the parser, and the Cloud Run image does not ship prescan_render.
@@ -43,7 +43,7 @@ SOURCE_MAX = 120
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
 
 PROMPT = """You are writing the Company Explainer for **{company} ({ticker})**: the part
-of the Overview tab that tells someone who has never heard of the company what
+of the Business tab that tells someone who has never heard of the company what
 it actually does. After reading it they must know what it sells, who pays for
 it, how it earns money, which numbers to watch and who it competes with.
 
@@ -72,7 +72,7 @@ Some lay down ultra-thin layers of material, others cut microscopic patterns
 into those layers, and others clean the wafer between steps."
 
 lead: TWO or THREE short sentences, at most 400 characters, shown at the top
-of the Overview tab: what the company makes or does, how that turns into
+of the Business tab: what the company makes or does, how that turns into
 money, and who buys it. Plain words only, no product names; someone who has
 never heard of the company must understand it.
 
@@ -84,8 +84,9 @@ belongs in one section only — never repeat the revenue model outside "offer".
   commission, spread, premiums) and the pricing unit, and which segment
   brings in how much of revenue and operating profit, with the fiscal year.
 - customers (2 to 4 sentences, 150 to 700 characters): who the customers
-  are — which customers, out of which budget, and how concentrated (largest
-  customers' share, main regions) where disclosed.
+  are — the main types of customer and what each buys, out of which budget,
+  and how concentrated (largest customers' share, main regions) where
+  disclosed.
 - drivers (2 to 4 sentences, 150 to 700 characters): what to watch each
   quarter — the two or three figures the company itself reports that move
   revenue (e.g. units shipped, members, price per ad, take rate), each with

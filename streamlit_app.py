@@ -3775,15 +3775,17 @@ def _dcf_editor(ticker):
         logger.warning("fundamentals for %s failed: %s", ticker, e)
         _fund_error, fund = e, {}
 
-    (_tab_overview, _tab_business, _tab_phase, _tab_moat,
+    (_tab_business, _tab_phase, _tab_moat,
      _tab_growth, _tab_management, _tab_risk, _tab_summary, _tab_capital, _tab_earnings,
      _tab_financials, _tab_dcf, _tab_rdcf, _tab_peers, _tab_history) = st.tabs(
-        ["Overview", "Business", "Phase", "Moat", "Growth", "Management", "Risk", "Summary", "Capital Return", "Earnings", "Financials", "DCF", "Reverse DCF", "Peer Comparison", "History"])
+        ["Business", "Phase", "Moat", "Growth", "Management", "Risk", "Summary", "Capital Return", "Earnings", "Financials", "DCF", "Reverse DCF", "Peer Comparison", "History"])
 
-    # Overview: three white sections -- Company (profile + at a glance), Price vs
-    # S&P 500 and Key figures. Read-only; the profile comes from the "Company
-    # Profile" section.
-    with _tab_overview:
+    # Business (the former Overview and Business tabs, merged 2026-10-06):
+    # Company (profile + at a glance), What the company does, Revenue
+    # breakdown, Business quality, Price vs S&P 500 and Key figures. The old
+    # Business tab's overview and customer-profile panels repeated the
+    # Company Explainer and were dropped. Read-only.
+    with _tab_business:
         _onotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
         _oprofile_raw = _onotes.get(company_profile.TITLE)
         try:
@@ -3818,6 +3820,11 @@ def _dcf_editor(ticker):
         except (ValueError, KeyError):
             _orev = None
         _render_revenue_section(_orev, "qc_ov")
+        # The four question cards (predictability, pricing power, recession,
+        # competitive position) -- the one part of the old Business tab the
+        # explainer does not cover.
+        st.markdown(business_cards.quality_section_html(_orev_raw, T),
+                    unsafe_allow_html=True)
 
         with st.container(key="qc_ov_price"):
             st.markdown('<div class="qc-label">Price vs S&amp;P 500</div>',
@@ -3899,19 +3906,6 @@ def _dcf_editor(ticker):
 
     # Business: overview and customer profile, revenue by segment and region,
     # then the four business-quality cards. Read-only, like Moat and Risk.
-    with _tab_business:
-        _bnotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
-        _bcontent = _bnotes.get(business_cards.TITLE)
-        st.markdown(business_cards.overview_section_html(
-            _bnotes.get("Business Analysis") or "", _bcontent, T), unsafe_allow_html=True)
-        try:
-            _brev = business_cards.parse_business_cards(_bcontent)["revenue"] if _bcontent else None
-        except ValueError:
-            _brev = None
-        _render_revenue_section(_brev, "qc", empty_note=(
-            "No revenue breakdown yet. It comes with the \"Business Cards\" section."))
-        st.markdown(business_cards.quality_section_html(_bcontent, T), unsafe_allow_html=True)
-
     # Phase: the growth-cycle phase (from "Business Phase Analysis", else the
     # Scorecard), revenue vs operating cash flow, and the two computed payout
     # cards. Read-only; every render path degrades to a caption.

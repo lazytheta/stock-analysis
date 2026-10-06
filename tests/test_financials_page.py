@@ -86,7 +86,7 @@ def test_chart_config_hides_modebar():
 # ── wiring ─────────────────────────────────────────────────────────────────
 
 def test_tab_label_is_financials():
-    tabs = SRC[SRC.index('= st.tabs(\n        ["Overview"'):]
+    tabs = SRC[SRC.index('= st.tabs(\n        ["Business"'):]
     tabs = tabs[:tabs.index("])")]
     assert '"Financials"' in tabs
     assert '"Fundamentals"' not in tabs
