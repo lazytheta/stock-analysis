@@ -50,7 +50,9 @@ def _body(html):
 
 
 GLANCE = {"roce_metric": "ROCE", "roce_pct": 31.24, "net_cash_m": 4940.0,
-          "fcf_conversion": 1.55, "share_change_5y": -0.021}
+          "fcf_conversion": 1.55, "share_change_5y": -0.021, "fy": 2025,
+          "gross_margin": 0.82, "op_margin": 0.414, "revenue_cagr_5y": 0.185,
+          "fcf_yield": 0.025}
 
 
 def test_company_section_with_profile():
@@ -97,12 +99,23 @@ def test_company_section_glance_net_debt_and_dilution():
     assert "+1.2%" in body and "dilution" in body
 
 
+def test_glance_has_eight_tiles_in_order():
+    body = _body(op.company_section_html(GOOD_PROFILE, 1.0, GLANCE))
+    order = ["ROCE", "GROSS MARGIN", "OPERATING MARGIN", "REVENUE GROWTH",
+             "FCF CONVERSION", "FCF YIELD", "NET CASH", "SHARES PER YEAR"]
+    glance = body[body.index("At a glance"):]
+    positions = [glance.index(label) for label in order]
+    assert positions == sorted(positions)
+    for text in ("82.0%", "41.4%", "+18.5%", "2.5%", "FY2025"):
+        assert text in glance, text
+
+
 def test_company_section_glance_missing_values_are_dashes():
     for glance in (None, {}, dict.fromkeys(GLANCE), {"roce_pct": "bad"}):
         html = op.company_section_html(GOOD_PROFILE, 1.0, glance)
         body = _body(html)
         assert "At a glance" in body
-        assert body.count('class="ov-gval">—<') == 4, glance
+        assert body.count('class="ov-gval">—<') == 8, glance
 
 
 def test_company_section_complexity_meter():

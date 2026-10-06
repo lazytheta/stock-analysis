@@ -167,11 +167,16 @@ def compute(fund: dict, income: dict | None, cashflow: dict | None,
     }
 
 
-def glance(fund: dict, cfg: dict | None = None) -> dict:
-    """The four "At a glance" tiles. Each value is None when it cannot be
+def glance(fund: dict, cfg: dict | None = None, market_cap_m=None) -> dict:
+    """The eight "At a glance" tiles. Each value is None when it cannot be
     computed; nothing here raises on missing or odd data.
 
     roce_metric / roce_pct: scorecard_utils.compute_roce_metric (percent).
+    gross_margin / op_margin: gross profit / operating income over revenue at
+        the fiscal year (fractions).
+    revenue_cagr_5y: revenue growth per year over five years (fraction).
+    fcf_yield: FCF at the fiscal year / market cap (fraction); market_cap_m
+        in $M, None without a price.
     net_cash_m: (cash + short-term investments) - (total + short-term debt)
         at the fiscal year, $M; positive = net cash.
     fcf_conversion: FCF / net income (fraction), only when net income > 0.
@@ -180,7 +185,9 @@ def glance(fund: dict, cfg: dict | None = None) -> dict:
     """
     fund = fund or {}
     out = {"roce_metric": None, "roce_pct": None, "net_cash_m": None,
-           "fcf_conversion": None, "share_change_5y": None}
+           "fcf_conversion": None, "share_change_5y": None, "fy": None,
+           "gross_margin": None, "op_margin": None, "revenue_cagr_5y": None,
+           "fcf_yield": None}
     try:
         metric, avg = scorecard_utils.compute_roce_metric(fund, cfg)
         out["roce_metric"] = metric
@@ -194,6 +201,12 @@ def glance(fund: dict, cfg: dict | None = None) -> dict:
     def f(key):
         return _at(fund, key, fy)
 
+    out["fy"] = fy
+    revenue = f("revenue")
+    out["gross_margin"] = _div(f("gross_profit"), revenue, True)
+    out["op_margin"] = _div(f("operating_income"), revenue, True)
+    out["revenue_cagr_5y"] = _cagr(fund, "revenue", fy, 5)
+
     cash = f("cash")
     if cash is not None:
         cash_inv = cash + (f("short_term_investments") or 0.0)
@@ -204,6 +217,7 @@ def glance(fund: dict, cfg: dict | None = None) -> dict:
     fcf = _fcf_at(fund, fy)
     if ni is not None and ni > 0 and fcf is not None:
         out["fcf_conversion"] = fcf / ni
+    out["fcf_yield"] = _div(fcf, market_cap_m, True)
 
     end, start = f("shares"), _at(fund, "shares", fy - 5)
     if end is not None and start is not None and end > 0 and start > 0:
@@ -224,6 +238,8 @@ def fmt_mult(x) -> str:
 def fmt_money_m(x) -> str:
     if x is None:
         return DASH
+    if abs(x) >= 1_000_000:
+        return f"${x / 1_000_000:.2f}T"
     if abs(x) >= 1000:
         return f"${x / 1000:.1f}B"
     return f"${x:.0f}M"

@@ -3797,7 +3797,7 @@ def _dcf_editor(ticker):
                   if live_price and live_price > 0 and _oshares else None)
 
         try:
-            _oglance = overview_metrics.glance(fund, cfg)
+            _oglance = overview_metrics.glance(fund, cfg, _omcap)
         except Exception as e:
             logger.warning("Overview at-a-glance for %s failed: %s", ticker, e)
             _oglance = None

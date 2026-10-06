@@ -314,10 +314,30 @@ def test_glance_share_change_sign():
     assert om.glance(_gfund(shares=zero_start), None)["share_change_5y"] is None
 
 
+def test_glance_margins_growth_and_fcf_yield():
+    rev = [100.0 * 1.1 ** i for i in range(11)]
+    g = om.glance(_gfund(revenue=rev, gross_profit=[r * 0.6 for r in rev],
+                         operating_income=[r * 0.25 for r in rev]), None, 620.0)
+    assert g["fy"] == 2026
+    assert abs(g["gross_margin"] - 0.6) < 1e-9
+    assert abs(g["op_margin"] - 0.25) < 1e-9
+    assert abs(g["revenue_cagr_5y"] - 0.1) < 1e-9
+    assert abs(g["fcf_yield"] - 31.0 / 620.0) < 1e-9
+    # No price, no yield.
+    assert om.glance(_gfund(), None)["fcf_yield"] is None
+
+
 def test_glance_empty_fund():
     g = om.glance({}, None)
     assert set(g) == {"roce_metric", "roce_pct", "net_cash_m", "fcf_conversion",
-                      "share_change_5y"}
+                      "share_change_5y", "fy", "gross_margin", "op_margin",
+                      "revenue_cagr_5y", "fcf_yield"}
     assert g["net_cash_m"] is None and g["fcf_conversion"] is None
     assert g["share_change_5y"] is None
     assert om.glance(None, None)["net_cash_m"] is None
+
+
+def test_fmt_money_m_trillions():
+    # META's market cap read "$1870.0B".
+    assert om.fmt_money_m(1_870_000.0) == "$1.87T"
+    assert om.fmt_money_m(343_190.0) == "$343.2B"

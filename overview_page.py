@@ -170,13 +170,27 @@ def _glance_body(glance):
     net = _num(g.get("net_cash_m"))
     conv = _num(g.get("fcf_conversion"))
     shares = _num(g.get("share_change_5y"))
+    fy = g.get("fy")
+    fy_cap = f"FY{fy}" if fy else "latest fiscal year"
+
+    def _pct(x):
+        x = _num(x)
+        return DASH if x is None else f"{x * 100:.1f}%"
+
+    # Quality, growth, price, balance sheet, capital return -- in that order,
+    # two per row (owner, 2026-10-06).
     tiles = [
         _tile(metric, DASH if roce is None else f"{roce:.1f}%", "10-year average"),
+        _tile("Gross margin", _pct(g.get("gross_margin")), fy_cap),
+        _tile("Operating margin", _pct(g.get("op_margin")), fy_cap),
+        _tile("Revenue growth", om.fmt_pct(_num(g.get("revenue_cagr_5y")), signed=True),
+              "per year, last 5 years"),
+        _tile("FCF conversion", DASH if conv is None else f"{conv * 100:.0f}%",
+              "free cash flow / net income"),
+        _tile("FCF yield", _pct(g.get("fcf_yield")), "free cash flow / market cap"),
         _tile("Net debt" if net is not None and net < 0 else "Net cash",
               om.fmt_money_m(None if net is None else abs(net)),
               "cash & investments − debt", positive=net is not None and net > 0),
-        _tile("FCF conversion", DASH if conv is None else f"{conv * 100:.0f}%",
-              "free cash flow / net income"),
         _tile("Shares per year (5y)", om.fmt_pct(shares, signed=True),
               "buybacks" if shares is not None and shares < 0 else "dilution"),
     ]
@@ -187,7 +201,7 @@ def company_section_html(profile, market_cap_m, glance: dict | None = None,
                          summary: str | None = None) -> str:
     """White "Company" section: a Profile card (label/value pairs, tags,
     mission; $M in for market cap) and, beside it, an "At a glance" card with
-    four tiles from overview_metrics.glance. Without a profile the Profile
+    eight tiles from overview_metrics.glance. Without a profile the Profile
     card holds only Market cap and a muted note; the glance card always
     shows, with dashes for missing values."""
     cards = [_card("Profile", _profile_body(profile, market_cap_m, summary)),
