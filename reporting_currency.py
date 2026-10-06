@@ -244,6 +244,9 @@ def to_eur_cost_basis(cost_basis, usd_per_eur_now, history):
         for field in ("current_price", "previous_close", "broker_price", "purchase_price"):
             if row.get(field) is not None:
                 r[field] = row[field] / live_rate
+        if row.get("broker") == "Trading 212" and _t212_eur_cost(row) is not None and shares:
+            # What was paid, in euros -- not a dollar cost at today's rate.
+            r["purchase_price"] = -_t212_eur_cost(row) / shares
         r["market_value"] = (r.get("current_price") or 0.0) * shares
         r["total_pl_real"] = r["total_pl"] + r["market_value"]
         r["wheels"] = detect_wheels(trades) if row.get("wheels") else []

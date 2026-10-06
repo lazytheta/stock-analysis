@@ -5,6 +5,7 @@ All HTTP is mocked; tests run without network access or real credentials.
 """
 
 import base64
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -27,6 +28,25 @@ _META = [
     {"ticker": "WEBN1d_EQ", "shortName": "WEBN", "currencyCode": "EUR",
      "isin": "IE0003XJA0J9"},
 ]
+
+
+# Offline: a fill converts at its own date's ECB rate (t212_api._usd_rate_on),
+# and without a stub that history would come from the live ECB. Tests that
+# care about it fill _FX_HISTORY_CACHE themselves; the
+# rest fall back to today's (patched) rate.
+_HIST_PATCH = None
+
+
+def setUpModule():
+    global _HIST_PATCH
+    _HIST_PATCH = patch("t212_api._fx_history", return_value={})
+    _HIST_PATCH.start()
+    t212_api._FX_HISTORY_CACHE.clear()
+
+
+def tearDownModule():
+    _HIST_PATCH.stop()
+    t212_api._FX_HISTORY_CACHE.clear()
 
 
 class TestAuthHeader(unittest.TestCase):
@@ -676,6 +696,18 @@ class TestTrades(unittest.TestCase):
         webn = self._trades(rate=1.15)["WEBN"]
         self.assertAlmostEqual(webn[0]["price"], 13.80)
         self.assertAlmostEqual(webn[0]["net_value"], -138.00)
+
+    def test_a_euro_fill_converts_at_the_rate_of_its_own_day(self):
+        """At today's rate a euro holding carried no currency effect, and a
+        dollar comparison against SPY overstated it (IEQU, RMS, 2026-10-06)."""
+        from datetime import date as _date
+        t212_api._FX_HISTORY_CACHE["EUR"] = ({_date(2026, 5, 1): 1.10}, time.time())
+        try:
+            webn = self._trades(rate=1.15)["WEBN"]
+        finally:
+            t212_api._FX_HISTORY_CACHE.clear()
+        # First WEBN fill is 2026-05-04: last rate on or before it is 1.10.
+        self.assertAlmostEqual(webn[0]["price"], 12.0 * 1.10)
 
     def test_trades_arrive_oldest_first(self):
         """FIFO retires the oldest lot, so the order the broker returns them in

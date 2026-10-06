@@ -203,6 +203,15 @@ def fetch_portfolio_data(creds: dict):
         converted = rate is not None and native_ccy not in ("", "USD")
         avg = native_avg * rate if converted else native_avg
         price = native_price * rate if converted else native_price
+        if converted:
+            # The cost in dollars is what the lots cost on the days they were
+            # bought (the fills above convert at their own date), not today's
+            # rate times the euro average: that erased the currency effect of
+            # every euro-quoted holding. Only when the lots cover the shares.
+            from portfolio_metrics import held_share_cost, lots_cover
+            lot_cost, lot_shares = held_share_cost(trades_by_symbol.get(symbol, []))
+            if lot_shares and lots_cover(lot_shares, shares):
+                avg = lot_cost / lot_shares
 
         # equity_cost and cost_per_share are NEGATIVE by convention — cash that
         # left the account. Tastytrade builds them by summing signed trade
@@ -365,6 +374,38 @@ def _fetch_trades_uncached(creds: dict) -> dict:
     return out
 
 
+# {currency: (history, fetched_at)} -- the ECB series a fill converts with.
+_FX_HISTORY_CACHE: dict = {}
+_FX_HISTORY_TTL = 86400
+
+
+def _fx_history(code):
+    return gather_data.fetch_fx_history(code, 10) or {}
+
+
+def _usd_rate_on(currency: str, day):
+    """USD per unit of `currency` on `day` (the last ECB rate on or before
+    it), falling back to today's rate. A fill converts at the rate of the day
+    it happened: at today's rate, a euro-quoted holding carried no currency
+    effect at all and every dollar comparison against it was wrong (IEQU and
+    RMS beat SPY in dollars while trailing it in euros, 2026-10-06)."""
+    code = (currency or "").upper()
+    if code in ("", "USD"):
+        return 1.0
+    cached = _FX_HISTORY_CACHE.get(code)
+    if not cached or time.time() - cached[1] > _FX_HISTORY_TTL:
+        try:
+            history = _fx_history(code)
+        except Exception as e:
+            logger.debug("FX history for %s unavailable: %s", code, e)
+            history = {}
+        cached = (history, time.time())
+        _FX_HISTORY_CACHE[code] = cached
+    import reporting_currency
+    return (reporting_currency.rate_on(cached[0], day)
+            or gather_data.fetch_fx_rate(code))
+
+
 def _fill_to_trade(item: dict, creds: dict):
     """Turn one history entry into a trade dict, or None if it has no fill."""
     order = item.get("order") or {}
@@ -381,15 +422,15 @@ def _fill_to_trade(item: dict, creds: dict):
     qty = abs(float(qty))
 
     info = _clean(order.get("ticker") or "", creds)
-    rate = gather_data.fetch_fx_rate(info["currency"] or "")
-    fx = rate if rate is not None and info["currency"] not in ("", "USD") else 1.0
-    price = price * fx
-
     is_buy = (order.get("side") or "").upper() != "SELL"
     try:
         day = datetime.fromisoformat(filled_at.replace("Z", "+00:00")).date()
     except ValueError:
         return None
+
+    rate = _usd_rate_on(info["currency"] or "", day)
+    fx = rate if rate is not None and info["currency"] not in ("", "USD") else 1.0
+    price = price * fx
 
     wallet = fill.get("walletImpact") or {}
     return {
