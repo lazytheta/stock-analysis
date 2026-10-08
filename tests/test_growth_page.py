@@ -100,13 +100,13 @@ def test_consensus_absent_line():
 def test_outlook_shows_year_two_and_guidance():
     cons = dict(_consensus(), year2={"fiscal_year": "FY2028", "revenue_growth_pct": 12.1,
                                      "eps_growth_pct": None})
-    guide = {"period": "Q3 2026", "text": "Revenue $47.5B-$50.5B",
+    guide = {"items": [{"metric": "Revenue", "period": "Q3 2026", "value": "$47.5B-$50.5B"}],
              "source": "Q2 2026 earnings release, 2026-07-29"}
     html = gp.growth_section_html(_content(consensus=cons, guidance=guide), THEME)
     _house_style(html)
     assert "Revenue growth FY2028" in html and "+12.1%" in html
-    assert "COMPANY GUIDANCE · Q3 2026" in html
-    assert "Revenue &#36;47.5B-&#36;50.5B" in html
+    assert "COMPANY GUIDANCE" in html
+    assert '<span>Revenue Q3 2026</span><b>&#36;47.5B-&#36;50.5B</b>' in html
 
 
 def test_growth_section_notice_when_missing_or_invalid():

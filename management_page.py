@@ -31,7 +31,15 @@ STYLE = f"""<style>
 .mg-lbl{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
   color:var(--text-muted);margin:0 0 3px}}
 .mg-val{{font-size:22px;font-weight:700;color:var(--text);line-height:1.2;margin:2px 0 2px;
-  overflow-wrap:anywhere}}
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.mg-ceo{{background:{_INNER};border-radius:16px;padding:16px 18px;margin-top:16px}}
+.mg-ceo-name{{font-size:16px;font-weight:700;color:var(--text);margin:2px 0 10px}}
+.mg-since{{font-size:12px;font-weight:400;color:var(--text-muted);margin-left:8px}}
+.mg-ceo-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}}
+@media (max-width:760px){{.mg-ceo-grid{{grid-template-columns:minmax(0,1fr)}}}}
+.mg-sub{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--text-muted);margin:0 0 4px}}
+.mg-ceo p{{margin:0;font-size:14px;color:var(--text);line-height:1.5}}
 .mg-cap{{font-size:12px;color:var(--text-muted);line-height:1.35}}
 .mg-changes{{background:{_INNER};border-radius:16px;padding:16px 18px;margin-top:16px}}
 .mg-changes ul{{margin:0;padding:0;list-style:none}}
@@ -94,15 +102,26 @@ def _tile(label, value, caption):
 
 
 def _trading(f):
-    net = f["insider_net_12m_usd"]
-    value = _signed_usd(net)
+    """The net amount as the figure; who bought and sold, and how much of the
+    selling was pre-planned, in the caption -- the counts in the figure made
+    it wrap onto two lines (owner, 2026-10-08)."""
+    value = _signed_usd(f["insider_net_12m_usd"])
+    bits = []
     if f["buyers"] is not None or f["sellers"] is not None:
-        counts = f"{_n(f['buyers'])} buyers / {_n(f['sellers'])} sellers"
-        value = counts if net is None else f"{value} · {counts}"
-    planned = f["planned_sell_pct"]
-    caption = (f"{_pct(planned)} of sales under pre-arranged 10b5-1 plans"
-               if planned is not None else "open-market buys − sells, last 12 months")
-    return value, caption
+        bits.append(f"{_n(f['buyers'])} buyers · {_n(f['sellers'])} sellers")
+    if f["planned_sell_pct"] is not None:
+        bits.append(f"{_pct(f['planned_sell_pct'])} of sales pre-planned")
+    return value, " · ".join(bits) or "open-market buys − sells"
+
+
+def _shares(n):
+    if n >= 1e9:
+        return f"{n / 1e9:.2f}B shares"
+    if n >= 1e6:
+        return f"{n / 1e6:.1f}M shares"
+    if n >= 1e3:
+        return f"{n / 1e3:.0f}K shares"
+    return f"{n:,} shares"
 
 
 def _pay(f):
@@ -116,11 +135,10 @@ def _pay(f):
 
 
 def _tiles_html(f):
-    ceo = f["ceo"]
-    if ceo:
-        ceo_cap = ceo["name"] + (f", since {ceo['since']}" if ceo["since"] else "")
-    else:
-        ceo_cap = "CEO not reported"
+    # The CEO's name and tenure now sit in the "The CEO" panel below; the
+    # tile says how many shares that percentage is.
+    shares = f.get("ceo_shares")
+    ceo_cap = _shares(shares) if shares else (f["ceo"]["name"] if f["ceo"] else "CEO not reported")
     trading, trading_cap = _trading(f)
     pay, pay_cap = _pay(f)
     tiles = (_tile("Insider ownership", _pct(f["insider_ownership_pct"]),
@@ -129,6 +147,22 @@ def _tiles_html(f):
              _tile("Net insider trading (12m)", trading, trading_cap),
              _tile("CEO pay", pay, pay_cap))
     return f'<div class="mg-tiles">{"".join(tiles)}</div>'
+
+
+def _ceo_html(f):
+    """Who runs the company and how they are seen; nothing without a bio."""
+    bio, ceo = f.get("ceo_bio"), f.get("ceo")
+    if not bio:
+        return ""
+    head = qc.esc(ceo["name"]) if ceo else "The CEO"
+    if ceo and ceo.get("since"):
+        head += f' <span class="mg-since">CEO since {ceo["since"]}</span>'
+    return (f'<div class="mg-ceo"><div class="mg-lbl">The CEO</div>'
+            f'<div class="mg-ceo-name">{head}</div>'
+            f'<div class="mg-ceo-grid">'
+            f'<div><div class="mg-sub">Background</div><p>{qc.esc(bio["background"])}</p></div>'
+            f'<div><div class="mg-sub">How they are seen</div><p>{qc.esc(bio["reputation"])}</p></div>'
+            f'</div></div>')
 
 
 def _changes_html(changes):
@@ -166,7 +200,7 @@ def management_section_html(content, theme) -> str:
         return _notice_section(theme)
     try:
         f = parsed["facts"]
-        inner = (f'{qc.css(STYLE)}{_tiles_html(f)}{_changes_html(f["changes"])}'
+        inner = (f'{qc.css(STYLE)}{_tiles_html(f)}{_ceo_html(f)}{_changes_html(f["changes"])}'
                  f'{_guidance_html(f.get("guidance_record"))}'
                  f'<div class="mg-src">As of {qc.esc(f["as_of"])} · Source: '
                  f'{qc.esc(f["source"])}</div>')

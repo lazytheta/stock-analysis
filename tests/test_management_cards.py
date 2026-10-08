@@ -189,10 +189,12 @@ def test_management_section_has_four_tiles_changes_and_caption():
     for label in ("INSIDER OWNERSHIP", "CEO OWNERSHIP", "NET INSIDER TRADING", "CEO PAY"):
         assert label in html
     assert "0.42%" in html and "0.11%" in html
-    assert "−&#36;28M · 0 buyers / 6 sellers" in html
-    assert "64% of sales under pre-arranged 10b5-1 plans" in html
+    # The net amount is the figure; counts and planned share in the caption.
+    assert '<div class="mg-val">−&#36;28M</div>' in html
+    assert "0 buyers · 6 sellers · 64% of sales pre-planned" in html
     assert "&#36;24.1M" in html and "FY2025 · 78% in stock" in html
-    assert "Timothy Archer" in html and "since 2018" in html
+    # Without ceo_shares the ownership tile names the CEO.
+    assert "Timothy Archer" in html
     assert "Recent leadership changes" in html and "Jane Doe" in html and "CFO" in html
     assert "2026-09-30" in html and "SEC Form 4 and DEF 14A via SEC-MCP" in html
 
@@ -209,7 +211,7 @@ def test_positive_net_trading_and_ceo_pay_without_stock_share():
     facts = _facts(insider_net_12m_usd=1_260_000, buyers=3, sellers=None, planned_sell_pct=None,
                    ceo_pay=[{"fy": "FY2025", "total_usd": 950_000, "stock_pct": None}])
     html = mp.management_section_html(_content(facts=facts), THEME)
-    assert "+&#36;1.3M · 3 buyers / — sellers" in html
+    assert '<div class="mg-val">+&#36;1.3M</div>' in html and "3 buyers · — sellers" in html
     assert "&#36;950K" in html and "in stock" not in html
 
 
@@ -328,3 +330,23 @@ def test_ticker_page_has_a_management_tab_after_growth():
 
 def test_dockerfile_copies_management_cards():
     assert "management_cards.py" in (ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+
+def test_ceo_shares_and_bio():
+    facts = _facts(ceo_shares=342_463_325,
+                   ceo_bio={"background": "Founded it in 2004.", "reputation": "Credited and criticised."})
+    html = mp.management_section_html(_content(facts=facts), THEME)
+    assert "342.5M shares" in html
+    assert "The CEO" in html and "CEO since 2018" in html
+    assert "Founded it in 2004." in html and "How they are seen" in html
+    assert "The CEO" not in mp.management_section_html(_content(), THEME)
+
+
+@pytest.mark.parametrize("bio", ["text", {"background": "x"}, {"background": "x" * 301, "reputation": "y"}])
+def test_bad_ceo_bio_is_refused(bio):
+    with pytest.raises(ValueError, match="ceo_bio"):
+        mc.parse_management_cards(_content(facts=_facts(ceo_bio=bio)))
+
+
+def test_prompt_asks_for_ceo_shares_and_bio():
+    assert "ceo_shares" in mc.PROMPT and "ceo_bio" in mc.PROMPT and "not by pronoun" in mc.PROMPT

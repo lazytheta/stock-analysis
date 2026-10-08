@@ -39,7 +39,6 @@ GROWTH_STYLE = f"""<style>
 .gr-sub{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
   color:var(--text-muted);margin:0 0 2px}}
 .gr-sub-gap{{margin-top:16px;padding-top:12px;border-top:1px solid {_HAIRLINE}}}
-.gr-guide{{margin:6px 0 0;font-size:.9rem;font-weight:600;color:var(--text);line-height:1.45}}
 .gr-cagr{{margin-top:6px}}
 .gr-wrap .ms-card{{height:auto;min-height:300px}}
 </style>"""
@@ -98,9 +97,10 @@ def _consensus_card(consensus, theme, guidance=None):
     else:
         parts.append(f'<p class="gr-empty">{qc.esc(NO_CONSENSUS)}</p>')
     if guidance:
-        parts.append(f'<div class="gr-sub gr-sub-gap">COMPANY GUIDANCE · '
-                     f'{qc.esc(guidance["period"])}</div>'
-                     f'<p class="gr-guide">{qc.esc(guidance["text"])}</p>'
+        # Same rows as the consensus above: what, for when, how much.
+        pairs = [(f'{it["metric"]} {it["period"]}', it["value"]) for it in guidance["items"]]
+        parts.append(f'<div class="gr-sub gr-sub-gap">COMPANY GUIDANCE</div>'
+                     f'<div>{_rows(pairs)}</div>'
                      f'<div class="gr-src">{qc.esc(guidance["source"])}</div>')
     return f'<div class="ms-card">{title}{"".join(parts)}</div>'
 

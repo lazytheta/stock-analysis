@@ -78,10 +78,13 @@ send it as null, and never estimate the consensus revenue or EPS by hand.
 
 guidance: what the company itself said it expects, from the SEC connector's
 `GetGuidance` for {ticker} or else the latest earnings release (8-K exhibit
-99.1). {"period": e.g. "Q3 2026" or "FY2026", "text": the guided figures as
-stated, at most 140 characters, e.g. "Revenue $47.5B-$50.5B; total expenses
-$116B-$118B", "source": the document and its date}. Only figures the company
-gave; omit the "guidance" key entirely when it gives none.
+99.1): {"items": up to four, each {"metric": e.g. "Revenue", "Total
+expenses", "Capex" (at most 30 characters), "period": e.g. "Q3 2026" or
+"FY2026" (at most 20), "value": the guided figure as stated, e.g.
+"$61B-$64B" or "+8% to +10%" (at most 30)}, "source": the document and its
+date}. Only current guidance (not for a period already reported), only
+figures the company gave; omit the "guidance" key entirely when it gives
+none.
 
 For each of the two questions, in exactly this order, pick an answer
 (0 = worst, 2 = best):
@@ -104,7 +107,7 @@ Output ONLY a fenced JSON block, nothing before or after:
                "source": "compiled consensus, adjusted EPS, Equibles 2026-09-24",
                "year2": {"fiscal_year": "FY2028", "revenue_growth_pct": 12.1,
                          "eps_growth_pct": 14.0}},
- "guidance": {"period": "Q3 2026", "text": "Revenue $47.5B-$50.5B",
+ "guidance": {"items": [{"metric": "Revenue", "period": "Q3 2026", "value": "$47.5B-$50.5B"}],
               "source": "Q2 2026 earnings release, 2026-07-29"},
  "cards": [
   {"source": "industry", "pick": 2, "summary": "...",
@@ -221,17 +224,39 @@ def _validate_consensus(consensus):
 GUIDANCE_TEXT_MAX = 140
 
 
+GUIDANCE_MAX_ITEMS = 4
+
+
 def _validate_guidance(guidance):
-    """The company's own outlook (optional, added 2026-10-08)."""
+    """The company's own outlook (optional, added 2026-10-08) as rows:
+    {"items": [{"metric", "period", "value"}], "source"}. The first form,
+    {"period", "text", "source"}, is still read and becomes one row."""
     if not isinstance(guidance, dict):
         raise ValueError("guidance: must be an object")
-    out = {}
-    for key, limit in (("period", 40), ("text", GUIDANCE_TEXT_MAX), ("source", 120)):
-        value = str(guidance.get(key) or "").strip()
+
+    def _s(value, name, limit):
+        value = str(value or "").strip()
         if not value or len(value) > limit:
-            raise ValueError(f"guidance: {key} must be 1-{limit} characters")
-        out[key] = value
-    return out
+            raise ValueError(f"guidance: {name} must be 1-{limit} characters")
+        return value
+
+    source = _s(guidance.get("source"), "source", 120)
+    if "items" not in guidance and "text" in guidance:
+        return {"items": [{"metric": "Guidance",
+                           "period": _s(guidance.get("period"), "period", 40),
+                           "value": _s(guidance.get("text"), "text", GUIDANCE_TEXT_MAX)}],
+                "source": source}
+    items = guidance.get("items")
+    if not isinstance(items, list) or not 1 <= len(items) <= GUIDANCE_MAX_ITEMS:
+        raise ValueError(f"guidance: items needs 1-{GUIDANCE_MAX_ITEMS} entries")
+    out = []
+    for i, it in enumerate(items):
+        if not isinstance(it, dict):
+            raise ValueError(f"guidance: items[{i}] must be an object")
+        out.append({"metric": _s(it.get("metric"), f"items[{i}].metric", 30),
+                    "period": _s(it.get("period"), f"items[{i}].period", 20),
+                    "value": _s(it.get("value"), f"items[{i}].value", 30)})
+    return {"items": out, "source": source}
 
 
 def parse_growth_cards(content):

@@ -314,11 +314,20 @@ def test_year2_and_guidance_parse_and_are_optional():
     assert gc.parse_growth_cards(_md(p))["guidance"] is None
     p["consensus"]["year2"] = {"fiscal_year": "FY2028", "revenue_growth_pct": 12.1,
                                "eps_growth_pct": None}
-    p["guidance"] = {"period": "Q3 2026", "text": "Revenue $47.5B-$50.5B",
+    p["guidance"] = {"items": [{"metric": "Revenue", "period": "Q3 2026", "value": "$47.5B-$50.5B"},
+                               {"metric": "Capex", "period": "FY2026", "value": "$130B-$145B"}],
                      "source": "Q2 2026 earnings release, 2026-07-29"}
     out = gc.parse_growth_cards(_md(p))
     assert out["consensus"]["year2"]["fiscal_year"] == "FY2028"
-    assert out["guidance"]["period"] == "Q3 2026"
+    assert out["guidance"]["items"][1] == {"metric": "Capex", "period": "FY2026",
+                                           "value": "$130B-$145B"}
+
+
+def test_first_guidance_form_is_read_as_one_row():
+    p = _payload()
+    p["guidance"] = {"period": "Q3 2026", "text": "Revenue $47.5B-$50.5B", "source": "x"}
+    rows = gc.parse_growth_cards(_md(p))["guidance"]["items"]
+    assert rows == [{"metric": "Guidance", "period": "Q3 2026", "value": "Revenue $47.5B-$50.5B"}]
 
 
 @pytest.mark.parametrize("year2", [
@@ -334,7 +343,10 @@ def test_bad_year2_is_refused(year2):
 
 @pytest.mark.parametrize("guidance", [
     "Revenue up", {"period": "Q3", "text": "", "source": "x"},
-    {"period": "Q3", "text": "x" * 141, "source": "x"}, {"period": "Q3", "text": "x"}])
+    {"period": "Q3", "text": "x" * 141, "source": "x"}, {"period": "Q3", "text": "x"},
+    {"items": [], "source": "x"},
+    {"items": [{"metric": "Revenue", "period": "Q3", "value": "x"}] * 5, "source": "x"},
+    {"items": [{"metric": "Revenue", "period": "Q3"}], "source": "x"}])
 def test_bad_guidance_is_refused(guidance):
     p = _payload()
     p["guidance"] = guidance

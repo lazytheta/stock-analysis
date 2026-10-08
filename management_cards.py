@@ -99,6 +99,15 @@ facts (null for anything a source did not give):
 - insider_ownership_pct: current officers and directors together, % of shares
   outstanding (0-100)
 - ceo_ownership_pct: the CEO alone, % of shares outstanding (0-100)
+- ceo_shares: the number of shares the CEO owns, all share classes together,
+  from the latest proxy's beneficial-ownership table (DEF 14A); the insider
+  feed can understate it, so prefer the proxy
+- ceo_bio: {"background": who the CEO is and how they got here — founder or
+  hired, earlier roles, years in the job — at most 300 characters,
+  "reputation": how investors and the press see the CEO, both the credit
+  and the criticism, with the episode behind each, at most 300 characters}.
+  Refer to the CEO by surname, not by pronoun. Null when there is too little
+  to say.
 - insider_net_12m_usd: open-market buys minus sells over the last 12 months,
   in US dollars (negative = net selling)
 - buyers / sellers: how many insiders bought / sold on the open market in
@@ -137,7 +146,8 @@ Output ONLY a fenced JSON block, nothing before or after:
  ],
  "facts": {
   "ceo": {"name": "Timothy Archer", "since": 2018},
-  "insider_ownership_pct": 0.4, "ceo_ownership_pct": 0.1,
+  "insider_ownership_pct": 0.4, "ceo_ownership_pct": 0.1, "ceo_shares": 1300000,
+  "ceo_bio": {"background": "...", "reputation": "..."},
   "insider_net_12m_usd": -28000000, "buyers": 0, "sellers": 6,
   "planned_sell_pct": 65,
   "ceo_pay": [{"fy": "FY2023", "total_usd": 17500000, "stock_pct": 72},
@@ -255,6 +265,19 @@ def _changes(value):
             for i, c in enumerate(_list(value, "changes", MAX_CHANGES))]
 
 
+BIO_MAX = 300
+
+
+def _ceo_bio(value):
+    """{"background", "reputation"} or None (optional, added 2026-10-08)."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError('ceo_bio must be {"background": ..., "reputation": ...} or null')
+    return {"background": _text(value.get("background"), "ceo_bio.background", max_len=BIO_MAX),
+            "reputation": _text(value.get("reputation"), "ceo_bio.reputation", max_len=BIO_MAX)}
+
+
 def _guidance_record(value):
     """{"met", "total"} or None (optional, added 2026-10-08)."""
     if value is None:
@@ -276,6 +299,8 @@ def parse_facts(facts):
         "insider_ownership_pct": _number(facts.get("insider_ownership_pct"),
                                          "insider_ownership_pct", 0, 100),
         "ceo_ownership_pct": _number(facts.get("ceo_ownership_pct"), "ceo_ownership_pct", 0, 100),
+        "ceo_shares": _count(facts.get("ceo_shares"), "ceo_shares"),
+        "ceo_bio": _ceo_bio(facts.get("ceo_bio")),
         "insider_net_12m_usd": _number(facts.get("insider_net_12m_usd"), "insider_net_12m_usd"),
         "buyers": _count(facts.get("buyers"), "buyers"),
         "sellers": _count(facts.get("sellers"), "sellers"),
