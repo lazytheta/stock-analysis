@@ -27,7 +27,7 @@ def _payload(over=None):
 def test_sources_are_the_five_in_order():
     assert [s[0] for s in moat_cards.SOURCES] == [
         "switching_costs", "network_effects", "intangible_assets",
-        "low_cost", "counter_positioning"]
+        "low_cost", "efficient_scale"]
     assert all(len(s[3]) == 3 for s in moat_cards.SOURCES)
 
 
@@ -328,3 +328,30 @@ def test_dollar_signs_and_styles_cannot_break_streamlit_markdown():
     row = moat_cards.summary_row_html(_MOAT_TEXT.replace("one", "$1 to $2"), json.dumps(p), THEME)
     assert "$" not in row and "\n" not in row
     assert "\n" not in html
+
+
+def test_legacy_cards_with_counter_positioning_still_render():
+    # Saved before 2026-10-08: the fifth source was counter-positioning.
+    p = _payload()
+    p["cards"][4]["source"] = "counter_positioning"
+    raw = json.dumps(p)
+    with pytest.raises(ValueError):
+        moat_cards.parse_moat_cards(raw)          # a new save must be current
+    card_set, parsed = moat_cards.parse_any(raw)
+    assert card_set is moat_cards.LEGACY_MOAT and len(parsed["cards"]) == 5
+    html = moat_cards.cards_section_html(raw, THEME)
+    assert "Counter-positioning" in html and "Efficient scale" not in html
+
+
+def test_current_cards_show_efficient_scale():
+    html = moat_cards.cards_section_html(json.dumps(_payload()), THEME)
+    assert "Efficient scale" in html and "Counter-positioning" not in html
+
+
+def test_prompts_name_efficient_scale_not_counter_positioning():
+    import prescan_prompts
+    moat_analysis = next(p["prompt"] for p in prescan_prompts.DEFAULT_AI_PROMPTS
+                         if p["title"] == "Moat Analysis")
+    for prompt in (moat_cards.PROMPT, moat_analysis):
+        assert "fficient scale" in prompt or "efficient_scale" in prompt
+        assert "ounter-positioning" not in prompt and "counter_positioning" not in prompt

@@ -190,9 +190,10 @@ Start from "no moat" for each source and look for evidence against that.
 - Network effect — each new user makes the product more valuable to others.
 - Intangible assets — a brand, patent or licence that lets it charge more.
 - Low-cost production — costs rivals cannot match.
-- Counter-positioning — rivals cannot copy the model without hurting
-  themselves (Netflix streaming vs Blockbuster stores). Being different or
-  innovative is not enough.
+- Efficient scale — the market is only big enough for one or a few players,
+  so a newcomer would earn less than its money costs and nobody tries
+  (exchanges, rating agencies, registries, pipelines). A big market that
+  simply has a leader is not enough.
 
 Size: Wide = the advantage should last 10+ years; Narrow = 3-10 years;
 None = no durable advantage.

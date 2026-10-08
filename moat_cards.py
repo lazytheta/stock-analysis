@@ -28,12 +28,24 @@ SOURCES = (
      ("No", "Some", "Strong")),
     ("low_cost", "Low-cost production", "Is there a cost advantage?",
      ("No", "Some", "Large")),
-    ("counter_positioning", "Counter-positioning", "Would copying hurt incumbents?",
+    ("efficient_scale", "Efficient scale", "Is the market only big enough for a few?",
      ("No", "Partly", "Yes")),
 )
 DIRECTIONS = ("widening", "stable", "narrowing")
 
 MOAT = question_cards.CardSet(TITLE, SOURCES, DIRECTIONS, blocks=(("trend", 3),))
+
+# Until 2026-10-08 the fifth source was counter-positioning (Helmer's 7
+# Powers), almost always "No". It became efficient scale, the Morningstar
+# source behind exchanges, rating agencies and registries (owner). Cards
+# saved before still render with their own five sources until re-run; new
+# saves must use the current set.
+LEGACY_SOURCES = (
+    *SOURCES[:4],
+    ("counter_positioning", "Counter-positioning", "Would copying hurt incumbents?",
+     ("No", "Partly", "Yes")),
+)
+LEGACY_MOAT = question_cards.CardSet(TITLE, LEGACY_SOURCES, DIRECTIONS, blocks=(("trend", 3),))
 
 STYLE = question_cards.STYLE
 SUMMARY_STYLE = question_cards.SUMMARY_STYLE
@@ -49,8 +61,10 @@ For each of the five moat sources, in exactly this order, decide:
 - network_effects: Does scale help customers? pick 0 = No, 1 = Somewhat, 2 = Yes
 - intangible_assets: Does the brand or IP earn a premium? pick 0 = No, 1 = Some, 2 = Strong
 - low_cost: Is there a cost advantage? pick 0 = No, 1 = Some, 2 = Large
-- counter_positioning: Would copying the model hurt incumbents? pick 0 = No, 1 = Partly, 2 = Yes
-  (only when incumbents would harm themselves by copying; being different is not enough)
+- efficient_scale: Is the market only big enough for one or a few players? pick 0 = No,
+  1 = Partly, 2 = Yes (a niche or network where a newcomer would drive returns below what
+  its money costs, so nobody tries: exchanges, rating agencies, registries, pipelines;
+  a large market that simply has a leader is not enough)
 
 direction: "widening", "stable" or "narrowing" - is this source getting stronger or weaker.
 summary: ONE sentence for the front of the card, with the fact that decides the pick.
@@ -83,19 +97,32 @@ The "cards" array holds all five sources, in the order listed above.
 
 
 def parse_moat_cards(content):
-    """The validated cards, or ValueError saying what is wrong."""
+    """The validated cards in the current five sources, or ValueError saying
+    what is wrong. Used to accept a save, so a new save cannot be legacy."""
     return question_cards.parse(MOAT, content)
+
+
+def parse_any(content):
+    """(card set, validated cards) for display: the current set, else the
+    pre-2026-10-08 one with counter-positioning. ValueError when neither."""
+    try:
+        return MOAT, question_cards.parse(MOAT, content)
+    except ValueError as current_error:
+        try:
+            return LEGACY_MOAT, question_cards.parse(LEGACY_MOAT, content)
+        except ValueError:
+            raise current_error from None
 
 
 def flip_card_html(card, theme):
     return question_cards.flip_card_html(MOAT, card, theme)
 
 
-def sources_row_html(cards, theme):
+def sources_row_html(cards, theme, card_set=MOAT):
     from prescan_render import band_tone
     by_key = {c["source"]: c for c in cards}
     cells = []
-    for key, name, *_ in SOURCES:
+    for key, name, *_ in card_set.items:
         c = by_key.get(key)
         tone = band_tone(question_cards.BANDS[c["pick"]]) if c else None
         dot = (f'background:{tone}' if c and c["pick"] > 0
@@ -131,7 +158,7 @@ def summary_row_html(moat_analysis, cards_content, theme):
     dir_tone = band_tone({"widening": "green", "stable": "yellow", "narrowing": "red"}[word])
     dir_box = question_cards.word_box_html(question_cards.ARROW[word], word, dir_tone)
     try:
-        trend = parse_moat_cards(cards_content)["trend"] if cards_content else None
+        trend = parse_any(cards_content)[1].get("trend") if cards_content else None
     except ValueError:
         trend = None
     if trend:
@@ -147,11 +174,13 @@ def summary_row_html(moat_analysis, cards_content, theme):
 def cards_section_html(content, theme):
     """Sources row + the five flip cards (with style), or a one-line notice."""
     try:
-        cards = parse_moat_cards(content)["cards"] if content else None
+        card_set, parsed = parse_any(content) if content else (MOAT, None)
+        cards = parsed["cards"] if parsed else None
     except ValueError:
-        cards = None
+        card_set, cards = MOAT, None
     if not cards:
         return question_cards.section_html("Moat sources", question_cards.notice_html(TITLE, theme))
     return question_cards.section_html(
         "Moat sources",
-        f'{sources_row_html(cards, theme)}{question_cards.grid_html(MOAT, cards, theme)}')
+        f'{sources_row_html(cards, theme, card_set)}'
+        f'{question_cards.grid_html(card_set, cards, theme)}')
