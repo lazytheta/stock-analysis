@@ -42,7 +42,10 @@ def photo_url(name, company, timeout=4):
     try:
         url = _API + urllib.parse.quote(name.strip().replace(" ", "_"))
         req = urllib.request.Request(url, headers={"User-Agent": _UA})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        # The app's shared SSL context (certifi where available), as every
+        # other outbound call uses; the system default fails on macOS.
+        from gather_data import _ssl_ctx
+        with urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx) as resp:
             summary = json.loads(resp.read())
     except Exception as e:
         logger.debug("No Wikipedia summary for %s: %s", name, e)
