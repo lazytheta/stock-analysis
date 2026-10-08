@@ -25,6 +25,11 @@ CARD_STYLE = f"""<style>
 .ov-ctitle{{font-size:15px;font-weight:700;color:var(--text);margin:0 0 12px}}
 .ov-lbl{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
   color:var(--text-muted);margin:0 0 3px}}
+.ov-help{{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;
+  border-radius:50%;margin-left:5px;font-size:9.5px;font-weight:700;letter-spacing:0;
+  text-transform:none;color:var(--text-muted);cursor:help;vertical-align:1px;
+  border:1px solid color-mix(in srgb, var(--text) 25%, transparent)}}
+.ov-good{{color:var(--green, #2e7d32) !important}}
 </style>"""
 
 COMPANY_STYLE = f"""<style>
@@ -177,9 +182,80 @@ def _profile_body(profile, market_cap_m, summary=None, phase=None):
     return f'<div class="ov-profile">{"".join(pairs)}</div>{tags_html}{summary_html}'
 
 
-def _tile(label, value, caption, positive=False):
-    cls = "ov-gval ov-pos" if positive else "ov-gval"
-    return (f'<div><div class="ov-lbl">{qc.esc(label.upper())}</div>'
+# Rough market-wide references (S&P 500-type companies), for the "?" next to
+# a figure and for colouring it green when it beats the reference (owner,
+# 2026-10-08). Not sector-adjusted: a grocer's 25% gross margin is fine for a
+# grocer and still stays black here, so every tooltip says so. Below the
+# reference a figure stays black, never red.
+#   label -> (is_good(value), what it means and the reference)
+# Values: percent for ROCE/ROE (as the tile gets it), fractions for the
+# other percentages, plain multiples for the × figures.
+_MARKET = "Market-wide reference, not adjusted for sector."
+BENCHMARKS = {
+    "ROCE": (lambda v: v >= 15, "Profit per dollar of capital the business uses. S&P 500 "
+             "companies average roughly 10–15%; above 15% for years is good, 20%+ excellent."),
+    "ROE": (lambda v: v >= 15, "Profit per dollar of shareholders' equity. Roughly 10–15% is "
+            "average; above 15% for years is good."),
+    "Gross margin": (lambda v: v >= 0.40, "Share of sales left after the direct cost of what is "
+                     "sold. Around 40% is typical; software and brands reach 70%+, retailers "
+                     "25–35%."),
+    "Operating margin": (lambda v: v >= 0.15, "Share of sales left after all operating costs. "
+                         "S&P 500 average is about 15%."),
+    "Net margin": (lambda v: v >= 0.12, "Share of sales left as profit after interest and tax. "
+                   "S&P 500 average is about 11–12%."),
+    "FCF margin": (lambda v: v >= 0.10, "Share of sales left as free cash after investment. "
+                   "About 10% is typical."),
+    "Revenue growth": (lambda v: v >= 0.06, "Sales growth per year. S&P 500 sales grew about "
+                       "5–6% a year over the long run."),
+    "FCF conversion": (lambda v: v >= 0.80, "How much of the reported profit arrives as free "
+                       "cash. Above 80% is healthy; below 50% is a warning sign."),
+    "FCF yield": (lambda v: v >= 0.04, "Free cash flow per dollar of market value. The S&P 500 "
+                  "is around 3–4%; higher means cheaper."),
+    "Shares per year (5y)": (lambda v: v < 0, "Change in the share count per year. Negative "
+                             "means buybacks shrink it (each share owns more); S&P 500 is "
+                             "roughly −1% a year."),
+    "Debt / Equity": (lambda v: v < 1.0, "Debt per dollar of shareholders' equity. Below 1× is "
+                      "comfortable for most businesses."),
+    "EBIT / Interest": (lambda v: v >= 8, "How many times operating profit covers the interest "
+                        "bill. Above 8× is very safe; below 3× is tight."),
+    "P/S": (lambda v: v < 3, "Market value per dollar of sales. S&P 500 is about 3×; lower is "
+            "cheaper."),
+    "P/E": (lambda v: v < 20, "Price per dollar of profit. S&P 500 is about 20–25×; lower is "
+            "cheaper."),
+    "P/B": (lambda v: v < 3, "Market value per dollar of book equity. S&P 500 is about 4–5×; "
+            "below 3× is cheap for most businesses."),
+    "P/FCF": (lambda v: v < 20, "Market value per dollar of free cash flow. S&P 500 is about "
+              "25×; below 20× is cheaper."),
+    "Dividend yield": (lambda v: v >= 0.015, "Dividends paid per dollar of market value. S&P 500 "
+                       "is about 1.3%."),
+    "Buyback yield": (lambda v: v >= 0.015, "Shares bought back per dollar of market value. S&P "
+                      "500 is roughly 1–2%."),
+    "Total shareholder yield": (lambda v: v >= 0.03, "Dividends + buybacks + debt paid down, "
+                                "per dollar of market value. About 3% is typical."),
+}
+
+
+def _help(label):
+    """A small "?" with what the figure means and its market reference."""
+    bench = BENCHMARKS.get(label)
+    if not bench:
+        return ""
+    tip = qc.esc(f"{bench[1]} {_MARKET}")
+    return f'<span class="ov-help" title="{tip}">?</span>'
+
+
+def _good(label, value):
+    bench = BENCHMARKS.get(label)
+    try:
+        return bool(bench) and value is not None and bench[0](value)
+    except TypeError:
+        return False
+
+
+def _tile(label, value, caption, positive=False, raw=None):
+    good = positive or _good(label, raw)
+    cls = "ov-gval ov-pos" if good else "ov-gval"
+    return (f'<div><div class="ov-lbl">{qc.esc(label.upper())}{_help(label)}</div>'
             f'<div class="{cls}">{qc.esc(value)}</div>'
             f'<div class="ov-gcap">{qc.esc(caption)}</div></div>')
 
@@ -210,19 +286,22 @@ def _glance_body(glance):
     # Quality, growth, price, balance sheet, capital return -- in that order,
     # two per row (owner, 2026-10-06).
     tiles = [
-        _tile(metric, DASH if roce is None else f"{roce:.1f}%", "10-year average"),
-        _tile("Gross margin", _pct(g.get("gross_margin")), margin_cap),
-        _tile("Operating margin", _pct(g.get("op_margin")), margin_cap),
+        _tile(metric, DASH if roce is None else f"{roce:.1f}%", "10-year average", raw=roce),
+        _tile("Gross margin", _pct(g.get("gross_margin")), margin_cap,
+              raw=_num(g.get("gross_margin"))),
+        _tile("Operating margin", _pct(g.get("op_margin")), margin_cap,
+              raw=_num(g.get("op_margin"))),
         _tile("Revenue growth", om.fmt_pct(_num(g.get("revenue_cagr_5y")), signed=True),
-              "per year, last 5 years"),
+              "per year, last 5 years", raw=_num(g.get("revenue_cagr_5y"))),
         _tile("FCF conversion", DASH if conv is None else f"{conv * 100:.0f}%",
-              "free cash flow / net income"),
-        _tile("FCF yield", _pct(g.get("fcf_yield")), "free cash flow / market cap"),
+              "free cash flow / net income", raw=conv),
+        _tile("FCF yield", _pct(g.get("fcf_yield")), "free cash flow / market cap",
+              raw=_num(g.get("fcf_yield"))),
         _tile("Net debt" if net is not None and net < 0 else "Net cash",
               om.fmt_money_m(None if net is None else abs(net)),
               "cash & investments − debt", positive=net is not None and net > 0),
         _tile("Shares per year (5y)", om.fmt_pct(shares, signed=True),
-              "buybacks" if shares is not None and shares < 0 else "dilution"),
+              "buybacks" if shares is not None and shares < 0 else "dilution", raw=shares),
     ]
     return f'<div class="ov-glance">{"".join(tiles)}</div>'
 
@@ -240,9 +319,10 @@ def company_section_html(profile, market_cap_m, glance: dict | None = None,
     return qc.css(CARD_STYLE, COMPANY_STYLE) + qc.section_html("Company", inner)
 
 
-def _row(label, value):
-    return (f'<div class="ov-row"><span>{qc.esc(label)}</span>'
-            f'<b>{qc.esc(value)}</b></div>')
+def _row(label, value, raw=None):
+    cls = ' class="ov-good"' if _good(label, raw) else ""
+    return (f'<div class="ov-row"><span>{qc.esc(label)}{_help(label)}</span>'
+            f'<b{cls}>{qc.esc(value)}</b></div>')
 
 
 def _group(title, sub, rows):
@@ -265,14 +345,14 @@ def key_figures_section_html(metrics: dict) -> str:
     fy_paid = f"FY{fy} payouts ÷ market cap" if fy else "Payouts ÷ market cap"
     cards = [
         _group("Profitability", fy_sub, [
-            _row(label, om.fmt_pct(v)) for label, v in metrics.get("profitability", [])]),
+            _row(label, om.fmt_pct(v), v) for label, v in metrics.get("profitability", [])]),
         _group("Financial Health", fy_end, [
-            _row(label, om.fmt_money_m(v) if label in _MONEY else om.fmt_mult(v))
+            _row(label, om.fmt_money_m(v) if label in _MONEY else om.fmt_mult(v), v)
             for label, v in metrics.get("health", [])]),
         _group("Valuation", "At current price", [
-            _row(label, om.fmt_mult(v)) for label, v in metrics.get("valuation", [])]),
+            _row(label, om.fmt_mult(v), v) for label, v in metrics.get("valuation", [])]),
         _group("Shareholder Returns", fy_paid, [
-            _row(label, om.fmt_pct(v, signed=True))
+            _row(label, om.fmt_pct(v, signed=True), v)
             for label, v in metrics.get("returns", [])]),
     ]
     inner = f'<div class="ov-metrics">{"".join(cards)}</div>'

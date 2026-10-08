@@ -96,7 +96,9 @@ def test_company_section_glance_net_debt_and_dilution():
     g = dict(GLANCE, roce_metric="ROE", net_cash_m=-750.0, share_change_5y=0.012)
     body = _body(op.company_section_html(GOOD_PROFILE, None, g))
     assert "ROE" in body and "NET DEBT" in body and "&#36;750M" in body
-    assert "-&#36;" not in body and "ov-pos" not in body
+    assert "-&#36;" not in body
+    # Net debt is never green (only net cash is).
+    assert '<div class="ov-gval">&#36;750M</div>' in body
     assert "+1.2%" in body and "dilution" in body
 
 
@@ -293,3 +295,29 @@ def test_phase_sentence_opens_on_click():
     html = op.company_section_html(GOOD_PROFILE, 1.0, GLANCE, phase=phase)
     assert '<details class="ov-more"><summary><div class="ov-why">A long lead sentence.</div>' in html
     assert ".ov-more[open] .ov-why" in html
+
+
+
+def test_glance_figures_turn_green_above_the_market_reference():
+    weak = dict(GLANCE, roce_pct=8.0, gross_margin=0.30, op_margin=0.10, revenue_cagr_5y=0.03,
+                fcf_conversion=0.5, fcf_yield=0.02, share_change_5y=0.01)
+    strong = dict(GLANCE, roce_pct=31.2, gross_margin=0.82, op_margin=0.41, revenue_cagr_5y=0.18,
+                  fcf_conversion=1.2, fcf_yield=0.05, share_change_5y=-0.02)
+    w = _body(op.company_section_html(GOOD_PROFILE, 1.0, weak))
+    g = _body(op.company_section_html(GOOD_PROFILE, 1.0, strong))
+    for value in ("31.2%", "82.0%", "41.0%", "+18.0%", "120%", "5.0%", "-2.0%"):
+        assert f'<div class="ov-gval ov-pos">{value}</div>' in g, value
+    assert w.count("ov-gval ov-pos") == 1      # only Net cash (positive) stays green
+
+
+def test_every_tile_and_row_with_a_reference_has_a_help_mark():
+    body = _body(op.company_section_html(GOOD_PROFILE, 1.0, GLANCE))
+    assert body.count('class="ov-help"') == 7   # all tiles except Net cash
+    assert "Market-wide reference, not adjusted for sector." in body
+    kf = _body(op.key_figures_section_html(_metrics()))
+    assert kf.count('class="ov-help"') >= 12
+
+
+def test_key_figures_rows_green_when_beating_the_reference():
+    kf = _body(op.key_figures_section_html(_metrics()))
+    assert '<b class="ov-good">' in kf
