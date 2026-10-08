@@ -4041,7 +4041,18 @@ def _dcf_editor(ticker):
     # written through the MCP.
     with _tab_summary:
         _snotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
+        # One-glance strip first (composite + a 1-5 score per tab), then the
+        # verdict, the evidence, the flags and the action triggers.
+        def _summary_scores():
+            from prescan_render import parse_verdict_section as _pvs
+            _inv = _pvs(_snotes.get("Investment Summary") or "")
+            return question_cards.section_html("At a glance", summary_page.score_strip_html(
+                summary_page.dimension_scores(_snotes, cfg.get("valuation_summary"),
+                                              live_price if live_price > 0 else None),
+                (_inv or {}).get("label", ""), T))
+
         _ssections = (
+            ("Scores", _summary_scores),
             ("Verdict", lambda: summary_page.verdict_section_html(
                 _snotes.get("Investment Summary"), cfg.get("valuation_summary"),
                 live_price, T)),
@@ -4049,12 +4060,16 @@ def _dcf_editor(ticker):
                 _parse_scorecard_json(_snotes.get("Scorecard") or "")
                 if isinstance(_snotes.get("Scorecard"), str) else None, T)),
             ("Robustness", lambda: summary_page.robustness_section_html(cfg, T)),
+            ("Flags", lambda: summary_page.flags_section_html(
+                _snotes.get("Investment Summary"), T)),
             ("Pre-mortem", lambda: summary_page.premortem_section_html(
                 cfg.get("premortem"), T)),
         )
         for _sname, _sbuild in _ssections:
             try:
-                st.markdown(_sbuild(), unsafe_allow_html=True)
+                _shtml = _sbuild()
+                if _shtml:
+                    st.markdown(_shtml, unsafe_allow_html=True)
             except Exception as e:
                 logger.warning("Summary %s for %s failed: %s", _sname, ticker, e)
                 st.caption(f"{_sname} unavailable right now.")

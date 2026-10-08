@@ -43,10 +43,12 @@ def test_verdict_section_shows_verdict_conviction_lead_and_three_reasons():
     _no_newline(html)
 
 
-def test_verdict_section_has_two_cards_side_by_side():
+def test_verdict_section_has_the_verdict_block_and_the_valuation_bar():
     html = sp.verdict_section_html(INV, VS, 152.0, THEME)
-    assert html.count('class="ms-row"') == 1
-    assert html.count('class="ms-card') == 2
+    assert 'class="vd-head"' in html and 'class="vd-lead"' in html
+    assert html.count('class="vd-pt"') >= 1
+    assert 'class="vb-card"' in html and 'class="vb-track"' in html
+    assert "Now &#36;152.00" in html
 
 
 def test_price_card_shows_fair_values_buy_and_current_price():
@@ -69,7 +71,7 @@ def test_price_below_fair_value_mid_uses_a_real_minus():
 def test_price_under_buy_price_gets_a_muted_line():
     html = sp.verdict_section_html(INV, VS, 70.0, THEME)
     assert "−30% below fair value" in html
-    assert "under the buy price" in html.lower()
+    assert "Cheap &lt; &#36;75.00" in html
 
 
 def test_price_falls_back_to_the_stored_snapshot():
@@ -89,7 +91,7 @@ def test_missing_investment_summary_shows_a_muted_note():
     for text in (None, "", "   "):
         html = sp.verdict_section_html(text, VS, 152.0, THEME)
         assert "No Investment Summary yet" in html
-        assert html.count('class="ms-card') == 2
+        assert 'class="vb-card"' in html
 
 
 def test_unparseable_investment_summary_shows_a_note_not_a_crash():
@@ -311,3 +313,59 @@ def test_summary_block_renders_four_sections_read_only():
     for widget in ("st.button", "st.text_area", "st.text_input", "st.expander",
                    "st.selectbox", "save_config"):
         assert widget not in block, widget
+
+
+def test_premortem_current_view_splits_into_tiles_and_highlights_the_action():
+    pm = dict(_PM, current="Spot ~$720 · 3 shares · cost basis $556 · boven buy, onder FV-mid → houden")
+    html = sp.render_premortem(pm, THEME)
+    assert 'class="pm-act"' in html and "houden" in html
+    assert html.count('class="pm-chip"') == 3
+
+
+def test_premortem_triggers_are_boxes_with_a_bold_head():
+    html = sp.render_premortem(_PM, THEME)
+    # An upper-case category ("MARGIN — ...") becomes a coloured tag.
+    assert 'font-weight:700">MARGIN </span>gross margin under 54%' in html
+    assert html.count('class="pm-item"') == 5
+    pm = dict(_PM, sell=["Capex-ROI fails: ad growth under 15% while capex stays high"])
+    assert "<strong>Capex-ROI fails</strong><span>ad growth under 15% while capex stays high" \
+        in sp.render_premortem(pm, THEME)
+
+
+def test_flags_from_what_would_change_this():
+    text = ("**Verdict: Deep dive 🟢 · Medium conviction**\n\nLead.\n\n- **A**: b\n\n"
+            "**What would change this:** ROCE falling below 20%, or a regulator forcing "
+            "non-personalised ads, turns this into a Pass; an operating margin back above 38% "
+            "makes it High conviction.")
+    green, red = sp.flags(text)
+    assert green == ["an operating margin back above 38%"]
+    assert red == ["ROCE falling below 20%", "a regulator forcing non-personalised ads"]
+    html = sp.flags_section_html(text, THEME)
+    assert "Green flags" in html and "Red flags" in html
+    assert sp.flags_section_html("no verdict", THEME) == ""
+
+
+def test_valuation_score_bands():
+    vs = {"weighted_fv_low": 80, "weighted_fv_mid": 100, "weighted_fv_high": 130, "buy_price": 75}
+    assert sp.valuation_score(vs, 70)[0] == 5
+    assert sp.valuation_score(vs, 90)[0] == 4
+    assert sp.valuation_score(vs, 102)[0] == 3
+    assert sp.valuation_score(vs, 120)[0] == 2
+    assert sp.valuation_score(vs, 150)[0] == 1
+    assert sp.valuation_score({}, 100) == (None, "")
+
+
+def test_score_strip_composite_and_tiles():
+    dims = [("Business", 4, "Like it"), ("Moat", 4, "Wide"), ("Growth", None, ""),
+            ("Risk", 3, "Medium")]
+    html = sp.score_strip_html(dims, "Deep dive", THEME)
+    assert "<b>3.7</b>" in html and "DEEP DIVE" in html
+    assert html.count('class="ss-dim"') == 4
+
+
+def test_premortem_action_is_the_spaced_arrow_with_an_action_word():
+    pm = dict(_PM, current="DCF $786 (ramp 0,36→0,85) · 3 shares · boven buy, onder FV-mid → houden, niet bijkopen")
+    html = sp.render_premortem(pm, THEME)
+    act = html[html.index('class="pm-act"'):]
+    assert act.index("houden") < act.index("</div>")
+    assert "0,36→0,85" in html and html.count('class="pm-chip"') == 2
