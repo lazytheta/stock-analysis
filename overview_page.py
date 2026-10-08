@@ -45,8 +45,15 @@ COMPANY_STYLE = f"""<style>
 .ov-phase i{{font-style:normal;display:inline-flex;align-items:center;justify-content:center;
   width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;
   font-size:11px;font-weight:700;flex:none}}
-.ov-why.ov-clip{{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
-  overflow:hidden}}
+.ov-more{{margin-top:4px}}
+.ov-more summary{{list-style:none;cursor:pointer}}
+.ov-more summary::-webkit-details-marker{{display:none}}
+.ov-more .ov-why{{margin-top:0;display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden}}
+.ov-more[open] .ov-why{{display:block;-webkit-line-clamp:unset;overflow:visible}}
+.ov-more .ov-tog{{font-size:12px;color:var(--accent);font-weight:600}}
+.ov-more .ov-tog::after{{content:"more"}}
+.ov-more[open] .ov-tog::after{{content:"less"}}
 .ov-tags{{margin-top:16px}}
 .ov-chips{{display:flex;flex-wrap:wrap;gap:6px}}
 .ov-chip{{display:inline-block;padding:3px 10px;border-radius:8px;background:{_CHIP};
@@ -118,12 +125,15 @@ def _difficulty_html(difficulty, reason=""):
 
 def _phase_html(phase):
     """The phase number in a disc, its name, and the analysis's lead sentence
-    clipped to two lines; the full sentence plus what the phase looks like,
-    which valuation fits and what moves it on sit in the tooltip."""
+    clipped to two lines that open in full on a click (a <details>, so no
+    rerun and it works on a phone too); what the phase looks like, which
+    valuation fits and what moves it on sit in the tooltip on the name."""
     if not phase:
         return DASH
     tip = qc.esc(phase.get("tooltip") or "").replace("\n", "&#10;")
-    why = (f'<div class="ov-why ov-clip">{qc.esc(phase["summary"])}</div>'
+    why = (f'<details class="ov-more"><summary>'
+           f'<div class="ov-why">{qc.esc(phase["summary"])}</div>'
+           f'<span class="ov-tog"></span></summary></details>'
            if phase.get("summary") else "")
     return (f'<span class="ov-phase" title="{tip}"><i>{phase["number"]}</i>'
             f'{qc.esc(phase["name"])}</span>{why}')

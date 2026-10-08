@@ -293,3 +293,11 @@ def test_profile_shows_the_phase_with_a_tooltip():
     assert pos == sorted(pos)
     # Unknown phase: a dash, not a missing field.
     assert "PHASE" in _body(op.company_section_html(GOOD_PROFILE, 1.0, GLANCE))
+
+
+def test_phase_sentence_opens_on_click():
+    phase = {"number": 5, "name": "Capital Return", "summary": "A long lead sentence.",
+             "tooltip": "t"}
+    html = op.company_section_html(GOOD_PROFILE, 1.0, GLANCE, phase=phase)
+    assert '<details class="ov-more"><summary><div class="ov-why">A long lead sentence.</div>' in html
+    assert ".ov-more[open] .ov-why" in html
