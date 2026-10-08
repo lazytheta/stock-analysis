@@ -63,9 +63,9 @@ and the SEC connector only.
       inventing or estimating the consensus numbers themselves is
       forbidden. If the call is unavailable or returns nothing usable, omit
       the "consensus" key entirely — never estimate it by hand. "Management
-      Cards" comes right after Risk Cards and uses at most 4 SEC calls
+      Cards" comes right after Risk Cards and uses at most 5 SEC calls
       (GetExecutiveCompensation, GetInsiderOwnership, GetInsiderTransactions,
-      GetExecutiveChanges) as its prompt describes. "Earnings Brief" comes
+      GetExecutiveChanges, GetGuidance) as its prompt describes. "Earnings Brief" comes
       after Management Cards and uses at most 2 SEC calls
       (GetEarningsCallToneAndThemes, GetAnalystEstimates). If `save_prescan_section`
       refuses "Moat Cards", "Risk Cards", "Management Cards", "Earnings Brief", "Business

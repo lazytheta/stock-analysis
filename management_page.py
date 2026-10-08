@@ -11,7 +11,7 @@ function raises: bad data degrades to the card set's notice.
 import logging
 
 import question_cards as qc
-from management_cards import MANAGEMENT, TITLE, parse_management_cards
+from management_cards import TITLE, parse_for_display
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,9 @@ STYLE = f"""<style>
 .mg-date{{color:var(--text-muted);font-variant-numeric:tabular-nums;margin-right:10px}}
 .mg-none{{margin:0;font-size:14px;color:var(--text-muted)}}
 .mg-src{{margin-top:12px;font-size:12px;color:var(--text-muted)}}
+.mg-guide{{background:{_INNER};border-radius:16px;padding:12px 18px;margin-top:16px;
+  font-size:14px;color:var(--text);display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}}
+.mg-guide .mg-lbl{{margin:0}}
 </style>"""
 
 
@@ -48,7 +51,7 @@ def _parse(content):
     if not isinstance(content, str) or not content.strip():
         return None
     try:
-        return parse_management_cards(content)
+        return parse_for_display(content)
     except Exception:
         return None
 
@@ -139,6 +142,17 @@ def _changes_html(changes):
     return f'<div class="mg-changes">{head}<ul>{items}</ul></div>'
 
 
+def _guidance_html(record):
+    """Does management deliver what it guides? One line; nothing when the
+    record is unknown."""
+    if not record:
+        return ""
+    met, total = record["met"], record["total"]
+    return (f'<div class="mg-guide"><span class="mg-lbl">Guidance kept</span>'
+            f'<b>{met} of {total}</b> times results met or beat the company\'s own '
+            f'guidance</div>')
+
+
 def _notice_section(theme):
     return qc.section_html("Management", qc.notice_html(TITLE, theme))
 
@@ -153,6 +167,7 @@ def management_section_html(content, theme) -> str:
     try:
         f = parsed["facts"]
         inner = (f'{qc.css(STYLE)}{_tiles_html(f)}{_changes_html(f["changes"])}'
+                 f'{_guidance_html(f.get("guidance_record"))}'
                  f'<div class="mg-src">As of {qc.esc(f["as_of"])} · Source: '
                  f'{qc.esc(f["source"])}</div>')
         return qc.section_html("Management", inner)
@@ -169,7 +184,7 @@ def cards_section_html(content, theme) -> str:
         return ""
     try:
         return qc.section_html("Management questions",
-                               qc.grid_html(MANAGEMENT, parsed["cards"], theme))
+                               qc.grid_html(parsed["card_set"], parsed["cards"], theme))
     except Exception as e:
         logger.warning("Management cards failed: %s", e)
         return ""

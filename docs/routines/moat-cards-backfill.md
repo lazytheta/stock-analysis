@@ -172,9 +172,9 @@ matching prompt to answer.
     a. Call `get_prescan_prompts(ticker)` and take the prompt titled
        "Management Cards" (its {prior:Business Analysis} is already filled
        in).
-    b. Make at most 4 SEC-MCP calls per ticker: `GetExecutiveCompensation`,
-       `GetInsiderOwnership`, `GetInsiderTransactions` (last 12 months) and
-       `GetExecutiveChanges`. Take shares outstanding from
+    b. Make at most 5 SEC-MCP calls per ticker: `GetExecutiveCompensation`,
+       `GetInsiderOwnership`, `GetInsiderTransactions` (last 12 months),
+       `GetExecutiveChanges` and `GetGuidance` (its track record line). Take shares outstanding from
        `get_fundamentals(ticker)`. Apply the prompt's cleanup rules; if
        SEC-MCP is unavailable or a feed returns nothing, set those facts to
        null and say so in the card — never estimate.

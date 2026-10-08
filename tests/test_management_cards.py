@@ -63,13 +63,16 @@ def test_items_and_title():
         ("pay", "Pay", "Is the pay reasonable?", ("Excessive", "Okay", "Reasonable")),
         ("stability", "Stability", "Is the top team stable?",
          ("Unstable", "Some change", "Stable")),
+        ("capital_allocation", "Capital allocation", "Do they spend the cash well?",
+         ("Poor", "Mixed", "Good")),
     )
     assert mc.MANAGEMENT.directions is None
 
 
 def test_parse_returns_cards_and_facts():
     out = mc.parse_management_cards(_content())
-    assert [c["source"] for c in out["cards"]] == ["skin_in_the_game", "pay", "stability"]
+    assert [c["source"] for c in out["cards"]] == ["skin_in_the_game", "pay", "stability",
+                                                   "capital_allocation"]
     f = out["facts"]
     assert f["ceo"] == {"name": "Timothy Archer", "since": 2018}
     assert f["insider_net_12m_usd"] == -28_400_000 and f["sellers"] == 6
@@ -80,7 +83,7 @@ def test_parse_returns_cards_and_facts():
 
 def test_parse_refuses_wrong_card_count():
     d = _data(); d["cards"].pop()
-    with pytest.raises(ValueError, match="three sources"):
+    with pytest.raises(ValueError, match="four sources"):
         mc.parse_management_cards(json.dumps(d))
 
 
@@ -218,11 +221,43 @@ def test_missing_or_invalid_section_shows_the_notice_and_no_cards():
         assert mp.cards_section_html(content, THEME) == ""
 
 
-def test_cards_section_renders_three_flip_cards():
+def test_cards_section_renders_four_flip_cards():
     html = mp.cards_section_html(_content(), THEME)
     _house_style(html)
-    assert html.count('class="mc-card"') == 3
+    assert html.count('class="mc-card"') == 4
     assert "Do they have skin in the game?" in html
+    assert "Do they spend the cash well?" in html
+
+
+def test_legacy_three_card_section_still_renders_but_cannot_be_saved():
+    d = _data(); d["cards"].pop()          # saved before 2026-10-08
+    content = json.dumps(d)
+    with pytest.raises(ValueError):
+        mc.parse_management_cards(content)
+    assert mc.parse_for_display(content)["card_set"] is mc.LEGACY_MANAGEMENT
+    assert mp.cards_section_html(content, THEME).count('class="mc-card"') == 3
+    assert "Timothy Archer" in mp.management_section_html(content, THEME)
+
+
+def test_guidance_record_is_optional_and_shown():
+    assert mc.parse_management_cards(_content())["facts"]["guidance_record"] is None
+    content = _content(facts=_facts(guidance_record={"met": 7, "total": 8}))
+    assert mc.parse_management_cards(content)["facts"]["guidance_record"] == {"met": 7, "total": 8}
+    html = mp.management_section_html(content, THEME)
+    assert "Guidance kept" in html and "<b>7 of 8</b>" in html
+    assert "Guidance kept" not in mp.management_section_html(_content(), THEME)
+
+
+@pytest.mark.parametrize("rec", [{"met": 3, "total": 2}, {"met": 1, "total": 0},
+                                 {"met": None, "total": 3}, "7/8"])
+def test_bad_guidance_record_is_refused(rec):
+    with pytest.raises(ValueError, match="guidance_record"):
+        mc.parse_management_cards(_content(facts=_facts(guidance_record=rec)))
+
+
+def test_prompt_has_capital_allocation_and_guidance():
+    assert "capital_allocation" in mc.PROMPT and "GetGuidance" in mc.PROMPT
+    assert "guidance_record" in mc.PROMPT and "at most 5 calls" in mc.PROMPT
 
 
 def test_dollar_signs_in_texts_are_escaped():
