@@ -2971,6 +2971,9 @@ def _reject_aspirant(sb_client, ticker):
 
 
 def _watchlist_overview():
+    # Temporary (2026-10-08): the owner reports a very slow Watchlist load;
+    # measure each step on Streamlit Cloud before changing anything.
+    load_profiler.start("Watchlist")
     st.markdown("## Watchlist")
     st.markdown(
         f'<p style="color: {T["text_muted"]}; font-size: 1.05rem; line-height: 1.6; max-width: 560px;">'
@@ -3114,7 +3117,8 @@ def _watchlist_overview():
     def _cached_watchlist(user_id):
         return list_watchlist(_sb_client, user_id=user_id)
 
-    watchlist = _cached_watchlist(st.session_state["user"]["id"])
+    with load_profiler.timed("watchlist listing"):
+        watchlist = _cached_watchlist(st.session_state["user"]["id"])
     if not watchlist:
         st.info("Your watchlist is empty. Add a ticker above or use 'Add to Watchlist' on the DCF page.")
         return
@@ -3148,14 +3152,16 @@ def _watchlist_overview():
         wanted = set(tickers_tuple)
         return {t: c for t, c in cfgs.items() if t in wanted} if wanted else cfgs
 
-    _wl_configs = _load_all_configs(st.session_state["user"]["id"], tuple(item['ticker'] for item in watchlist))
+    with load_profiler.timed("configs"):
+        _wl_configs = _load_all_configs(st.session_state["user"]["id"], tuple(item['ticker'] for item in watchlist))
     wl_tickers = list(_wl_configs.keys())
     # De Europese lijnen hangen op hun ISIN; zonder die kaart valt de tweede
     # koersbron stil terug op de bevroren prijs.
     _wl_isins = tuple(sorted(
         (t, cfg.get("isin")) for t, cfg in _wl_configs.items() if cfg.get("isin")))
-    batch_prices = (_fetch_prices_batch(tuple(wl_tickers), _wl_isins)
-                    if wl_tickers else {})
+    with load_profiler.timed(f"prices ({len(wl_tickers)} tickers)"):
+        batch_prices = (_fetch_prices_batch(tuple(wl_tickers), _wl_isins)
+                        if wl_tickers else {})
 
     @st.cache_data(ttl=86400, show_spinner=False)
     def _cached_fundamentals(t):
@@ -3190,6 +3196,7 @@ def _watchlist_overview():
         # Only the stragglers: a newly added ticker, or one whose slice has
         # not been written yet. Falling back to a live fetch keeps the page
         # correct while the backfill catches up.
+        _t_fund = time.perf_counter()
         with ThreadPoolExecutor(max_workers=6) as _fund_exec:
             _fund_futures = {t: _fund_exec.submit(_cached_fundamentals, t)
                              for t in _needs_fetch}
@@ -3200,7 +3207,10 @@ def _watchlist_overview():
                 logger.warning("Fundamentals fetch failed for %s: %s", t, e)
                 _fund_map[t] = {}
                 _fund_unavailable.add(t)
+        load_profiler.mark(f"fundamentals live ({len(_needs_fetch)}: {', '.join(_needs_fetch)})",
+                           time.perf_counter() - _t_fund)
 
+    _t_rows = time.perf_counter()
     rows = []
     for t, cfg_wl in _wl_configs.items():
         try:
@@ -3280,6 +3290,7 @@ def _watchlist_overview():
     # Say it out loud. This failure mode was invisible for as long as it was:
     # the quotes just quietly became $0.00 and every metric derived from them
     # went with it, so the table looked authoritative while it was wrong.
+    load_profiler.mark("rows computed", time.perf_counter() - _t_rows)
     _stale_rows = [r['ticker'] for r in rows if r.get('price_stale')]
     if _stale_rows:
         st.warning(
@@ -3295,11 +3306,13 @@ def _watchlist_overview():
     def _cached_earnings(tickers_tuple):
         return fetch_earnings_dates(list(tickers_tuple))
 
-    _earnings_map = _cached_earnings(tuple(wl_tickers)) if wl_tickers else {}
+    with load_profiler.timed("earnings dates"):
+        _earnings_map = _cached_earnings(tuple(wl_tickers)) if wl_tickers else {}
 
     # Resolve every logo before the table starts drawing. One per row, in row
     # order, was 5.4s of this page.
-    prewarm_logos(wl_tickers)
+    with load_profiler.timed("logos"):
+        prewarm_logos(wl_tickers)
 
     # ── Category definitions ──
     _categories = list(aspirant.CATEGORIES)
@@ -3646,6 +3659,7 @@ def _watchlist_overview():
     # collapse so they don't push the must-look-at items below the fold.
     _default_open = {"Yes": True}
 
+    _t_tbl = time.perf_counter()
     for _cat in _active_cats:
         _cat_rows = _grouped[_cat]
         with st.container(key=_cat_keys[_cat]):
@@ -3657,10 +3671,13 @@ def _watchlist_overview():
                 for row in _cat_rows:
                     _render_wl_row(row)
 
+    load_profiler.mark(f"table drawn ({len(rows)} rows)", time.perf_counter() - _t_tbl)
     st.markdown("")
     # Notifications hub — below the watchlist (reminders, alerts, Telegram).
     st.divider()
-    _render_notifications_panel()
+    with load_profiler.timed("notifications"):
+        _render_notifications_panel()
+    load_profiler.panel()
 
 
 def _dcf_editor(ticker):
