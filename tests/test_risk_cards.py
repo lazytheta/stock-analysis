@@ -95,3 +95,10 @@ def test_ticker_page_has_a_risk_tab_after_moat():
     src = open("streamlit_app.py", encoding="utf-8").read()
     assert '["Business", "Moat", "Growth", "Management", "Risk", "Summary", "Capital Return", "Earnings", "Financials", "DCF"' in src
     assert "risk_cards.summary_row_html(" in src and "risk_cards.cards_section_html(" in src
+
+
+def test_risk_section_has_the_low_medium_high_bar():
+    html = risk_cards.summary_row_html("**Risk: Medium 🟡 · Outside forces**\n\nX.\n\n- **A**: b",
+                                       "", THEME)
+    assert 'class="sb-bar"' in html and ">2</i><span>Medium</span>" in html
+    assert "<span>Low</span>" in html and "<span>High</span>" in html

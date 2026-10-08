@@ -256,6 +256,46 @@ def word_box_html(glyph, word, tone):
             f'{esc(word.upper())}</div></div>')
 
 
+SCORE_BAR_STYLE = """<style>
+.sb-bar{display:flex;justify-content:space-between;position:relative;
+  background:var(--qc-inner, var(--bg-secondary));border-radius:16px;padding:14px 18px 12px;
+  margin-bottom:16px}
+.sb-bar::before{content:"";position:absolute;left:var(--sb-edge);right:var(--sb-edge);
+  top:27px;height:2px;background:color-mix(in srgb, var(--text) 12%, transparent)}
+.sb-step{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;position:relative;
+  font-size:12px;color:var(--text-muted);text-align:center}
+.sb-step i{font-style:normal;width:26px;height:26px;border-radius:50%;display:flex;
+  align-items:center;justify-content:center;font-size:12px;font-weight:700;
+  background:color-mix(in srgb, var(--text) 8%, var(--card));color:var(--text-muted)}
+.sb-step.on{font-weight:700}
+.sb-step.on i{color:#fff;width:32px;height:32px;margin-top:-3px;font-size:14px}
+</style>"""
+
+
+def score_bar_html(current, labels, tone="var(--accent)", active_label=None, numbers=None):
+    """The 1..n stepper used across the ticker tabs (Management, Moat,
+    Growth, Risk): one step per label, the current one filled in `tone`.
+    `active_label` replaces the current step's label (e.g. the Moat verdict
+    under its score); `numbers` overrides the step numbers. "" when the
+    current step is unknown."""
+    numbers = list(numbers or range(1, len(labels) + 1))
+    if current not in numbers:
+        return ""
+    steps = []
+    for n, label in zip(numbers, labels):
+        on = n == current
+        text = active_label if on and active_label else label
+        style = f' style="color:{tone}"' if on else ""
+        disc = f' style="background:{tone}"' if on else ""
+        steps.append(f'<div class="sb-step{" on" if on else ""}"{style}><i{disc}>{n}</i>'
+                     f'<span>{esc(text)}</span></div>')
+    # The line runs from the first disc's centre to the last one's: with n
+    # equal steps inside 18px padding that is half a step in from each side.
+    edge = f"calc(18px + (100% - 36px) / {2 * len(numbers)})"
+    return (f'{css(SCORE_BAR_STYLE)}<div class="sb-bar" style="--sb-edge:{edge}">'
+            f'{"".join(steps)}</div>')
+
+
 def section_html(label, inner_html):
     """One white section in the site's card style with a small label, holding
     flat cards. Groups read as one block instead of a stack of floating boxes."""

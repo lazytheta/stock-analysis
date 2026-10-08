@@ -355,3 +355,10 @@ def test_prompts_name_efficient_scale_not_counter_positioning():
     for prompt in (moat_cards.PROMPT, moat_analysis):
         assert "fficient scale" in prompt or "efficient_scale" in prompt
         assert "ounter-positioning" not in prompt and "counter_positioning" not in prompt
+
+
+def test_moat_section_has_the_score_bar_with_the_verdict_label():
+    html = moat_cards.summary_row_html(
+        "**Moat: Wide 🛡️ · Stable ➡️ · 4/5**\n\nA sentence.\n\n- **A**: b", None, THEME)
+    assert 'class="sb-bar"' in html
+    assert ">4</i><span>Wide</span>" in html and ">0</i>" in html and ">5</i>" in html

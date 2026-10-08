@@ -59,6 +59,9 @@ def parse_risk_cards(content):
     return qc.parse(RISK, content)
 
 
+RISK_LEVELS = ("Low", "Medium", "High")
+
+
 def cards_section_html(content, theme):
     try:
         cards = parse_risk_cards(content)["cards"] if content else None
@@ -98,4 +101,11 @@ def summary_row_html(risk_analysis, saas_text, theme):
         return None
     row = qc.summary_row_html(left or _missing_card("EXECUTION RISK", theme),
                               right or _missing_card("AI EXPOSURE", theme))
+    # Low / Medium / High as the shared stepper, coloured by the verdict.
+    v = parse_verdict_section(risk_analysis or "")
+    level = next((i for i, w in enumerate(RISK_LEVELS, start=1)
+                  if v and w.lower() == str(v["label"]).strip().lower()), None)
+    if level:
+        row = qc.score_bar_html(level, list(RISK_LEVELS),
+                                band_tone(v["label"]) or theme["text_muted"]) + row
     return qc.section_html("Risk", row)

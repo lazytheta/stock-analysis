@@ -168,7 +168,14 @@ def summary_row_html(moat_analysis, cards_content, theme):
         points = ([{"label": v["footer_label"] or "Weakest link", "text": v["footer_text"]}]
                   if v["footer_text"] else [])
     direction = question_cards.summary_card_html("MOAT DIRECTION", dir_box, lead, points, theme)
-    return question_cards.section_html("Moat", question_cards.summary_row_html(size, direction))
+    # The 0-5 score as the shared stepper, the verdict (None/Narrow/Wide)
+    # under the current step.
+    bar = ""
+    if v["score"] is not None and v["out_of"] == 5:
+        bar = question_cards.score_bar_html(round(v["score"]), [""] * 6, size_tone,
+                                            active_label=v["label"], numbers=range(6))
+    return question_cards.section_html(
+        "Moat", bar + question_cards.summary_row_html(size, direction))
 
 
 def cards_section_html(content, theme):

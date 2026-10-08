@@ -253,3 +253,11 @@ def test_questions_section_notice():
         assert '<div class="qc-label">Growth questions</div>' in html
         assert "mc-card" not in html.split("</style>")[-1]
         assert "Growth Cards" in html
+
+
+def test_growth_section_has_the_score_bar():
+    html = gp.growth_section_html(_content(score=3), THEME)
+    assert 'class="sb-bar"' in html
+    assert ">3</i><span>Average</span>" in html
+    for label in ("Weak", "Below average", "Strong", "Exceptional"):
+        assert f"<span>{label}</span>" in html

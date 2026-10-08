@@ -354,11 +354,11 @@ def test_prompt_asks_for_ceo_shares_and_bio():
 
 def test_score_bar_uses_the_score_or_falls_back_to_the_cards():
     html = mp.management_section_html(_content(facts=_facts(score=3)), THEME)
-    assert '<div class="mg-step on"><i>3</i><span>Decent</span></div>' in html
+    assert '<i style="background:var(--accent)">3</i><span>Decent</span>' in html
     for label in ("Poor", "Below avg", "Good", "Great"):
         assert f"<span>{label}</span>" in html
     # No score: every card picks 2 -> average 2 -> Great.
-    assert '<div class="mg-step on"><i>5</i><span>Great</span></div>' in \
+    assert '<i style="background:var(--accent)">5</i><span>Great</span>' in \
         mp.management_section_html(_content(), THEME)
     with pytest.raises(ValueError, match="score"):
         mc.parse_management_cards(_content(facts=_facts(score=6)))

@@ -42,18 +42,7 @@ STYLE = f"""<style>
 .mg-init{{display:flex;align-items:center;justify-content:center;font-size:20px;
   font-weight:700;color:var(--text-muted)}}
 .mg-credit{{margin-top:10px;font-size:11px;color:var(--text-muted)}}
-.mg-score{{display:flex;justify-content:space-between;position:relative;
-  background:{_INNER};border-radius:16px;padding:14px 18px 12px;margin-bottom:16px}}
-.mg-score::before{{content:"";position:absolute;left:12%;right:12%;top:27px;height:2px;
-  background:color-mix(in srgb, var(--text) 12%, transparent)}}
-.mg-step{{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;
-  position:relative;font-size:12px;color:var(--text-muted)}}
-.mg-step i{{font-style:normal;width:26px;height:26px;border-radius:50%;display:flex;
-  align-items:center;justify-content:center;font-size:12px;font-weight:700;
-  background:color-mix(in srgb, var(--text) 8%, var(--card));color:var(--text-muted)}}
-.mg-step.on{{color:var(--accent);font-weight:700}}
-.mg-step.on i{{background:var(--accent);color:#fff;width:32px;height:32px;margin-top:-3px;
-  font-size:14px}}
+
 .mg-ceo-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}}
 @media (max-width:760px){{.mg-ceo-grid{{grid-template-columns:minmax(0,1fr)}}}}
 .mg-sub{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
@@ -169,14 +158,8 @@ def _tiles_html(f):
 
 
 def score_bar_html(score):
-    """1-5 stepper, Poor .. Great, the current step filled; "" without one."""
-    if not score:
-        return ""
-    steps = "".join(
-        f'<div class="mg-step{" on" if n == score else ""}">'
-        f'<i>{n}</i><span>{qc.esc(label)}</span></div>'
-        for n, label in enumerate(SCORE_LABELS, start=1))
-    return f'<div class="mg-score">{steps}</div>'
+    """1-5 stepper, Poor .. Great (question_cards.score_bar_html)."""
+    return qc.score_bar_html(score, SCORE_LABELS) if score else ""
 
 
 def _initials(name):

@@ -116,7 +116,9 @@ def growth_section_html(content: str | None, theme) -> str:
         # The Outlook card grows with year two and guidance; the shared card
         # height (300px) would clip it, so here the row sizes to its content
         # and the two cards stay equal height.
-        inner = ('<div class="gr-wrap">'
+        _score = parsed["analysis"]["score"]
+        inner = (qc.score_bar_html(_score, list(SCORE_LABELS.values()), _score_tone(_score))
+                 + '<div class="gr-wrap">'
                  + qc.summary_row_html(_analysis_card(parsed["analysis"], theme),
                                        _consensus_card(parsed["consensus"], theme,
                                                        parsed.get("guidance")))
