@@ -35,8 +35,11 @@ GROWTH_STYLE = f"""<style>
 .gr-row:last-child{{border-bottom:none}}
 .gr-row b{{font-weight:600;white-space:nowrap}}
 .gr-empty{{margin:0;font-size:.9rem;color:var(--text-muted)}}
-.gr-src{{margin-top:auto;padding-top:8px;font-size:.74rem;color:var(--text-muted);
-  line-height:1.4}}
+.gr-src{{padding-top:6px;font-size:.74rem;color:var(--text-muted);line-height:1.4}}
+.gr-sub{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--text-muted);margin:0 0 2px}}
+.gr-sub-gap{{margin-top:16px;padding-top:12px;border-top:1px solid {_HAIRLINE}}}
+.gr-guide{{margin:6px 0 0;font-size:.9rem;font-weight:600;color:var(--text);line-height:1.45}}
 .gr-cagr{{margin-top:6px}}
 </style>"""
 
@@ -68,20 +71,37 @@ def _signed_pct(x):
     return om.DASH if x is None else f"{x:+.1f}%"
 
 
-def _consensus_card(consensus, theme):
+def _consensus_card(consensus, theme, guidance=None):
+    """Outlook: analyst consensus for the next one or two fiscal years, then
+    the company's own guidance when it gave any."""
     title = (f'<div class="mc-q" style="color:{theme["text_muted"]};margin-bottom:12px">'
-             f'CONSENSUS</div>')
-    if not consensus:
-        return f'<div class="ms-card">{title}<p class="gr-empty">{qc.esc(NO_CONSENSUS)}</p></div>'
-    analysts = consensus["analysts"]
-    pairs = (("Revenue growth next FY", _signed_pct(consensus["revenue_growth_pct"])),
-             ("EPS growth next FY", _signed_pct(consensus["eps_growth_pct"])),
-             ("Analysts", om.DASH if analysts is None else str(analysts)),
-             ("Fiscal year", consensus["fiscal_year"]))
-    rows = "".join(f'<div class="gr-row"><span>{qc.esc(label)}</span><b>{qc.esc(value)}</b></div>'
-                   for label, value in pairs)
-    return (f'<div class="ms-card">{title}<div>{rows}</div>'
-            f'<div class="gr-src">{qc.esc(consensus["source"])}</div></div>')
+             f'OUTLOOK</div>')
+
+    def _rows(pairs):
+        return "".join(f'<div class="gr-row"><span>{qc.esc(label)}</span>'
+                       f'<b>{qc.esc(value)}</b></div>' for label, value in pairs)
+
+    parts = []
+    if consensus:
+        fy1 = consensus["fiscal_year"]
+        pairs = [(f"Revenue growth {fy1}", _signed_pct(consensus["revenue_growth_pct"])),
+                 (f"EPS growth {fy1}", _signed_pct(consensus["eps_growth_pct"]))]
+        y2 = consensus.get("year2")
+        if y2:
+            pairs += [(f"Revenue growth {y2['fiscal_year']}", _signed_pct(y2["revenue_growth_pct"])),
+                      (f"EPS growth {y2['fiscal_year']}", _signed_pct(y2["eps_growth_pct"]))]
+        analysts = consensus["analysts"]
+        pairs.append(("Analysts", om.DASH if analysts is None else str(analysts)))
+        parts.append(f'<div class="gr-sub">ANALYST CONSENSUS</div><div>{_rows(pairs)}</div>'
+                     f'<div class="gr-src">{qc.esc(consensus["source"])}</div>')
+    else:
+        parts.append(f'<p class="gr-empty">{qc.esc(NO_CONSENSUS)}</p>')
+    if guidance:
+        parts.append(f'<div class="gr-sub gr-sub-gap">COMPANY GUIDANCE · '
+                     f'{qc.esc(guidance["period"])}</div>'
+                     f'<p class="gr-guide">{qc.esc(guidance["text"])}</p>'
+                     f'<div class="gr-src">{qc.esc(guidance["source"])}</div>')
+    return f'<div class="ms-card">{title}{"".join(parts)}</div>'
 
 
 def growth_section_html(content: str | None, theme) -> str:
@@ -93,7 +113,8 @@ def growth_section_html(content: str | None, theme) -> str:
         inner = f'<div class="gr-note">{qc.esc(NOTICE)}</div>'
     else:
         inner = qc.summary_row_html(_analysis_card(parsed["analysis"], theme),
-                                    _consensus_card(parsed["consensus"], theme))
+                                    _consensus_card(parsed["consensus"], theme,
+                                                    parsed.get("guidance")))
     return qc.section_html("Growth", f'{qc.css(GROWTH_STYLE)}{inner}')
 
 
@@ -175,16 +196,20 @@ def revenue_earnings_figure(years, revenue, earnings, theme) -> go.Figure:
 
 
 def cagr_table_html(fund) -> str:
-    """Revenue / Net income x 3Y / 5Y / 10Y compound annual growth at the
+    """Revenue / Net income / EPS / FCF x 3Y / 5Y / 10Y compound annual growth at the
     fiscal year (overview_metrics' rule: only when start and end are > 0),
     in the Overview's borderless growth-table style."""
     fund = fund or {}
     fy = om._fiscal_year(fund)
     head = "".join(f"<th>{n}Y</th>" for n in om.HORIZONS)
     rows = []
-    for label, key in (("Revenue", "revenue"), ("Net income", "net_income")):
+    # EPS and FCF came over from the Business tab's Key figures (2026-10-08),
+    # so this is the one place with the full growth table.
+    for label, key, get in (("Revenue", "revenue", None), ("Net income", "net_income", None),
+                            ("EPS", "eps", None),
+                            ("FCF", "fcf", lambda y: om._fcf_at(fund, y))):
         cells = "".join(
-            f"<td>{qc.esc(om.fmt_pct(om._cagr(fund, key, fy, n) if fy else None, signed=True))}"
+            f"<td>{qc.esc(om.fmt_pct(om._cagr(fund, key, fy, n, get) if fy else None, signed=True))}"
             f"</td>" for n in om.HORIZONS)
         rows.append(f"<tr><td>{label}</td>{cells}</tr>")
     return (f'{qc.css(METRICS_STYLE, GROWTH_STYLE)}<div class="gr-cagr">'

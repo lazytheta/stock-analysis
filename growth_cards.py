@@ -67,9 +67,21 @@ forbidden:
 - analysts: the estimate's analyst count.
 - source: name the basis and the source plus the date you pulled it
   (e.g. "compiled consensus, adjusted EPS, Equibles 2026-09-24").
+- year2: the SECOND fiscal year not yet reported, from the same call:
+  {"fiscal_year": e.g. "FY2028", "revenue_growth_pct", "eps_growth_pct"},
+  each growth = (consensus mean for that year / consensus mean for the first
+  unreported year - 1) x 100, one decimal, same basis rules and null rules
+  as above. Omit "year2" when the call has no estimate for that year.
 If `GetAnalystEstimates` is unavailable, or returns nothing usable for the
 first unreported fiscal year, OMIT the "consensus" key entirely -- do not
 send it as null, and never estimate the consensus revenue or EPS by hand.
+
+guidance: what the company itself said it expects, from the SEC connector's
+`GetGuidance` for {ticker} or else the latest earnings release (8-K exhibit
+99.1). {"period": e.g. "Q3 2026" or "FY2026", "text": the guided figures as
+stated, at most 140 characters, e.g. "Revenue $47.5B-$50.5B; total expenses
+$116B-$118B", "source": the document and its date}. Only figures the company
+gave; omit the "guidance" key entirely when it gives none.
 
 For each of the two questions, in exactly this order, pick an answer
 (0 = worst, 2 = best):
@@ -89,7 +101,11 @@ Output ONLY a fenced JSON block, nothing before or after:
                           {"label": "...", "text": "..."}]},
  "consensus": {"fiscal_year": "FY2027", "revenue_growth_pct": 15.2, "eps_growth_pct": 12.0,
                "analysts": 23,
-               "source": "compiled consensus, adjusted EPS, Equibles 2026-09-24"},
+               "source": "compiled consensus, adjusted EPS, Equibles 2026-09-24",
+               "year2": {"fiscal_year": "FY2028", "revenue_growth_pct": 12.1,
+                         "eps_growth_pct": 14.0}},
+ "guidance": {"period": "Q3 2026", "text": "Revenue $47.5B-$50.5B",
+              "source": "Q2 2026 earnings release, 2026-07-29"},
  "cards": [
   {"source": "industry", "pick": 2, "summary": "...",
    "points": [{"label": "...", "text": "..."}, {"label": "...", "text": "..."},
@@ -179,13 +195,49 @@ def _validate_consensus(consensus):
     if not source:
         raise ValueError("consensus: source is empty")
 
-    return {"fiscal_year": fiscal_year, "revenue_growth_pct": revenue_growth_pct,
-            "eps_growth_pct": eps_growth_pct, "analysts": analysts, "source": source}
+    out = {"fiscal_year": fiscal_year, "revenue_growth_pct": revenue_growth_pct,
+           "eps_growth_pct": eps_growth_pct, "analysts": analysts, "source": source,
+           "year2": None}
+    year2 = consensus.get("year2")
+    if year2 is not None:
+        # Optional (added 2026-10-08): the second unreported year, growth
+        # against the first year's consensus.
+        if not isinstance(year2, dict):
+            raise ValueError("consensus.year2: must be an object")
+        fy2 = str(year2.get("fiscal_year") or "").strip()
+        if not fy2:
+            raise ValueError("consensus.year2: fiscal_year is empty")
+        r2, e2 = year2.get("revenue_growth_pct"), year2.get("eps_growth_pct")
+        for name, value in (("revenue_growth_pct", r2), ("eps_growth_pct", e2)):
+            if value is not None and (not _is_number(value) or not (-100 <= value <= 1000)):
+                raise ValueError(f"consensus.year2: {name} must be a number between -100 and "
+                                 "1000, or null")
+        if r2 is None and e2 is None:
+            raise ValueError("consensus.year2: at least one growth figure must be present")
+        out["year2"] = {"fiscal_year": fy2, "revenue_growth_pct": r2, "eps_growth_pct": e2}
+    return out
+
+
+GUIDANCE_TEXT_MAX = 140
+
+
+def _validate_guidance(guidance):
+    """The company's own outlook (optional, added 2026-10-08)."""
+    if not isinstance(guidance, dict):
+        raise ValueError("guidance: must be an object")
+    out = {}
+    for key, limit in (("period", 40), ("text", GUIDANCE_TEXT_MAX), ("source", 120)):
+        value = str(guidance.get(key) or "").strip()
+        if not value or len(value) > limit:
+            raise ValueError(f"guidance: {key} must be 1-{limit} characters")
+        out[key] = value
+    return out
 
 
 def parse_growth_cards(content):
-    """The validated {"analysis", "consensus", "cards"}, or ValueError saying
-    what is wrong. "consensus" is None when the block is absent or null."""
+    """The validated {"analysis", "consensus", "guidance", "cards"}, or
+    ValueError saying what is wrong. "consensus" and "guidance" are None when
+    absent; consensus["year2"] is None when absent."""
     result = qc.parse(GROWTH, content)
     data = _load_json(content)
     if not isinstance(data, dict):
@@ -195,6 +247,8 @@ def parse_growth_cards(content):
 
     consensus = data.get("consensus")
     result["consensus"] = _validate_consensus(consensus) if consensus is not None else None
+    guidance = data.get("guidance")
+    result["guidance"] = _validate_guidance(guidance) if guidance is not None else None
     return result
 
 

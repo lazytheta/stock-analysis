@@ -188,38 +188,30 @@ def test_key_figures_section():
     html = op.key_figures_section_html(_metrics())
     assert html.startswith("<")
     assert 'class="qc-section"' in html and ">Key figures</div>" in html
-    for text in ("Profitability", "Financial Health", "Growth", "Valuation",
+    for text in ("Profitability", "Financial Health", "Valuation",
                  "Shareholder Returns", "LATEST FISCAL YEAR (FY2026)",
-                 "PER YEAR", "AT CURRENT PRICE", "END OF FY2026",
+                 "AT CURRENT PRICE", "END OF FY2026",
                  "FY2026 PAYOUTS ÷ MARKET CAP",
-                 "3Y", "5Y", "10Y", "×", "&#36;5.0B", "Gross margin", "50.0%",
-                 "+10.0%", "Total shareholder yield"):
+                 "×", "&#36;5.0B", "Gross margin", "50.0%",
+                 "Total shareholder yield"):
         assert text in html, text
-    assert _body(html).count('class="ov-card"') == 5
-    assert 'class="ov-gtab"' in html and "<th>10Y</th>" in html
+    body = _body(html)
+    assert body.count('class="ov-card"') == 4
+    # Growth moved to the Growth tab (2026-10-08).
+    assert ">Growth<" not in body and 'class="ov-gtab"' not in body
     assert "$" not in html
     styles = _styles(html)
     assert styles and all("\n" not in s for s in styles)
     for bp in ("(min-width:600px)", "(min-width:900px)", "(min-width:1200px)"):
         assert bp in html, bp
-    assert "repeat(5,minmax(0,1fr))" in html
-
-
-def test_key_figures_growth_table_layout():
-    body = _body(op.key_figures_section_html(_metrics()))
-    table = body[body.index('class="ov-gtab"'):body.index("</table>")]
-    assert table.index("<th>3Y</th>") < table.index("<th>5Y</th>") < table.index("<th>10Y</th>")
-    assert table.index("Revenue") < table.index("EPS") < table.index("FCF")
-    assert table.count("<tr>") == 4  # header + three rows
-    assert table.count("<td>") == 12
+    assert "repeat(4,minmax(0,1fr))" in html
 
 
 def test_key_figures_every_card_has_one_subtitle_line():
-    # Rows only line up across the five cards when each has exactly one
-    # subtitle line above them (Growth's sits in its table header row).
+    # Rows only line up across the cards when each has exactly one subtitle
+    # line above them.
     body = _body(op.key_figures_section_html(_metrics()))
     assert body.count('class="ov-sub"') == 4
-    assert "<th>PER YEAR</th>" in body
 
 
 def test_key_figures_css_equal_heights_and_plain_table():

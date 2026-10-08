@@ -305,3 +305,42 @@ def test_default_prompt_source_order_company_profile_before_growth_cards():
 def test_dockerfile_ships_growth_cards():
     src = Path(__file__).resolve().parent.parent.joinpath("Dockerfile").read_text()
     assert "growth_cards.py" in src
+
+
+
+def test_year2_and_guidance_parse_and_are_optional():
+    p = _payload()
+    assert gc.parse_growth_cards(_md(p))["consensus"]["year2"] is None
+    assert gc.parse_growth_cards(_md(p))["guidance"] is None
+    p["consensus"]["year2"] = {"fiscal_year": "FY2028", "revenue_growth_pct": 12.1,
+                               "eps_growth_pct": None}
+    p["guidance"] = {"period": "Q3 2026", "text": "Revenue $47.5B-$50.5B",
+                     "source": "Q2 2026 earnings release, 2026-07-29"}
+    out = gc.parse_growth_cards(_md(p))
+    assert out["consensus"]["year2"]["fiscal_year"] == "FY2028"
+    assert out["guidance"]["period"] == "Q3 2026"
+
+
+@pytest.mark.parametrize("year2", [
+    "FY2028", {"fiscal_year": "", "revenue_growth_pct": 1.0},
+    {"fiscal_year": "FY2028", "revenue_growth_pct": None, "eps_growth_pct": None},
+    {"fiscal_year": "FY2028", "revenue_growth_pct": 2000}])
+def test_bad_year2_is_refused(year2):
+    p = _payload()
+    p["consensus"]["year2"] = year2
+    with pytest.raises(ValueError, match="year2"):
+        gc.parse_growth_cards(_md(p))
+
+
+@pytest.mark.parametrize("guidance", [
+    "Revenue up", {"period": "Q3", "text": "", "source": "x"},
+    {"period": "Q3", "text": "x" * 141, "source": "x"}, {"period": "Q3", "text": "x"}])
+def test_bad_guidance_is_refused(guidance):
+    p = _payload()
+    p["guidance"] = guidance
+    with pytest.raises(ValueError, match="guidance"):
+        gc.parse_growth_cards(_md(p))
+
+
+def test_prompt_asks_for_year2_and_guidance():
+    assert "year2" in gc.PROMPT and "GetGuidance" in gc.PROMPT

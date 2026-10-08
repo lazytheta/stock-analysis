@@ -26,7 +26,7 @@ def _consensus(**kw):
     return out
 
 
-def _content(score=3, consensus="default", summary="Growth is **solid**."):
+def _content(score=3, consensus="default", summary="Growth is **solid**.", guidance=None):
     data = {"analysis": {"score": score, "summary": summary, "points": _points("A")},
             "cards": [{"source": k, "pick": 1, "summary": f"{k} summary.",
                        "points": _points(k)} for k, *_ in gc.ITEMS]}
@@ -34,6 +34,8 @@ def _content(score=3, consensus="default", summary="Growth is **solid**."):
         data["consensus"] = _consensus()
     elif consensus is not None:
         data["consensus"] = consensus
+    if guidance is not None:
+        data["guidance"] = guidance
     return "```json\n" + json.dumps(data) + "\n```"
 
 
@@ -72,12 +74,12 @@ def test_growth_section_score_label_and_tone():
 
 def test_consensus_values():
     html = gp.growth_section_html(_content(), THEME)
-    for label in ("Revenue growth next FY", "EPS growth next FY", "Analysts", "Fiscal year"):
-        assert label in html
+    for label in ("OUTLOOK", "ANALYST CONSENSUS", "Revenue growth FY2027",
+                  "EPS growth FY2027", "Analysts"):
+        assert label in html, label
     assert "+15.2%" in html
     assert "-3.0%" in html
     assert ">23<" in html
-    assert ">FY2027<" in html
     assert "SEC-MCP GetAnalystEstimates, 2026-09-24" in html
 
 
@@ -91,8 +93,20 @@ def test_consensus_missing_values_dash():
 def test_consensus_absent_line():
     html = gp.growth_section_html(_content(consensus=None), THEME)
     assert "No analyst consensus available." in html
-    assert "Revenue growth next FY" not in html
-    assert "CONSENSUS" in html
+    assert "Revenue growth" not in html
+    assert "OUTLOOK" in html
+
+
+def test_outlook_shows_year_two_and_guidance():
+    cons = dict(_consensus(), year2={"fiscal_year": "FY2028", "revenue_growth_pct": 12.1,
+                                     "eps_growth_pct": None})
+    guide = {"period": "Q3 2026", "text": "Revenue $47.5B-$50.5B",
+             "source": "Q2 2026 earnings release, 2026-07-29"}
+    html = gp.growth_section_html(_content(consensus=cons, guidance=guide), THEME)
+    _house_style(html)
+    assert "Revenue growth FY2028" in html and "+12.1%" in html
+    assert "COMPANY GUIDANCE · Q3 2026" in html
+    assert "Revenue &#36;47.5B-&#36;50.5B" in html
 
 
 def test_growth_section_notice_when_missing_or_invalid():
@@ -210,8 +224,15 @@ def test_cagr_table_values_and_dashes():
 
 def test_cagr_table_empty_fund_all_dashes():
     html = gp.cagr_table_html({})
-    assert html.count("<td>—</td>") == 6
-    assert gp.cagr_table_html(None).count("<td>—</td>") == 6
+    assert html.count("<td>—</td>") == 12      # Revenue, Net income, EPS, FCF x 3
+    assert gp.cagr_table_html(None).count("<td>—</td>") == 12
+
+
+def test_cagr_table_has_eps_and_fcf():
+    html = gp.cagr_table_html({})
+    order = ["Revenue", "Net income", "EPS", "FCF"]
+    pos = [html.index(f"<td>{x}</td>") for x in order]
+    assert pos == sorted(pos)
 
 
 # ── Growth questions ───────────────────────────────────────────────────────

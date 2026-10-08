@@ -73,7 +73,7 @@ METRICS_STYLE = f"""<style>
 .ov-metrics > .ov-card{{height:100%;box-sizing:border-box}}
 @media (min-width:600px){{.ov-metrics{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 @media (min-width:900px){{.ov-metrics{{grid-template-columns:repeat(3,minmax(0,1fr))}}}}
-@media (min-width:1200px){{.ov-metrics{{grid-template-columns:repeat(5,minmax(0,1fr))}}}}
+@media (min-width:1200px){{.ov-metrics{{grid-template-columns:repeat(4,minmax(0,1fr))}}}}
 .ov-metrics .ov-ctitle{{margin:0 0 2px}}
 .ov-sub{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
   color:var(--text-muted);margin:0 0 6px;line-height:14px}}
@@ -253,33 +253,12 @@ def _group(title, sub, rows):
 _MONEY = {"Cash & investments", "Total debt"}
 
 
-def _growth_table(growth, sub):
-    """Rows Revenue / EPS / FCF, columns 3Y / 5Y / 10Y, from compute()'s
-    (label, years, value) triples. The subtitle sits in the header row's
-    first cell, so the rows line up with the other cards' rows."""
-    labels, horizons, values = [], [], {}
-    for label, n, v in growth:
-        if label not in labels:
-            labels.append(label)
-        if n not in horizons:
-            horizons.append(n)
-        values[(label, n)] = v
-    head = "".join(f"<th>{qc.esc(f'{n}Y')}</th>" for n in horizons)
-    rows = "".join(
-        f"<tr><td>{qc.esc(label)}</td>"
-        + "".join(f"<td>{qc.esc(om.fmt_pct(values.get((label, n)), signed=True))}</td>"
-                  for n in horizons)
-        + "</tr>"
-        for label in labels)
-    return (f'<table class="ov-gtab"><tr><th>{qc.esc(sub.upper())}</th>{head}</tr>'
-            f'{rows}</table>')
-
-
 def key_figures_section_html(metrics: dict) -> str:
-    """White "Key figures" section: five flat cards (Profitability, Financial
-    Health, Growth, Valuation, Shareholder Returns) in a grid of 5/3/2/1
-    columns by width. Every card has a one-line subtitle naming its basis,
-    so the rows of all five line up."""
+    """White "Key figures" section: four flat cards (Profitability, Financial
+    Health, Valuation, Shareholder Returns) in a grid of 4/3/2/1 columns by
+    width. Every card has a one-line subtitle naming its basis, so the rows
+    line up. Growth moved to the Growth tab's table (2026-10-08); Business
+    keeps the 5-year revenue growth tile in At a glance."""
     fy = metrics.get("fy")
     fy_sub = f"Latest fiscal year (FY{fy})" if fy else "Latest fiscal year"
     fy_end = f"End of FY{fy}" if fy else "Latest balance sheet"
@@ -290,7 +269,6 @@ def key_figures_section_html(metrics: dict) -> str:
         _group("Financial Health", fy_end, [
             _row(label, om.fmt_money_m(v) if label in _MONEY else om.fmt_mult(v))
             for label, v in metrics.get("health", [])]),
-        _card("Growth", _growth_table(metrics.get("growth", []), "Per year")),
         _group("Valuation", "At current price", [
             _row(label, om.fmt_mult(v)) for label, v in metrics.get("valuation", [])]),
         _group("Shareholder Returns", fy_paid, [
