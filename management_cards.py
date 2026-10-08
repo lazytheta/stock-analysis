@@ -120,6 +120,10 @@ facts (null for anything a source did not give):
 - changes: up to five C-suite changes, newest first, each {"date":
   "YYYY-MM-DD", "person": ..., "role": ..., "action": e.g. "appointed",
   "resigned", "retired"}; an empty list when there were none
+- score: your overall verdict on management, 1 = Poor, 2 = Below average,
+  3 = Decent, 4 = Good, 5 = Great. Not an average of the four cards: weigh
+  capital allocation and how much power the CEO holds over shareholders
+  most, then alignment and pay, then stability.
 - guidance_record: {"met": how many times results met or beat the company's
   own guidance, "total": how many settled comparisons} from GetGuidance's
   track record line, or null when it gives none
@@ -155,6 +159,7 @@ Output ONLY a fenced JSON block, nothing before or after:
               {"fy": "FY2025", "total_usd": 24100000, "stock_pct": 78}],
   "changes": [{"date": "2025-02-10", "person": "Jane Doe", "role": "CFO",
                "action": "appointed"}],
+  "score": 4,
   "guidance_record": {"met": 7, "total": 8},
   "as_of": "2026-09-30",
   "source": "SEC-MCP: compensation, insider ownership, Form 4 trades, executive changes"
@@ -266,6 +271,23 @@ def _changes(value):
 
 
 BIO_MAX = 300
+SCORE_LABELS = ("Poor", "Below avg", "Decent", "Good", "Great")
+
+
+def _score(value):
+    """Overall management verdict 1-5, or None (optional, added 2026-10-08)."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 5:
+        raise ValueError("score must be a whole number 1-5 or null")
+    return value
+
+
+def score_from_cards(cards):
+    """Fallback for sections without a score: the cards' average pick (0-2)
+    mapped onto 1-5."""
+    picks = [c["pick"] for c in cards or []]
+    return round(1 + 2 * sum(picks) / len(picks)) if picks else None
 
 
 def _ceo_bio(value):
@@ -308,6 +330,7 @@ def parse_facts(facts):
         "ceo_pay": _pay(facts.get("ceo_pay")),
         "changes": _changes(facts.get("changes")),
         "guidance_record": _guidance_record(facts.get("guidance_record")),
+        "score": _score(facts.get("score")),
         "as_of": _iso_date(facts.get("as_of"), "facts.as_of"),
         "source": _text(facts.get("source"), "facts.source", max_len=SOURCE_MAX),
     }

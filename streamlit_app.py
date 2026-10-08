@@ -295,6 +295,12 @@ def _currency_control(page_key):
     return new
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def _cached_ceo_photo(name, company):
+    import ceo_photo
+    return ceo_photo.photo_url(name, company)
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def _usd_per_eur_now():
     return gather_data.fetch_fx_rate("EUR")
@@ -3995,9 +4001,20 @@ def _dcf_editor(ticker):
     with _tab_management:
         _mnotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
         _mcontent = _mnotes.get(management_cards.TITLE)
+        # The CEO's photo from Wikipedia (only when the article names this
+        # company), and today's price for the value of the CEO's stake.
+        _mphoto = None
         try:
-            st.markdown(management_page.management_section_html(_mcontent, T),
-                        unsafe_allow_html=True)
+            _mceo = (management_cards.parse_for_display(_mcontent)["facts"].get("ceo")
+                     if _mcontent else None)
+            if _mceo:
+                _mphoto = _cached_ceo_photo(_mceo["name"], cfg.get("company") or ticker)
+        except Exception as e:
+            logger.debug("CEO photo for %s unavailable: %s", ticker, e)
+        try:
+            st.markdown(management_page.management_section_html(
+                _mcontent, T, price=live_price if live_price > 0 else None, photo=_mphoto),
+                unsafe_allow_html=True)
             _mcards = management_page.cards_section_html(_mcontent, T)
             if _mcards:
                 st.markdown(_mcards, unsafe_allow_html=True)

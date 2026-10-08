@@ -337,7 +337,7 @@ def test_ceo_shares_and_bio():
                    ceo_bio={"background": "Founded it in 2004.", "reputation": "Credited and criticised."})
     html = mp.management_section_html(_content(facts=facts), THEME)
     assert "342.5M shares" in html
-    assert "The CEO" in html and "CEO since 2018" in html
+    assert "The CEO" in html and "yrs in the seat" in html
     assert "Founded it in 2004." in html and "How they are seen" in html
     assert "The CEO" not in mp.management_section_html(_content(), THEME)
 
@@ -350,3 +350,38 @@ def test_bad_ceo_bio_is_refused(bio):
 
 def test_prompt_asks_for_ceo_shares_and_bio():
     assert "ceo_shares" in mc.PROMPT and "ceo_bio" in mc.PROMPT and "not by pronoun" in mc.PROMPT
+
+
+def test_score_bar_uses_the_score_or_falls_back_to_the_cards():
+    html = mp.management_section_html(_content(facts=_facts(score=3)), THEME)
+    assert '<div class="mg-step on"><i>3</i><span>Decent</span></div>' in html
+    for label in ("Poor", "Below avg", "Good", "Great"):
+        assert f"<span>{label}</span>" in html
+    # No score: every card picks 2 -> average 2 -> Great.
+    assert '<div class="mg-step on"><i>5</i><span>Great</span></div>' in \
+        mp.management_section_html(_content(), THEME)
+    with pytest.raises(ValueError, match="score"):
+        mc.parse_management_cards(_content(facts=_facts(score=6)))
+
+
+def test_ceo_panel_photo_or_initials_tenure_and_stake_value():
+    facts = _facts(ceo_ownership_pct=13.5, ceo_shares=342_463_325,
+                   ceo_bio={"background": "B.", "reputation": "R."})
+    html = mp.management_section_html(_content(facts=facts), THEME, price=740.0,
+                                      photo="https://upload.wikimedia.org/x.jpg")
+    assert '<img class="mg-face" src="https://upload.wikimedia.org/x.jpg"' in html
+    assert "Photo: Wikipedia" in html
+    assert "owns 13.5% (≈&#36;253.4B)" in html
+    no_photo = mp.management_section_html(_content(facts=facts), THEME)
+    assert '<div class="mg-face mg-init">TA</div>' in no_photo
+    assert "Photo: Wikipedia" not in no_photo and "≈" not in no_photo
+
+
+def test_ceo_photo_only_when_the_article_names_the_company():
+    import ceo_photo
+    assert ceo_photo.company_words("Meta Platforms, Inc.") == ["meta"]
+    meta = {"description": "American businessman", "extract": "co-founded Facebook and Meta Platforms"}
+    assert ceo_photo.matches_company(meta, "Meta Platforms, Inc.")
+    namesake = {"description": "British footballer", "extract": "plays for Leeds"}
+    assert not ceo_photo.matches_company(namesake, "Lam Research Corporation")
+    assert ceo_photo.photo_url("", "Meta") is None

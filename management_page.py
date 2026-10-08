@@ -11,7 +11,9 @@ function raises: bad data degrades to the card set's notice.
 import logging
 
 import question_cards as qc
-from management_cards import TITLE, parse_for_display
+from datetime import date
+
+from management_cards import SCORE_LABELS, TITLE, parse_for_display, score_from_cards
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +35,25 @@ STYLE = f"""<style>
 .mg-val{{font-size:22px;font-weight:700;color:var(--text);line-height:1.2;margin:2px 0 2px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .mg-ceo{{background:{_INNER};border-radius:16px;padding:16px 18px;margin-top:16px}}
-.mg-ceo-name{{font-size:16px;font-weight:700;color:var(--text);margin:2px 0 10px}}
-.mg-since{{font-size:12px;font-weight:400;color:var(--text-muted);margin-left:8px}}
+.mg-ceo-name{{font-size:17px;font-weight:700;color:var(--text);margin:0 0 2px}}
+.mg-who{{display:flex;align-items:center;gap:14px;margin:6px 0 14px}}
+.mg-face{{width:64px;height:64px;border-radius:50%;object-fit:cover;flex:none;
+  background:color-mix(in srgb, var(--text) 10%, transparent)}}
+.mg-init{{display:flex;align-items:center;justify-content:center;font-size:20px;
+  font-weight:700;color:var(--text-muted)}}
+.mg-credit{{margin-top:10px;font-size:11px;color:var(--text-muted)}}
+.mg-score{{display:flex;justify-content:space-between;position:relative;
+  background:{_INNER};border-radius:16px;padding:14px 18px 12px;margin-bottom:16px}}
+.mg-score::before{{content:"";position:absolute;left:12%;right:12%;top:27px;height:2px;
+  background:color-mix(in srgb, var(--text) 12%, transparent)}}
+.mg-step{{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;
+  position:relative;font-size:12px;color:var(--text-muted)}}
+.mg-step i{{font-style:normal;width:26px;height:26px;border-radius:50%;display:flex;
+  align-items:center;justify-content:center;font-size:12px;font-weight:700;
+  background:color-mix(in srgb, var(--text) 8%, var(--card));color:var(--text-muted)}}
+.mg-step.on{{color:var(--accent);font-weight:700}}
+.mg-step.on i{{background:var(--accent);color:#fff;width:32px;height:32px;margin-top:-3px;
+  font-size:14px}}
 .mg-ceo-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}}
 @media (max-width:760px){{.mg-ceo-grid{{grid-template-columns:minmax(0,1fr)}}}}
 .mg-sub{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
@@ -149,20 +168,50 @@ def _tiles_html(f):
     return f'<div class="mg-tiles">{"".join(tiles)}</div>'
 
 
-def _ceo_html(f):
-    """Who runs the company and how they are seen; nothing without a bio."""
+def score_bar_html(score):
+    """1-5 stepper, Poor .. Great, the current step filled; "" without one."""
+    if not score:
+        return ""
+    steps = "".join(
+        f'<div class="mg-step{" on" if n == score else ""}">'
+        f'<i>{n}</i><span>{qc.esc(label)}</span></div>'
+        for n, label in enumerate(SCORE_LABELS, start=1))
+    return f'<div class="mg-score">{steps}</div>'
+
+
+def _initials(name):
+    parts = [p for p in (name or "").split() if p[:1].isalpha()]
+    return "".join(p[0] for p in parts[:1] + parts[-1:]).upper() or "?"
+
+
+def _ceo_html(f, price=None, photo=None):
+    """Who runs the company and how they are seen: photo (or initials), name,
+    years in the seat, the stake and its value; then background and
+    reputation. Nothing without a bio."""
     bio, ceo = f.get("ceo_bio"), f.get("ceo")
     if not bio:
         return ""
-    head = qc.esc(ceo["name"]) if ceo else "The CEO"
+    name = ceo["name"] if ceo else "The CEO"
+    face = (f'<img class="mg-face" src="{qc.esc(photo)}" alt="{qc.esc(name)}">' if photo
+            else f'<div class="mg-face mg-init">{qc.esc(_initials(name))}</div>')
+    bits = []
     if ceo and ceo.get("since"):
-        head += f' <span class="mg-since">CEO since {ceo["since"]}</span>'
+        years = date.today().year - ceo["since"]
+        bits.append(f"{years} yrs in the seat" if years >= 1 else "new in the seat")
+    pct, shares = f.get("ceo_ownership_pct"), f.get("ceo_shares")
+    if pct is not None:
+        own = f"owns {_pct(pct)}"
+        if shares and price:
+            own += f" (≈{_usd(shares * price)})"
+        bits.append(own)
+    credit = '<div class="mg-credit">Photo: Wikipedia</div>' if photo else ""
     return (f'<div class="mg-ceo"><div class="mg-lbl">The CEO</div>'
-            f'<div class="mg-ceo-name">{head}</div>'
+            f'<div class="mg-who">{face}<div><div class="mg-ceo-name">{qc.esc(name)}</div>'
+            f'<div class="mg-cap">{qc.esc(" · ".join(bits))}</div></div></div>'
             f'<div class="mg-ceo-grid">'
             f'<div><div class="mg-sub">Background</div><p>{qc.esc(bio["background"])}</p></div>'
             f'<div><div class="mg-sub">How they are seen</div><p>{qc.esc(bio["reputation"])}</p></div>'
-            f'</div></div>')
+            f'</div>{credit}</div>')
 
 
 def _changes_html(changes):
@@ -191,7 +240,7 @@ def _notice_section(theme):
     return qc.section_html("Management", qc.notice_html(TITLE, theme))
 
 
-def management_section_html(content, theme) -> str:
+def management_section_html(content, theme, price=None, photo=None) -> str:
     """The white "Management" section: four tiles, the C-suite changes and
     the as-of/source line; the card set's notice when the section is missing
     or invalid."""
@@ -200,7 +249,9 @@ def management_section_html(content, theme) -> str:
         return _notice_section(theme)
     try:
         f = parsed["facts"]
-        inner = (f'{qc.css(STYLE)}{_tiles_html(f)}{_ceo_html(f)}{_changes_html(f["changes"])}'
+        score = f.get("score") or score_from_cards(parsed["cards"])
+        inner = (f'{qc.css(STYLE)}{score_bar_html(score)}{_tiles_html(f)}'
+                 f'{_ceo_html(f, price, photo)}{_changes_html(f["changes"])}'
                  f'{_guidance_html(f.get("guidance_record"))}'
                  f'<div class="mg-src">As of {qc.esc(f["as_of"])} · Source: '
                  f'{qc.esc(f["source"])}</div>')
