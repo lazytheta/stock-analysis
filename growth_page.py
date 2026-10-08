@@ -41,6 +41,7 @@ GROWTH_STYLE = f"""<style>
 .gr-sub-gap{{margin-top:16px;padding-top:12px;border-top:1px solid {_HAIRLINE}}}
 .gr-guide{{margin:6px 0 0;font-size:.9rem;font-weight:600;color:var(--text);line-height:1.45}}
 .gr-cagr{{margin-top:6px}}
+.gr-wrap .ms-card{{height:auto;min-height:300px}}
 </style>"""
 
 
@@ -112,9 +113,14 @@ def growth_section_html(content: str | None, theme) -> str:
     if parsed is None:
         inner = f'<div class="gr-note">{qc.esc(NOTICE)}</div>'
     else:
-        inner = qc.summary_row_html(_analysis_card(parsed["analysis"], theme),
-                                    _consensus_card(parsed["consensus"], theme,
-                                                    parsed.get("guidance")))
+        # The Outlook card grows with year two and guidance; the shared card
+        # height (300px) would clip it, so here the row sizes to its content
+        # and the two cards stay equal height.
+        inner = ('<div class="gr-wrap">'
+                 + qc.summary_row_html(_analysis_card(parsed["analysis"], theme),
+                                       _consensus_card(parsed["consensus"], theme,
+                                                       parsed.get("guidance")))
+                 + '</div>')
     return qc.section_html("Growth", f'{qc.css(GROWTH_STYLE)}{inner}')
 
 
