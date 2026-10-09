@@ -127,11 +127,10 @@ def test_company_section_complexity_meter():
     hard = _body(op.company_section_html(dict(GOOD_PROFILE, difficulty="Hard"), None))
     moderate = _body(op.company_section_html(GOOD_PROFILE, None))
     assert "COMPLEXITY" in moderate and "DIFFICULTY" not in moderate
-    assert easy.count('<i class="on">') == 1
-    assert moderate.count('<i class="on">') == 2
-    assert hard.count('<i class="on">') == 3
-    # Neutral meter: no traffic-light colours.
-    assert "var(--red)" not in hard
+    # Coloured by level (owner, 2026-10-09): green / amber / red.
+    assert easy.count('<i class="on" style="background:#2f8f4e">') == 1
+    assert moderate.count('<i class="on" style="background:#c79a3a">') == 2
+    assert hard.count('<i class="on" style="background:#c0603f">') == 3
 
 
 def test_company_section_complexity_reason():
@@ -280,7 +279,9 @@ def test_profile_shows_the_phase_with_a_tooltip():
              "tooltip": "Phase 5 of 6: Capital Return\nValuation fits: Trailing P/E"}
     html = _body(op.company_section_html(GOOD_PROFILE, 1.0, GLANCE, phase=phase))
     assert "PHASE" in html and "<i>5</i>Capital Return" in html
-    assert 'title="Phase 5 of 6: Capital Return&#10;Valuation fits: Trailing P/E"' in html
+    # A CSS box, not a title attribute (Streamlit strips title).
+    assert '<span class="ov-tip">Phase 5 of 6: Capital Return · Valuation fits: Trailing P/E</span>' in html
+    assert 'title="' not in html
     assert "&#36;25B" in html
     order = ["CAPITAL TYPE", "COMPLEXITY", "PHASE", "FOUNDED"]
     pos = [html.index(x) for x in order]
@@ -321,3 +322,11 @@ def test_every_tile_and_row_with_a_reference_has_a_help_mark():
 def test_key_figures_rows_green_when_beating_the_reference():
     kf = _body(op.key_figures_section_html(_metrics()))
     assert '<b class="ov-good">' in kf
+
+
+def test_help_marks_are_css_tooltips_not_title_attributes():
+    body = _body(op.company_section_html(GOOD_PROFILE, 1.0, GLANCE))
+    assert 'title="' not in body
+    assert '<span class="ov-help" tabindex="0">?<span class="ov-tip">' in body
+    kf = op.key_figures_section_html(_metrics())
+    assert 'title="' not in _body(kf) and ".ov-help:hover .ov-tip" in kf

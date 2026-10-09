@@ -25,10 +25,17 @@ CARD_STYLE = f"""<style>
 .ov-ctitle{{font-size:15px;font-weight:700;color:var(--text);margin:0 0 12px}}
 .ov-lbl{{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
   color:var(--text-muted);margin:0 0 3px}}
-.ov-help{{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;
-  border-radius:50%;margin-left:5px;font-size:9.5px;font-weight:700;letter-spacing:0;
-  text-transform:none;color:var(--text-muted);cursor:help;vertical-align:1px;
-  border:1px solid color-mix(in srgb, var(--text) 25%, transparent)}}
+.ov-help{{position:relative;display:inline-flex;align-items:center;justify-content:center;
+  width:14px;height:14px;border-radius:50%;margin-left:5px;font-size:9.5px;font-weight:700;
+  letter-spacing:0;text-transform:none;color:var(--text-muted);cursor:help;vertical-align:1px;
+  border:1px solid color-mix(in srgb, var(--text) 25%, transparent);outline:none}}
+.ov-tip{{display:none;position:absolute;z-index:50;left:50%;top:20px;transform:translateX(-50%);
+  width:260px;padding:10px 12px;border-radius:10px;background:var(--card);color:var(--text);
+  border:1px solid color-mix(in srgb, var(--text) 15%, transparent);
+  box-shadow:0 6px 20px rgba(0,0,0,.14);font-size:12px;font-weight:400;line-height:1.45;
+  text-align:left;white-space:normal}}
+.ov-help:hover .ov-tip,.ov-help:focus .ov-tip,.ov-phase:hover .ov-tip,.ov-phase:focus .ov-tip{{
+  display:block}}
 .ov-good{{color:var(--green, #2e7d32) !important}}
 </style>"""
 
@@ -102,9 +109,10 @@ METRICS_STYLE = f"""<style>
 .ov-gtab td:first-child{{font-weight:400}}
 </style>"""
 
-# Complexity is shown as a neutral 1-3 meter, not traffic-light colours: a
-# hard-to-understand business is not a bad one (owner, 2026-10-05).
+# Complexity as a 1-3 meter, coloured by level: green for easy, amber for
+# moderate, red for hard (owner, 2026-10-09; it was neutral before).
 _DIFF_LEVEL = {"Easy": 1, "Moderate": 2, "Hard": 3}
+_DIFF_TONE = {1: "#2f8f4e", 2: "#c79a3a", 3: "#c0603f"}
 
 _EMPTY_NOTE = ('Company profile not filled yet. It comes with the '
                '"Company Profile" section.')
@@ -123,7 +131,9 @@ def _difficulty_html(difficulty, reason=""):
     if not difficulty:
         return DASH
     level = _DIFF_LEVEL.get(difficulty, 0)
-    meter = "".join('<i class="on"></i>' if n <= level else "<i></i>" for n in (1, 2, 3))
+    tone = _DIFF_TONE.get(level, "var(--text)")
+    meter = "".join(f'<i class="on" style="background:{tone}"></i>' if n <= level else "<i></i>"
+                    for n in (1, 2, 3))
     why = f'<div class="ov-why">{qc.esc(reason)}</div>' if reason else ""
     return f'<span class="ov-diff">{meter}<span>{qc.esc(difficulty)}</span></span>{why}'
 
@@ -135,13 +145,13 @@ def _phase_html(phase):
     valuation fits and what moves it on sit in the tooltip on the name."""
     if not phase:
         return DASH
-    tip = qc.esc(phase.get("tooltip") or "").replace("\n", "&#10;")
+    tip = tip_box((phase.get("tooltip") or "").replace("\n", " · ")) if phase.get("tooltip") else ""
     why = (f'<details class="ov-more"><summary>'
            f'<div class="ov-why">{qc.esc(phase["summary"])}</div>'
            f'<span class="ov-tog"></span></summary></details>'
            if phase.get("summary") else "")
-    return (f'<span class="ov-phase" title="{tip}"><i>{phase["number"]}</i>'
-            f'{qc.esc(phase["name"])}</span>{why}')
+    return (f'<span class="ov-phase" tabindex="0" style="position:relative">'
+            f'<i>{phase["number"]}</i>{qc.esc(phase["name"])}{tip}</span>{why}')
 
 
 def _card(title, body_html, extra_class=""):
@@ -235,13 +245,19 @@ BENCHMARKS = {
 }
 
 
+def tip_box(text):
+    """The hover/tap box. A CSS span, not a title attribute: Streamlit strips
+    title from markdown HTML, so the old "?" showed nothing (owner,
+    2026-10-09). tabindex makes it open on a tap too."""
+    return f'<span class="ov-tip">{qc.esc(text)}</span>'
+
+
 def _help(label):
     """A small "?" with what the figure means and its market reference."""
     bench = BENCHMARKS.get(label)
     if not bench:
         return ""
-    tip = qc.esc(f"{bench[1]} {_MARKET}")
-    return f'<span class="ov-help" title="{tip}">?</span>'
+    return f'<span class="ov-help" tabindex="0">?{tip_box(f"{bench[1]} {_MARKET}")}</span>'
 
 
 def _good(label, value):
