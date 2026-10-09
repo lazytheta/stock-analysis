@@ -43,6 +43,7 @@ import financials_page
 import quarterly_results
 import question_cards
 import price_history
+import strategy_attribution
 import summary_page
 from prescan_prompts import DEFAULT_AI_PROMPTS  # noqa: F401  (re-exported; tests use it)
 from error_logger import log_error, log_error_with_trace
@@ -365,6 +366,89 @@ def _track_record_rows(cost_basis: dict, index_closes: dict, today,
         r["total_alpha_usd"] = r["cost"] * r["total_alpha"] / 100
         rows.append(r)
     return rows
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _start_day_closes(symbols, start_iso):
+    """{symbol: close on the start day (or the last trading day before it)}
+    in USD, from the price_history table, Nasdaq history as a fallback for
+    names not on the watchlist (IBIT). Missing symbols are left out."""
+    start = date.fromisoformat(start_iso)
+    since = start - timedelta(days=10)
+    out = {}
+    try:
+        series = price_history.load_series(_sb_client, list(symbols), since)
+    except Exception as e:
+        logger.debug("price_history unavailable for start prices: %s", e)
+        series = {}
+    for sym in symbols:
+        rows = [(d, c) for d, c in (series.get(sym) or []) if d <= start_iso]
+        if not rows:
+            # Nasdaq answers a short window with no rows; ask for 45 days.
+            try:
+                rows = [(str(d)[:10], c) for d, c in price_history.fetch_history(
+                    sym, start - timedelta(days=45), start) if str(d)[:10] <= start_iso]
+            except Exception as e:
+                logger.debug("Nasdaq history for %s unavailable: %s", sym, e)
+        if not rows:
+            try:
+                rows = [(str(d)[:10], c) for d, c in gather_data.fetch_daily_closes(sym, 1).items()
+                        if str(d)[:10] <= start_iso and c]
+            except Exception as e:
+                logger.debug("Yahoo closes for %s unavailable: %s", sym, e)
+        if rows:
+            out[sym] = max(rows)[1]
+    return out
+
+
+def _render_strategy_attribution(cost_basis, series, transfers, start, spy_pct, eur=None):
+    """Under "Portfolio since <start>": where that return came from -- new
+    buys, old positions still held, old positions sold since, income and the
+    rest -- in points that add up to it, plus what the uninvested cash cost
+    against SPY (strategy_attribution). eur=(history, rate_now) when the page
+    is in euros: start-day closes then convert at that day's rate."""
+    parts = strategy_attribution.dietz_parts(series, transfers, start)
+    if not parts:
+        return
+    total_pl, denom = parts
+    syms = tuple(sorted({d.get("symbol", k) for k, d in cost_basis.items()}))
+    closes = _start_day_closes(syms, start.isoformat())
+    if eur:
+        rate = reporting_currency.rate_on(eur[0], start) or eur[1]
+        closes = {k: v / rate for k, v in closes.items()}
+    out = strategy_attribution.attribute(cost_basis, start, closes, total_pl, denom, spy_pct)
+    sym = _money_sym()
+    green, red, muted = T["accent"], T["red"], T["text_muted"]
+
+    def _line(label, bucket, names=True):
+        b = out[bucket]
+        if abs(b["pl"]) < 0.5 and bucket != "new":
+            return ""
+        col = green if b["pts"] >= 0 else red
+        who = (f' <span style="color:{muted}">· {", ".join(b["names"][:6])}'
+               f'{" …" if len(b["names"]) > 6 else ""}</span>' if names and b["names"] else "")
+        return (f'<tr><td style="padding:3px 14px 3px 0">{label}{who}</td>'
+                f'<td style="padding:3px 10px;text-align:right;color:{col};font-weight:600">'
+                f'{b["pts"]:+.1f} pts</td>'
+                f'<td style="padding:3px 0;text-align:right;color:{muted}">'
+                f'{"+" if b["pl"] >= 0 else "−"}{sym}{abs(b["pl"]):,.0f}</td></tr>')
+
+    rows = (_line("New buys", "new") + _line("Old positions still held", "old_held")
+            + _line("Old positions sold since", "old_sold")
+            + _line("Option premiums &amp; dividends", "income", names=False)
+            + _line("Other (interest, fees, currency, unpriced)", "other", names=False))
+    cash = ""
+    if out["cash_drag_pts"] is not None:
+        cash = (f'<div style="margin-top:6px;color:{muted};font-size:0.8rem">'
+                f'Cash: on average about {out["cash_share"] * 100:.0f}% of the money was not '
+                f'invested; at SPY\'s {spy_pct:+.1f}% that cost about '
+                f'<b style="color:{red}">{out["cash_drag_pts"]:+.1f} pts</b> against the index. '
+                f'Positions at cost, so approximate.</div>')
+    st.markdown(
+        f'<details style="margin:2px 0 10px"><summary style="cursor:pointer;color:{muted};'
+        f'font-size:0.82rem">Where the {out["total_pts"]:+.1f}% came from</summary>'
+        f'<table style="margin-top:8px;font-size:0.85rem;border-collapse:collapse">{rows}</table>'
+        f'{cash}</details>', unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -10328,7 +10412,7 @@ elif page == "Results":
         if _strat:
             vs_spy_pill += _track_record_pill_html(
                 _track_record_rows(cost_basis, _spy_closes_now, date.today(), since=_strat),
-                T, label=f"vs SPY since {_strat:%b %d}")
+                T, label=f"New buys vs SPY (since {_strat:%b %d})")
     except Exception as e:
         logger.warning("Track record pill unavailable: %s", e)
         vs_spy_pill = ""
@@ -10502,9 +10586,17 @@ elif page == "Results":
           st.markdown(
               f'<span style="font-size:1.3rem;font-weight:700;color:{pct_color}">'
               f'{pct_sign}{pct_change:.1f}%</span> '
-              f'<span style="color:{T["text_muted"]};font-size:0.85rem">{selected_period}{_bench_txt}</span>',
+              f'<span style="color:{T["text_muted"]};font-size:0.85rem">'
+              f'{"Portfolio " if time_back == "strategy" else ""}{selected_period}{_bench_txt}</span>',
               unsafe_allow_html=True,
           )
+          if time_back == "strategy":
+              try:
+                  _render_strategy_attribution(cost_basis, net_liq_data, transfers_early, _strat,
+                                               _spy_pct if _bench_txt else None,
+                                               (_res_hist, _res_rate) if _res_eur else None)
+              except Exception as e:
+                  logger.warning("Strategy attribution failed: %s", e)
           fig_liq = go.Figure()
           fig_liq.add_trace(go.Scatter(
               x=df_liq.index,
