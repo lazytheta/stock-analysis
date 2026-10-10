@@ -455,6 +455,31 @@ def _try_tags(facts, tags, n_years=6, unit_key="USD", taxonomy="us-gaap"):
     return best
 
 
+_GAAP_REVENUE_TAGS = [
+    "RevenueFromContractWithCustomerExcludingAssessedTax",
+    "Revenues",
+    "RevenueFromContractWithCustomerIncludingAssessedTax",
+    "SalesRevenueNet",
+]
+
+
+def _gaap_unit(facts) -> str:
+    """The currency a us-gaap filer tags its revenue in: "USD" whenever any
+    revenue tag has it, else the filer's own currency (ASML files a 20-F
+    under us-gaap in EUR only), else "USD".
+
+    US 10-K filers always hit the first branch, so their parse is unchanged.
+    """
+    gaap = (facts or {}).get("facts", {}).get("us-gaap", {})
+    seen = []
+    for tag in _GAAP_REVENUE_TAGS:
+        units = (gaap.get(tag) or {}).get("units") or {}
+        if "USD" in units:
+            return "USD"
+        seen += [u for u in units if len(u) == 3 and u.isupper() and u not in seen]
+    return seen[0] if seen else "USD"
+
+
 def _parse_financials_ifrs(facts, n_years=6):
     """parse_financials for IFRS filers — maps ifrs-full concepts (USD
     convenience translation) into the same shape as the us-gaap path.
@@ -467,8 +492,13 @@ def _parse_financials_ifrs(facts, n_years=6):
     """
     print("[EDGAR] Parsing IFRS (20-F/40-F) financial statements...")
     M = 1_000_000
+    # De munt van de omzet-tag: USD waar de filer een dollarvertaling geeft
+    # (TSM: TWD én USD), anders de eigen rapportagemunt (SPOT EUR, NVO DKK).
+    # Met "USD" hard gecodeerd vond deze parser voor die laatste groep niets
+    # en viel add_aspirant om op "Could not find IFRS revenue data".
+    ccy = _ifrs_unit(facts)
 
-    def _col(tags, unit="USD", taxonomy="ifrs-full", yrs=None):
+    def _col(tags, unit=ccy, taxonomy="ifrs-full", yrs=None):
         m = dict(_try_tags(facts, tags, n_years, unit_key=unit, taxonomy=taxonomy))
         return m if yrs is None else [m.get(y) for y in yrs]
 
@@ -477,7 +507,7 @@ def _parse_financials_ifrs(facts, n_years=6):
         raise ValueError("Could not find IFRS revenue data in EDGAR filings")
     years = sorted(rev_map.keys())[-n_years:]
 
-    def col(tags, unit="USD", taxonomy="ifrs-full"):
+    def col(tags, unit=ccy, taxonomy="ifrs-full"):
         return _col(tags, unit, taxonomy, years)
 
     def mil(vals):
@@ -488,6 +518,11 @@ def _parse_financials_ifrs(facts, n_years=6):
         return round(nz[-1] / M, 0) if nz else 0
 
     shares_raw = col(["EntityCommonStockSharesOutstanding"], "shares", "dei")
+    if all(v is None for v in shares_raw):
+        # Niet elke 20-F tagt het voorblad (Novo Nordisk niet); dan het
+        # aantal uitstaande aandelen uit de jaarrekening zelf.
+        shares_raw = col(["NumberOfSharesOutstanding", "WeightedAverageShares",
+                          "AdjustedWeightedAverageShares"], "shares")
 
     st_debt = col(["CurrentBorrowings", "ShorttermBorrowings",
                    "CurrentPortionOfLongtermBorrowings"])
@@ -525,8 +560,9 @@ def _parse_financials_ifrs(facts, n_years=6):
         "entity_public_float": 0,
         "tax_provision": mil(col(["IncomeTaxExpenseContinuingOperations"])),
         "pretax_income": mil(col(["ProfitLossBeforeTax", "AccountingProfit"])),
+        "currency": ccy,
     }
-    print(f"  [IFRS] Found {len(years)} years: {years[0]}-{years[-1]}")
+    print(f"  [IFRS] Found {len(years)} years ({ccy}): {years[0]}-{years[-1]}")
     return result
 
 
@@ -597,13 +633,11 @@ def parse_financials(facts, n_years=6, ticker=None):
     print("[EDGAR] Parsing financial statements...")
     M = 1_000_000  # Convert to millions
 
-    # Revenue
-    rev_data = _try_tags(facts, [
-        "RevenueFromContractWithCustomerExcludingAssessedTax",
-        "Revenues",
-        "RevenueFromContractWithCustomerIncludingAssessedTax",
-        "SalesRevenueNet",
-    ], n_years)
+    # Revenue — in the filer's reporting currency: USD for US filers, EUR
+    # for a 20-F filer that reports under us-gaap without a dollar
+    # translation (ASML). See _gaap_unit.
+    ccy = _gaap_unit(facts)
+    rev_data = _try_tags(facts, _GAAP_REVENUE_TAGS, n_years, ccy)
 
     _yf_is = None
     if not rev_data:
@@ -619,7 +653,7 @@ def parse_financials(facts, n_years=6, ticker=None):
 
     years = [y for y, _ in rev_data]
 
-    def _get_values(tags, unit="USD"):
+    def _get_values(tags, unit=ccy):
         data = _try_tags(facts, tags, n_years, unit)
         val_by_year = {y: v for y, v in data}
         return [val_by_year.get(y) for y in years]
@@ -771,10 +805,11 @@ def parse_financials(facts, n_years=6, ticker=None):
         "entity_public_float": round(entity_public_float / M, 0) if entity_public_float else 0,
         "tax_provision": _to_millions(tax_provision),
         "pretax_income": _to_millions(pretax_income),
+        "currency": "USD" if _yf_is else ccy,
     }
 
     n = len(years)
-    print(f"  Found {n} years of data: {years[0]}-{years[-1]}")
+    print(f"  Found {n} years of data ({result['currency']}): {years[0]}-{years[-1]}")
     for key in ("revenue", "operating_income", "net_income"):
         vals = result[key]
         if vals:
@@ -2132,7 +2167,7 @@ def fetch_peer_data(peer_tickers):
             cik = get_cik(pticker)
             time.sleep(0.2)
             facts = fetch_company_facts(cik)
-            fin = parse_financials(facts, n_years=3)
+            fin, _ = to_price_currency(parse_financials(facts, n_years=3), "USD")
 
             # Get stock price
             price, mkt_cap, shares = fetch_stock_price(pticker)
@@ -2459,6 +2494,85 @@ def build_config(ticker, financials, stock_price, market_cap, shares_yahoo,
     return cfg
 
 
+# Fields of a parse_financials result that are NOT amounts of money in the
+# reporting currency: counts, labels, and EntityPublicFloat (dei, always USD).
+_NON_MONEY_FIELDS = {"years", "shares", "currency", "entity_public_float"}
+
+
+def to_price_currency(financials, price_currency="USD"):
+    """parse_financials output restated in the currency the stock is priced
+    in, plus a record of the rate used.
+
+    A 20-F filer reports in its own currency — Novo Nordisk in DKK, Spotify
+    in EUR — while its US listing trades in dollars. The DCF divides equity
+    value by the share count and sets the result beside the price, so both
+    must be in one currency. Everything is converted at ONE spot rate
+    (fetch_fx_rate: ECB, Yahoo as fallback), which leaves every ratio —
+    margins, growth, sales-to-capital — exactly as reported, and makes the
+    fair value equal to the reporting-currency fair value times that rate.
+    The same approach as the hand-built ASML config, now automated.
+
+    Returns (financials, fx) where fx is {"reporting_currency", "fx_rate"
+    (price-currency units per reporting unit), "fx_date"}. A filer already
+    in the price currency comes back unchanged with fx_rate 1.0. Raises
+    ValueError when the rate is unavailable — a silent 1.0 would value
+    kroner as dollars.
+    """
+    ccy = (financials.get("currency") or "USD").upper()
+    price_currency = (price_currency or "USD").upper()
+    fx = {"reporting_currency": ccy, "fx_rate": 1.0,
+          "fx_date": datetime.now().strftime("%Y-%m-%d")}
+    if ccy == price_currency:
+        return financials, fx
+    usd_per_ccy = fetch_fx_rate(ccy)
+    usd_per_price = 1.0 if price_currency == "USD" else fetch_fx_rate(price_currency)
+    if not usd_per_ccy or not usd_per_price:
+        raise ValueError(f"No {ccy}/{price_currency} exchange rate available; "
+                         f"cannot restate {ccy} financials in {price_currency}")
+    rate = usd_per_ccy / usd_per_price
+    fx["fx_rate"] = round(rate, 6)
+
+    def conv(v):
+        return round(v * rate, 0) if isinstance(v, (int, float)) else v
+
+    out = {}
+    for key, val in financials.items():
+        if key in _NON_MONEY_FIELDS:
+            out[key] = val
+        elif isinstance(val, list):
+            out[key] = [conv(v) for v in val]
+        else:
+            out[key] = conv(val)
+    out["currency"] = price_currency
+    print(f"  [FX] {ccy} financials restated in {price_currency} at "
+          f"{rate:.4f} ({fx['fx_date']})")
+    return out, fx
+
+
+def currency_fields(fx, ticker, price_currency="USD"):
+    """The config keys that record how a foreign filer's figures were
+    restated: reporting_currency, fx_rate, fx_date, adr_ratio and a
+    one-line _currency_note. Empty for a USD filer without an ADR ratio,
+    so US configs are byte-for-byte what they were."""
+    ratio = ADR_SHARE_RATIOS.get((ticker or "").upper())
+    ccy = fx.get("reporting_currency", "USD")
+    if ccy == price_currency and ratio is None:
+        return {}
+    fields = {"reporting_currency": ccy, "fx_rate": fx.get("fx_rate", 1.0),
+              "fx_date": fx.get("fx_date"), "adr_ratio": ratio or 1}
+    per = (f"1 ADR = {ratio} ordinary shares" if ratio and ratio != 1
+           else "1 listed share = 1 ordinary share")
+    if ccy == price_currency:
+        fields["_currency_note"] = f"Financials in {ccy}; {per}."
+    else:
+        fields["_currency_note"] = (
+            f"{price_currency} config on the US listing ({per}). Financials "
+            f"from the annual report in {ccy}, restated at {fields['fx_rate']} "
+            f"{price_currency}/{ccy} on {fields['fx_date']}; fund_slice "
+            f"(ROCE, margins) stays in {ccy}.")
+    return fields
+
+
 def build_base_config(ticker, stock_price=0):
     """The watchlist's add-a-ticker route without Streamlit: facts only.
 
@@ -2472,7 +2586,15 @@ def build_base_config(ticker, stock_price=0):
     Yahoo is only the fallback.
     """
     ticker = ticker.upper()
-    cik = get_cik(ticker)
+    try:
+        cik = get_cik(ticker)
+    except ValueError:
+        raise ValueError(
+            f"{ticker} has no SEC filings (not in EDGAR's ticker list). "
+            f"Companies that only list outside the US, or trade here as an "
+            f"unsponsored OTC ADR (EssilorLuxottica: EL.PA / ESLOY), file no "
+            f"10-K or 20-F, so there are no EDGAR financials to build from. "
+            f"Add it by hand from its own annual report instead.") from None
     submissions = fetch_company_submissions(cik)
     company_name = submissions.get("name", ticker)
     sic_code = int(submissions.get("sic", 0) or 0)
@@ -2482,6 +2604,7 @@ def build_base_config(ticker, stock_price=0):
     financials = parse_financials(fetch_company_facts(cik), n_years=6, ticker=ticker)
     if financials.get("shares"):
         financials["shares"] = apply_adr_share_ratio(financials["shares"], ticker)
+    financials, fx = to_price_currency(financials, "USD")
 
     if not stock_price or stock_price <= 0:
         stock_price, _, _ = fetch_stock_price(ticker)
@@ -2518,6 +2641,7 @@ def build_base_config(ticker, stock_price=0):
             cfg["fund_slice"] = _slice
     except Exception as e:  # the slice is a cache; never cost the add for it
         print(f"  WARNING: fund_slice for {ticker} failed: {e}")
+    cfg.update(currency_fields(fx, ticker))
     if holds_others_money(sic_code):
         # cash_bridge/securities above include money that is not the
         # shareholders'; the DCF method's balance check must replace them.
@@ -2915,8 +3039,12 @@ def apply_fundamentals_overrides(fund, overrides):
 # The EDGAR financials are whole-company; the ordinary share count must be
 # divided by the ratio so per-share figures match the ADR market price.
 # ticker -> ordinary shares per ADR.
+# Checked against each filer's 20-F; a ratio of 1 is listed too, so the
+# config records that it was verified rather than assumed. Direct listings
+# (Spotify: ordinary shares on the NYSE) have no entry.
 ADR_SHARE_RATIOS = {
     "TSM": 5,   # 1 ADR = 5 ordinary TSMC shares
+    "NVO": 1,   # 20-F FY2025: "ADRs, each representing one B Share"
 }
 
 
@@ -3044,6 +3172,7 @@ def fetch_fundamentals(ticker, n_years=10):
 
     # Collect data keyed by year
     data_by_year = {}  # year -> {metric: value}
+    fund_currency = "USD"  # the currency of every amount below; see parse_financials
 
     metrics = [
         "revenue", "operating_income", "net_income", "cost_of_revenue",
@@ -3098,6 +3227,11 @@ def fetch_fundamentals(ticker, n_years=10):
         if facts is None:
             raise ValueError(f"no EDGAR facts available for {ticker}")
         edgar = parse_financials(facts, n_years, ticker=ticker)
+        # The filer's own currency (USD for every 10-K filer). The us-gaap
+        # lookups below use it too: ASML tags its 20-F in EUR only, and with
+        # "USD" hard-coded none of them found anything.
+        gaap_ccy = _gaap_unit(facts)
+        fund_currency = edgar.get("currency") or "USD"
 
         edgar_years = edgar.get("years", [])
         edgar_map = {
@@ -3165,7 +3299,7 @@ def fetch_fundamentals(ticker, n_years=10):
                                       "AvailableForSaleSecuritiesDebtSecuritiesNoncurrent"],
         }
         for our_key, tags in _extra_tags.items():
-            tag_data = _try_tags(facts, tags, n_years)
+            tag_data = _try_tags(facts, tags, n_years, gaap_ccy)
             for yr_val, val in tag_data:
                 if yr_val not in data_by_year:
                     data_by_year[yr_val] = {}
@@ -3179,16 +3313,16 @@ def fetch_fundamentals(ticker, n_years=10):
         # Extended pass: try each tag individually to fill older years
         # (_try_tags picks only the best tag, missing older-named variants)
         _extended_tags = [
-            ("revenue", "SalesRevenueNet", "USD"),
-            ("revenue", "Revenues", "USD"),
-            ("operating_income", "OperatingIncomeLoss", "USD"),
-            ("net_income", "NetIncomeLoss", "USD"),
-            ("cost_of_revenue", "CostOfGoodsAndServicesSold", "USD"),
-            ("cost_of_revenue", "CostOfRevenue", "USD"),
-            ("cost_of_revenue", "CostOfGoodsSold", "USD"),
-            ("cost_of_revenue", "CostsAndExpenses", "USD"),
-            ("pretax_income", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest", "USD"),
-            ("tax_provision", "IncomeTaxExpenseBenefit", "USD"),
+            ("revenue", "SalesRevenueNet", gaap_ccy),
+            ("revenue", "Revenues", gaap_ccy),
+            ("operating_income", "OperatingIncomeLoss", gaap_ccy),
+            ("net_income", "NetIncomeLoss", gaap_ccy),
+            ("cost_of_revenue", "CostOfGoodsAndServicesSold", gaap_ccy),
+            ("cost_of_revenue", "CostOfRevenue", gaap_ccy),
+            ("cost_of_revenue", "CostOfGoodsSold", gaap_ccy),
+            ("cost_of_revenue", "CostsAndExpenses", gaap_ccy),
+            ("pretax_income", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest", gaap_ccy),
+            ("tax_provision", "IncomeTaxExpenseBenefit", gaap_ccy),
         ]
         for our_key, tag, unit in _extended_tags:
             data = _extract_annual_values(facts, tag, n_years, unit)
@@ -3202,8 +3336,8 @@ def fetch_fundamentals(ticker, n_years=10):
         # Total debt fallback: some filers (e.g. V from FY2022 onwards) stop
         # reporting the combined LongTermDebt tag and only file the
         # Noncurrent + Current split. Sum them when total_debt is still missing.
-        _lt_nc = dict(_extract_annual_values(facts, "LongTermDebtNoncurrent", n_years, "USD"))
-        _lt_cu = dict(_extract_annual_values(facts, "LongTermDebtCurrent", n_years, "USD"))
+        _lt_nc = dict(_extract_annual_values(facts, "LongTermDebtNoncurrent", n_years, gaap_ccy))
+        _lt_cu = dict(_extract_annual_values(facts, "LongTermDebtCurrent", n_years, gaap_ccy))
         for yr_val in set(_lt_nc) | set(_lt_cu):
             d = data_by_year.setdefault(yr_val, {})
             if d.get("total_debt") is None:
@@ -3227,7 +3361,7 @@ def fetch_fundamentals(ticker, n_years=10):
         # picking those up would turn a company's cash pile into borrowings.
         for _debt_tag in ("SeniorNotes", "NotesPayable", "UnsecuredLongTermDebt",
                           "SecuredDebt", "DebtAndCapitalLeaseObligations"):
-            for yr_val, val in _extract_annual_values(facts, _debt_tag, n_years, "USD"):
+            for yr_val, val in _extract_annual_values(facts, _debt_tag, n_years, gaap_ccy):
                 d = data_by_year.setdefault(yr_val, {})
                 if d.get("total_debt") is None:
                     d["total_debt"] = round(val / M, 0)
@@ -3247,7 +3381,7 @@ def fetch_fundamentals(ticker, n_years=10):
         ]
         _st_data_by_year = {}  # year -> dict of {tag: value}
         for tag in _st_debt_tags:
-            for yr_val, val in _extract_annual_values(facts, tag, n_years, "USD"):
+            for yr_val, val in _extract_annual_values(facts, tag, n_years, gaap_ccy):
                 _st_data_by_year.setdefault(yr_val, {})[tag] = val
         for yr_val, tag_vals in _st_data_by_year.items():
             d = data_by_year.setdefault(yr_val, {})
@@ -3260,8 +3394,8 @@ def fetch_fundamentals(ticker, n_years=10):
         # Companies switch presentation: Current+Noncurrent split, combined
         # OperatingLeaseLiability tag, or stop tagging entirely (MCD does
         # all three across 2018-2025). Try each in priority order.
-        _op_nc = dict(_extract_annual_values(facts, "OperatingLeaseLiabilityNoncurrent", n_years, "USD"))
-        _op_cu = dict(_extract_annual_values(facts, "OperatingLeaseLiabilityCurrent", n_years, "USD"))
+        _op_nc = dict(_extract_annual_values(facts, "OperatingLeaseLiabilityNoncurrent", n_years, gaap_ccy))
+        _op_cu = dict(_extract_annual_values(facts, "OperatingLeaseLiabilityCurrent", n_years, gaap_ccy))
         for yr_val in set(_op_nc) | set(_op_cu):
             d = data_by_year.setdefault(yr_val, {})
             if d.get("operating_lease_liabilities") is None:
@@ -3270,7 +3404,7 @@ def fetch_fundamentals(ticker, n_years=10):
                 if (nc + cu) > 0:
                     d["operating_lease_liabilities"] = round((nc + cu) / M, 0)
         # Fallback: combined OperatingLeaseLiability tag (without suffix)
-        _op_combined = dict(_extract_annual_values(facts, "OperatingLeaseLiability", n_years, "USD"))
+        _op_combined = dict(_extract_annual_values(facts, "OperatingLeaseLiability", n_years, gaap_ccy))
         for yr_val, val in _op_combined.items():
             d = data_by_year.setdefault(yr_val, {})
             if d.get("operating_lease_liabilities") is None and val:
@@ -3280,10 +3414,10 @@ def fetch_fundamentals(ticker, n_years=10):
         # NOT in the combined LongTermDebtAndCapitalLeaseObligations tag).
         # New tags (ASC 842) first, fallback to pre-2019 capital lease tags,
         # then to the combined no-suffix FinanceLeaseLiability tag.
-        _fl_nc = dict(_extract_annual_values(facts, "FinanceLeaseLiabilityNoncurrent", n_years, "USD"))
-        _fl_cu = dict(_extract_annual_values(facts, "FinanceLeaseLiabilityCurrent", n_years, "USD"))
-        _cl_nc = dict(_extract_annual_values(facts, "CapitalLeaseObligationsNoncurrent", n_years, "USD"))
-        _cl_cu = dict(_extract_annual_values(facts, "CapitalLeaseObligations", n_years, "USD"))
+        _fl_nc = dict(_extract_annual_values(facts, "FinanceLeaseLiabilityNoncurrent", n_years, gaap_ccy))
+        _fl_cu = dict(_extract_annual_values(facts, "FinanceLeaseLiabilityCurrent", n_years, gaap_ccy))
+        _cl_nc = dict(_extract_annual_values(facts, "CapitalLeaseObligationsNoncurrent", n_years, gaap_ccy))
+        _cl_cu = dict(_extract_annual_values(facts, "CapitalLeaseObligations", n_years, gaap_ccy))
         for yr_val in set(_fl_nc) | set(_fl_cu) | set(_cl_nc) | set(_cl_cu):
             d = data_by_year.setdefault(yr_val, {})
             if d.get("finance_lease_liabilities") is None:
@@ -3292,7 +3426,7 @@ def fetch_fundamentals(ticker, n_years=10):
                 if (nc + cu) > 0:
                     d["finance_lease_liabilities"] = round((nc + cu) / M, 0)
         # Fallback: combined FinanceLeaseLiability tag (without suffix)
-        _fl_combined = dict(_extract_annual_values(facts, "FinanceLeaseLiability", n_years, "USD"))
+        _fl_combined = dict(_extract_annual_values(facts, "FinanceLeaseLiability", n_years, gaap_ccy))
         for yr_val, val in _fl_combined.items():
             d = data_by_year.setdefault(yr_val, {})
             if d.get("finance_lease_liabilities") is None and val:
@@ -3307,7 +3441,7 @@ def fetch_fundamentals(ticker, n_years=10):
             "DefinedBenefitPlanFundedStatusOfPlan",  # often negative when underfunded
         ]
         for tag in _pen_tags:
-            _pen_data = _extract_annual_values(facts, tag, n_years, "USD")
+            _pen_data = _extract_annual_values(facts, tag, n_years, gaap_ccy)
             for yr_val, val in _pen_data:
                 d = data_by_year.setdefault(yr_val, {})
                 if d.get("pension_liabilities") is None and val is not None:
@@ -3336,7 +3470,7 @@ def fetch_fundamentals(ticker, n_years=10):
 
         # EPS: separate fallback with unit_key="USD/shares"
         _eps_tags = ["EarningsPerShareDiluted", "EarningsPerShareBasicAndDiluted"]
-        eps_data = _try_tags(facts, _eps_tags, n_years, unit_key="USD/shares")
+        eps_data = _try_tags(facts, _eps_tags, n_years, unit_key=f"{gaap_ccy}/shares")
         for yr_val, val in eps_data:
             if yr_val not in data_by_year:
                 data_by_year[yr_val] = {}
@@ -3347,7 +3481,7 @@ def fetch_fundamentals(ticker, n_years=10):
         # Dividends per share: separate fallback with unit_key="USD/shares"
         _dps_tags = ["CommonStockDividendsPerShareDeclared",
                      "CommonStockDividendsPerShareCashPaid"]
-        dps_data = _try_tags(facts, _dps_tags, n_years, unit_key="USD/shares")
+        dps_data = _try_tags(facts, _dps_tags, n_years, unit_key=f"{gaap_ccy}/shares")
         for yr_val, val in dps_data:
             if yr_val not in data_by_year:
                 data_by_year[yr_val] = {}
@@ -3363,7 +3497,6 @@ def fetch_fundamentals(ticker, n_years=10):
     #    ifrs-full with USD convenience translation. Fill anything still
     #    missing from us-gaap. Runs independently so a us-gaap parse failure
     #    doesn't block it. ──
-    fund_currency = "USD"
     try:
         if facts and "ifrs-full" in facts.get("facts", {}):
             fund_currency = _ifrs_unit(facts)
@@ -3603,7 +3736,10 @@ Examples:
 
     # ── Step 3: Fetch financials from EDGAR ──
     facts = fetch_company_facts(cik)
-    financials = parse_financials(facts, n_years=6)
+    financials = parse_financials(facts, n_years=6, ticker=ticker)
+    if financials.get("shares"):
+        financials["shares"] = apply_adr_share_ratio(financials["shares"], ticker)
+    financials, fx = to_price_currency(financials, "USD")
 
     # ── Step 4: Market data ──
     stock_price, market_cap, shares_yahoo = fetch_stock_price(ticker)
@@ -3670,6 +3806,7 @@ Examples:
         terminal_growth=args.terminal_growth,
         sector_margin=sector_margin,
     )
+    cfg.update(currency_fields(fx, ticker))
 
     # ── Step 8: Write config file ──
     script_dir = os.path.dirname(os.path.abspath(__file__))

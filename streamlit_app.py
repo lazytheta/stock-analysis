@@ -6864,6 +6864,12 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
             _apply_adr = getattr(gather_data, "apply_adr_share_ratio", None)
             if _apply_adr and financials.get("shares"):
                 financials["shares"] = _apply_adr(financials["shares"], ticker)
+            # A 20-F filer in DKK/EUR: restate in dollars, the price's
+            # currency, at one recorded rate (gather_data.to_price_currency).
+            _to_px = getattr(gather_data, "to_price_currency", None)
+            _fx = None
+            if _to_px:
+                financials, _fx = _to_px(financials, "USD")
         pos = _flush_clean(buf, pos, status)
         years = financials.get("years", [])
         if years:
@@ -6980,6 +6986,9 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
                 "The company may be delisted or have no trading data."
             )
 
+        _cur_fields = getattr(gather_data, "currency_fields", None)
+        if _fx and _cur_fields:
+            cfg.update(_cur_fields(_fx, ticker))
         status.write(f"\u2705 Configuration complete")
 
         # ── Step: the watchlist's EDGAR slice ──
