@@ -49,6 +49,8 @@ def _nvo_facts():
         "CashAndCashEquivalents": _point("DKK", (2024, 15.655 * B), (2025, 26.464 * B)),
         "PropertyPlantAndEquipment": _point("DKK", (2024, 150.000 * B), (2025, 190.000 * B)),
         "NoncurrentBorrowings": _point("DKK", (2025, 100.000 * B)),
+        "CurrentFinancialAssetsAtFairValueThroughProfitOrLoss":
+            _point("DKK", (2024, 10.653 * B), (2025, 0.498 * B)),
         "NumberOfSharesOutstanding": _point("shares", (2024, 4_441_000_000),
                                             (2025, 4_444_000_000)),
     }}}
@@ -65,6 +67,7 @@ def _spot_facts():
             "Assets": _point("EUR", (2025, 14.000 * B)),
             "CurrentLiabilities": _point("EUR", (2025, 7.000 * B)),
             "CashAndCashEquivalents": _point("EUR", (2025, 5.258 * B)),
+            "CurrentInvestments": _point("EUR", (2025, 4.209 * B)),
         },
         "dei": {"EntityCommonStockSharesOutstanding": _point("shares", (2025, 205_832_527))},
     }}
@@ -175,12 +178,14 @@ def test_nvo_fundamentals_stay_in_dkk_and_roce_matches_the_balance_sheet():
     assert fund["currency"] == "DKK"
     i = fund["years"].index(2025)
     assert fund["operating_income"][i] == 127_658
-    # EBIT / (total assets − current liabilities − cash), all DKK millions
-    ce = 542_902 - 215_661 - 26_464
+    # EBIT / (total assets − current liabilities − cash − short-term
+    # investments), all DKK millions, as in the 20-F balance sheet
+    assert fund["short_term_investments"][i] == 498
+    ce = 542_902 - 215_661 - 26_464 - 498
     assert capital_employed(fund, i) == ce
     pct, capped = roce_for_year(fund, i)
     assert not capped and pct == pytest.approx(127_658 / ce * 100)
-    assert pct == pytest.approx(42.44, abs=0.01)
+    assert pct == pytest.approx(42.51, abs=0.01)
 
 
 def test_the_fair_value_is_in_the_price_currency():
@@ -229,3 +234,23 @@ def test_a_company_without_sec_filings_gets_a_clear_error():
     with patch.object(g, "get_cik", side_effect=ValueError("not found")), \
             pytest.raises(ValueError, match="no SEC filings"):
         g.build_base_config("ESLOY", stock_price=50.0)
+
+
+# ── IFRS short-term investments ────────────────────────────────────────
+
+def test_ifrs_current_investments_reach_roce_and_the_cash_bridge():
+    cfg = _build("SPOT", _spot_facts(), price=600.0)
+    i = cfg["fund_slice"]["years"].index(2025)
+    assert cfg["fund_slice"]["short_term_investments"][i] == 4_209     # EUR
+    assert cfg["securities"] == round(4_209 * 1.12)                    # USD
+
+
+def test_the_ifrs_total_wins_over_its_parts():
+    facts = {"facts": {"ifrs-full": {
+        "CurrentInvestments": _point("EUR", (2025, 5 * B)),
+        "CurrentFinancialAssetsAtFairValueThroughProfitOrLoss": _point("EUR", (2025, 2 * B)),
+        "CurrentFinancialAssetsAtAmortisedCost": _point("EUR", (2024, 1 * B), (2025, 3 * B)),
+        "OtherCurrentFinancialAssets": _point("EUR", (2025, 9 * B)),
+    }}}
+    got = g._ifrs_current_investments(facts, 6, "EUR")
+    assert got == {2025: 5 * B, 2024: 1 * B}       # parts only where no total

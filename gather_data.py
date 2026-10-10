@@ -480,6 +480,32 @@ def _gaap_unit(facts) -> str:
     return seen[0] if seen else "USD"
 
 
+# Current investments under IFRS: the total where the filer tags one
+# (Spotify: CurrentInvestments, EUR 4.2bn at FY2025), else the sum of the
+# IFRS 9 measurement categories (TSMC tags all three; Novo Nordisk only
+# FVTPL, DKK 0.5bn). Derivatives and OtherCurrentFinancialAssets stay out:
+# those hold hedges and receivable-like items, not idle money.
+_IFRS_CURRENT_INVESTMENT_TOTAL = "CurrentInvestments"
+_IFRS_CURRENT_INVESTMENT_PARTS = [
+    "CurrentFinancialAssetsAtFairValueThroughProfitOrLoss",
+    "CurrentFinancialAssetsAtFairValueThroughOtherComprehensiveIncome",
+    "CurrentFinancialAssetsAtAmortisedCost",
+]
+
+
+def _ifrs_current_investments(facts, n_years, unit):
+    """{year: raw amount} of an IFRS filer's short-term investments."""
+    out = dict(_extract_annual_values(facts, _IFRS_CURRENT_INVESTMENT_TOTAL,
+                                      n_years, unit, "ifrs-full"))
+    parts = {}
+    for tag in _IFRS_CURRENT_INVESTMENT_PARTS:
+        for yr, val in _extract_annual_values(facts, tag, n_years, unit, "ifrs-full"):
+            parts[yr] = parts.get(yr, 0) + val
+    for yr, val in parts.items():
+        out.setdefault(yr, val)
+    return out
+
+
 def _parse_financials_ifrs(facts, n_years=6):
     """parse_financials for IFRS filers — maps ifrs-full concepts (USD
     convenience translation) into the same shape as the us-gaap path.
@@ -543,7 +569,8 @@ def _parse_financials_ifrs(facts, n_years=6):
         "shares": [round(s / M, 0) if s is not None else None for s in shares_raw],
         "current_assets": mil(col(["CurrentAssets"])),
         "cash": mil(col(["CashAndCashEquivalents"])),
-        "st_investments": mil(col(["OtherCurrentFinancialAssets"])),
+        "st_investments": mil([_ifrs_current_investments(facts, n_years, ccy).get(y)
+                               for y in years]),
         "current_liabilities": mil(col(["CurrentLiabilities"])),
         "st_debt": mil(st_debt),
         "st_leases": [None] * len(years),
@@ -3511,6 +3538,11 @@ def fetch_fundamentals(ticker, n_years=10):
                 d = data_by_year.setdefault(yr_val, {})
                 if d.get("capex") is None:
                     d["capex"] = -round(val / M, 0)  # outflow → negative
+            for yr_val, val in _ifrs_current_investments(facts, n_years,
+                                                         fund_currency).items():
+                d = data_by_year.setdefault(yr_val, {})
+                if d.get("short_term_investments") is None:
+                    d["short_term_investments"] = round(val / M, 0)
             # Shares: cover-page ordinary share count (dei taxonomy).
             for yr_val, val in _try_tags(facts, ["EntityCommonStockSharesOutstanding"],
                                          n_years, unit_key="shares", taxonomy="dei"):
