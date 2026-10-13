@@ -10713,7 +10713,18 @@ elif page == "Results":
             year_close = df_nl.groupby("year")["close"].last()
             port_returns = {}
             years = sorted(year_close.index)
+            # Dezelfde maandgeschakelde jaarcijfers als de YTD bovenaan. Eén
+            # Dietz over het hele jaar nam aan dat elke storting halverwege
+            # binnenkwam: 2026 stond hier op -16,6% en bovenaan op -17,0%.
+            # Per maand telt een storting in de maand waarin hij echt kwam,
+            # wat dichter bij het tijdgewogen rendement van de indexen ligt.
+            _chained = st.session_state.get("_cached_yearly_returns") or {}
+            for cur_yr in years[1:]:
+                if cur_yr in _chained:
+                    port_returns[cur_yr] = _chained[cur_yr]
             for i in range(1, len(years)):
+                if years[i] in port_returns:
+                    continue
                 prev_yr, cur_yr = years[i - 1], years[i]
                 start_val = year_close[prev_yr]
                 end_val = year_close[cur_yr]
