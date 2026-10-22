@@ -8727,7 +8727,10 @@ elif page == "Portfolio":
         than assumed fine.
         """
         try:
-            return {item["ticker"].upper(): item
+            # Fair values staan in de rapportagemunt (ASML in EUR); de koersen
+            # hier komen van de broker in de noteringsmunt (USD). Terug naar die
+            # munt, anders vergelijkt de deployment-kaart euro's met dollars.
+            return {item["ticker"].upper(): ticker_currency.valuation_in_listing(item)
                     for item in list_watchlist(_sb_client, user_id=user_id,
                                                tickers=list(tickers_tuple))}
         except Exception as e:

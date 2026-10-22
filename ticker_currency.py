@@ -115,3 +115,23 @@ def to_reporting_price(price, ticker, cfg=None, quote_currency=None, usd_per=Non
         return None
     f = quote_factor(ticker, cfg, quote_currency, usd_per)
     return price * f if f else None
+
+
+def valuation_in_listing(item, usd_per=None):
+    """A get_watchlist row with its amounts (fv_low/mid/high, buy_price,
+    stock_price) restated in the listing currency, for comparison with a
+    broker position. A row already in its listing currency comes back as is;
+    one whose FX rate is missing loses those amounts (None) rather than mix
+    two currencies."""
+    rep = _norm(item.get("currency")) or "USD"
+    lst = _norm(item.get("listing_currency")) or rep
+    if rep == lst:
+        return item
+    rate = fx_rate(rep, lst, usd_per)
+    out = dict(item)
+    for key in ("fv_low", "fv_mid", "fv_high", "buy_price", "stock_price"):
+        val = out.get(key)
+        if isinstance(val, (int, float)):
+            out[key] = val * rate if rate else None
+    out["currency"] = lst
+    return out

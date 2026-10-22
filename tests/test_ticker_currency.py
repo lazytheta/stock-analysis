@@ -48,3 +48,15 @@ def test_no_fx_rate_means_no_price_not_one_to_one():
 
 def test_symbols():
     assert tc.symbol("JPY") == "¥" and tc.symbol("GBX") == "GBX " and tc.symbol("EUR") == "€"
+
+
+def test_valuation_back_in_the_listing_currency_for_holdings():
+    row = {"ticker": "ASML", "currency": "EUR", "listing_currency": "USD",
+           "fv_mid": 1000.0, "buy_price": 800.0, "verdict": "x"}
+    got = tc.valuation_in_listing(row, usd_per=USD_PER)
+    assert got["fv_mid"] == pytest.approx(1120.0) and got["buy_price"] == pytest.approx(896.0)
+    assert got["currency"] == "USD" and got["verdict"] == "x"
+    us = {"ticker": "META", "currency": "USD", "listing_currency": "USD", "fv_mid": 5.0}
+    assert tc.valuation_in_listing(us) is us
+    pence = {"ticker": "RMV.L", "currency": "GBP", "listing_currency": "GBX", "buy_price": 5.0}
+    assert tc.valuation_in_listing(pence, usd_per=USD_PER)["buy_price"] == pytest.approx(500.0)
