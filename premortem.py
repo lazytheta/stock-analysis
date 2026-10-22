@@ -21,6 +21,7 @@ before it renders.
 """
 
 import re
+from datetime import date
 
 import question_cards as qc
 
@@ -194,8 +195,15 @@ STYLE = f"""<style>
 .pm2-chips{{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}}
 .pm2-chip{{padding:4px 10px;border-radius:8px;font-size:13px;color:var(--text-muted);background:color-mix(in srgb, var(--text) 6%, var(--card))}}
 .pm2-sec{{margin-top:22px}}
-.pm2-log{{display:grid;grid-template-columns:96px minmax(0,1fr);gap:4px 14px;font-size:13.5px;line-height:1.5;color:var(--text)}}
-.pm2-log span{{color:var(--text-muted);font-size:12.5px;white-space:nowrap}}
+.pm2-tl{{position:relative;margin:4px 0 0 6px;padding-left:22px;border-left:2px solid color-mix(in srgb, var(--text) 14%, transparent)}}
+.pm2-ev{{position:relative;margin:0 0 14px}}
+.pm2-ev::before{{content:"";position:absolute;left:-29px;top:4px;width:12px;height:12px;border-radius:50%;background:var(--card);border:2px solid color-mix(in srgb, var(--text) 35%, transparent)}}
+.pm2-ev.pm2-new::before{{background:var(--accent, #81b29a);border-color:var(--accent, #81b29a)}}
+.pm2-evd{{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin:0 0 5px}}
+.pm2-evd b{{font-size:14px;color:var(--text);font-weight:700}}
+.pm2-evd span{{font-size:12px;color:var(--text-muted)}}
+.pm2-evd em{{font-style:normal;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:1px 7px;border-radius:6px;color:#fff;background:var(--accent, #81b29a)}}
+.pm2-evt{{background:var(--card);border-radius:12px;padding:10px 14px;font-size:14px;line-height:1.5;color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.04)}}
 .pm2-more{{margin-top:8px}}
 </style>"""
 
@@ -234,6 +242,36 @@ def _column(title, items, tone):
             f'{qc.esc(title)} <em>{len(items)}</em></div>{cards}</div>')
 
 
+def _ago(d, today):
+    days = (today - d).days
+    if days <= 0:
+        return "today"
+    if days == 1:
+        return "yesterday"
+    if days < 14:
+        return f"{days} days ago"
+    if days < 60:
+        return f"{days // 7} weeks ago"
+    if days < 365:
+        return f"{round(days / 30.44)} months ago"
+    years = days / 365.25
+    return f"{years:.0f} year{'s' if years >= 1.5 else ''} ago"
+
+
+def _event(e, today, latest=False):
+    """One update on the timeline: the date in words and how long ago."""
+    esc = qc.esc
+    try:
+        d = date.fromisoformat(e["date"][:10])
+        head = f'<b>{d.day} {d:%b %Y}</b><span>{_ago(d, today)}</span>'
+    except (ValueError, TypeError):
+        head = "<b>Earlier note</b><span>no date</span>"
+    tag = "<em>Latest</em>" if latest else ""
+    return (f'<div class="pm2-ev{" pm2-new" if latest else ""}">'
+            f'<div class="pm2-evd">{head}{tag}</div>'
+            f'<div class="pm2-evt">{esc(e["text"])}</div></div>')
+
+
 def _status_card(pm):
     esc = qc.esc
     status = pm["status"]
@@ -266,10 +304,11 @@ def _position_card(pos):
             f'in dollars</div><div class="pm2-pos">{body}</div></div>')
 
 
-def tab_html(pm, position=None) -> str:
+def tab_html(pm, position=None, today=None) -> str:
     """The Pre-mortem tab: status and position, fired triggers, sell/add
     triggers, what is not a reason, dated updates, discipline folded away."""
     esc = qc.esc
+    today = today or date.today()
     pm = normalize(pm)
     if pm is None and not position:
         return qc.section_html("Pre-mortem", '<div class="pm2-note" style="color:var(--text-muted)">'
@@ -295,15 +334,14 @@ def tab_html(pm, position=None) -> str:
                      f'Not a reason <em>{len(pm["ignore"])}</em></div>'
                      f'<div class="pm2-chips">{chips}</div></div>')
     if pm["log"]:
-        def rows(entries):
-            return "".join(f'<span>{esc(e["date"] or "earlier")}</span><div>{esc(e["text"])}</div>'
-                           for e in entries)
         shown, rest = pm["log"][:3], pm["log"][3:]
         more = (f'<details class="pm2-more"><summary>Older updates ({len(rest)})</summary>'
-                f'<div class="pm2-log" style="margin-top:6px">{rows(rest)}</div></details>'
-                if rest else "")
+                f'<div class="pm2-tl" style="margin-top:10px">'
+                f'{"".join(_event(e, today) for e in rest)}</div></details>' if rest else "")
+        events = "".join(_event(e, today, latest=(i == 0)) for i, e in enumerate(shown))
         parts.append(f'<div class="pm2-sec"><div class="pm2-h" style="color:var(--text-muted)">'
-                     f'Updates</div><div class="pm2-log">{rows(shown)}</div>{more}</div>')
+                     f'Updates <em>{len(pm["log"])}</em></div>'
+                     f'<div class="pm2-tl">{events}</div>{more}</div>')
     if pm["discipline"]:
         items = "".join(f'<div class="pm2-row pm2-when">{esc(s)}</div>' for s in pm["discipline"])
         parts.append(f'<details class="pm2-sec pm2-more"><summary>Discipline '

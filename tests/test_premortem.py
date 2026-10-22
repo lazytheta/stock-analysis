@@ -19,11 +19,13 @@ NEW = {
 
 
 def test_new_shape_renders_status_triggers_and_updates():
-    html = pm.tab_html(NEW)
+    from datetime import date
+    html = pm.tab_html(NEW, today=date(2026, 10, 22))
     assert "Cracks" in html and "Action: hold" in html
     assert "Triggered:</b> Capital allocation" in html
     assert ">Near<" in html and "<summary>More</summary>" in html
-    assert html.index("2026-10-22") < html.index("2026-09-15")      # newest first
+    assert html.index("22 Oct 2026") < html.index("15 Sep 2026")    # newest first
+    assert "today" in html and "5 weeks ago" in html and "<em>Latest</em>" in html
     assert "Discipline (1)" in html
 
 
@@ -102,3 +104,12 @@ def test_an_abbreviation_does_not_end_the_condition():
     t = pm.normalize_trigger("Each add: (1) test >= 9%, (2) moat check green incl. resale check, "
                              "(3) room under the cap. Then the rest.")
     assert "incl. resale check" in t["when"] and t["detail"] == "Then the rest."
+
+
+def test_timeline_wording():
+    from datetime import date
+    t = date(2026, 10, 22)
+    assert [pm._ago(d, t) for d in (date(2026, 10, 22), date(2026, 10, 21), date(2026, 10, 15),
+                                    date(2026, 7, 22), date(2024, 10, 1))] == [
+        "today", "yesterday", "7 days ago", "3 months ago", "2 years ago"]
+    assert "Earlier note" in pm._event({"date": "", "text": "x"}, t)
