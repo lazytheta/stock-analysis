@@ -4123,8 +4123,8 @@ def _dcf_editor(ticker):
             st.markdown(_rsum, unsafe_allow_html=True)
         else:
             st.caption("No Risk Analysis in the verdict format yet.")
-        # The figures beside the AI's calls: balance sheet, price falls and
-        # currency (risk_page). Each source may fail on its own.
+        # The figures beside the AI's calls: balance sheet and price falls
+        # (risk_page). Each source may fail on its own.
         try:
             _rinc = _overview_income(ticker)
         except Exception as e:
@@ -4137,9 +4137,8 @@ def _dcf_editor(ticker):
             logger.debug("price history for %s (Risk) unavailable: %s", ticker, e)
             _rcloses = []
         try:
-            st.markdown(risk_page.risk_figures_section_html(
-                fund if _fund_error is None else {}, _rinc, _rcloses, ticker, cfg,
-                home=_reporting_currency()), unsafe_allow_html=True)
+            st.markdown(risk_page.risk_figures_section_html(fund, _rinc, _rcloses),
+                        unsafe_allow_html=True)
         except Exception as e:
             logger.warning("Risk figures for %s failed: %s", ticker, e)
             st.caption("Risk figures unavailable right now.")

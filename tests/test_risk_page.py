@@ -71,16 +71,6 @@ def test_worst_full_calendar_year():
     assert s["worst_year"] == 2022 and s["worst_year_ret"] == pytest.approx(-0.4)
 
 
-def test_currency_line():
-    assert rp.currency_line("META", {}) is None
-    asml = rp.currency_line("ASML", {"reporting_currency": "EUR", "company": "ASML"})
-    assert "reports in euros but trades here in dollars" in asml
-    assert "no currency effect" in rp.currency_line("RMS.PA", {"company": "Hermes"}, home="EUR")
-    assert "EUR/USD rate" in rp.currency_line("RMS.PA", {"company": "Hermes"}, home="USD")
-    assert "quoted in pence" in rp.currency_line("RMV.L", {"company": "Rightmove"})
-
-
 def test_section_renders_with_missing_sources():
-    html = rp.risk_figures_section_html({}, None, [], "META", {})
+    html = rp.risk_figures_section_html({}, None, [])
     assert "In numbers" in html and "Not enough price history" in html
-    assert "Currency" not in html.split("</style>")[-1]

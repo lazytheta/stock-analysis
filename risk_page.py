@@ -1,6 +1,6 @@
 """Risk tab, the figures beside the AI's risk cards (owner request 2026-10-22).
 
-Three blocks, all from reported numbers and stored prices, none written by
+Two blocks, all from reported numbers and stored prices, none written by
 the AI:
 
   Balance sheet   net debt / EBITDA, years of free cash flow to repay it,
@@ -12,8 +12,8 @@ the AI:
   Price risk      from ten years of daily closes: the deepest fall and how
                   long it took to recover, how far below its high it is now,
                   and the worst calendar year.
-  Currency        one line when the company reports in another currency than
-                  the one you buy it in.
+
+(A currency line was tried and dropped the same day at the owner's request.)
 
 Pure HTML builders in the question_cards house style: every dynamic text
 through qc.esc, one-line style blocks, CSS tooltips.
@@ -24,7 +24,6 @@ from datetime import date
 import overview_metrics as om
 import question_cards as qc
 from overview_page import CARD_STYLE, tip_box
-from ticker_currency import listing_currency, reporting_currency
 
 DASH = om.DASH
 GOOD, MID, BAD = "good", "mid", "bad"
@@ -39,7 +38,6 @@ RISK_STYLE = """<style>
 .rk-val.rk-bad{color:var(--red, #c0603f)}
 .rk-cap{font-size:12px;color:var(--text-muted);line-height:1.35}
 .rk-note{margin-top:14px;font-size:12.5px;color:var(--text-muted);line-height:1.45}
-.rk-fx{font-size:14px;color:var(--text);line-height:1.55;margin:0}
 </style>"""
 
 HELP = {
@@ -273,50 +271,8 @@ def price_card_html(s) -> str:
     return _card("Price risk", f'<div class="rk-tiles">{"".join(tiles)}</div>{note}')
 
 
-# ── currency ──────────────────────────────────────────────────────────
-
-_NAMES = {"USD": "dollars", "EUR": "euros", "GBP": "pounds", "GBX": "pence",
-          "JPY": "yen", "DKK": "Danish kroner", "CHF": "Swiss francs",
-          "SEK": "Swedish kronor", "NOK": "Norwegian kroner", "CAD": "Canadian dollars"}
-
-
-def currency_line(ticker, cfg, home="EUR") -> str | None:
-    """One sentence on the currency risk for someone who measures in `home`
-    (the app's EUR/USD setting), or None when there is nothing to say.
-
-    US names get no line: every dollar holding carries the same dollar
-    exposure, which belongs on the portfolio pages, not on one ticker."""
-    rep = reporting_currency(ticker, cfg)
-    lst = listing_currency(ticker, cfg)
-    lst_real = "GBP" if lst == "GBX" else lst
-    home = (home or "EUR").upper()
-    company = (cfg or {}).get("company") or ticker
-    if rep == "USD" and lst_real == "USD":
-        return None
-    name = lambda c: _NAMES.get(c, c)  # noqa: E731
-    pence = (" The share is quoted in pence; this page shows pounds."
-             if lst == "GBX" else "")
-    if rep != lst_real:
-        return (f"{company} reports in {name(rep)} but trades here in {name(lst_real)}. "
-                f"A stronger {rep} against the {lst_real} lifts the {lst_real} price, a "
-                f"weaker one lowers it, even when the business does not change. This "
-                f"page shows everything in {name(rep)}." + pence)
-    if rep == home:
-        return (f"{company} reports and trades in {name(rep)}, the currency you measure "
-                f"in: no currency effect on your return." + pence)
-    return (f"{company} reports and trades in {name(rep)}. Measured in {name(home)}, your "
-            f"return also moves with the {rep}/{home} rate." + pence)
-
-
-def currency_card_html(line) -> str:
-    return _card("Currency", f'<p class="rk-fx">{qc.esc(line)}</p>')
-
-
-def risk_figures_section_html(fund, income, closes, ticker, cfg, home="EUR") -> str:
+def risk_figures_section_html(fund, income, closes) -> str:
     cards = [balance_card_html(balance_metrics(fund, income)),
              price_card_html(drawdown_stats(closes))]
-    line = currency_line(ticker, cfg, home)
     grid = f'<div class="rk-grid">{"".join(cards)}</div>'
-    if line:
-        grid += f'<div style="margin-top:16px">{currency_card_html(line)}</div>'
     return qc.css(CARD_STYLE, RISK_STYLE) + qc.section_html("In numbers", grid)
