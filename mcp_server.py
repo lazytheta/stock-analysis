@@ -1881,55 +1881,106 @@ PREMORTEM_SECTIONS = [
 ]
 
 
-def _premortem_dict(current="", sell=None, add=None, ignore=None, discipline=None):
-    """Build the structured pre-mortem dict from the fixed fields. List fields
-    accept a list or a newline-separated string; each item is bullet-cleaned."""
+def _premortem_dict(current="", sell=None, add=None, ignore=None, discipline=None,
+                    status=None, status_note="", action=None, log=None):
+    """Build the stored pre-mortem (see premortem.py for the shape). List
+    fields accept a list or a newline-separated string; triggers may be
+    {label, when, detail, state, date} dicts or plain strings (legacy)."""
     def _cl(x):
         if isinstance(x, str):
             x = x.split("\n")
         return [str(i).strip(" -•\t") for i in (x or []) if str(i).strip(" -•\t")]
-    return {
-        "current": (current or "").strip(),
-        "sell": _cl(sell), "add": _cl(add),
-        "ignore": _cl(ignore), "discipline": _cl(discipline),
-    }
+
+    def _triggers(x):
+        if isinstance(x, str):
+            x = x.split("\n")
+        out = []
+        for i in x or []:
+            if isinstance(i, dict):
+                out.append({k: (str(i.get(k) or "").strip() if k != "state"
+                                else str(i.get(k) or "watch").strip().lower())
+                            for k in ("label", "when", "detail", "state", "date")})
+            elif str(i).strip(" -•\t"):
+                out.append(str(i).strip(" -•\t"))
+        return out
+
+    pm = {"current": (current or "").strip(), "sell": _triggers(sell), "add": _triggers(add),
+          "ignore": _cl(ignore), "discipline": _cl(discipline)}
+    if status:
+        pm["status"] = str(status).strip().lower()
+    if (status_note or "").strip():
+        pm["status_note"] = status_note.strip()
+    if action:
+        pm["action"] = str(action).strip().lower()
+    if log:
+        pm["log"] = log
+    return pm
 
 
 def _set_premortem_impl(ticker, current="", sell=None, add=None, ignore=None,
-                        discipline=None, user_id: str | None = None):
-    """Set the structured pre-mortem (cfg['premortem'] = fixed-section dict)."""
+                        discipline=None, status=None, status_note="", action=None,
+                        log_entry=None, user_id: str | None = None):
+    """Set the pre-mortem (cfg['premortem']). Everything is replaced except
+    the dated log: log_entry is added to it (newest first), so updates
+    accumulate instead of being rewritten into one paragraph.
+
+    New-style calls (status/action/dict triggers) are validated against the
+    limits in premortem.py and refused with the reasons; plain-string
+    triggers from older callers are still accepted."""
+    from datetime import date
+
+    import premortem
     user_id = user_id or USER_ID
     client = get_supabase_client()
     cfg = config_store.load_config(client, ticker, user_id=user_id)
     if cfg is None:
         return {"error": f"{ticker.upper()} not on watchlist"}
-    cfg["premortem"] = _premortem_dict(current, sell, add, ignore, discipline)
+    old = cfg.get("premortem") if isinstance(cfg.get("premortem"), dict) else {}
+    log = list(old.get("log") or [])
+    if (log_entry or "").strip():
+        log.insert(0, {"date": date.today().isoformat(), "text": log_entry.strip()})
+    pm = _premortem_dict(current, sell, add, ignore, discipline, status, status_note,
+                         action, log)
+    new_style = bool(status or action or log_entry
+                     or any(isinstance(t, dict) for t in pm["sell"] + pm["add"]))
+    if new_style:
+        errs = premortem.validation_errors(
+            dict(pm, log=[e for e in pm.get("log", []) if e.get("date")]))
+        if errs:
+            return {"error": "pre-mortem not saved: " + "; ".join(errs)}
+    cfg["premortem"] = pm
     config_store.save_config(client, ticker, cfg, user_id=user_id)
     return f"Saved pre-mortem for {ticker.upper()}."
 
 
 @mcp.tool()
-def set_premortem(ticker: str, current: str = "",
-                  sell: list[str] | None = None, add: list[str] | None = None,
-                  ignore: list[str] | None = None,
-                  discipline: list[str] | None = None) -> str:
-    """Set the structured pre-mortem / action-triggers for a watchlist ticker.
+def set_premortem(ticker: str, status: str = "", status_note: str = "",
+                  action: str = "", sell: list | None = None, add: list | None = None,
+                  ignore: list[str] | None = None, discipline: list[str] | None = None,
+                  log_entry: str = "", current: str = "") -> str:
+    """Set the pre-mortem for a watchlist ticker (its own Pre-mortem tab).
 
-    Shown on the ticker page's Summary tab with the SAME fixed sections for every ticker
-    (stored as cfg['premortem']). Overwrites; read back via get_config
-    (the 'premortem' object). Keep each list item to one short condition.
+    Write in English, short. Replaces everything except the dated log, which
+    log_entry extends (newest first).
 
     Args:
-        ticker: Stock ticker (e.g. "PEP").
-        current: One-line current view (spot / cost basis / fair value / buy price).
-        sell: Sell / thesis-breaker triggers (list).
-        add: Add / buy-more triggers (list).
-        ignore: Signals that are NOT a reason to sell — noise to ignore (list).
-        discipline: Decision-discipline rules (list).
+        ticker: Stock ticker.
+        status: intact | cracks | broken.
+        status_note: One line (<=200 chars) why.
+        action: hold | add | trim | sell | wait.
+        sell, add: Triggers as {label (<=40), when (<=160, one checkable
+            condition), detail (<=600, optional), state (watch|near|triggered),
+            date (optional, when it fired)}.
+        ignore: Signals that are NOT a reason to act (<=160 chars each).
+        discipline: Decision rules, at most 8 (<=160 chars each).
+        log_entry: One dated update (<=280 chars): results, news, a changed view.
+        current: Legacy free text; leave empty in new calls.
     """
     try:
         return _set_premortem_impl(ticker, current=current, sell=sell, add=add,
-                                   ignore=ignore, discipline=discipline)
+                                   ignore=ignore, discipline=discipline, status=status,
+                                   status_note=status_note, action=action,
+                                   log_entry=log_entry)
     except Exception as e:
         return json.dumps({"error": str(e)})
 

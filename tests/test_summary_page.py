@@ -295,7 +295,7 @@ def _src():
 def test_summary_tab_follows_risk_and_pre_scan_is_gone():
     src = _src()
     assert ('["Business", "Moat", "Growth", "Management", "Risk", "Summary", '
-            '"Capital Return", "Earnings", "Financials", "DCF",') in src
+            '"Pre-mortem", "Capital Return", "Earnings", "Financials", "DCF",') in src
     assert "_tab_risk, _tab_summary," in src
     assert '"Pre-Scan"' not in src and "with _tab_notes:" not in src
     assert "_gemini_run" not in src
@@ -308,7 +308,7 @@ def test_summary_block_renders_four_sections_read_only():
     block = src[start:end]
     order = [block.index(f"summary_page.{fn}(") for fn in (
         "verdict_section_html", "scorecard_section_html",
-        "robustness_section_html", "premortem_section_html")]
+        "robustness_section_html")] + [block.index("premortem.summary_strip_html(")]
     assert order == sorted(order)
     for widget in ("st.button", "st.text_area", "st.text_input", "st.expander",
                    "st.selectbox", "save_config"):

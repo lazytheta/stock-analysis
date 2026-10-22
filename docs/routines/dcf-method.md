@@ -104,7 +104,14 @@ fills both from EDGAR without judgement, so check them against the latest
    between the anchors (e.g. guidance range, consensus vs history); keep the
    defaults (+2% / −4% growth) when there is nothing to size them on.
 3. `set_robustness`, `set_premortem`, then
-   `calculate_multi_lens_valuation(ticker)`.
+   `calculate_multi_lens_valuation(ticker)`. `set_premortem` takes the new
+   format (since 2026-10-22, its own tab): `status` (intact|cracks|broken) +
+   one-line `status_note`, `action` (hold|add|trim|sell|wait), `sell`/`add`
+   as triggers `{label ≤40, when ≤160 — one checkable condition, detail ≤600,
+   state watch|near|triggered}`, short `ignore` items, at most 8 `discipline`
+   rules, and news as `log_entry` (≤280, dated by the server). English, no
+   position figures (the page shows them live). The server refuses anything
+   over the limits; shorten and resend.
 4. **Reverse-DCF check**: `calculate_valuation(config)` with the config you
    just saved (from `get_config`) returns `wacc` (the discount rate for the
    ROIC check in section 4), `implied_growth` and `implied_margin` — what

@@ -23,6 +23,7 @@ import aspirant
 import moat_cards
 import risk_cards
 import risk_page
+import premortem
 import business_cards
 import company_profile
 import company_explainer
@@ -3889,9 +3890,10 @@ def _dcf_editor(ticker):
         _fund_error, fund = e, {}
 
     (_tab_business, _tab_moat,
-     _tab_growth, _tab_management, _tab_risk, _tab_summary, _tab_capital, _tab_earnings,
+     _tab_growth, _tab_management, _tab_risk, _tab_summary, _tab_premortem, _tab_capital,
+     _tab_earnings,
      _tab_financials, _tab_dcf, _tab_rdcf, _tab_peers, _tab_history) = st.tabs(
-        ["Business", "Moat", "Growth", "Management", "Risk", "Summary", "Capital Return", "Earnings", "Financials", "DCF", "Reverse DCF", "Peer Comparison", "History"])
+        ["Business", "Moat", "Growth", "Management", "Risk", "Summary", "Pre-mortem", "Capital Return", "Earnings", "Financials", "DCF", "Reverse DCF", "Peer Comparison", "History"])
 
     # Business (the former Overview and Business tabs, merged 2026-10-06):
     # Company (profile + at a glance), What the company does, Revenue
@@ -4171,8 +4173,8 @@ def _dcf_editor(ticker):
             ("Robustness", lambda: summary_page.robustness_section_html(cfg, T)),
             ("Flags", lambda: summary_page.flags_section_html(
                 _snotes.get("Investment Summary"), T)),
-            ("Pre-mortem", lambda: summary_page.premortem_section_html(
-                cfg.get("premortem"), T)),
+            # The full pre-mortem has its own tab since 2026-10-22; one line here.
+            ("Pre-mortem", lambda: premortem.summary_strip_html(cfg.get("premortem"))),
         )
         for _sname, _sbuild in _ssections:
             try:
@@ -4182,6 +4184,25 @@ def _dcf_editor(ticker):
             except Exception as e:
                 logger.warning("Summary %s for %s failed: %s", _sname, ticker, e)
                 st.caption(f"{_sname} unavailable right now.")
+
+    # Pre-mortem: the decision document for this position (premortem.py):
+    # status and action, the live position when the portfolio is already
+    # loaded this session (never fetched from here: slow, and Trading 212
+    # rate-limits), triggers, what is not a reason, dated updates.
+    with _tab_premortem:
+        try:
+            _pm_pos = premortem.position_from_portfolio(
+                ticker, st.session_state.get("portfolio_data"),
+                held_share_cost)
+        except Exception as e:
+            logger.debug("Position for %s unavailable: %s", ticker, e)
+            _pm_pos = None
+        try:
+            st.markdown(premortem.tab_html(cfg.get("premortem"), _pm_pos),
+                        unsafe_allow_html=True)
+        except Exception as e:
+            logger.warning("Pre-mortem tab for %s failed: %s", ticker, e)
+            st.caption("Pre-mortem unavailable right now.")
 
     # Capital Return: what the company hands back and how -- headline tiles
     # with one rule-based sentence, where the cash went, the dividend and the

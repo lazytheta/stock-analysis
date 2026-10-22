@@ -187,8 +187,9 @@ async def _tool_set_robustness(user_id: str, args: dict) -> Any:
 async def _tool_set_premortem(user_id: str, args: dict) -> Any:
     return mcp_server._set_premortem_impl(
         args["ticker"], current=args.get("current", ""), sell=args.get("sell"),
-        add=args.get("add"), ignore=args.get("ignore"),
-        discipline=args.get("discipline"), user_id=user_id)
+        add=args.get("add"), ignore=args.get("ignore"), discipline=args.get("discipline"),
+        status=args.get("status"), status_note=args.get("status_note", ""),
+        action=args.get("action"), log_entry=args.get("log_entry"), user_id=user_id)
 
 
 async def _tool_add_reminder(user_id: str, args: dict) -> Any:
@@ -588,22 +589,44 @@ TOOLS: list[dict] = [
     {
         "name": "set_premortem",
         "description": (
-            "Set the structured pre-mortem / action-triggers shown on the Summary "
-            "tab (cfg['premortem']), with the SAME fixed sections for every ticker. "
-            "Fields: current (one-line view: spot / cost basis / fair value / buy "
-            "price), sell (sell/thesis-breaker triggers), add (buy-more triggers), "
-            "ignore (signals that are NOT a reason to sell), discipline (decision "
-            "rules). Overwrites; read back via get_config."
+            "Set the pre-mortem shown on the ticker page's own Pre-mortem tab "
+            "(cfg['premortem']). Write in English and short; the server refuses "
+            "anything over the limits. Replaces everything except the dated log, "
+            "which log_entry extends (newest first) -- use it for results, news "
+            "or a changed view instead of rewriting a paragraph. Fields: status "
+            "(intact|cracks|broken) + status_note (<=200), action "
+            "(hold|add|trim|sell|wait), sell/add triggers as objects {label<=40, "
+            "when<=160 (one checkable condition), detail<=600 optional, state "
+            "watch|near|triggered, date}, ignore (signals that are NOT a reason, "
+            "<=160 each), discipline (<=8 rules, <=160 each). Do not put the "
+            "position in here: the page shows it live from the brokers. Read "
+            "back via get_config."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "ticker": {"type": "string"},
-                "current": {"type": "string"},
-                "sell": {"type": "array", "items": {"type": "string"}},
-                "add": {"type": "array", "items": {"type": "string"}},
+                "status": {"type": "string", "enum": ["intact", "cracks", "broken"]},
+                "status_note": {"type": "string"},
+                "action": {"type": "string", "enum": ["hold", "add", "trim", "sell", "wait"]},
+                "sell": {"type": "array", "items": {"type": "object", "properties": {
+                    "label": {"type": "string", "description": "<=40 chars"},
+                    "when": {"type": "string", "description": "<=160 chars, one checkable condition"},
+                    "detail": {"type": "string", "description": "optional, <=600 chars"},
+                    "state": {"type": "string", "enum": ["watch", "near", "triggered"]},
+                    "date": {"type": "string", "description": "YYYY-MM-DD when it fired"}},
+                    "required": ["when"]}},
+                "add": {"type": "array", "items": {"type": "object", "properties": {
+                    "label": {"type": "string", "description": "<=40 chars"},
+                    "when": {"type": "string", "description": "<=160 chars, one checkable condition"},
+                    "detail": {"type": "string", "description": "optional, <=600 chars"},
+                    "state": {"type": "string", "enum": ["watch", "near", "triggered"]},
+                    "date": {"type": "string", "description": "YYYY-MM-DD when it fired"}},
+                    "required": ["when"]}},
                 "ignore": {"type": "array", "items": {"type": "string"}},
                 "discipline": {"type": "array", "items": {"type": "string"}},
+                "log_entry": {"type": "string", "description": "one dated update, <=280 chars"},
+                "current": {"type": "string", "description": "legacy; leave empty"},
             },
             "required": ["ticker"],
         },
