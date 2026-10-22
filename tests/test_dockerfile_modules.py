@@ -1,72 +1,44 @@
-"""The Cloud Run image only starts if the Dockerfile COPYs every repo-root
-module mcp_server.py imports at top level. aspirant.py went missing here once
-(2026-09) and the container would fail on import at startup — nothing catches
-that except actually building the image, which CI doesn't do. This parses
-mcp_server.py's own top-level imports instead of hardcoding the module list,
-so a future new top-level import is checked the same way.
+"""Every repo module the MCP server can import must be copied into its image.
+
+The Dockerfile lists files by hand. t212_positions failed on Cloud Run with
+"No module named 'portfolio_metrics'" (found 2026-10-22) because t212_api
+gained imports that never reached that list. This walks the imports from the
+server's entry points, including those inside functions, and checks each
+local module against the COPY lines.
 """
-
 import ast
-import os
+import re
+from pathlib import Path
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = Path(__file__).resolve().parent.parent
+
+# Imported only inside a function, behind a fallback, and needing packages
+# the image does not install (streamlit, the tastytrade SDK). Cloud Run takes
+# quotes from Nasdaq instead (quotes.py).
+NOT_IN_IMAGE = {"tastytrade_api", "error_logger"}
 
 
-def _top_level_imported_names(pyfile):
-    """Module names from top-level `import X` / `from X import ...` in pyfile.
-
-    Only statements at module scope count — an import inside a function
-    (e.g. a lazy `from supabase import create_client`) isn't needed at
-    container startup, only when that function actually runs.
-    """
-    with open(pyfile, encoding="utf-8") as f:
-        tree = ast.parse(f.read(), filename=pyfile)
+def _imports(path):
     names = set()
-    for node in tree.body:
+    for node in ast.walk(ast.parse(path.read_text())):
         if isinstance(node, ast.Import):
-            for alias in node.names:
-                names.add(alias.name.split(".")[0])
-        elif isinstance(node, ast.ImportFrom):
-            if node.module and node.level == 0:
-                names.add(node.module.split(".")[0])
+            names |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            names.add(node.module.split(".")[0])
     return names
 
 
-def _dockerfile_copy_text(dockerfile_path):
-    """Text of every COPY instruction (including backslash continuation
-    lines), concatenated. A module name mentioned only in a comment or a
-    RUN line must not count."""
-    with open(dockerfile_path, encoding="utf-8") as f:
-        lines = f.readlines()
-    chunks = []
-    in_copy = False
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("COPY"):
-            in_copy = True
-        if in_copy:
-            chunks.append(line)
-            if not stripped.endswith("\\"):
-                in_copy = False
-    return "".join(chunks)
-
-
-def test_dockerfile_copies_every_root_module_mcp_server_imports_at_top_level():
-    mcp_server_path = os.path.join(REPO_ROOT, "mcp_server.py")
-    dockerfile_path = os.path.join(REPO_ROOT, "Dockerfile")
-
-    imported = _top_level_imported_names(mcp_server_path)
-    # Only the ones that are actually repo-root modules (not "json", "os",
-    # third-party packages like "mcp", etc.)
-    root_modules = sorted(
-        name for name in imported
-        if os.path.isfile(os.path.join(REPO_ROOT, f"{name}.py"))
-    )
-    assert root_modules, "sanity check: expected mcp_server.py to import some root-level modules"
-
-    copy_text = _dockerfile_copy_text(dockerfile_path)
-    missing = [f"{name}.py" for name in root_modules if f"{name}.py" not in copy_text]
-    assert not missing, (
-        f"Dockerfile COPY is missing module(s) that mcp_server.py imports at "
-        f"top level: {missing} — the Cloud Run container would fail to start."
-    )
+def test_every_reachable_module_is_copied_into_the_image():
+    local = {p.stem for p in ROOT.glob("*.py")}
+    copied = set(re.findall(r"([A-Za-z_0-9]+)\.py", (ROOT / "Dockerfile").read_text()))
+    todo = set()
+    for entry in ("main.py", "mcp_handler.py"):
+        todo |= _imports(ROOT / "lazytheta-mcp-cloudrun" / entry)
+    seen = set()
+    while todo:
+        mod = todo.pop()
+        if mod in seen or mod not in local or mod in NOT_IN_IMAGE:
+            continue
+        seen.add(mod)
+        todo |= _imports(ROOT / f"{mod}.py")
+    assert sorted(seen - copied) == []
