@@ -2617,6 +2617,114 @@ def _price_in_reporting(stock_price, ticker, reporting, listing="USD"):
     return round(stock_price * rate, 4), rate
 
 
+MANUAL_MIN_YEARS = 10
+
+
+def manual_fundamentals(overrides, currency):
+    """A fetch_fundamentals-shaped dict built only from hand-entered
+    overrides ({field: {year: value}}), with fcf/ebitda derived exactly as
+    for an EDGAR ticker."""
+    base = fetch_fundamentals("", manual_currency=currency)
+    return apply_fundamentals_overrides(base, overrides)
+
+
+def _financials_from_fundamentals(fund):
+    """fetch_fundamentals shape -> the parse_financials shape build_config
+    reads. total_debt is long-term borrowings and short_term_debt the
+    current part, as in the IFRS mapping (_IFRS_TAGS); shares go from a raw
+    count to millions."""
+    years = list(fund.get("years") or [])
+    n = len(years)
+
+    def col(key):
+        vals = list(fund.get(key) or [])
+        return (vals + [None] * n)[:n]
+
+    def last(key):
+        nz = [v for v in col(key) if v]
+        return nz[-1] if nz else 0
+
+    gw, it = col("goodwill"), col("intangibles")
+    return {
+        "years": years,
+        "revenue": col("revenue"),
+        "operating_income": col("operating_income"),
+        "net_income": col("net_income"),
+        "cost_of_revenue": col("cost_of_revenue"),
+        "sbc": [None] * n,
+        "shares": [round(v / 1_000_000, 3) if v else None for v in col("shares")],
+        "current_assets": [None] * n,
+        "cash": col("cash"),
+        "st_investments": col("short_term_investments"),
+        "current_liabilities": col("current_liabilities"),
+        "st_debt": col("short_term_debt"),
+        "st_leases": [None] * n,
+        "net_ppe": col("ppe"),
+        "goodwill_intang": [(g or 0) + (i or 0) if (g is not None or i is not None) else None
+                            for g, i in zip(gw, it)],
+        "lt_debt_latest": last("total_debt"),
+        "lt_leases_latest": last("operating_lease_liabilities"),
+        "st_debt_latest": last("short_term_debt"),
+        "interest_expense_latest": 0,
+        "finance_leases_latest": last("finance_lease_liabilities"),
+        "minority_interest_latest": 0,
+        "equity_investments_latest": 0,
+        "unfunded_pension_latest": last("pension_liabilities"),
+        "entity_public_float": 0,
+        "tax_provision": col("tax_provision"),
+        "pretax_income": col("pretax_income"),
+        "currency": fund.get("currency") or "USD",
+    }
+
+
+def build_manual_config(ticker, company_name, reporting_currency, listing_currency,
+                        overrides, stock_price, sector=""):
+    """Base config for a ticker without SEC filings, from hand-entered
+    fundamentals. Same build_config as the EDGAR route, so the DCF, ROCE and
+    net debt are computed exactly as for any other ticker.
+
+    stock_price must already be in the reporting currency (ticker_currency).
+    Raises ValueError when the fundamentals are too thin to build on.
+    """
+    reporting_currency = reporting_currency.upper()
+    fund = manual_fundamentals(overrides, reporting_currency)
+    years = fund.get("years") or []
+    revenue_years = [y for y, v in zip(years, fund.get("revenue") or []) if v]
+    if len(revenue_years) < MANUAL_MIN_YEARS:
+        raise ValueError(f"{ticker}: need at least {MANUAL_MIN_YEARS} years of revenue, "
+                         f"got {len(revenue_years)}")
+    fin = _financials_from_fundamentals(fund)
+    if not fin["shares"][-1]:
+        raise ValueError(f"{ticker}: the latest year needs a share count ('shares')")
+    if not stock_price or stock_price <= 0:
+        raise ValueError(f"{ticker}: no price")
+
+    oi = fin["operating_income"][-1] or 0
+    credit_rating, credit_spread = synthetic_credit_rating(oi, 0)
+    shares = fin["shares"][-1]
+    cfg = build_config(
+        ticker=ticker, financials=fin, stock_price=stock_price,
+        market_cap=round(stock_price * shares, 0), shares_yahoo=0,
+        risk_free_rate=RISK_FREE_RATE_DEFAULT,
+        sector_betas=resolve_sector_betas(0, sector),
+        credit_spread=credit_spread, credit_rating=credit_rating, peers=[],
+        company_name=company_name, margin_of_safety=MARGIN_OF_SAFETY_DEFAULT,
+        terminal_growth=TERMINAL_GROWTH_DEFAULT, sector_margin=None,
+    )
+    from scorecard_utils import slim_fundamentals
+    cfg.update({
+        "source": "manual",
+        "reporting_currency": reporting_currency,
+        "listing_currency": listing_currency.upper(),
+        "fundamentals_overrides": overrides,
+        "fund_slice": slim_fundamentals(fund),
+        "_currency_note": (f"Amounts in {reporting_currency} from hand-entered annual "
+                           f"reports (no SEC filings); quote in "
+                           f"{listing_currency.upper()} converted to {reporting_currency}."),
+    })
+    return cfg
+
+
 def build_base_config(ticker, stock_price=0):
     """The watchlist's add-a-ticker route without Streamlit: facts only.
 
@@ -3205,8 +3313,23 @@ def latest_cover_page_shares(facts, last_year, ticker=""):
         return None
 
 
-def fetch_fundamentals(ticker, n_years=10):
+def manual_source(cfg):
+    """The reporting currency of a hand-entered ticker (source "manual"),
+    or None for an EDGAR filer. Pass it to fetch_fundamentals as
+    manual_currency so such a ticker never goes near SEC."""
+    cfg = cfg or {}
+    if cfg.get("source") != "manual":
+        return None
+    return (cfg.get("reporting_currency") or "USD").upper()
+
+
+def fetch_fundamentals(ticker, n_years=10, manual_currency=None):
     """Fetch historical financial fundamentals from EDGAR XBRL.
+
+    manual_currency: for a ticker without SEC filings (source "manual"),
+    skip EDGAR entirely and return the empty base in that currency; the
+    caller's fundamentals_overrides then supply every year
+    (apply_fundamentals_overrides synthesizes the timeline).
 
     Returns dict with sorted years and aligned lists:
         years, revenue, operating_income, net_income, cost_of_revenue,
@@ -3253,6 +3376,13 @@ def fetch_fundamentals(ticker, n_years=10):
     # flattened into an empty-but-valid result that looks like "this filer
     # reports nothing". Callers cache results; they must not cache outages.
     facts = None
+    if manual_currency:
+        empty = {"years": [], "currency": manual_currency.upper()}
+        for key in metrics:
+            empty[key] = []
+        empty["shares_latest"] = None
+        empty["fcf"] = []
+        return empty
     try:
         cik = get_cik(ticker)
     except ValueError:

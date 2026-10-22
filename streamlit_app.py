@@ -575,7 +575,8 @@ def _resolve_watchlist_price(cfg: dict,
 
 
 def _latest_fcf_yield(fund: dict, equity_market_value: float | None,
-                      live_price: float | None) -> float | None:
+                      live_price: float | None,
+                      price_currency: str = "USD") -> float | None:
     """Trailing FCF yield from the most recent year that reports FCF.
 
     Per-share when that same year also reports a share count: compacting the
@@ -604,10 +605,11 @@ def _latest_fcf_yield(fund: dict, equity_market_value: float | None,
     # Een IFRS-filer zonder dollarvertaling (Ferrari) levert FCF in zijn
     # eigen munt; de koers en de marktwaarde zijn dollars. Eerst omrekenen,
     # anders is de yield een factor wisselkoers naast de waarheid.
+    # Sinds 2026-10-22 staat de koers in de rapportagemunt van de rij, dus
+    # meestal is dit dezelfde munt en valt er niets om te rekenen.
     fund_ccy = (fund.get("currency") or "USD").upper()
-    if fund_ccy != "USD":
-        from gather_data import fetch_fx_rate
-        rate = fetch_fx_rate(fund_ccy)
+    if fund_ccy != (price_currency or "USD").upper():
+        rate = ticker_currency.fx_rate(fund_ccy, price_currency or "USD")
         if not rate:
             return None
         fcf = [v * rate if v is not None else None for v in fcf]
@@ -959,7 +961,13 @@ def _refresh_stale_valuations(client, cfgs: dict, user_id: str | None = None,
         # download per ticker on the next cold load. A failure here must not
         # cost the valuation that just succeeded, so the old slice stays.
         try:
-            _sl = slim_fundamentals(fetch_fundamentals(ticker, n_years=10))
+            _manual = gather_data.manual_source(cfg)
+            if _manual:
+                # Hand-entered fundamentals: the slice comes from the overrides.
+                _sl = slim_fundamentals(gather_data.manual_fundamentals(
+                    cfg.get("fundamentals_overrides") or {}, _manual))
+            else:
+                _sl = slim_fundamentals(fetch_fundamentals(ticker, n_years=10))
             if _sl:
                 cfg["fund_slice"] = _sl
         except Exception as _e:
@@ -3242,13 +3250,13 @@ def _watchlist_overview():
                         if wl_tickers else {})
 
     @st.cache_data(ttl=86400, show_spinner=False)
-    def _cached_fundamentals(t):
+    def _cached_fundamentals(t, manual_ccy=None):
         # 10 years so the watchlist can show a meaningful Avg ROCE.
         # Exceptions deliberately propagate: st.cache_data never caches a
         # raised exception, so a transient SEC outage retries on the next
         # rerun. Swallowing it here would cache an empty result for 24h and
         # blank the ticker's FCF Yield for a full day.
-        return fetch_fundamentals(t, n_years=10)
+        return fetch_fundamentals(t, n_years=10, manual_currency=manual_ccy)
 
     # Fundamentals: stored slice first, EDGAR only for what is missing.
     #
@@ -3276,7 +3284,9 @@ def _watchlist_overview():
         # correct while the backfill catches up.
         _t_fund = time.perf_counter()
         with ThreadPoolExecutor(max_workers=6) as _fund_exec:
-            _fund_futures = {t: _fund_exec.submit(_cached_fundamentals, t)
+            _fund_futures = {t: _fund_exec.submit(
+                                 _cached_fundamentals, t,
+                                 gather_data.manual_source(_wl_configs.get(t)))
                              for t in _needs_fetch}
         for t, f in _fund_futures.items():
             try:
@@ -3326,7 +3336,7 @@ def _watchlist_overview():
             if _fund_overrides and _fund:
                 _fund = apply_fundamentals_overrides(_fund, _fund_overrides)
             fcf_yield_val = _latest_fcf_yield(
-                _fund, cfg_wl.get('equity_market_value'), live_price)
+                _fund, cfg_wl.get('equity_market_value'), live_price, _ccy)
             # Avg ROCE (EBIT/(TA−CL)) with float ROE-fallback + manual override
             # — shared single source of truth (scorecard_utils.compute_roce_metric).
             roce_metric, roce_avg = compute_roce_metric(_fund, cfg_wl)
@@ -3858,12 +3868,12 @@ def _dcf_editor(ticker):
     # A fetch error (SEC outage) is held and re-raised inside the Financials
     # tab, where it surfaced before; here it would blank every tab.
     @st.cache_data(ttl=300, show_spinner="Loading fundamentals...")
-    def _cached_fundamentals(t):
-        return fetch_fundamentals(t, n_years=11)
+    def _cached_fundamentals(t, manual_ccy=None):
+        return fetch_fundamentals(t, n_years=11, manual_currency=manual_ccy)
 
     _fund_error = None
     try:
-        fund = _cached_fundamentals(ticker)
+        fund = _cached_fundamentals(ticker, gather_data.manual_source(cfg))
         # Apply per-year overrides silently so every section below uses
         # corrected values for tickers with broken EDGAR tagging.
         _fund_overrides = cfg.get('fundamentals_overrides') or {}

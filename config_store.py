@@ -365,6 +365,7 @@ def list_watchlist(client, user_id=None, tickers=None):
         .select("ticker, company, stock_price, updated_at, "
                 "config->valuation_summary, config->robustness, "
                 "config->isin, config->quote_venue, "
+                "config->reporting_currency, config->listing_currency, config->currency, "
                 "config->category, config->dcf_placeholder, "
                 "config->promoted_by, config->promoted_at, "
                 "config->ai_notes->Scorecard")
@@ -391,9 +392,12 @@ def list_watchlist(client, user_id=None, tickers=None):
     from valuation_lenses import FORWARD_LENS_KEYS
     _COUNTED_LENSES = FORWARD_LENS_KEYS
 
+    import ticker_currency
+
     out = []
     for row in resp.data:
         summary = row.get("valuation_summary") or {}
+        _ccy_cfg = {k: row.get(k) for k in ("reporting_currency", "listing_currency", "currency")}
         lenses = summary.get("lenses") or {}
         lens_count = sum(1 for k in _COUNTED_LENSES if lenses.get(k) is not None)
 
@@ -409,6 +413,11 @@ def list_watchlist(client, user_id=None, tickers=None):
             "company": row.get("company", row["ticker"]),
             "updated": row.get("updated_at", ""),
             "stock_price": row.get("stock_price", 0),
+            # Every amount on this row (price, fair values, buy price) is in
+            # `currency`, the reporting currency; the raw quote arrives in
+            # `listing_currency` and is converted (ticker_currency).
+            "currency": ticker_currency.reporting_currency(row["ticker"], _ccy_cfg),
+            "listing_currency": ticker_currency.listing_currency(row["ticker"], _ccy_cfg),
             # De beurs kent geen tickers. Zonder isin is er voor deze naam geen
             # tweede koersbron, en dat moet de aanroeper kunnen zien.
             "isin": row.get("isin"),

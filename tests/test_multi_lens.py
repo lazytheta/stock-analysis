@@ -922,6 +922,8 @@ def test_list_watchlist_enriched_shape():
         "isin", "quote_venue",
         # Aspirant watchlist markers (Task 3)
         "category", "dcf_placeholder", "promoted_by", "promoted_at",
+        # Munt van alle bedragen op de rij, en van de ruwe koers (2026-10-22)
+        "currency", "listing_currency",
     }
     for row in out:
         assert set(row.keys()) == expected_keys
@@ -1275,3 +1277,31 @@ def test_a_short_per_year_list_is_padded_and_reported_as_padded():
     out = dcf_calculator.compute_intrinsic_value(
         _proj_cfg(stc_per_year=[1.5, 1.6]))
     assert out["stc_used"] == [1.5, 1.6, 1.6, 1.6, 1.6]
+
+
+def test_list_watchlist_names_the_currency_of_each_row():
+    from unittest.mock import MagicMock
+
+    import config_store
+    rows = [{"ticker": "ASML", "reporting_currency": "EUR"},
+            {"ticker": "RMV.L", "currency": "GBP"},
+            {"ticker": "3064.T"}, {"ticker": "META"}]
+    q = MagicMock()
+    q.eq.return_value = q
+    q.execute.return_value = MagicMock(data=rows)
+    client = MagicMock()
+    client.table.return_value.select.return_value = q
+    got = {r["ticker"]: (r["currency"], r["listing_currency"])
+           for r in config_store.list_watchlist(client, user_id="u1")}
+    assert got == {"ASML": ("EUR", "USD"), "RMV.L": ("GBP", "GBX"),
+                   "3064.T": ("JPY", "JPY"), "META": ("USD", "USD")}
+
+
+def test_get_watchlist_converts_the_quote_to_the_row_currency(monkeypatch):
+    import gather_data
+    import mcp_server
+    monkeypatch.setattr(gather_data, "fetch_fx_rate", {"EUR": 1.12}.get)
+    entry = {"ticker": "ASML", "currency": "EUR", "listing_currency": "USD"}
+    assert abs(mcp_server._quote_to_reporting(entry, 1120.0, {"price": 1120.0}) - 1000.0) < 1e-6
+    pence = {"ticker": "RMV.L", "currency": "GBP", "listing_currency": "GBX"}
+    assert abs(mcp_server._quote_to_reporting(pence, 546.0, {"currency": "GBX"}) - 5.46) < 1e-9

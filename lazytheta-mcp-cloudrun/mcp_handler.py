@@ -231,6 +231,14 @@ async def _tool_add_aspirant(user_id: str, args: dict) -> Any:
         args["ticker"], stock_price=args.get("stock_price", 0), user_id=user_id)
 
 
+async def _tool_add_manual_aspirant(user_id: str, args: dict) -> Any:
+    return mcp_server._add_manual_aspirant_impl(
+        args["ticker"], args["company_name"], args["reporting_currency"],
+        args["listing_currency"], args.get("fiscal_year_end"), args["fundamentals"],
+        stock_price=args.get("stock_price", 0), isin=args.get("isin"),
+        sector=args.get("sector", ""), user_id=user_id)
+
+
 async def _tool_promote_aspirant(user_id: str, args: dict) -> Any:
     return mcp_server._promote_aspirant_impl(args["ticker"], user_id=user_id)
 
@@ -751,6 +759,37 @@ TOOLS: list[dict] = [
                         "required": ["ticker"]},
     },
     {
+        "name": "add_manual_aspirant",
+        "description": (
+            "Add a NEW Aspirant for a company WITHOUT SEC filings (e.g. 3064.T "
+            "MonotaRO, EL.PA EssilorLuxottica, RMV.L Rightmove). No EDGAR lookup: "
+            "fundamentals come from you, in the update_fundamentals schema "
+            "{field: {year: value}} with the same fields, amounts in "
+            "reporting_currency (millions; shares as a raw count), at least 10 years "
+            "of revenue and a share count for the latest year. total_debt = long-term "
+            "borrowings, short_term_debt = the current part. Everything (ROCE, DCF, "
+            "fair values, buy price, the shown price) is in reporting_currency; only "
+            "the quote is converted. listing_currency is the currency the line trades "
+            "in: GBX for London pence. stock_price is optional, in listing_currency "
+            "(pence for London); without it the server fetches it. The nightly "
+            "Aspirant run picks it up like any requested name and never overwrites "
+            "the hand-entered numbers; correct or extend them later with "
+            "update_fundamentals. Refuses an existing ticker."),
+        "inputSchema": {"type": "object",
+                        "properties": {
+                            "ticker": {"type": "string", "description": "Yahoo-style, e.g. 3064.T, RMV.L"},
+                            "company_name": {"type": "string"},
+                            "reporting_currency": {"type": "string", "description": "e.g. JPY, GBP, EUR"},
+                            "listing_currency": {"type": "string", "description": "e.g. JPY, GBX, EUR"},
+                            "fiscal_year_end": {"type": "string", "description": "e.g. 12-31 or 03-31"},
+                            "fundamentals": {"type": "object"},
+                            "stock_price": {"type": "number"},
+                            "isin": {"type": "string"},
+                            "sector": {"type": "string", "description": "Damodaran sector name for the beta, e.g. Retail (Distributors)"}},
+                        "required": ["ticker", "company_name", "reporting_currency",
+                                     "listing_currency", "fundamentals"]},
+    },
+    {
         "name": "promote_aspirant",
         "description": ("Aspirant -> Uncategorized. Refused unless the Moat verdict is "
                         "Wide and the DCF is filled in with a valuation_summary."),
@@ -806,6 +845,7 @@ TOOL_HANDLERS: dict[str, Callable[[str, dict], Awaitable[Any]]] = {
     "delete_price_alert": _tool_delete_price_alert,
     "get_screener_candidates": _tool_get_screener_candidates,
     "add_aspirant": _tool_add_aspirant,
+    "add_manual_aspirant": _tool_add_manual_aspirant,
     "promote_aspirant": _tool_promote_aspirant,
     "set_category": _tool_set_category,
 }

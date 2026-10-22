@@ -10,7 +10,14 @@ and the SEC connector only.
    a. If the candidate's `source` is `"requested"`, it was added by hand and
       is already on the list as an Aspirant: do NOT call `add_aspirant`; go
       straight to step b (it counts as a name you added in this run for the
-      `save_to_watchlist` rule below). Otherwise call `add_aspirant(ticker)`;
+      `save_to_watchlist` rule below). Names added with `add_manual_aspirant`
+      (config `source: "manual"`, no SEC filings — e.g. 3064.T, RMV.L) arrive
+      this way too: their fundamentals were entered by hand, so never overwrite
+      `fundamentals_overrides` or look for them in EDGAR, and keep every amount
+      in the config's `reporting_currency` (JPY, GBP, …). This holds for every
+      name since 2026-10-22, also 20-F filers (ASML EUR, NVO DKK): when you
+      write `stock_price`/`equity_market_value`, use the reporting currency —
+      `get_watchlist` already returns the price converted, with `currency`. Otherwise call `add_aspirant(ticker)`;
       the server fetches the price itself. Only
       if it returns an error mentioning `No price`, get the price with the
       SEC connector's `GetLiveQuote` and call `add_aspirant(ticker,

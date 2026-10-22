@@ -468,8 +468,20 @@ def _get_watchlist_impl(user_id: str | None = None, live_prices: bool = True):
             entries,
             primary=lambda tickers: quotes.parallel_quotes(
                 tickers, _live_quote, cache=_QUOTE_CACHE),
-            frankfurt=quotes.fetch_frankfurt_quotes)
+            secondary=quotes.fetch_stockanalysis_quotes,
+            frankfurt=quotes.fetch_frankfurt_quotes,
+            to_reporting=_quote_to_reporting)
     return json.dumps(entries, default=str)
+
+
+def _quote_to_reporting(entry, price, quote):
+    """A raw quote in the row's reporting currency (ASML's dollar quote in
+    EUR, RMV.L's pence in pounds), or None when the FX rate is missing."""
+    import ticker_currency
+    view = {"listing_currency": entry.get("listing_currency"),
+            "reporting_currency": entry.get("currency")}
+    return ticker_currency.to_reporting_price(
+        price, entry.get("ticker"), view, (quote or {}).get("currency"))
 
 
 def _update_valuation_inputs_impl(ticker: str, fields: dict,
@@ -798,7 +810,8 @@ def _get_fundamentals_impl(ticker: str, n_years: int = 10,
         return json.dumps({"error": f"{ticker.upper()} not found on watchlist"})
 
     try:
-        fund_raw = gather_data.fetch_fundamentals(ticker, n_years=n_years)
+        fund_raw = gather_data.fetch_fundamentals(
+            ticker, n_years=n_years, manual_currency=gather_data.manual_source(cfg))
     except Exception as e:
         return json.dumps({"error": f"fetch_fundamentals failed: {e}"})
 
@@ -1532,6 +1545,72 @@ def _add_aspirant_impl(ticker, stock_price=0, user_id: str | None = None):
     return f"Added {ticker} as Aspirant."
 
 
+def _add_manual_aspirant_impl(ticker, company_name, reporting_currency, listing_currency,
+                              fiscal_year_end, fundamentals, stock_price=0, isin=None,
+                              sector="", user_id: str | None = None):
+    """A new Aspirant for a company without SEC filings (3064.T, EL.PA,
+    RMV.L): fundamentals come from the caller, nothing goes to EDGAR.
+
+    fundamentals: {field: {year: value}}, the update_fundamentals schema and
+    fields, amounts in the reporting currency, at least 10 years of revenue.
+    stock_price is the raw quote in the listing currency (pence for London);
+    without it the quote chain is asked (stockanalysis.com for foreign lines).
+    """
+    from datetime import date
+
+    import ticker_currency
+    user_id = user_id or USER_ID
+    ticker = ticker.upper()
+    client = get_supabase_client()
+    if config_store.load_config(client, ticker, user_id=user_id) is not None:
+        return f"{ticker} is already on the watchlist; not overwritten."
+
+    unknown = sorted(f for f in (fundamentals or {})
+                     if f not in gather_data.OVERRIDABLE_FUNDAMENTALS_FIELDS)
+    if unknown:
+        return json.dumps({"error": f"Unknown fundamentals fields: {', '.join(unknown)}; "
+                                    f"allowed: {', '.join(gather_data.OVERRIDABLE_FUNDAMENTALS_FIELDS)}"})
+    overrides = {}
+    for field, by_year in (fundamentals or {}).items():
+        if not isinstance(by_year, dict):
+            return json.dumps({"error": f"{field}: expected {{year: value}}"})
+        clean = {}
+        for yr, val in by_year.items():
+            try:
+                clean[str(int(yr))] = float(val)
+            except (TypeError, ValueError):
+                if val is None:
+                    continue
+                return json.dumps({"error": f"{field} {yr}: not a number ({val!r})"})
+        if clean:
+            overrides[field] = clean
+
+    view = {"reporting_currency": reporting_currency, "listing_currency": listing_currency}
+    raw_ccy = None
+    if not stock_price:
+        quote = quotes.live_quotes([ticker], isin_by_ticker={ticker: isin} if isin else None,
+                                   yahoo=lambda ts: {}).get(ticker) or {}
+        stock_price, raw_ccy = quote.get("price"), quote.get("currency")
+    price = ticker_currency.to_reporting_price(stock_price, ticker, view, raw_ccy)
+    if not price:
+        return json.dumps({"error": f"No price for {ticker} in {reporting_currency}: "
+                                    f"pass stock_price (in {listing_currency})"})
+    try:
+        cfg = gather_data.build_manual_config(
+            ticker, company_name, reporting_currency, listing_currency,
+            overrides, price, sector=sector)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+    cfg.update({"category": "Aspirant", "dcf_placeholder": True,
+                "aspirant_added": date.today().isoformat(),
+                "fiscal_year_end": fiscal_year_end})
+    if isin:
+        cfg["isin"] = isin
+    config_store.save_config(client, ticker, cfg, user_id=user_id)
+    return (f"Added {ticker} as Aspirant (manual, {cfg['reporting_currency']}); "
+            f"price {cfg['stock_price']:.2f} {cfg['reporting_currency']}.")
+
+
 def _promote_aspirant_impl(ticker, user_id: str | None = None):
     """Aspirant -> Uncategorized, only with a Wide moat and a filled-in DCF."""
     from datetime import date
@@ -1599,7 +1678,8 @@ def _set_robustness_impl(ticker, axes, user_id: str | None = None):
     ai_notes["Robustness"] = "```json\n" + _json.dumps({"axes": axes}, ensure_ascii=False) + "\n```"
 
     try:
-        fund_raw = gather_data.fetch_fundamentals(ticker, n_years=10)
+        fund_raw = gather_data.fetch_fundamentals(
+            ticker, n_years=10, manual_currency=gather_data.manual_source(cfg))
         fund = gather_data.apply_fundamentals_overrides(
             fund_raw, cfg.get("fundamentals_overrides") or {})
         headline = _compute_fundamentals_headline(fund, cfg)

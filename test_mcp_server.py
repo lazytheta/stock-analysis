@@ -885,7 +885,7 @@ def _patch_fund_storage(monkeypatch, storage, fake_fund):
     )
     monkeypatch.setattr(
         mcp_server.gather_data, "fetch_fundamentals",
-        lambda ticker, n_years=10: dict(fake_fund),
+        lambda ticker, n_years=10, manual_currency=None: dict(fake_fund),
     )
     monkeypatch.setattr(mcp_server, "USER_ID", "u1")
 
