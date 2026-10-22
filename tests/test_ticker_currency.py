@@ -60,3 +60,19 @@ def test_valuation_back_in_the_listing_currency_for_holdings():
     assert tc.valuation_in_listing(us) is us
     pence = {"ticker": "RMV.L", "currency": "GBP", "listing_currency": "GBX", "buy_price": 5.0}
     assert tc.valuation_in_listing(pence, usd_per=USD_PER)["buy_price"] == pytest.approx(500.0)
+
+
+def test_page_symbol_is_scoped_to_the_ticker_page():
+    import business_revenue
+    import overview_metrics as om
+    import phase_page
+    assert tc.money_symbol() == "$" and om.fmt_money_m(2400) == "$2.4B"
+    with tc.page_symbol("$"):
+        tc.set_page_symbol("€")                 # what the detail page does
+        assert om.fmt_money_m(2400) == "€2.4B"
+        assert om.fmt_money_m(510) == "€510M"
+        assert business_revenue._fmt_musd(3195.0) == "€3.20B"
+        assert phase_page._tick_label(0) == "€0"
+        tc.set_page_symbol("kr ")
+        assert om.fmt_money_m(1_500_000) == "kr1.50T"
+    assert tc.money_symbol() == "$" and om.fmt_money_m(2400) == "$2.4B"

@@ -12,6 +12,7 @@ panels (e.g. a lightweight parser context) never pays for plotly's import.
 from decimal import ROUND_HALF_UP, Decimal
 
 import question_cards as qc
+from ticker_currency import money_symbol
 
 # Specific -> broad. A country is assigned to the FIRST of these (that the
 # caller actually listed) whose membership contains it. "Americas" sits after
@@ -122,11 +123,11 @@ def _fmt_musd(value):
         return "—"
     if abs(value) >= 1000:
         billions = (Decimal(str(value)) / Decimal(1000)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        return f"${billions}B"
+        return f"{money_symbol().strip()}{billions}B"
     if abs(value) < 10:
-        return f"${value:.1f}M"
+        return f"{money_symbol().strip()}{value:.1f}M"
     millions = Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-    return f"${millions}M"
+    return f"{money_symbol().strip()}{millions}M"
 
 
 def _fmt_pct(value):

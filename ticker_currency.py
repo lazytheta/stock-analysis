@@ -135,3 +135,34 @@ def valuation_in_listing(item, usd_per=None):
             out[key] = val * rate if rate else None
     out["currency"] = lst
     return out
+
+
+# ── Het valutateken van de pagina die nu getekend wordt ────────────────
+#
+# De tickerpagina toont alles in de rapportagemunt van die ticker. Het teken
+# hoort bij de pagina, niet bij elke opmaakfunctie: de detailpagina zet het
+# bij het openen (with page_symbol(...)), de opmaakfuncties van de tabbladen
+# lezen het met money_symbol(). Buiten zo'n blok is het "$".
+import contextlib
+import contextvars
+
+_PAGE_SYMBOL = contextvars.ContextVar("page_money_symbol", default="$")
+
+
+def money_symbol() -> str:
+    """Het valutateken van de pagina die nu getekend wordt ("$" standaard)."""
+    return _PAGE_SYMBOL.get()
+
+
+@contextlib.contextmanager
+def page_symbol(sym):
+    token = _PAGE_SYMBOL.set(sym or "$")
+    try:
+        yield
+    finally:
+        _PAGE_SYMBOL.reset(token)
+
+
+def set_page_symbol(sym) -> None:
+    """Zet het teken voor de rest van het lopende page_symbol-blok."""
+    _PAGE_SYMBOL.set(sym or "$")

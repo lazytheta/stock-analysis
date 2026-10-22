@@ -31,6 +31,7 @@ import phase_payouts as pp
 import question_cards as qc
 from overview_page import CARD_STYLE, METRICS_STYLE
 from phase_page import CHART_LAYOUT, PAYOUT_COLOUR, money_ticks
+from ticker_currency import money_symbol
 
 DASH = om.DASH
 WINDOW = 10            # fiscal years in the charts and tables
@@ -397,10 +398,10 @@ def dps_figure(years, dps, theme) -> go.Figure:
     colour = theme.get("accent", "#81b29a")
     fig = go.Figure(go.Bar(
         x=xs, y=ys, name="Dividend per share", marker_color=colour,
-        customdata=[DASH if v is None else f"${v:.2f}" for v in ys],
+        customdata=[DASH if v is None else f"{money_symbol().strip()}{v:.2f}" for v in ys],
         hovertemplate="%{customdata}<extra>Dividend per share</extra>"))
     fig.update_layout(**{**CHART_LAYOUT, "height": 220, "showlegend": False})
-    fig.update_yaxes(rangemode="tozero", tickprefix="$", showgrid=True, gridwidth=1,
+    fig.update_yaxes(rangemode="tozero", tickprefix=money_symbol().strip(), showgrid=True, gridwidth=1,
                      gridcolor="rgba(128,128,128,0.15)")
     fig.update_xaxes(type="category", showgrid=False)
     return fig

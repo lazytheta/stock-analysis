@@ -8,6 +8,7 @@ Every figure that cannot be computed is None, rendered as an em dash.
 from __future__ import annotations
 
 import scorecard_utils
+from ticker_currency import money_symbol
 
 DASH = "—"
 HORIZONS = (3, 5, 10)
@@ -246,8 +247,10 @@ def fmt_mult(x) -> str:
 def fmt_money_m(x) -> str:
     if x is None:
         return DASH
+    # The page's currency: ASML's ticker page reads in euros (ticker_currency).
+    sym = money_symbol().strip()
     if abs(x) >= 1_000_000:
-        return f"${x / 1_000_000:.2f}T"
+        return f"{sym}{x / 1_000_000:.2f}T"
     if abs(x) >= 1000:
-        return f"${x / 1000:.1f}B"
-    return f"${x:.0f}M"
+        return f"{sym}{x / 1000:.1f}B"
+    return f"{sym}{x:.0f}M"

@@ -3813,6 +3813,10 @@ def _dcf_editor(ticker):
     # ponden de DCF in, een ADR-koers in dollars naast een euro-fair value.
     _raw, _raw_ccy = _price(ticker, cfg.get("isin"))
     live_price = ticker_currency.to_reporting_price(_raw, ticker, cfg, _raw_ccy) or 0.0
+    # Alle bedragen op deze pagina in de rapportagemunt: € voor ASML, ¥ voor 3064.T.
+    _hs = ticker_currency.symbol(ticker_currency.reporting_currency(ticker, cfg))
+    ticker_currency.set_page_symbol(_hs)
+    _hs_tick = _hs.strip()
     if live_price > 0:
         cfg['stock_price'] = live_price
 
@@ -4140,7 +4144,7 @@ def _dcf_editor(ticker):
             ("Scores", _summary_scores),
             ("Verdict", lambda: summary_page.verdict_section_html(
                 _snotes.get("Investment Summary"), cfg.get("valuation_summary"),
-                live_price, T)),
+                live_price, T, symbol=_hs.strip())),
             ("Scorecard", lambda: summary_page.scorecard_section_html(
                 _parse_scorecard_json(_snotes.get("Scorecard") or "")
                 if isinstance(_snotes.get("Scorecard"), str) else None, T)),
@@ -4351,11 +4355,11 @@ def _dcf_editor(ticker):
                 st.markdown(_ww_sep, unsafe_allow_html=True)
 
                 cfg['equity_market_value'] = int(st.number_input(
-                    "Equity Market Value ($M)", value=int(cfg.get('equity_market_value', 0)),
+                    f"Equity Market Value ({_hs_tick}M)", value=int(cfg.get('equity_market_value', 0)),
                     step=1000, key="ed_eq_val",
                 ))
                 cfg['debt_market_value'] = int(st.number_input(
-                    "Debt Market Value ($M)", value=int(cfg.get('debt_market_value', 0)),
+                    f"Debt Market Value ({_hs_tick}M)", value=int(cfg.get('debt_market_value', 0)),
                     step=100, key="ed_debt_val",
                 ))
 
@@ -4523,11 +4527,11 @@ def _dcf_editor(ticker):
 
                         _yr_label = f"{_s2c_years[_si-1]}\u2192{_s2c_years[_si]}"
                         st.markdown(_s2c_val.format(label=f"**{_yr_label}**", value="", extra="font-weight:700;"), unsafe_allow_html=True)
-                        st.markdown(_s2c_val.format(label="\u2003\u0394 Revenue", value=f"${_rev_chg:,.0f}", extra=f"color:{T['text_muted']};"), unsafe_allow_html=True)
-                        st.markdown(_s2c_val.format(label="\u2003\u0394 Non-cash WC", value=f"${_delta_ncwc:,.0f}", extra=f"color:{T['text_muted']};"), unsafe_allow_html=True)
-                        st.markdown(_s2c_val.format(label="\u2003\u0394 Net PP&E", value=f"${_delta_ppe:,.0f}", extra=f"color:{T['text_muted']};"), unsafe_allow_html=True)
-                        st.markdown(_s2c_val.format(label="\u2003\u0394 Goodwill & Intang.", value=f"${_delta_gi:,.0f}", extra=f"color:{T['text_muted']};"), unsafe_allow_html=True)
-                        st.markdown(_s2c_val.format(label="\u2003\u0394 Invested Capital", value=f"${_ic_chg:,.0f}", extra="font-weight:700;"), unsafe_allow_html=True)
+                        st.markdown(_s2c_val.format(label="\u2003\u0394 Revenue", value=f"{_hs}{_rev_chg:,.0f}", extra=f"color:{T['text_muted']};"), unsafe_allow_html=True)
+                        st.markdown(_s2c_val.format(label="\u2003\u0394 Non-cash WC", value=f"{_hs}{_delta_ncwc:,.0f}", extra=f"color:{T['text_muted']};"), unsafe_allow_html=True)
+                        st.markdown(_s2c_val.format(label="\u2003\u0394 Net PP&E", value=f"{_hs}{_delta_ppe:,.0f}", extra=f"color:{T['text_muted']};"), unsafe_allow_html=True)
+                        st.markdown(_s2c_val.format(label="\u2003\u0394 Goodwill & Intang.", value=f"{_hs}{_delta_gi:,.0f}", extra=f"color:{T['text_muted']};"), unsafe_allow_html=True)
+                        st.markdown(_s2c_val.format(label="\u2003\u0394 Invested Capital", value=f"{_hs}{_ic_chg:,.0f}", extra="font-weight:700;"), unsafe_allow_html=True)
                         if _ic_chg > 0 and _rev_chg != 0:
                             _yr_s2c = _rev_chg / _ic_chg
                             _s2c_ratios.append(_yr_s2c)
@@ -4912,7 +4916,7 @@ def _dcf_editor(ticker):
                     f'<div style="{_card_border};border-radius:12px;padding:20px;text-align:center;background:{T["card"]};box-shadow:{T["shadow"]}">'
                     f'<div style="color:{T["text_muted"]};font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Market implies</div>'
                     f'<div style="font-size:1.8rem;font-weight:700;margin:8px 0;color:{T["text"]}">{_impl_g:.1%} CAGR &nbsp;+&nbsp; {_impl_m:.1%} Margin</div>'
-                    f'<div style="color:{T["text_muted"]};font-size:0.85rem">to justify ${_rdcf["market_price"]:.2f}</div>'
+                    f'<div style="color:{T["text_muted"]};font-size:0.85rem">to justify {_hs}{_rdcf["market_price"]:.2f}</div>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
@@ -4921,7 +4925,7 @@ def _dcf_editor(ticker):
                     f'<div style="{_card_border};border-radius:12px;padding:20px;text-align:center;background:{T["card"]};box-shadow:{T["shadow"]}">'
                     f'<div style="color:{T["text_muted"]};font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Your base case</div>'
                     f'<div style="font-size:1.8rem;font-weight:700;margin:8px 0;color:{T["text"]}">{_bc:.1%} CAGR &nbsp;+&nbsp; {_bm:.1%} Margin</div>'
-                    f'<div style="color:{T["text_muted"]};font-size:0.85rem">DCF value ${val["intrinsic_value"]:.2f}</div>'
+                    f'<div style="color:{T["text_muted"]};font-size:0.85rem">DCF value {_hs}{val["intrinsic_value"]:.2f}</div>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
@@ -4945,7 +4949,7 @@ def _dcf_editor(ticker):
             )
 
             # ── Sensitivity matrix ──
-            st.markdown(f"**Sensitivity Matrix** — Hurdle rate: {_rdcf['wacc']:.2%} | Market: ${_rdcf['market_price']:.2f}")
+            st.markdown(f"**Sensitivity Matrix** — Hurdle rate: {_rdcf['wacc']:.2%} | Market: {_hs}{_rdcf['market_price']:.2f}")
 
             _g_tests = _rdcf['growth_tests']
             _m_tests = _rdcf['margin_tests']
@@ -4984,7 +4988,7 @@ def _dcf_editor(ticker):
                         _bg = T["red_light"]
                         _fg = T["text"]
                         _fw = 'normal'
-                    _html += f'<td style="background:{_bg};color:{_fg};font-weight:{_fw};padding:6px 8px;text-align:center">${price:,.0f}</td>'
+                    _html += f'<td style="background:{_bg};color:{_fg};font-weight:{_fw};padding:6px 8px;text-align:center">{_hs}{price:,.0f}</td>'
                 _html += '</tr>'
             _html += '</tbody></table></div>'
             st.markdown(_html, unsafe_allow_html=True)
@@ -5022,19 +5026,19 @@ def _dcf_editor(ticker):
             if _mult_pm:
                 _dpm = _mult_pm.get("details", {})
                 _pmc1, _pmc2, _pmc3 = st.columns(3)
-                _pmc1.metric("Fair value (mid)", f"${_mult_pm['fv_mid']:,.0f}",
+                _pmc1.metric("Fair value (mid)", f"{_hs}{_mult_pm['fv_mid']:,.0f}",
                              delta=_delta_pm(_mult_pm["fv_mid"]))
                 _pe_fv_pm = _mult_pm.get("fv_mid_pe")
                 _pmc2.metric(f"P/E anchor ({_dpm.get('pe_basis') or '—'})",
-                             f"${_pe_fv_pm:,.0f}" if _pe_fv_pm else "—",
+                             f"{_hs}{_pe_fv_pm:,.0f}" if _pe_fv_pm else "—",
                              delta=_delta_pm(_pe_fv_pm))
                 _ev_fv_pm = _mult_pm.get("fv_mid_ev")
                 _pmc3.metric(f"EV/EBIT anchor ({_dpm.get('ev_basis') or '—'})",
-                             f"${_ev_fv_pm:,.0f}" if _ev_fv_pm else "—",
+                             f"{_hs}{_ev_fv_pm:,.0f}" if _ev_fv_pm else "—",
                              delta=_delta_pm(_ev_fv_pm))
                 st.markdown(
                     f'<div style="font-size:0.82rem;color:{T["text_muted"]}">'
-                    f'Range ${_mult_pm["fv_low"]:,.0f} – ${_mult_pm["fv_high"]:,.0f} '
+                    f'Range {_hs}{_mult_pm["fv_low"]:,.0f} – {_hs}{_mult_pm["fv_high"]:,.0f} '
                     f'· closest peer: {_dpm.get("closest_peer") or "—"}</div>',
                     unsafe_allow_html=True)
             else:
@@ -5050,15 +5054,15 @@ def _dcf_editor(ticker):
             if _hist_pm:
                 _dh_pm = _hist_pm.get("details", {})
                 _hc1, _hc2, _hc3 = st.columns(3)
-                _hc1.metric("Fair value (mid)", f"${_hist_pm['fv_mid']:,.0f}",
+                _hc1.metric("Fair value (mid)", f"{_hs}{_hist_pm['fv_mid']:,.0f}",
                             delta=_delta_pm(_hist_pm["fv_mid"]))
                 _tpe_h = _dh_pm.get("historical_trailing_pe_fv")
                 _hc2.metric("Own trailing P/E",
-                            f"${_tpe_h:,.0f}" if _tpe_h else "—",
+                            f"{_hs}{_tpe_h:,.0f}" if _tpe_h else "—",
                             delta=_delta_pm(_tpe_h))
                 _hev_h = _dh_pm.get("historical_ev_ebitda_fv")
                 _hc3.metric(f"Own EV multiple ({_dh_pm.get('ev_basis') or '—'})",
-                            f"${_hev_h:,.0f}" if _hev_h else "—",
+                            f"{_hs}{_hev_h:,.0f}" if _hev_h else "—",
                             delta=_delta_pm(_hev_h))
             else:
                 st.info("Own-history multiples unavailable — no historical "
@@ -5440,10 +5444,10 @@ def _dcf_editor(ticker):
                     _rce_html += '</tbody></table></div>'
                     st.markdown(_rce_html, unsafe_allow_html=True)
                     if _fund_metric == 'ROE':
-                        _fin_caption("In $M. ROE = Net Income / Total Equity (float-business weergave).")
+                        _fin_caption(f"In {_hs_tick}M. ROE = Net Income / Total Equity (float-business weergave).")
                     else:
                         _fin_caption(
-                            "In $M. EBIT = Operating Income (proxy). Capital Employed = "
+                            f"In {_hs_tick}M. EBIT = Operating Income (proxy). Capital Employed = "
                             "Total Assets − Current Liabilities − cash − kortlopende "
                             "beleggingen. Goodwill blijft erin, cash niet. Laatste "
                             f"{ROCE_WINDOW_YEARS} jaar, per jaar gemaximeerd op "
@@ -5562,7 +5566,7 @@ def _dcf_editor(ticker):
 
                     _rc_html += '</tbody></table></div>'
                     st.markdown(_rc_html, unsafe_allow_html=True)
-                    _fin_caption("In $M. NOPAT = Operating Income × (1 − Tax Rate). IC = Equity + Debt − Cash.")
+                    _fin_caption(f"In {_hs_tick}M. NOPAT = Operating Income × (1 − Tax Rate). IC = Equity + Debt − Cash.")
             else:
                 _fin_caption("Insufficient data for ROIC (need 3+ years)")
 
@@ -5899,7 +5903,7 @@ def _dcf_editor(ticker):
 
                     _rps_html += '</tbody></table></div>'
                     st.markdown(_rps_html, unsafe_allow_html=True)
-                    _fin_caption("Revenue in $M. Rev/Share = Revenue ($M) / Shares (M).")
+                    _fin_caption(f"Revenue in {_hs_tick}M. Rev/Share = Revenue ({_hs_tick}M) / Shares (M).")
             else:
                 _fin_caption("Insufficient data for Revenue per Share (need 3+ years)")
 
@@ -6188,7 +6192,7 @@ def _dcf_editor(ticker):
 
                     _ey_html += '</tbody></table></div>'
                     st.markdown(_ey_html, unsafe_allow_html=True)
-                    _fin_caption("In $M. EV = Market Cap (year-end price × shares) + Total Debt − Cash. EBIT = Operating Income. Greenblatt-style Earnings Yield.")
+                    _fin_caption(f"In {_hs_tick}M. EV = Market Cap (year-end price × shares) + Total Debt − Cash. EBIT = Operating Income. Greenblatt-style Earnings Yield.")
             else:
                 _fin_caption("Insufficient data for EBIT/EV")
 
@@ -6274,13 +6278,13 @@ def _dcf_editor(ticker):
                     line=dict(color=_line_color, width=2.5),
                     marker=dict(color=_marker_colors, size=8,
                                 line=dict(color=_line_color, width=1)),
-                    hovertemplate='$%{y:,.0f}M<extra>Net Debt</extra>',
+                    hovertemplate=_hs_tick + '%{y:,.0f}M<extra>Net Debt</extra>',
                 ))
                 fig.add_hline(
                     y=0, line_dash="dot", line_color=_COLORS['text_muted'],
                     annotation_text="0", annotation_position="top right",
                 )
-                fig.update_yaxes(tickprefix='$', ticksuffix='M')
+                fig.update_yaxes(tickprefix=_hs_tick, ticksuffix='M')
                 _base_layout(fig)
                 st.plotly_chart(fig, width="stretch", config=financials_page.CHART_CONFIG,
                                 key=f"fin_net_debt_{ticker}")
@@ -6347,7 +6351,7 @@ def _dcf_editor(ticker):
 
                     _nd_html += '</tbody></table></div>'
                     st.markdown(_nd_html, unsafe_allow_html=True)
-                    _fin_caption("In $M. Adjusted Debt = LT + ST + Op Leases + Fin Leases + Pension. Net Debt = Adjusted Debt − Cash. EBITDA = OI + D&A. Velden zonder data tonen — (geen tag in EDGAR voor dat jaar).")
+                    _fin_caption(f"In {_hs_tick}M. Adjusted Debt = LT + ST + Op Leases + Fin Leases + Pension. Net Debt = Adjusted Debt − Cash. EBITDA = OI + D&A. Velden zonder data tonen — (geen tag in EDGAR voor dat jaar).")
             else:
                 _fin_caption("Insufficient data for Net Debt (need 3+ years)")
 
@@ -6460,7 +6464,7 @@ def _dcf_editor(ticker):
 
                     _df_html += '</tbody></table></div>'
                     st.markdown(_df_html, unsafe_allow_html=True)
-                    _fin_caption("In $M. Net Debt = Adjusted Debt − Cash (zie Net Debt-sectie). Net Debt/FCF = Net Debt / Free Cash Flow.")
+                    _fin_caption(f"In {_hs_tick}M. Net Debt = Adjusted Debt − Cash (zie Net Debt-sectie). Net Debt/FCF = Net Debt / Free Cash Flow.")
             else:
                 _fin_caption("Insufficient data for Net Debt / FCF (need 3+ years)")
 
@@ -6491,7 +6495,7 @@ def _dcf_editor(ticker):
             with st.container(key="valuation_bridge_card"):
                 st.markdown("#### Valuation Bridge")
 
-                st.markdown(_wf_val.format(label="Enterprise Value", value=f"${_ev:,.0f}",
+                st.markdown(_wf_val.format(label="Enterprise Value", value=f"{_hs}{_ev:,.0f}",
                                            extra="font-weight:700;font-size:1.05rem;"), unsafe_allow_html=True)
                 st.markdown(_wf_sep, unsafe_allow_html=True)
 
@@ -6499,17 +6503,17 @@ def _dcf_editor(ticker):
                 _bc1, _bc2, _bc3 = st.columns(3)
                 with _bc1:
                     cfg['cash_bridge'] = int(st.number_input(
-                        "+ Cash ($M)", value=int(cfg.get('cash_bridge', 0)),
+                        f"+ Cash ({_hs_tick}M)", value=int(cfg.get('cash_bridge', 0)),
                         step=100, key="ed_cash",
                     ))
                 with _bc2:
                     cfg['securities'] = int(st.number_input(
-                        "+ Securities ($M)", value=int(cfg.get('securities', 0)),
+                        f"+ Securities ({_hs_tick}M)", value=int(cfg.get('securities', 0)),
                         step=100, key="ed_sec",
                     ))
                 with _bc3:
                     cfg['equity_investments'] = int(st.number_input(
-                        "+ Equity Inv. ($M)", value=int(cfg.get('equity_investments', 0)),
+                        f"+ Equity Inv. ({_hs_tick}M)", value=int(cfg.get('equity_investments', 0)),
                         step=100, key="ed_eqi",
                     ))
                 _cash_sec = cfg['cash_bridge'] + cfg['securities'] + cfg['equity_investments']
@@ -6517,24 +6521,24 @@ def _dcf_editor(ticker):
                 _bc4, _bc5, _bc6 = st.columns(3)
                 with _bc4:
                     cfg['debt_market_value'] = int(st.number_input(
-                        "\u2212 Debt ($M)", value=int(cfg.get('debt_market_value', 0)),
+                        f"\u2212 Debt ({_hs_tick}M)", value=int(cfg.get('debt_market_value', 0)),
                         step=100, key="ed_debt",
                     ))
                 with _bc5:
                     cfg['minority_interest'] = int(st.number_input(
-                        "\u2212 Minority Int. ($M)", value=int(cfg.get('minority_interest', 0)),
+                        f"\u2212 Minority Int. ({_hs_tick}M)", value=int(cfg.get('minority_interest', 0)),
                         step=100, key="ed_min",
                     ))
                 with _bc6:
                     cfg['unfunded_pension'] = int(st.number_input(
-                        "\u2212 Unfunded Pen. ($M)", value=int(cfg.get('unfunded_pension', 0)),
+                        f"\u2212 Unfunded Pen. ({_hs_tick}M)", value=int(cfg.get('unfunded_pension', 0)),
                         step=100, key="ed_pen",
                     ))
                 _debt = cfg['debt_market_value'] + cfg['minority_interest'] + cfg['unfunded_pension']
 
                 st.markdown(_wf_sep, unsafe_allow_html=True)
                 _equity = _ev + _cash_sec - _debt
-                st.markdown(_wf_val.format(label="Equity Value", value=f"${_equity:,.0f}",
+                st.markdown(_wf_val.format(label="Equity Value", value=f"{_hs}{_equity:,.0f}",
                                            extra="font-weight:700;font-size:1.05rem;"), unsafe_allow_html=True)
                 st.markdown(_wf_sep, unsafe_allow_html=True)
 
@@ -6575,14 +6579,14 @@ def _dcf_editor(ticker):
                 _result_html = (
                     f'<div style="display:flex;align-items:baseline;gap:32px;padding:4px 0;flex-wrap:wrap">'
                     f'<div><span style="color:{T["text_muted"]};font-size:0.85rem">Intrinsic Value</span>'
-                    f'<br><span style="color:{T["text"]};font-weight:700;font-size:1.4rem">${_intrinsic:,.2f}</span></div>'
+                    f'<br><span style="color:{T["text"]};font-weight:700;font-size:1.4rem">{_hs}{_intrinsic:,.2f}</span></div>'
                     f'<div><span style="color:{T["text_muted"]};font-size:0.85rem">Buy Price</span>'
-                    f'<br><span style="color:{T["accent"]};font-weight:700;font-size:1.4rem">${_buy:,.2f}</span></div>'
+                    f'<br><span style="color:{T["accent"]};font-weight:700;font-size:1.4rem">{_hs}{_buy:,.2f}</span></div>'
                 )
                 if _cur_price > 0:
                     _result_html += (
                         f'<div><span style="color:{T["text_muted"]};font-size:0.85rem">Current Price</span>'
-                        f'<br><span style="color:{T["text"]};font-weight:700;font-size:1.4rem">${_cur_price:,.2f}</span></div>'
+                        f'<br><span style="color:{T["text"]};font-weight:700;font-size:1.4rem">{_hs}{_cur_price:,.2f}</span></div>'
                         f'<div><span style="color:{T["text_muted"]};font-size:0.85rem">{_up_label.title()}</span>'
                         f'<br><span style="color:{_up_color};font-weight:700;font-size:1.4rem">{_upside:+.1f}%</span></div>'
                     )
@@ -6661,7 +6665,7 @@ def _dcf_editor(ticker):
                     _g = _e.get("revenue_growth") or []
                     _gtxt = (f'{_g[0]:.1%} → {_g[-1]:.1%}' if _g else "—")
                     _fv = _e.get("fv_mid")
-                    _fvtxt = f"${_fv:,.2f}" if _fv else "—"
+                    _fvtxt = f"{_hs}{_fv:,.2f}" if _fv else "—"
                     _chg = ""
                     if _fv and _prev_fv:
                         _d = (_prev_fv / _fv - 1) * 100
@@ -6728,8 +6732,6 @@ def _dcf_editor(ticker):
     # DCF FV / Buy / Upside pills removed in favour of multi-lens (richer
     # signal) + Avg ROCE/ROE + FCF Yield (quality + cash-yield context).
 
-    # Koers en fair values in de rapportagemunt van de ticker (€ voor ASML, ¥ voor 3064.T).
-    _hs = ticker_currency.symbol(ticker_currency.reporting_currency(ticker, cfg))
     # Multi-lens summary pills (only render if valuation_summary present)
     _ml = cfg.get('valuation_summary') or {}
     _ml_mid = _ml.get('weighted_fv_mid')
@@ -8600,7 +8602,9 @@ if page == "Watchlist":
     # ── Route: editor or overview ──
     edit_ticker = st.query_params.get("edit")
     if edit_ticker:
-        _dcf_editor(edit_ticker.upper())
+        # Het valutateken geldt alleen voor deze pagina (ticker_currency).
+        with ticker_currency.page_symbol("$"):
+            _dcf_editor(edit_ticker.upper())
     else:
         _watchlist_overview()
 

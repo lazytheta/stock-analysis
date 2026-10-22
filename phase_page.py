@@ -16,6 +16,7 @@ import math
 import plotly.graph_objects as go
 
 import overview_metrics as om
+from ticker_currency import money_symbol
 
 PHASES = ((1, "Startup"), (2, "Hypergrowth"), (3, "Self Funding"),
           (4, "Operating Leverage"), (5, "Capital Return"), (6, "Decline"))
@@ -121,7 +122,7 @@ def phase_info(analysis_text, scorecard_text):
 
 def _tick_label(t):
     if t == 0:
-        return "$0"
+        return f"{money_symbol().strip()}0"
     return ("-" if t < 0 else "") + om.fmt_money_m(abs(t))
 
 
@@ -135,7 +136,7 @@ def money_ticks(values, n=5):
     lo, hi = min(0.0, min(vals)), max(0.0, max(vals))
     span = hi - lo
     if span <= 0:
-        return [0.0], ["$0"]
+        return [0.0], [f"{money_symbol().strip()}0"]
     raw = span / n
     mag = 10 ** math.floor(math.log10(raw))
     step = next(m * mag for m in (1, 2, 5, 10) if m * mag >= raw)
