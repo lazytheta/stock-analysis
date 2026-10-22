@@ -174,13 +174,21 @@ STYLE = f"""<style>
 .pm2-h{{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;margin:0 0 6px}}
 .pm2-h i{{width:9px;height:9px;border-radius:50%;display:inline-block}}
 .pm2-h em{{font-style:normal;color:var(--text-muted);font-weight:600}}
+.pm2-panel{{border-radius:16px;padding:14px 14px 4px;min-width:0}}
+.pm2-panel .pm2-h{{font-size:13px;margin:2px 4px 12px}}
+.pm2-item{{background:var(--card);border-radius:12px;border-left:4px solid;padding:12px 14px;margin:0 0 10px;box-shadow:0 1px 2px rgba(0,0,0,.04)}}
+.pm2-num{{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;font-size:11px;font-weight:700;color:#fff;margin-right:8px;flex:none}}
+.pm2-it{{display:flex;align-items:center;gap:0;min-width:0}}
+.pm2-it b{{font-size:15px;color:var(--text);font-weight:700}}
+.pm2-item .pm2-when{{font-size:14px;margin-top:6px}}
 .pm2-row{{padding:10px 0;border-bottom:1px solid color-mix(in srgb, var(--text) 10%, transparent)}}
 .pm2-row:last-child{{border-bottom:none}}
 .pm2-rt{{display:flex;justify-content:space-between;gap:10px;align-items:baseline}}
 .pm2-rt b{{font-size:14px;color:var(--text);font-weight:600}}
 .pm2-when{{font-size:13.5px;color:var(--text);line-height:1.45;margin-top:2px}}
 .pm2-pill{{flex:none;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:7px;color:#fff}}
-.pm2-row details{{margin-top:4px}}
+.pm2-row details,.pm2-item details{{margin-top:6px}}
+.pm2-item summary{{cursor:pointer;font-size:12px;color:var(--text-muted)}}
 .pm2-row summary,.pm2-more summary{{cursor:pointer;font-size:12px;color:var(--text-muted)}}
 .pm2-det{{font-size:13px;color:var(--text-muted);line-height:1.5;margin-top:4px}}
 .pm2-chips{{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}}
@@ -200,23 +208,30 @@ def _pill(state):
     return ""
 
 
-def _trigger_row(t):
+def _trigger_card(t, n, tone):
+    """One reason as its own card: number, bold label, state pill, the
+    condition in full, the explanation folded under More."""
     esc = qc.esc
     title = t["label"] or t["when"]
     when = t["when"] if t["label"] else ""
     date = f' · {esc(t["date"])}' if t.get("date") else ""
     det = (f'<details><summary>More</summary><div class="pm2-det">{esc(t["detail"])}</div></details>'
            if t["detail"] else "")
-    return (f'<div class="pm2-row"><div class="pm2-rt"><b>{esc(title)}{date}</b>{_pill(t["state"])}</div>'
+    return (f'<div class="pm2-item" style="border-left-color:{tone}">'
+            f'<div class="pm2-rt"><span class="pm2-it"><span class="pm2-num" '
+            f'style="background:{tone}">{n}</span><b>{esc(title)}{date}</b></span>'
+            f'{_pill(t["state"])}</div>'
             + (f'<div class="pm2-when">{esc(when)}</div>' if when else "") + det + "</div>")
 
 
 def _column(title, items, tone):
+    """A tinted panel per side, so Sell and Add read as two separate lists."""
     if not items:
         return ""
-    rows = "".join(_trigger_row(t) for t in items)
-    return (f'<div><div class="pm2-h" style="color:{tone}"><i style="background:{tone}"></i>'
-            f'{qc.esc(title)} <em>{len(items)}</em></div>{rows}</div>')
+    cards = "".join(_trigger_card(t, i, tone) for i, t in enumerate(items, start=1))
+    return (f'<div class="pm2-panel" style="background:color-mix(in srgb, {tone} 7%, transparent)">'
+            f'<div class="pm2-h" style="color:{tone}"><i style="background:{tone}"></i>'
+            f'{qc.esc(title)} <em>{len(items)}</em></div>{cards}</div>')
 
 
 def _status_card(pm):
