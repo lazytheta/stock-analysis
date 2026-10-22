@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 import aspirant
 import moat_cards
 import risk_cards
+import risk_page
 import business_cards
 import company_profile
 import company_explainer
@@ -4122,6 +4123,26 @@ def _dcf_editor(ticker):
             st.markdown(_rsum, unsafe_allow_html=True)
         else:
             st.caption("No Risk Analysis in the verdict format yet.")
+        # The figures beside the AI's calls: balance sheet, price falls and
+        # currency (risk_page). Each source may fail on its own.
+        try:
+            _rinc = _overview_income(ticker)
+        except Exception as e:
+            logger.debug("income statement for %s (Risk) unavailable: %s", ticker, e)
+            _rinc = None
+        try:
+            _rsince = date(date.today().year - 10, date.today().month, 1).isoformat()
+            _rcloses = _overview_prices(ticker, _rsince).get(ticker) or []
+        except Exception as e:
+            logger.debug("price history for %s (Risk) unavailable: %s", ticker, e)
+            _rcloses = []
+        try:
+            st.markdown(risk_page.risk_figures_section_html(
+                fund if _fund_error is None else {}, _rinc, _rcloses, ticker, cfg,
+                home=_reporting_currency()), unsafe_allow_html=True)
+        except Exception as e:
+            logger.warning("Risk figures for %s failed: %s", ticker, e)
+            st.caption("Risk figures unavailable right now.")
         st.markdown(risk_cards.cards_section_html(_rnotes.get(risk_cards.TITLE), T),
                     unsafe_allow_html=True)
 

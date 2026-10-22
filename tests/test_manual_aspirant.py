@@ -141,3 +141,11 @@ def test_an_existing_ticker_is_not_overwritten(no_edgar):
         msg = mcp_server._add_manual_aspirant_impl(
             "EL.PA", "E", "EUR", "EUR", None, {}, stock_price=1, user_id="u1")
     assert "already on the watchlist" in msg and not save.called
+
+
+def test_manual_source_takes_the_currency_from_the_suffix():
+    assert g.manual_source({"ticker": "RMS.PA", "source": "manual"}) == "EUR"
+    assert g.manual_source({"ticker": "RMV.L", "source": "manual", "currency": "GBP"}) == "GBP"
+    assert g.manual_source({"ticker": "3064.T", "source": "manual",
+                            "reporting_currency": "JPY"}) == "JPY"
+    assert g.manual_source({"ticker": "META"}) is None

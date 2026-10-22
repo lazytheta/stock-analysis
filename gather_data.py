@@ -3320,7 +3320,9 @@ def manual_source(cfg):
     cfg = cfg or {}
     if cfg.get("source") != "manual":
         return None
-    return (cfg.get("reporting_currency") or "USD").upper()
+    # The suffix decides when the config does not say (RMS.PA -> EUR).
+    import ticker_currency
+    return ticker_currency.reporting_currency(cfg.get("ticker") or "", cfg)
 
 
 def fetch_fundamentals(ticker, n_years=10, manual_currency=None):
