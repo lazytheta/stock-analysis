@@ -41,3 +41,15 @@ def test_the_fv_cell_carries_the_row_symbol():
 def test_fmt_keeps_the_dollar_default():
     assert streamlit_app._fmt_fv_dollar(45.5) == "$45.50"
     assert streamlit_app._fmt_fv_dollar(989.0, "€") == "€989"
+
+
+def test_london_without_a_currency_key_is_still_pence():
+    # Tot 2026-10-22 kreeg RMV.L zonder sleutel code "GBp" en schaal 1.0.
+    assert streamlit_app._row_currency("RMV.L", {}) == ("GBP", "£", 0.01)
+
+
+def test_an_adr_row_is_shown_in_its_reporting_currency(monkeypatch):
+    import gather_data
+    monkeypatch.setattr(gather_data, "fetch_fx_rate", {"EUR": 1.12}.get)
+    code, sym, factor = streamlit_app._row_currency("ASML", {"reporting_currency": "EUR"})
+    assert (code, sym) == ("EUR", "€") and abs(factor - 1 / 1.12) < 1e-9

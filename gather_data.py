@@ -2576,28 +2576,45 @@ def to_price_currency(financials, price_currency="USD"):
     return out, fx
 
 
-def currency_fields(fx, ticker, price_currency="USD"):
-    """The config keys that record how a foreign filer's figures were
-    restated: reporting_currency, fx_rate, fx_date, adr_ratio and a
-    one-line _currency_note. Empty for a USD filer without an ADR ratio,
-    so US configs are byte-for-byte what they were."""
+def currency_fields(reporting, ticker, listing="USD", fx_rate=None):
+    """The config keys that say which currency the amounts are in.
+
+    Since 2026-10-22 a config computes in the filer's **reporting**
+    currency (fundamentals, DCF, fair value) and only the quote is converted
+    (ticker_currency). Returns reporting_currency, listing_currency,
+    adr_ratio, the rate used for the stored price and a one-line note. Empty
+    for a USD filer without an ADR ratio, so US configs are byte-for-byte
+    what they were.
+    """
     ratio = ADR_SHARE_RATIOS.get((ticker or "").upper())
-    ccy = fx.get("reporting_currency", "USD")
-    if ccy == price_currency and ratio is None:
+    reporting = (reporting or "USD").upper()
+    if reporting == listing and ratio is None:
         return {}
-    fields = {"reporting_currency": ccy, "fx_rate": fx.get("fx_rate", 1.0),
-              "fx_date": fx.get("fx_date"), "adr_ratio": ratio or 1}
+    fields = {"reporting_currency": reporting, "listing_currency": listing,
+              "adr_ratio": ratio or 1}
     per = (f"1 ADR = {ratio} ordinary shares" if ratio and ratio != 1
            else "1 listed share = 1 ordinary share")
-    if ccy == price_currency:
-        fields["_currency_note"] = f"Financials in {ccy}; {per}."
+    if reporting == listing:
+        fields["_currency_note"] = f"Amounts in {reporting}; {per}."
     else:
+        fields["fx_rate"] = round(fx_rate, 6) if fx_rate else None
+        fields["fx_date"] = datetime.now().strftime("%Y-%m-%d")
         fields["_currency_note"] = (
-            f"{price_currency} config on the US listing ({per}). Financials "
-            f"from the annual report in {ccy}, restated at {fields['fx_rate']} "
-            f"{price_currency}/{ccy} on {fields['fx_date']}; fund_slice "
-            f"(ROCE, margins) stays in {ccy}.")
+            f"Amounts in {reporting} (annual report); the {listing} quote of the "
+            f"US listing is converted to {reporting} live ({per}).")
     return fields
+
+
+def _price_in_reporting(stock_price, ticker, reporting, listing="USD"):
+    """(price in the reporting currency, rate used); ValueError without a rate."""
+    import ticker_currency
+    if (reporting or "USD") == listing:
+        return stock_price, 1.0
+    rate = ticker_currency.fx_rate(listing, reporting)
+    if not rate:
+        raise ValueError(f"No {listing}/{reporting} exchange rate available; cannot "
+                         f"show the {listing} quote in {reporting}")
+    return round(stock_price * rate, 4), rate
 
 
 def build_base_config(ticker, stock_price=0):
@@ -2631,13 +2648,16 @@ def build_base_config(ticker, stock_price=0):
     financials = parse_financials(fetch_company_facts(cik), n_years=6, ticker=ticker)
     if financials.get("shares"):
         financials["shares"] = apply_adr_share_ratio(financials["shares"], ticker)
-    financials, fx = to_price_currency(financials, "USD")
+    reporting = (financials.get("currency") or "USD").upper()
 
     if not stock_price or stock_price <= 0:
         stock_price, _, _ = fetch_stock_price(ticker)
     if not stock_price or stock_price <= 0:
         raise ValueError(f"No price for {ticker}: Nasdaq and Yahoo both "
                           f"failed; pass stock_price")
+    # Amounts stay in the reporting currency (DKK for Novo Nordisk); the
+    # dollar quote of the US listing is what gets converted.
+    stock_price, fx_used = _price_in_reporting(stock_price, ticker, reporting)
 
     oi = financials["operating_income"][-1] if financials.get("operating_income") else 0
     credit_rating, credit_spread = synthetic_credit_rating(
@@ -2668,7 +2688,7 @@ def build_base_config(ticker, stock_price=0):
             cfg["fund_slice"] = _slice
     except Exception as e:  # the slice is a cache; never cost the add for it
         print(f"  WARNING: fund_slice for {ticker} failed: {e}")
-    cfg.update(currency_fields(fx, ticker))
+    cfg.update(currency_fields(reporting, ticker, fx_rate=fx_used))
     if holds_others_money(sic_code):
         # cash_bridge/securities above include money that is not the
         # shareholders'; the DCF method's balance check must replace them.
@@ -3771,10 +3791,13 @@ Examples:
     financials = parse_financials(facts, n_years=6, ticker=ticker)
     if financials.get("shares"):
         financials["shares"] = apply_adr_share_ratio(financials["shares"], ticker)
-    financials, fx = to_price_currency(financials, "USD")
+    reporting = (financials.get("currency") or "USD").upper()
 
     # ── Step 4: Market data ──
     stock_price, market_cap, shares_yahoo = fetch_stock_price(ticker)
+    stock_price, fx_used = _price_in_reporting(stock_price, ticker, reporting)
+    if fx_used != 1.0:
+        market_cap = 0          # Yahoo's figure is in dollars; build_config redoes it
     # Baseline, not the day's 10Y — see RISK_FREE_RATE_DEFAULT.
     risk_free_rate = RISK_FREE_RATE_DEFAULT
 
@@ -3838,7 +3861,7 @@ Examples:
         terminal_growth=args.terminal_growth,
         sector_margin=sector_margin,
     )
-    cfg.update(currency_fields(fx, ticker))
+    cfg.update(currency_fields(reporting, ticker, fx_rate=fx_used))
 
     # ── Step 8: Write config file ──
     script_dir = os.path.dirname(os.path.abspath(__file__))

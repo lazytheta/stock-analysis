@@ -54,6 +54,7 @@ from thesis import thesis_vs_history, HEROIC_RATIO
 from config_store import ASSUMPTION_LOG_KEY, save_config, load_config, load_all_configs, list_watchlist, remove_from_watchlist, load_user_prefs, save_user_prefs, load_credential, delete_credential, load_ibkr_credentials, save_ibkr_credentials, delete_ibkr_credentials, load_t212_credentials, save_t212_credentials, delete_t212_credentials, log_page_view
 import gather_data
 import reporting_currency
+import ticker_currency
 from gather_data import (
     get_cik,
     fetch_company_submissions,
@@ -212,36 +213,20 @@ def _fmt_fv_dollar(x: float, symbol: str = "$") -> str:
 # twee munten bij elkaar op. Tot 2026-09-22 stond hier overal een dollarteken,
 # ook voor "$1351.50" Hermes, wat gewoon euro's waren.
 #
-# De config draagt soms een `currency`; anders zegt het tickersuffix genoeg.
-# Londen noteert in pence: de koers deelt door honderd, want de DCF rekent in
-# ponden en anders staat de upside een factor honderd naast de waarheid.
-_SUFFIX_CURRENCY = {
-    "PA": "EUR", "DE": "EUR", "AS": "EUR", "MI": "EUR", "F": "EUR", "BR": "EUR",
-    "MC": "EUR", "VI": "EUR", "HE": "EUR", "LS": "EUR", "IR": "EUR",
-    "L": "GBp", "SW": "CHF", "ST": "SEK", "CO": "DKK", "OL": "NOK", "TO": "CAD",
-}
-_CURRENCY_SYMBOL = {
-    "USD": "$", "EUR": "€", "GBP": "£", "CHF": "CHF ", "SEK": "kr ", "DKK": "kr ",
-    "NOK": "kr ", "CAD": "C$",
-}
+# Bedragen staan in de rapportagemunt van de ticker en de koers wordt daarheen
+# omgerekend (ticker_currency): ASML in euro's, Rightmove in ponden (de
+# beurs noteert pence), MonotaRO in yen.
 
 
 def _row_currency(ticker: str, cfg: dict | None = None) -> tuple[str, str, float]:
-    """(valutacode, symbool, koersschaal) voor één watchlistrij.
+    """(rapportagemunt, symbool, factor) voor één watchlistrij.
 
-    De schaal is wat een binnenkomende koers moet vermenigvuldigen om in de
-    munt van de rij te staan: 0,01 voor Londense pence, anders 1.
+    De factor zet een ruwe koers in de noteringsmunt om naar de
+    rapportagemunt: 0,01 voor Londense pence, de wisselkoers voor een ADR,
+    1 voor een VS-naam. None als de wisselkoers ontbreekt.
     """
-    code = ((cfg or {}).get("currency") or "").upper()
-    suffix = ticker.rsplit(".", 1)[1].upper() if "." in ticker else ""
-    if not code:
-        code = _SUFFIX_CURRENCY.get(suffix, "USD")
-    scale = 1.0
-    # Een config die "GBP" zegt bij een Londense notering: de koers zelf komt
-    # van de beurs nog steeds in pence.
-    if code == "GBX" or (code == "GBP" and suffix == "L"):
-        code, scale = "GBP", 0.01
-    return code, _CURRENCY_SYMBOL.get(code, code + " "), scale
+    code = ticker_currency.reporting_currency(ticker, cfg)
+    return code, ticker_currency.symbol(code), ticker_currency.quote_factor(ticker, cfg)
 
 
 def _strategy_start():
@@ -3221,7 +3206,10 @@ def _watchlist_overview():
         # isin_pairs komt als tuple binnen omdat st.cache_data alleen hashbare
         # argumenten accepteert; een dict zou de cache-sleutel laten klappen.
         prices = fetch_current_prices(list(tickers_tuple), dict(isin_pairs))
-        return {t: p["price"] for t, p in prices.items() if p and p.get("price")}
+        # De munt van de bron gaat mee (Frankfurt: EUR, stockanalysis: GBX),
+        # zodat de rij uit de juiste munt omrekent naar zijn rapportagemunt.
+        return {t: (p["price"], p.get("currency")) for t, p in prices.items()
+                if p and p.get("price")}
 
     # Load all configs once (avoid redundant load_config calls)
     # Clear cache if returning from editor
@@ -3305,9 +3293,9 @@ def _watchlist_overview():
     for t, cfg_wl in _wl_configs.items():
         try:
             _ccy, _sym, _scale = _row_currency(t, cfg_wl)
-            _live = batch_prices.get(t)
+            _live, _live_ccy = batch_prices.get(t) or (None, None)
             live_price, _price_stale = _resolve_watchlist_price(
-                cfg_wl, _live * _scale if _live else _live)
+                cfg_wl, ticker_currency.to_reporting_price(_live, t, cfg_wl, _live_ccy))
             if not _price_stale:
                 cfg_wl['stock_price'] = live_price
             # Use Valuation Bridge values if available, otherwise compute
@@ -3806,12 +3794,15 @@ def _dcf_editor(ticker):
     def _price(t, isin=None):
         try:
             q = fetch_current_prices([t], {t: isin} if isin else None).get(t)
-            return float(q["price"]) if q and q.get("price") else 0.0
+            return (float(q["price"]), q.get("currency")) if q and q.get("price") else (0.0, None)
         except Exception as e:
             logger.debug("Stock price fetch failed for %s: %s", t, e)
-            return 0.0
+            return 0.0, None
 
-    live_price = _price(ticker, cfg.get("isin"))
+    # In de rapportagemunt van de config: een pence-koers ging hier als
+    # ponden de DCF in, een ADR-koers in dollars naast een euro-fair value.
+    _raw, _raw_ccy = _price(ticker, cfg.get("isin"))
+    live_price = ticker_currency.to_reporting_price(_raw, ticker, cfg, _raw_ccy) or 0.0
     if live_price > 0:
         cfg['stock_price'] = live_price
 
@@ -6727,6 +6718,8 @@ def _dcf_editor(ticker):
     # DCF FV / Buy / Upside pills removed in favour of multi-lens (richer
     # signal) + Avg ROCE/ROE + FCF Yield (quality + cash-yield context).
 
+    # Koers en fair values in de rapportagemunt van de ticker (€ voor ASML, ¥ voor 3064.T).
+    _hs = ticker_currency.symbol(ticker_currency.reporting_currency(ticker, cfg))
     # Multi-lens summary pills (only render if valuation_summary present)
     _ml = cfg.get('valuation_summary') or {}
     _ml_mid = _ml.get('weighted_fv_mid')
@@ -6742,11 +6735,11 @@ def _dcf_editor(ticker):
         if _ml_low and _ml_high:
             _range_txt = (
                 f' <span style="color:{T["text_muted"]};font-size:0.78em">'
-                f'(${_ml_low:.0f}–${_ml_high:.0f})</span>'
+                f'({_hs}{_ml_low:.0f}–{_hs}{_ml_high:.0f})</span>'
             )
         _ml_pills = (
-            f'<span class="stat-pill">Multi-lens FV <b>${_ml_mid:.2f}</b>{_range_txt}</span>'
-            f'<span class="stat-pill">ML Buy <b>${_ml_buy:.2f}</b></span>'
+            f'<span class="stat-pill">Multi-lens FV <b>{_hs}{_ml_mid:.2f}</b>{_range_txt}</span>'
+            f'<span class="stat-pill">ML Buy <b>{_hs}{_ml_buy:.2f}</b></span>'
             f'<span class="stat-pill">ML Upside <b style="color:{_ml_up_color}">'
             f'{_ml_up_sign}{_ml_upside:.1%}</b></span>'
         )
@@ -6815,7 +6808,7 @@ def _dcf_editor(ticker):
         f'<p class="hero-value" style="font-size:2rem;margin:0">{ticker}</p>'
         f'</div>'
         f'<div class="stat-row">'
-        f'<span class="stat-pill">Price <b>${live_price:.2f}</b></span>'
+        f'<span class="stat-pill">Price <b>{_hs}{live_price:.2f}</b></span>'
         f'{_ml_pills}'
         f'{_quality_pills}'
         f'{_sc_pills}'
@@ -6864,12 +6857,9 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
             _apply_adr = getattr(gather_data, "apply_adr_share_ratio", None)
             if _apply_adr and financials.get("shares"):
                 financials["shares"] = _apply_adr(financials["shares"], ticker)
-            # A 20-F filer in DKK/EUR: restate in dollars, the price's
-            # currency, at one recorded rate (gather_data.to_price_currency).
-            _to_px = getattr(gather_data, "to_price_currency", None)
-            _fx = None
-            if _to_px:
-                financials, _fx = _to_px(financials, "USD")
+            # A 20-F filer in DKK/EUR keeps its own currency; only the dollar
+            # quote gets converted (gather_data._price_in_reporting).
+            _reporting = (financials.get("currency") or "USD").upper()
         pos = _flush_clean(buf, pos, status)
         years = financials.get("years", [])
         if years:
@@ -6881,6 +6871,11 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
         status.write("\u23f3 Fetching market data...")
         with contextlib.redirect_stdout(buf):
             stock_price, market_cap, shares_yahoo = fetch_stock_price(ticker)
+            _fx_used = 1.0
+            if stock_price and _reporting != "USD":
+                stock_price, _fx_used = gather_data._price_in_reporting(
+                    stock_price, ticker, _reporting)
+                market_cap = 0      # a dollar figure; build_config recomputes it
             risk_free_rate = fetch_treasury_yield()
         pos = _flush_clean(buf, pos, status)
         if risk_free_rate is None:
@@ -6986,9 +6981,7 @@ def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_gro
                 "The company may be delisted or have no trading data."
             )
 
-        _cur_fields = getattr(gather_data, "currency_fields", None)
-        if _fx and _cur_fields:
-            cfg.update(_cur_fields(_fx, ticker))
+        cfg.update(gather_data.currency_fields(_reporting, ticker, fx_rate=_fx_used))
         status.write(f"\u2705 Configuration complete")
 
         # ── Step: the watchlist's EDGAR slice ──
@@ -9933,7 +9926,7 @@ elif page == "Holdings":
 
             _muted = f'color:{T["text_muted"]}'
             _ccy = (data.get("currency") or "USD").upper()
-            _cs = _CURRENCY_SYMBOL.get(_ccy, _ccy + " ")
+            _cs = ticker_currency.symbol(_ccy)
             _is_open = shares > 0
             _start, _n_buys = position_start(_card_trades)
             _shares_txt = f"{shares:,.4f}".rstrip("0").rstrip(".") or "0"

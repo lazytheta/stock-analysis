@@ -89,6 +89,7 @@ def _one(payload: dict, mic: str) -> dict | None:
         "previousClose": previous,
         "asof": payload.get("timestampLastPrice"),
         "venue": mic,
+        "currency": "EUR",     # Xetra noteert in EUR, ook voor een Tokio-lijn
     }
 
 
@@ -337,6 +338,109 @@ def fetch_nasdaq_quotes(tickers, fetch=None, max_workers: int = 8) -> dict:
         return dict(pool.map(one, tickers))
 
 
+# ── stockanalysis.com: de buitenlandse lijnen ──────────────────────────
+#
+# Yahoo is op Cloud Run en Streamlit Cloud dicht, Nasdaq kent alleen
+# VS-tickers en Frankfurt noteert alles in EUR -- voor 3064.T of RMV.L was er
+# dus geen bron (2026-10-22). stockanalysis.com zet de koers in de pagina en
+# zegt er de munt bij ("Price in GBX" / "Currency is JPY"). Getest vanaf Cloud
+# Run; robots.txt staat /quote/ toe. Alleen de standaardbibliotheek.
+
+SA_URL = "https://stockanalysis.com/quote/{exchange}/{symbol}/"
+_SA_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) "
+                             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126"}
+_SA_TIMEOUT = 8
+# Yahoo-suffix -> beurscode in de URL van stockanalysis.com
+SA_EXCHANGE = {
+    "T": "tyo", "L": "lon", "PA": "epa", "AS": "ams", "DE": "etr", "MI": "bit",
+    "SW": "swx", "CO": "cph", "ST": "sto", "OL": "osl", "HE": "hel", "MC": "bme",
+    "BR": "ebr", "TO": "tsx", "AX": "asx",
+}
+_SA_QUOTE = re.compile(r"quote:\{([^}]*)\}")
+_SA_PRICE = re.compile(r"(?:^|,)p:([0-9.]+)")
+_SA_ASOF = re.compile(r'(?:^|,)u:"([^"]*)"')
+_SA_CCY = re.compile(r"Price in ([A-Z]{3})|Currency is ([A-Z]{3})")
+
+
+def stockanalysis_path(ticker):
+    """(beurscode, symbool) voor de URL, of None voor een VS-ticker of een
+    beurs die we niet kennen. NOVO-B.CO -> ("cph", "NOVO.B")."""
+    t = (ticker or "").upper()
+    if "." not in t:
+        return None
+    base, suffix = t.rsplit(".", 1)
+    exchange = SA_EXCHANGE.get(suffix)
+    if not exchange or not base:
+        return None
+    return exchange, base.replace("-", ".")
+
+
+def parse_stockanalysis(html) -> dict | None:
+    """De koers uit een quote-pagina, in het koerscontract, of None."""
+    if not isinstance(html, str):
+        return None
+    m = _SA_QUOTE.search(html)
+    if not m:
+        return None
+    price = _SA_PRICE.search(m.group(1))
+    if not price:
+        return None
+    try:
+        value = float(price.group(1))
+    except ValueError:
+        return None
+    if value <= 0:
+        return None
+    asof = _SA_ASOF.search(m.group(1))
+    # "Price in GBX" (de koers) gaat voor "Currency is GBP" (de rapportage).
+    ccy = None
+    for found in _SA_CCY.finditer(html):
+        if found.group(1):
+            ccy = found.group(1)
+            break
+        ccy = ccy or found.group(2)
+    return {"price": value, "asof": asof.group(1) if asof else None,
+            "venue": "stockanalysis", "currency": ccy}
+
+
+def _sa_get(url: str) -> str:
+    import urllib.request
+    from gather_data import _ssl_ctx
+    req = urllib.request.Request(url, headers=_SA_HEADERS)
+    with urllib.request.urlopen(req, timeout=_SA_TIMEOUT, context=_ssl_ctx) as resp:
+        return resp.read().decode("utf-8", "replace")
+
+
+def fetch_stockanalysis_quotes(tickers, fetch=None, max_workers: int = 4) -> dict:
+    """{ticker: quote} voor de buitenlandse tickers die we kunnen vinden.
+    Een ticker zonder pagina of zonder koers valt er stil uit."""
+    fetch = fetch or _sa_get
+    paths = {t: stockanalysis_path(t) for t in tickers or []}
+    paths = {t: p for t, p in paths.items() if p}
+    if not paths:
+        return {}
+
+    def one(item):
+        t, (exchange, sym) = item
+        try:
+            return t, parse_stockanalysis(fetch(SA_URL.format(exchange=exchange.lower(),
+                                                              symbol=sym)))
+        except Exception as e:
+            logger.info("stockanalysis %s: %s", t, e)
+            return t, None
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        return {t: q for t, q in ex.map(one, paths.items()) if q}
+
+
+def frankfurt_ok(ticker, cfg=None) -> bool:
+    """Frankfurt noteert in EUR: alleen bruikbaar voor een EUR-noteringsmunt.
+    Voor een Tokio- of Londen-lijn gaf hij een euro-koers die als yen of
+    pence werd gelezen."""
+    from ticker_currency import listing_currency
+    return listing_currency(ticker, cfg) == "EUR"
+
+
 def _default_yahoo(tickers):
     import tastytrade_api  # laat: zwaar pakket, en de tests hebben het niet nodig
     return tastytrade_api.fetch_current_prices(tickers)
@@ -353,7 +457,7 @@ def _broker_symbol_ok(ticker) -> bool:
 
 
 def live_quotes(tickers, broker=None, isin_by_ticker=None,
-                nasdaq=None, yahoo=None, frankfurt=None) -> dict:
+                nasdaq=None, yahoo=None, frankfurt=None, stockanalysis=None) -> dict:
     """{ticker: quote | None}: de hele keten, elke bron alleen voor de gaten.
 
     Volgorde: broker-feed (alleen als meegegeven -- geauthenticeerd, dus niet
@@ -371,7 +475,8 @@ def live_quotes(tickers, broker=None, isin_by_ticker=None,
     isin_by_ticker = isin_by_ticker or {}
     steps = [("broker", broker),
              ("nasdaq", nasdaq or fetch_nasdaq_quotes),
-             ("yahoo", yahoo or _default_yahoo)]
+             ("yahoo", yahoo or _default_yahoo),
+             ("stockanalysis", stockanalysis or fetch_stockanalysis_quotes)]
 
     out = dict.fromkeys(tickers)
     for name, source in steps:
@@ -386,7 +491,8 @@ def live_quotes(tickers, broker=None, isin_by_ticker=None,
                 out[t] = found[t]
 
     gaps = {t: isin_by_ticker[t] for t in tickers
-            if _live_price(out[t]) is None and isin_by_ticker.get(t)}
+            if _live_price(out[t]) is None and isin_by_ticker.get(t)
+            and frankfurt_ok(t)}
     if gaps:
         found = _ask(frankfurt or fetch_frankfurt_quotes, gaps, "frankfurt")
         for t in gaps:
@@ -418,7 +524,8 @@ def _ask(source, argument, what: str):
         return {}
 
 
-def apply_live_prices(entries: list, primary=None, frankfurt=None) -> list:
+def apply_live_prices(entries: list, primary=None, frankfurt=None,
+                      secondary=None, to_reporting=None) -> list:
     """Zet een live koers op elke watchlist-rij, met de herkomst erbij.
 
     `primary` is de gewone route (broker-feed of Yahoo) en gaat voor.
@@ -430,6 +537,10 @@ def apply_live_prices(entries: list, primary=None, frankfurt=None) -> list:
         price_source  "primary" | de beurscode | "stored"
         price_asof    tijdstempel van de bron, of None
         price_stale   True zodra de opgeslagen koers is blijven staan
+
+    `secondary` (stockanalysis.com) vult daarna de buitenlandse lijnen.
+    `to_reporting(entry, price, quote)` zet een ruwe koers om naar de
+    rapportagemunt van de rij (ticker_currency); None = geen bruikbare koers.
 
     Lukt geen van beide bronnen, dan blijft de opgeslagen koers staan met
     `price_stale: True`. Niet 0: upside, P/E en FCF-yield worden uit dit getal
@@ -447,22 +558,31 @@ def apply_live_prices(entries: list, primary=None, frankfurt=None) -> list:
 
     tickers = [e.get("ticker") for e in entries if e.get("ticker")]
     primary_quotes = _ask(primary, tickers, "primary")
+    missing = [t for t in tickers if _live_price(primary_quotes.get(t)) is None]
+    if secondary is not None and missing:
+        for t, q in _ask(secondary, missing, "secondary").items():
+            if _live_price(q) is not None:
+                primary_quotes[t] = q
 
     gaps = {e["ticker"]: e.get("isin") for e in entries
             if e.get("ticker") and e.get("isin")
-            and _live_price(primary_quotes.get(e["ticker"])) is None}
+            and _live_price(primary_quotes.get(e["ticker"])) is None
+            and frankfurt_ok(e["ticker"], e)}
     frankfurt_quotes = _ask(frankfurt, gaps, "frankfurt") if gaps else {}
 
     for entry in entries:
         ticker = entry.get("ticker")
         quote = primary_quotes.get(ticker)
         price = _live_price(quote)
-        source = "primary"
+        source = (quote or {}).get("venue") or "primary"
 
         if price is None:
             quote = frankfurt_quotes.get(ticker)
             price = _live_price(quote)
             source = (quote or {}).get("venue") or "frankfurt"
+
+        if price is not None and to_reporting is not None:
+            price = to_reporting(entry, price, quote)
 
         if price is None:
             entry["price_source"] = "stored"

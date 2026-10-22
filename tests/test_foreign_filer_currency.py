@@ -156,20 +156,23 @@ def test_a_dollar_filer_passes_through_unchanged():
     fin = {"years": [2025], "revenue": [100.0], "currency": "USD"}
     out, fx = g.to_price_currency(fin, "USD")
     assert out is fin and fx["fx_rate"] == 1.0
-    assert g.currency_fields(fx, "JNJ") == {}      # US configs gain no keys
+    assert g.currency_fields("USD", "JNJ") == {}   # US configs gain no keys
 
 
 # ── add_aspirant's route end to end ────────────────────────────────────
 
-def test_nvo_config_records_currency_rate_and_adr_ratio():
+def test_nvo_config_is_in_dkk_and_only_the_quote_is_converted():
+    """Since 2026-10-22: amounts in the reporting currency, the $60 ADR
+    quote shown as DKK 400 (60 / 0.15)."""
     cfg = _build("NVO", _nvo_facts(), price=60.0)
-    assert cfg["reporting_currency"] == "DKK"
-    assert cfg["fx_rate"] == 0.15 and cfg["fx_date"]
+    assert cfg["reporting_currency"] == "DKK" and cfg["listing_currency"] == "USD"
+    assert cfg["fx_rate"] == pytest.approx(1 / 0.15) and cfg["fx_date"]
     assert cfg["adr_ratio"] == 1                   # 1 ADR = 1 B share (20-F)
     assert "DKK" in cfg["_currency_note"]
-    assert cfg["base_revenue"] == round(309_064 * 0.15)      # USD millions
+    assert cfg["base_revenue"] == 309_064          # DKK millions, as reported
     assert cfg["shares_outstanding"] == 4_444
-    assert cfg["equity_market_value"] == 60.0 * 4_444
+    assert cfg["stock_price"] == pytest.approx(400.0)
+    assert cfg["equity_market_value"] == pytest.approx(400.0 * 4_444)
 
 
 def test_nvo_fundamentals_stay_in_dkk_and_roce_matches_the_balance_sheet():
@@ -188,23 +191,23 @@ def test_nvo_fundamentals_stay_in_dkk_and_roce_matches_the_balance_sheet():
     assert pct == pytest.approx(42.51, abs=0.01)
 
 
-def test_the_fair_value_is_in_the_price_currency():
-    """Restating at one rate scales the per-share value by exactly that
-    rate: the USD fair value equals the DKK fair value times 0.15."""
-    usd = _build("NVO", _nvo_facts(), price=60.0)
-    dkk = dict(usd)
-    for key, val in usd.items():
+def test_fair_value_and_price_share_the_reporting_currency():
+    """The DKK fair value is the dollar fair value over the rate: converting
+    only the quote gives the same upside as restating everything."""
+    dkk = _build("NVO", _nvo_facts(), price=60.0)
+    usd = dict(dkk)
+    for key, val in dkk.items():
         if key in ("hist_revenue", "hist_operating_income", "hist_net_income",
                    "hist_cost_of_revenue", "current_assets", "cash", "st_investments",
                    "current_liabilities", "st_debt", "st_leases", "net_ppe",
                    "goodwill_intang", "operating_cash"):
-            dkk[key] = [v / 0.15 for v in val]
+            usd[key] = [v * 0.15 for v in val]
         elif key in ("base_revenue", "base_oi", "equity_market_value",
                      "debt_market_value", "cash_bridge", "securities",
                      "equity_investments", "minority_interest", "unfunded_pension",
                      "stock_price"):
-            dkk[key] = val / 0.15
-    dkk["debt_breakdown"] = [(n, v / 0.15) for n, v in usd["debt_breakdown"]]
+            usd[key] = val * 0.15
+    usd["debt_breakdown"] = [(n, v * 0.15) for n, v in dkk["debt_breakdown"]]
     fv_usd = compute_intrinsic_value(usd)["intrinsic_value"]
     fv_dkk = compute_intrinsic_value(dkk)["intrinsic_value"]
     assert fv_usd == pytest.approx(fv_dkk * 0.15, rel=1e-3)
@@ -212,10 +215,12 @@ def test_the_fair_value_is_in_the_price_currency():
 
 def test_spot_is_a_direct_listing_in_eur():
     cfg = _build("SPOT", _spot_facts(), price=600.0)
-    assert cfg["reporting_currency"] == "EUR" and cfg["fx_rate"] == 1.12
+    assert cfg["reporting_currency"] == "EUR"
+    assert cfg["fx_rate"] == pytest.approx(1 / 1.12)
     assert cfg["adr_ratio"] == 1
     assert cfg["shares_outstanding"] == 206        # dei cover page, millions
-    assert cfg["base_revenue"] == round(17_186 * 1.12)
+    assert cfg["base_revenue"] == 17_186           # EUR millions
+    assert cfg["stock_price"] == pytest.approx(600 / 1.12)
     assert cfg["fund_slice"]["currency"] == "EUR"
     i = cfg["fund_slice"]["years"].index(2025)
     assert cfg["fund_slice"]["operating_income"][i] == 2_198
@@ -242,7 +247,7 @@ def test_ifrs_current_investments_reach_roce_and_the_cash_bridge():
     cfg = _build("SPOT", _spot_facts(), price=600.0)
     i = cfg["fund_slice"]["years"].index(2025)
     assert cfg["fund_slice"]["short_term_investments"][i] == 4_209     # EUR
-    assert cfg["securities"] == round(4_209 * 1.12)                    # USD
+    assert cfg["securities"] == 4_209                                  # EUR
 
 
 def test_the_ifrs_total_wins_over_its_parts():
