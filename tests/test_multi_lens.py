@@ -924,6 +924,8 @@ def test_list_watchlist_enriched_shape():
         "category", "dcf_placeholder", "promoted_by", "promoted_at",
         # Munt van alle bedragen op de rij, en van de ruwe koers (2026-10-22)
         "currency", "listing_currency",
+        # Return priced in at the last valuation (2026-10-23)
+        "implied_return",
     }
     for row in out:
         assert set(row.keys()) == expected_keys

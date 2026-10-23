@@ -471,6 +471,13 @@ def _get_watchlist_impl(user_id: str | None = None, live_prices: bool = True):
             secondary=quotes.fetch_stockanalysis_quotes,
             frankfurt=quotes.fetch_frankfurt_quotes,
             to_reporting=_quote_to_reporting)
+    # The yardstick for implied_return: what the S&P 500 is priced to
+    # return from today (Damodaran, monthly). One figure, on every row.
+    import index_return
+    idx = index_return.current()
+    for e in entries:
+        e["index_return"] = idx["expected_return"]
+        e["index_return_asof"] = idx["date"]
     return json.dumps(entries, default=str)
 
 

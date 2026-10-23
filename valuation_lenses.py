@@ -473,4 +473,7 @@ def calculate_multi_lens_valuation(cfg, scenario_grid=False):
         "weighted_fv_high": round(weighted_high, 2),
         "current_vs_mid":   round(cvm, 4),
         "buy_price":        round(fv_mid_rounded * (1 - mos), 2),
+        # The return the price is priced to deliver on the DCF's own
+        # assumptions; the watchlist sets it beside the index's (2026-10-23).
+        "implied_return":   dcf_calculator.implied_return(cfg),
     }

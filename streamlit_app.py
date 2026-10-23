@@ -24,6 +24,7 @@ import moat_cards
 import risk_cards
 import risk_page
 import premortem
+import index_return
 import business_cards
 import company_profile
 import company_explainer
@@ -49,6 +50,7 @@ import strategy_attribution
 import summary_page
 from prescan_prompts import DEFAULT_AI_PROMPTS  # noqa: F401  (re-exported; tests use it)
 from error_logger import log_error, log_error_with_trace
+import dcf_calculator
 from dcf_calculator import (compute_wacc, compute_intrinsic_value, compute_reverse_dcf,
                             DEFAULT_DISCOUNT_MODE, DEFAULT_HURDLE_RATE)
 from valuation_lenses import FORWARD_LENSES
@@ -3363,6 +3365,7 @@ def _watchlist_overview():
             'intrinsic': _wl_intrinsic,
             'buy_price': _wl_buy,
             'upside': upside,
+            'implied_return': (cfg_wl.get('valuation_summary') or {}).get('implied_return'),
             'roce_avg': roce_avg,
             'roce_metric': roce_metric,
             'cap_band': _rob_roce.get('band'),
@@ -3417,6 +3420,59 @@ def _watchlist_overview():
         "ROE": "ROE = Net income / Total Equity — used for float businesses where capital employed is too small for a meaningful ROCE",
     }
 
+    _WL_COLS = [0.3, 1.0, 1.6, 0.8, 1.5, 0.8, 0.7, 0.9, 0.6, 0.7, 0.7, 0.3]
+    _idx = index_return.current()
+
+    def _wl_tip(text_val, color, help_text):
+        """A watchlist figure with a hover "?" (CSS span; Streamlit strips
+        title attributes). Shared by the ROCE and Return columns."""
+        import html as _html
+        card = T.get("card", "#ffffff")
+        txt = T.get("text", "#111111")
+        muted = T.get("text_muted", "#888888")
+        border = T.get("border_medium", "#dddddd")
+        shadow = T.get("shadow_hover", "0 6px 20px rgba(0,0,0,0.15)")
+        # Fixed-width right-aligned number box so figures line up under each
+        # other (1 vs 2 digits, decimals) while the cell stays centered.
+        _ns = "display:inline-block;min-width:42px;text-align:right"
+        num = (f'<span style="{_ns};color:{color};font-weight:500">{text_val}</span>'
+               if color else f'<span style="{_ns}">{text_val}</span>')
+        return (
+            f'{num}'
+            f'<span class="cap-tip" style="position:relative;cursor:help;margin-left:5px">'
+            f'<svg width="14" height="14" viewBox="0 0 16 16" fill="none" '
+            f'style="opacity:0.4;vertical-align:middle">'
+            f'<circle cx="8" cy="8" r="7" stroke="{muted}" stroke-width="1.5"/>'
+            f'<text x="8" y="11.5" text-anchor="middle" font-size="10" '
+            f'font-weight="600" fill="{muted}">?</text></svg>'
+            f'<span style="visibility:hidden;opacity:0;position:absolute;right:20px;'
+            f'top:-10px;background:{card};color:{txt};border:1px solid {border};'
+            f'border-radius:8px;padding:9px 12px;font-size:0.75rem;line-height:1.45;'
+            f'font-weight:400;width:230px;white-space:normal;z-index:999;'
+            f'box-shadow:{shadow};pointer-events:none;transition:opacity 0.15s ease">'
+            f'{_html.escape(help_text)}</span></span>'
+            f'<style>.cap-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>'
+        )
+
+    def _return_cell_md(row):
+        """Return priced in at the last valuation vs the index's, green when
+        the share beats the index (owner request 2026-10-23)."""
+        green = T.get("green", "#81b29a")
+        red = T.get("red", "#e07a5f")
+        r = row.get('implied_return')
+        if r is None:
+            return f'<span style="color:{T["text_muted"]}">—</span>'
+        idx = _idx["expected_return"]
+        color = green if r >= idx else (red if r < idx - 0.01 else None)
+        gap = (r - idx) * 100
+        help_text = (f"At the last valuation's price this share is priced to return "
+                     f"{r * 100:.1f}% a year on the DCF's own assumptions. "
+                     f"{index_return.label(_idx)} is what the index is priced to "
+                     f"return from today; {'ahead by' if gap >= 0 else 'behind by'} "
+                     f"{abs(gap):.1f} points. Below the index, the index is the better "
+                     f"buy at this price, whatever the fair value says.")
+        return _wl_tip(f"{r * 100:.1f}%", color, help_text)
+
     def _cap_cell_md(row):
         """HTML for the Capital cell: the figure plus the same circle-"?" hover
         tooltip used on the Financials tab (CSS hover-span, not a `title` attr
@@ -3433,28 +3489,7 @@ def _watchlist_overview():
         border = T.get("border_medium", "#dddddd")
         shadow = T.get("shadow_hover", "0 6px 20px rgba(0,0,0,0.15)")
 
-        def _tip(text_val, color, help_text):
-            # Fixed-width right-aligned number box so figures line up under each
-            # other (1 vs 2 digits, decimals) while the cell stays centered.
-            _ns = "display:inline-block;min-width:42px;text-align:right"
-            num = (f'<span style="{_ns};color:{color};font-weight:500">{text_val}</span>'
-                   if color else f'<span style="{_ns}">{text_val}</span>')
-            return (
-                f'{num}'
-                f'<span class="cap-tip" style="position:relative;cursor:help;margin-left:5px">'
-                f'<svg width="14" height="14" viewBox="0 0 16 16" fill="none" '
-                f'style="opacity:0.4;vertical-align:middle">'
-                f'<circle cx="8" cy="8" r="7" stroke="{muted}" stroke-width="1.5"/>'
-                f'<text x="8" y="11.5" text-anchor="middle" font-size="10" '
-                f'font-weight="600" fill="{muted}">?</text></svg>'
-                f'<span style="visibility:hidden;opacity:0;position:absolute;right:20px;'
-                f'top:-10px;background:{card};color:{txt};border:1px solid {border};'
-                f'border-radius:8px;padding:9px 12px;font-size:0.75rem;line-height:1.45;'
-                f'font-weight:400;width:230px;white-space:normal;z-index:999;'
-                f'box-shadow:{shadow};pointer-events:none;transition:opacity 0.15s ease">'
-                f'{_html.escape(help_text)}</span></span>'
-                f'<style>.cap-tip:hover span{{visibility:visible!important;opacity:1!important}}</style>'
-            )
+        _tip = _wl_tip
 
         band, metric, value = row.get('cap_band'), row.get('cap_metric'), row.get('cap_value')
         basis = row.get('cap_basis')
@@ -3488,10 +3523,20 @@ def _watchlist_overview():
         return _tip(f"{rv:.1f}%", color, help_text) + _suffix(rm)
 
     def _render_wl_header():
-        hdr = st.columns([0.3, 1.0, 1.6, 0.8, 1.5, 0.8, 0.7, 0.6, 0.7, 0.7, 0.3])
-        _wl_hdr = ["", "Ticker", "Company", "Price", "Fair Value", "Buy", "Upside", "ROCE", "FCF Yield", "Earnings", ""]
+        hdr = st.columns(_WL_COLS)
+        _wl_hdr = ["", "Ticker", "Company", "Price", "Fair Value", "Buy", "Upside", "Return",
+                   "ROCE", "FCF Yield", "Earnings", ""]
         for col, label in zip(hdr, _wl_hdr):
             if not label:
+                continue
+            if label == "Return":
+                # What the price is priced to return on the DCF's own
+                # assumptions, against what the index is priced to return.
+                col.markdown(
+                    '<div style="text-align:center;white-space:nowrap"><b>Return</b> '
+                    f'<span style="color:{T["text_muted"]};font-weight:400;font-size:0.8rem">'
+                    f'idx {_idx["expected_return"] * 100:.1f}%</span></div>',
+                    unsafe_allow_html=True)
                 continue
             if label == "ROCE":
                 # Centered header above the centered figure column. Named for
@@ -3505,7 +3550,7 @@ def _watchlist_overview():
     def _render_wl_row(row):
         t = row['ticker']
         up_color = "green" if row['upside'] > 0 else "red"
-        cols = st.columns([0.3, 1.0, 1.6, 0.8, 1.5, 0.8, 0.7, 0.6, 0.7, 0.7, 0.3], vertical_alignment="center")
+        cols = st.columns(_WL_COLS, vertical_alignment="center")
         with cols[0]:
             if st.button("", key=f"wl_edit_{t}", icon=":material/edit:"):
                 st.query_params["edit"] = t
@@ -3545,23 +3590,26 @@ def _watchlist_overview():
         )
         cols[5].markdown(f"{row.get('symbol', '$')}{row['buy_price']:.2f}")
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
+        cols[7].markdown(
+            f'<div style="text-align:center;white-space:nowrap">{_return_cell_md(row)}</div>',
+            unsafe_allow_html=True)
         # Capital returns — figure + per-cell "?" tooltip. Cell centered; the
         # fixed-width number box inside keeps the figures aligned under each other.
-        cols[7].markdown(
+        cols[8].markdown(
             f'<div style="text-align:center;white-space:nowrap">{_cap_cell_md(row)}</div>',
             unsafe_allow_html=True,
         )
         if row['fcf_yield'] is not None:
-            cols[8].markdown(f"{row['fcf_yield']:.1%}")
+            cols[9].markdown(f"{row['fcf_yield']:.1%}")
         elif row['fcf_unavailable']:
             # SEC fetch failed — say so rather than implying the filer has no FCF
-            cols[8].markdown(
+            cols[9].markdown(
                 f'<span title="SEC EDGAR unavailable — retries on next refresh" '
                 f'style="color:{T["text_muted"]}">⚠</span>',
                 unsafe_allow_html=True,
             )
         else:
-            cols[8].markdown("—")
+            cols[9].markdown("—")
         _earn = _earnings_map.get(t)
         if _earn and _earn.get('date'):
             _days_to_earn = (_earn['date'] - date.today()).days
@@ -3573,19 +3621,19 @@ def _watchlist_overview():
                     _earn_col = T['text_muted']
                 else:
                     _earn_col = T['text']
-                cols[9].markdown(
+                cols[10].markdown(
                     f'<span style="color:{_earn_col}">{_earn["date"].strftime("%b %d")}{_earn_est}</span>',
                     unsafe_allow_html=True,
                 )
             else:
                 _next_est = _earn['date'] + timedelta(days=91)
-                cols[9].markdown(
+                cols[10].markdown(
                     f'<span style="color:{T["text_muted"]};font-size:0.85rem">~{_next_est.strftime("%b %d")}</span>',
                     unsafe_allow_html=True,
                 )
         else:
-            cols[9].markdown("—")
-        with cols[10]:
+            cols[10].markdown("—")
+        with cols[11]:
             # Aspirant is the only pile the MCP won't let the AI clear out on its
             # own (it can only promote or set No) — the human veto lives here.
             if row.get('category') == 'Aspirant' and st.button(
@@ -4170,7 +4218,10 @@ def _dcf_editor(ticker):
             ("Scores", _summary_scores),
             ("Verdict", lambda: summary_page.verdict_section_html(
                 _snotes.get("Investment Summary"), cfg.get("valuation_summary"),
-                live_price, T, symbol=_hs.strip())),
+                live_price, T, symbol=_hs.strip(),
+                implied=dcf_calculator.implied_return(
+                    dict(cfg, stock_price=live_price) if live_price > 0 else cfg),
+                index=index_return.current())),
             ("Scorecard", lambda: summary_page.scorecard_section_html(
                 _parse_scorecard_json(_snotes.get("Scorecard") or "")
                 if isinstance(_snotes.get("Scorecard"), str) else None, T)),

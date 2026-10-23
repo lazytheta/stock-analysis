@@ -427,6 +427,9 @@ def list_watchlist(client, user_id=None, tickers=None):
             "fv_high": summary.get("weighted_fv_high"),
             "buy_price": summary.get("buy_price"),
             "current_vs_mid": summary.get("current_vs_mid"),
+            # Yearly return priced in at the last valuation's price, on the
+            # DCF's own assumptions; compare with index_return.current().
+            "implied_return": summary.get("implied_return"),
             "lens_count": lens_count,
             "verdict": _vp["verdict"],
             "phase":   _vp["phase"],

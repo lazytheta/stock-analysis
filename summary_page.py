@@ -328,12 +328,43 @@ def _valuation_card(valuation_summary, price, theme, symbol="$"):
     return f'<div class="vb-card">{top}{bar}<div class="vb-chips">{chips}</div></div>'
 
 
-def verdict_section_html(investment_summary_text, valuation_summary, price, theme, symbol="$"):
+def return_vs_index_html(implied, index) -> str:
+    """One line under the fair-value card: what the price is priced to return
+    on the DCF's own assumptions, against what the S&P 500 is priced to
+    return from today (owner request 2026-10-23). "" without a figure."""
+    r = _num(implied)
+    idx = _num((index or {}).get("expected_return"))
+    if r is None or idx is None:
+        return ""
+    gap = (r - idx) * 100
+    when = str((index or {}).get("date") or "")[:7]
+    if gap >= 0:
+        tone, verdict = _GREEN, f"beats the index by {gap:.1f} points"
+    elif gap > -1:
+        tone, verdict = _AMBER, "about the same as the index"
+    else:
+        tone, verdict = _RED, "the index is the better buy at this price"
+    return (f'<div class="vb-ret"><b style="color:{tone}">Priced to return {r * 100:.1f}% a year</b>'
+            f' &middot; S&amp;P 500 {idx * 100:.1f}% (Damodaran, {qc.esc(when)}) &middot; '
+            f'<span style="color:{tone}">{qc.esc(verdict)}</span></div>')
+
+
+def verdict_section_html(investment_summary_text, valuation_summary, price, theme, symbol="$",
+                         implied=None, index=None):
     """White section "Verdict": the Investment Summary as a verdict block,
-    then the price against the fair-value band. Never raises."""
+    then the price against the fair-value band and, below it, the return the
+    price implies against the index's. Never raises."""
+    try:
+        ret = return_vs_index_html(implied, index)
+    except Exception:
+        ret = ""
     inner = (_verdict_block(investment_summary_text, theme)
-             + _valuation_card(valuation_summary, price, theme, symbol))
-    return qc.section_html("Verdict", qc.css(STYLE) + inner)
+             + _valuation_card(valuation_summary, price, theme, symbol) + ret)
+    return qc.section_html("Verdict", qc.css(STYLE + RET_STYLE) + inner)
+
+
+RET_STYLE = ("<style>.vb-ret{margin-top:10px;font-size:13.5px;color:var(--text);"
+             "line-height:1.5}</style>")
 
 
 # ── Green / red flags ────────────────────────────────────────────────────────

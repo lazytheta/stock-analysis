@@ -289,6 +289,47 @@ def find_implied_value(cfg, wacc, param, lo, hi, target_price, tol=0.5, max_iter
     return (lo + hi) / 2
 
 
+def implied_return(cfg, lo=None, hi=0.30, tol=1e-5):
+    """The yearly return the current price is priced to deliver: the
+    discount rate at which this config's DCF equals stock_price, with the
+    cash-flow assumptions as they stand (owner request 2026-10-23).
+
+    Set beside what the index is priced to return (index_return.current)
+    it answers "why this share and not the index" directly: 6.4% against
+    the index's 9.0% says index, whatever the fair value says.
+
+    Per-year and terminal discount overrides are ignored: they encode the
+    hurdle, and the hurdle is the unknown here. Searches from just above
+    the terminal growth (the perpetuity is undefined below it) to `hi`;
+    None when the price is outside that range or the DCF fails."""
+    price = cfg.get("stock_price")
+    if not price or price <= 0:
+        return None
+    base = {k: v for k, v in cfg.items() if k not in ("wacc_per_year", "terminal_wacc")}
+    base["discount_mode"] = "hurdle"
+    tg = float(cfg.get("terminal_growth") or 0.0)
+    lo = max(lo if lo is not None else 0.0, tg + 0.005)
+
+    def value(rate):
+        try:
+            return compute_intrinsic_value(dict(base, hurdle_rate=rate))["intrinsic_value"]
+        except Exception:
+            return None
+
+    v_lo, v_hi = value(lo), value(hi)
+    if v_lo is None or v_hi is None or (v_lo - price) * (v_hi - price) > 0:
+        return None
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        v = value(mid)
+        if v is None:
+            return None
+        if abs(v - price) < 1e-6 or hi - lo < tol:
+            return round(mid, 5)
+        lo, hi = (mid, hi) if v > price else (lo, mid)
+    return round((lo + hi) / 2, 5)
+
+
 def compute_reverse_dcf(cfg, wacc=None, growth_range=None, margin_range=None):
     """Compute reverse DCF: implied metrics and sensitivity matrix.
 
