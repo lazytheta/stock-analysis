@@ -4218,6 +4218,9 @@ def _dcf_editor(ticker):
         except Exception as e:
             logger.warning("cash flow statement for %s failed: %s", ticker, e)
             _crcf = None
+        # No EDGAR statement (hand-entered tickers): build one from the
+        # fundamentals' cash-return fields (capital_return.cashflow_from_fund).
+        _crcf = capital_return.effective_cashflow(fund, _crcf)
         _crprice = live_price if live_price and live_price > 0 else None
         _crmuted = T.get("text_muted", "#888")
 

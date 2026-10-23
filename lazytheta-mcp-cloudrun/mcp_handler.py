@@ -469,7 +469,12 @@ TOOLS: list[dict] = [
             "goodwill, intangibles, ppe, da, gross_profit, eps, "
             "dividends_per_share, short_term_debt, "
             "operating_lease_liabilities, finance_lease_liabilities, "
-            "pension_liabilities."
+            "pension_liabilities, short_term_investments, "
+            "long_term_investments, and -- for filers without an EDGAR "
+            "cash-flow statement -- dividends_paid, stock_buybacks, "
+            "stock_issuance, debt_repayment, debt_issuance (positive $M in "
+            "the reporting currency; they feed the Capital Return tab). "
+            "capex is negative (an outflow)."
         ),
         "inputSchema": {
             "type": "object",

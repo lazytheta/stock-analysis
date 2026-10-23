@@ -49,7 +49,8 @@ DEBT_COLOUR = "#9aa0a6"
 _INNER = "var(--qc-inner, color-mix(in srgb, var(--text) 4%, var(--card)))"
 
 CR_STYLE = f"""<style>
-.cr-tiles{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}}
+.cr-tiles{{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:16px}}
+@media (max-width:1100px){{.cr-tiles{{grid-template-columns:repeat(3,minmax(0,1fr))}}}}
 @media (max-width:900px){{.cr-tiles{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 @media (max-width:480px){{.cr-tiles{{grid-template-columns:minmax(0,1fr)}}}}
 .cr-tile{{background:{_INNER};border-radius:16px;padding:16px 18px;box-sizing:border-box;
@@ -139,6 +140,55 @@ def _year_flows(fund, cashflow, year):
     }
 
 
+# ── hand-entered cash flows (2026-10-23) ──────────────────────────────────
+#
+# Everything above reads the EDGAR cash-flow statement. A filer without one
+# (RMS.PA, AIR.PA: source "manual") left the headline, the cash-use chart and
+# the dividend section empty although its fundamentals carry the figures.
+# cashflow_from_fund builds the same statement shape from the hand-entered
+# fields; when dividends_paid is missing it falls back to dividend per share x
+# shares, and says so in `estimated`.
+
+CASHFLOW_FIELDS = ("dividends_paid", "stock_buybacks", "stock_issuance",
+                   "debt_repayment", "debt_issuance")
+
+
+def cashflow_from_fund(fund) -> dict | None:
+    """A cash-flow statement ({"years", field: [...], "estimated": [years]})
+    from hand-entered fundamentals, or None when they carry none."""
+    fund = fund or {}
+    years = list(fund.get("years") or [])
+    if not years:
+        return None
+
+    def col(key):
+        vals = list(fund.get(key) or [])
+        return (vals + [None] * len(years))[:len(years)]
+
+    cols = {k: col(k) for k in CASHFLOW_FIELDS}
+    dps, shares = col("dividends_per_share"), col("shares")
+    out = {"years": [], "estimated": [], **{k: [] for k in CASHFLOW_FIELDS}}
+    for i, y in enumerate(years):
+        row = {k: cols[k][i] for k in CASHFLOW_FIELDS}
+        if row["dividends_paid"] is None and dps[i] and shares[i]:
+            row["dividends_paid"] = dps[i] * shares[i] / 1e6
+            out["estimated"].append(y)
+        if all(v is None for v in row.values()):
+            continue
+        out["years"].append(y)
+        for k in CASHFLOW_FIELDS:
+            out[k].append(abs(row[k]) if row[k] is not None else None)
+    return out if out["years"] else None
+
+
+def effective_cashflow(fund, cashflow):
+    """The EDGAR statement when it covers the fiscal year, else the one
+    built from hand-entered fundamentals (or whatever there was)."""
+    if _covers(cashflow, _fiscal_year(fund)):
+        return cashflow
+    return cashflow_from_fund(fund) or cashflow
+
+
 # ── pure computations ──────────────────────────────────────────────────────
 
 def annual_flows(fund, cashflow, years: int = WINDOW) -> list[dict]:
@@ -180,7 +230,7 @@ def headline(fund, cashflow, price) -> dict:
     out = {"fy": fy, "market_cap_m": None, "shareholder_yield": None,
            "dividend_yield": None, "share_cagr_5y": _share_cagr(fund, fy),
            "fcf_returned_5y": None, "dividends_5y": None, "buybacks_5y": None,
-           "fcf_5y": None}
+           "fcf_5y": None, "total_yield": None}
     price = _num(price)
     mcap = pp._mcap(fund, price) if price else None
     out["market_cap_m"] = mcap
@@ -189,9 +239,15 @@ def headline(fund, cashflow, price) -> dict:
     if last is not None and mcap:
         out["dividend_yield"] = last["dividends"] / mcap
         out["shareholder_yield"] = (last["dividends"] + last["net_buybacks"]) / mcap
+        # The Key figures' "total shareholder yield" (until 2026-10-23 on the
+        # Business tab): dividends + net buybacks + net debt paid down.
+        out["total_yield"] = (last["dividends"] + last["net_buybacks"]
+                              + last["debt_paydown"]) / mcap
 
     rows = [r for r in (_year_flows(fund, cashflow, y) for y in _window(fy, RETURN_YEARS))
             if r is not None]
+    out["estimated_years"] = [y for y in ((cashflow or {}).get("estimated") or [])
+                              if y in _window(fy, RETURN_YEARS)]
     if rows:
         out["dividends_5y"] = sum(r["dividends"] for r in rows)
         out["buybacks_5y"] = sum(r["buybacks"] for r in rows)
@@ -427,6 +483,40 @@ def shares_figure(years, shares, theme) -> go.Figure:
 
 # ── HTML ───────────────────────────────────────────────────────────────────
 
+VERDICT_LABELS = ("Low", "Moderate", "Generous")
+_VERDICT_TONE = {1: "#c0603f", 2: "#c79a3a", 3: "#2f8f4e"}
+
+
+def verdict(h) -> tuple | None:
+    """(level 1-3, reason) from the headline figures, or None without data.
+
+    Generous: gives back at least three quarters of free cash flow (5 years)
+      without diluting, or a shareholder yield of 4%+.
+    Low: gives back under 30% of free cash flow, dilutes more than 2% a year,
+      or returns nothing.
+    Moderate: everything in between. Rule-based, no AI text."""
+    h = h or {}
+    ratio = _num(h.get("fcf_returned_5y"))
+    sy = _num(h.get("shareholder_yield"))
+    cagr = _num(h.get("share_cagr_5y"))
+    div5, buy5 = _num(h.get("dividends_5y")), _num(h.get("buybacks_5y"))
+    if ratio is None and sy is None:
+        return None
+    if cagr is not None and cagr > 0.02:
+        return 1, f"dilutes about {cagr * 100:.1f}% a year"
+    if (div5 or 0) <= 0 and (buy5 or 0) <= 0:
+        return 1, "returns no cash to shareholders"
+    if ratio is not None and ratio < 0.30:
+        return 1, f"gives back only {round(ratio * 100)}% of free cash flow"
+    if (ratio is not None and ratio >= 0.75 and (cagr is None or cagr <= FLAT_SHARES)) \
+            or (sy is not None and sy >= 0.04):
+        why = (f"gives back {round(ratio * 100)}% of free cash flow"
+               if ratio is not None and ratio >= 0.75 else f"{sy * 100:.1f}% shareholder yield")
+        return 3, why
+    return 2, (f"gives back {round(ratio * 100)}% of free cash flow" if ratio is not None
+               else f"{sy * 100:.1f}% shareholder yield")
+
+
 def _pct(x, signed=False):
     return om.fmt_pct(_num(x), signed=signed)
 
@@ -452,13 +542,24 @@ def headline_section_html(h) -> str:
                   "change per year over 5 years"),
             _tile("FCF returned", _pct(h.get("fcf_returned_5y")),
                   "dividends + buybacks / free cash flow, 5 years"),
+            _tile("Incl. debt paydown", _pct(h.get("total_yield")),
+                  f"shareholder yield + net debt repaid, {fy_txt}"),
         ]
         sentence = summary_sentence(h)
+        v = verdict(h)
+        bar = (qc.score_bar_html(v[0], list(VERDICT_LABELS), _VERDICT_TONE[v[0]])
+               if v else "")
+        if v:
+            sentence = f"{VERDICT_LABELS[v[0] - 1]}: {v[1]}. {sentence}"
+        if h.get("estimated_years"):
+            yrs = ", ".join(str(y) for y in h["estimated_years"])
+            sentence += (f" Dividends for {yrs} are estimated as dividend per share x "
+                         "shares (no cash-flow statement).")
     except Exception:
-        tiles, sentence = [_tile(n, DASH, "") for n in
-                           ("Shareholder yield", "Dividend yield", "Share count",
-                            "FCF returned")], NO_DATA
-    inner = (f'{qc.css(CARD_STYLE, CR_STYLE)}<div class="cr-tiles">{"".join(tiles)}</div>'
+        tiles, sentence, bar = [_tile(n, DASH, "") for n in
+                                ("Shareholder yield", "Dividend yield", "Share count",
+                                 "FCF returned", "Incl. debt paydown")], NO_DATA, ""
+    inner = (f'{qc.css(CARD_STYLE, CR_STYLE)}{bar}<div class="cr-tiles">{"".join(tiles)}</div>'
              f'<p class="cr-sentence">{qc.esc(sentence)}</p>')
     return qc.section_html("Capital return", inner)
 

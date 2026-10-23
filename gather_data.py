@@ -3095,6 +3095,11 @@ OVERRIDABLE_FUNDAMENTALS_FIELDS = (
     "short_term_debt", "operating_lease_liabilities",
     "finance_lease_liabilities", "pension_liabilities",
     "short_term_investments", "long_term_investments",
+    # Cash returned and raised, positive amounts ($M). Only for filers
+    # without an EDGAR cash-flow statement (hand-entered, e.g. RMS.PA):
+    # Capital Return reads them via capital_return.cashflow_from_fund.
+    "dividends_paid", "stock_buybacks", "stock_issuance",
+    "debt_repayment", "debt_issuance",
 )
 
 
@@ -3358,6 +3363,10 @@ def fetch_fundamentals(ticker, n_years=10, manual_currency=None):
         "finance_lease_liabilities", "pension_liabilities",
         # Marketable holdings for the ROCE excess-liquidity strip
         "short_term_investments", "long_term_investments",
+        # Hand-entered cash returns (no EDGAR source; see
+        # OVERRIDABLE_FUNDAMENTALS_FIELDS)
+        "dividends_paid", "stock_buybacks", "stock_issuance",
+        "debt_repayment", "debt_issuance",
     ]
 
     def _safe(val):
