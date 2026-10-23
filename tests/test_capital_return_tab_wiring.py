@@ -12,7 +12,7 @@ def _block():
 
 
 def test_tab_list_has_capital_return_after_summary_and_no_dividend_tab():
-    assert ('"Risk", "Summary", "Pre-mortem", "Capital Return", "Earnings", "Financials", "DCF", '
+    assert ('"Risk", "Summary", "Pre-mortem", "Capital Return", "Earnings", "DCF", '
             '"Reverse DCF", "Peer Comparison", "History"]') in SRC
     assert "_tab_summary, _tab_premortem, _tab_capital," in SRC
     tabs = SRC[SRC.index("= st.tabs(\n        [\"Business\""):]

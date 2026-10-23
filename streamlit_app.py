@@ -3892,8 +3892,8 @@ def _dcf_editor(ticker):
     (_tab_business, _tab_moat,
      _tab_growth, _tab_management, _tab_risk, _tab_summary, _tab_premortem, _tab_capital,
      _tab_earnings,
-     _tab_financials, _tab_dcf, _tab_rdcf, _tab_peers, _tab_history) = st.tabs(
-        ["Business", "Moat", "Growth", "Management", "Risk", "Summary", "Pre-mortem", "Capital Return", "Earnings", "Financials", "DCF", "Reverse DCF", "Peer Comparison", "History"])
+     _tab_dcf, _tab_rdcf, _tab_peers, _tab_history) = st.tabs(
+        ["Business", "Moat", "Growth", "Management", "Risk", "Summary", "Pre-mortem", "Capital Return", "Earnings", "DCF", "Reverse DCF", "Peer Comparison", "History"])
 
     # Business (the former Overview and Business tabs, merged 2026-10-06):
     # Company (profile + at a glance), What the company does, Revenue
@@ -4026,6 +4026,10 @@ def _dcf_editor(ticker):
             st.markdown(_ometrics_html, unsafe_allow_html=True)
         else:
             st.caption("Key figures unavailable right now.")
+        # The former Financials tab (2026-10-23): the same themes as Key
+        # figures, over ten years. Drawn further down (with _biz_financials)
+        # so its long block keeps its place in the file.
+        _biz_financials = st.container()
 
     # Business: overview and customer profile, revenue by segment and region,
     # then the four business-quality cards. Read-only, like Moat and Risk.
@@ -5253,7 +5257,7 @@ def _dcf_editor(ticker):
                     else:
                         st.warning("Could not fetch peer data. Check the ticker(s).")
 
-    with _tab_financials:
+    with _biz_financials:
         if _fund_error is not None:
             raise _fund_error
         _yrs = fund['years']

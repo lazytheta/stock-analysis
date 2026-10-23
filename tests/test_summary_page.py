@@ -295,7 +295,7 @@ def _src():
 def test_summary_tab_follows_risk_and_pre_scan_is_gone():
     src = _src()
     assert ('["Business", "Moat", "Growth", "Management", "Risk", "Summary", '
-            '"Pre-mortem", "Capital Return", "Earnings", "Financials", "DCF",') in src
+            '"Pre-mortem", "Capital Return", "Earnings", "DCF",') in src
     assert "_tab_risk, _tab_summary," in src
     assert '"Pre-Scan"' not in src and "with _tab_notes:" not in src
     assert "_gemini_run" not in src

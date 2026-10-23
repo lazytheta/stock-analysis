@@ -17,7 +17,7 @@ THEME = {"text": "#222", "text_muted": "#888", "chart_font": "#1d1d1f", "accent"
 
 
 def _block():
-    start = SRC.index("with _tab_financials:")
+    start = SRC.index("with _biz_financials:")
     return SRC[start:SRC.index("with _tab_dcf:", start)]
 
 
@@ -85,10 +85,14 @@ def test_chart_config_hides_modebar():
 
 # ── wiring ─────────────────────────────────────────────────────────────────
 
-def test_tab_label_is_financials():
+def test_financials_live_on_the_business_tab():
+    """Owner, 2026-10-23: the Financials charts moved under Key figures on
+    the Business tab; there is no separate tab any more."""
     tabs = SRC[SRC.index('= st.tabs(\n        ["Business"'):]
     tabs = tabs[:tabs.index("])")]
-    assert '"Financials"' in tabs
+    assert '"Financials"' not in tabs and "_tab_financials" not in SRC
+    biz = SRC[SRC.index("    with _tab_business:"):SRC.index("    with _tab_moat:")]
+    assert biz.index("key_figures_section_html") < biz.index("_biz_financials = st.container()")
     assert '"Fundamentals"' not in tabs
     assert "_tab_fundamentals" not in SRC
     assert re.search(r"^import financials_page$", SRC, re.M)
