@@ -237,7 +237,7 @@ def test_key_figures_without_fiscal_year():
 
 def test_ticker_page_has_overview_tab_first():
     src = open("streamlit_app.py", encoding="utf-8").read()
-    assert '["Business", "Moat", "Growth", "Management", "Risk", "Summary", "Pre-mortem", "Capital Return", "Earnings", "DCF"' in src
+    assert '["Pre-mortem", "Summary", "Business", "Moat", "Growth", "Management", "Risk", "Capital Return", "Earnings", "DCF"' in src
     assert "overview_page.company_section_html(" in src
     # Key figures now open each Financials block as a strip (2026-10-23).
     assert "overview_page.key_figures_strip_html(" in src

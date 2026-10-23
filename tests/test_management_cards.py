@@ -316,8 +316,8 @@ def test_management_cards_does_not_import_prescan_render_at_module_load():
 
 def test_ticker_page_has_a_management_tab_after_growth():
     src = (ROOT / "streamlit_app.py").read_text(encoding="utf-8")
-    assert ('["Business", "Moat", "Growth", "Management", "Risk", '
-            '"Summary", "Pre-mortem", "Capital Return", "Earnings", "DCF",') in src
+    assert ('["Pre-mortem", "Summary", "Business", "Moat", '
+            '"Growth", "Management", "Risk", "Capital Return", "Earnings", "DCF",') in src
     assert "_tab_growth, _tab_management, _tab_risk" in src
     assert re.search(r"^import management_page$", src, re.M)
     start = src.index("with _tab_management:")

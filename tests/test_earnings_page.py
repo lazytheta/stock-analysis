@@ -254,7 +254,7 @@ def _block():
 
 
 def test_tab_list_has_earnings_after_capital_return():
-    assert ('"Summary", "Pre-mortem", "Capital Return", "Earnings", "DCF",') in SRC
+    assert ('"Risk", "Capital Return", "Earnings", "DCF",') in SRC
     assert re.search(r"_tab_capital,\s+_tab_earnings,\s+_tab_dcf", SRC)
     assert re.search(r"^import earnings_page$", SRC, re.M)
     assert SRC.index("with _tab_capital:") < SRC.index("with _tab_earnings:")

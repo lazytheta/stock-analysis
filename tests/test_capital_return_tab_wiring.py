@@ -12,10 +12,10 @@ def _block():
 
 
 def test_tab_list_has_capital_return_after_summary_and_no_dividend_tab():
-    assert ('"Risk", "Summary", "Pre-mortem", "Capital Return", "Earnings", "DCF", '
+    assert ('"Risk", "Capital Return", "Earnings", "DCF", '
             '"Reverse DCF", "Peer Comparison", "History"]') in SRC
-    assert "_tab_summary, _tab_premortem, _tab_capital," in SRC
-    tabs = SRC[SRC.index("= st.tabs(\n        [\"Business\""):]
+    assert "_tab_risk, _tab_capital," in SRC
+    tabs = SRC[SRC.index("= st.tabs(\n        [\"Pre-mortem\""):]
     tabs = tabs[:tabs.index("])")]
     assert '"Dividend"' not in tabs
     assert "_tab_dividend" not in SRC

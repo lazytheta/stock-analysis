@@ -315,7 +315,7 @@ def test_moat_cards_does_not_import_prescan_render_at_module_load():
 
 def test_ticker_page_has_a_moat_tab_after_phase():
     src = open("streamlit_app.py", encoding="utf-8").read()
-    assert '["Business", "Moat", "Growth", "Management", "Risk", "Summary", "Pre-mortem", "Capital Return", "Earnings", "DCF"' in src
+    assert '["Pre-mortem", "Summary", "Business", "Moat", "Growth", "Management", "Risk", "Capital Return", "Earnings", "DCF"' in src
     assert "moat_cards.cards_section_html(" in src
     assert "moat_cards.summary_row_html(" in src
 

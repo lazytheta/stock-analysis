@@ -3889,11 +3889,12 @@ def _dcf_editor(ticker):
         logger.warning("fundamentals for %s failed: %s", ticker, e)
         _fund_error, fund = e, {}
 
-    (_tab_business, _tab_moat,
-     _tab_growth, _tab_management, _tab_risk, _tab_summary, _tab_premortem, _tab_capital,
+    # Pre-mortem first, then Summary: the two the owner opens most (2026-10-23).
+    (_tab_premortem, _tab_summary, _tab_business, _tab_moat,
+     _tab_growth, _tab_management, _tab_risk, _tab_capital,
      _tab_earnings,
      _tab_dcf, _tab_rdcf, _tab_peers, _tab_history) = st.tabs(
-        ["Business", "Moat", "Growth", "Management", "Risk", "Summary", "Pre-mortem", "Capital Return", "Earnings", "DCF", "Reverse DCF", "Peer Comparison", "History"])
+        ["Pre-mortem", "Summary", "Business", "Moat", "Growth", "Management", "Risk", "Capital Return", "Earnings", "DCF", "Reverse DCF", "Peer Comparison", "History"])
 
     # Business (the former Overview and Business tabs, merged 2026-10-06):
     # Company (profile + at a glance), What the company does, Revenue

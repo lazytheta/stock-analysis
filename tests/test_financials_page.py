@@ -88,7 +88,7 @@ def test_chart_config_hides_modebar():
 def test_financials_live_on_the_business_tab():
     """Owner, 2026-10-23: the Financials charts moved under Key figures on
     the Business tab; there is no separate tab any more."""
-    tabs = SRC[SRC.index('= st.tabs(\n        ["Business"'):]
+    tabs = SRC[SRC.index('= st.tabs(\n        ["Pre-mortem"'):]
     tabs = tabs[:tabs.index("])")]
     assert '"Financials"' not in tabs and "_tab_financials" not in SRC
     biz = SRC[SRC.index("    with _tab_business:"):SRC.index("    with _tab_moat:")]
