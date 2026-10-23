@@ -373,3 +373,49 @@ def key_figures_section_html(metrics: dict) -> str:
     ]
     inner = f'<div class="ov-metrics">{"".join(cards)}</div>'
     return qc.css(CARD_STYLE, METRICS_STYLE) + qc.section_html("Key figures", inner)
+
+
+# ── Key figures as a strip above each Financials block (2026-10-23) ────────
+#
+# Key figures used to be four cards and the ten-year charts a separate block
+# further down, so every theme appeared twice. Now each chart block on the
+# Business tab opens with its current figures as one row of tiles:
+#   profitability -> Profitability, health -> Balance sheet,
+#   valuation -> Valuation. Shareholder returns live on the Capital Return tab.
+
+STRIP_STYLE = """<style>
+.ov-strip{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 18px;
+  background:var(--qc-inner, color-mix(in srgb, var(--text) 4%, var(--card)));
+  border-radius:14px;padding:14px 16px;margin:0 0 16px}
+@media (min-width:800px){.ov-strip{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.ov-sval{font-size:20px;font-weight:700;color:var(--text);line-height:1.2;margin:2px 0 0;white-space:nowrap}
+.ov-sval.ov-pos{color:var(--green, #2e7d32)}
+.ov-scap{font-size:11.5px;color:var(--text-muted);margin-top:2px}
+</style>"""
+
+
+def _strip_value(kind, label, v):
+    if kind == "health" and label in _MONEY:
+        return om.fmt_money_m(v)
+    if kind in ("health", "valuation"):
+        return om.fmt_mult(v)
+    return om.fmt_pct(v)
+
+
+def key_figures_strip_html(kind: str, metrics: dict | None) -> str:
+    """One row of tiles with the current figures of one Key figures group
+    ("profitability", "health" or "valuation"); "" when there are none."""
+    rows = (metrics or {}).get(kind) or []
+    if not rows:
+        return ""
+    fy = (metrics or {}).get("fy")
+    cap = {"profitability": f"FY{fy}" if fy else "latest year",
+           "health": f"end of FY{fy}" if fy else "latest balance sheet",
+           "valuation": "at current price"}.get(kind, "")
+    tiles = []
+    for label, v in rows:
+        cls = "ov-sval ov-pos" if _good(label, v) else "ov-sval"
+        tiles.append(f'<div><div class="ov-lbl">{qc.esc(label.upper())}{_help(label)}</div>'
+                     f'<div class="{cls}">{qc.esc(_strip_value(kind, label, v))}</div>'
+                     f'<div class="ov-scap">{qc.esc(cap)}</div></div>')
+    return qc.css(CARD_STYLE, STRIP_STYLE) + f'<div class="ov-strip">{"".join(tiles)}</div>'

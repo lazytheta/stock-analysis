@@ -92,7 +92,7 @@ def test_financials_live_on_the_business_tab():
     tabs = tabs[:tabs.index("])")]
     assert '"Financials"' not in tabs and "_tab_financials" not in SRC
     biz = SRC[SRC.index("    with _tab_business:"):SRC.index("    with _tab_moat:")]
-    assert biz.index("key_figures_section_html") < biz.index("_biz_financials = st.container()")
+    assert biz.index("overview_metrics.compute(") < biz.index("_biz_financials = st.container()")
     assert '"Fundamentals"' not in tabs
     assert "_tab_fundamentals" not in SRC
     assert re.search(r"^import financials_page$", SRC, re.M)

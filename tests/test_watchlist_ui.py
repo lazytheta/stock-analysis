@@ -7,6 +7,15 @@ import pytest
 import streamlit_app
 
 
+@pytest.fixture(autouse=True)
+def _no_sec(monkeypatch):
+    """The slice refresh inside _refresh_stale_valuations calls
+    fetch_fundamentals, which asked SEC about the fake tickers A/B/C; on a
+    slow SEC day one test took two minutes (2026-10-23). Offline here."""
+    monkeypatch.setattr(streamlit_app, "fetch_fundamentals",
+                        lambda *a, **k: {"years": []})
+
+
 def test_scaffold_present():
     """Sanity: the test file is discovered and runs."""
     assert True

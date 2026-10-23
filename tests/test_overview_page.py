@@ -239,7 +239,8 @@ def test_ticker_page_has_overview_tab_first():
     src = open("streamlit_app.py", encoding="utf-8").read()
     assert '["Business", "Moat", "Growth", "Management", "Risk", "Summary", "Pre-mortem", "Capital Return", "Earnings", "DCF"' in src
     assert "overview_page.company_section_html(" in src
-    assert "overview_page.key_figures_section_html(" in src
+    # Key figures now open each Financials block as a strip (2026-10-23).
+    assert "overview_page.key_figures_strip_html(" in src
 
 
 def test_overview_price_section_container():
@@ -253,7 +254,7 @@ def test_overview_price_section_container():
 def test_overview_tab_wiring_guards():
     src = open("streamlit_app.py", encoding="utf-8").read()
     assert src.count("min_years=0.95") == 2
-    assert 'st.caption("Key figures unavailable right now.")' in src
+    assert "_ometrics = None" in src          # a failed compute drops the strips, not the page
 
 
 def test_overview_statement_loaders_refuse_empty_results():
@@ -330,3 +331,20 @@ def test_help_marks_are_css_tooltips_not_title_attributes():
     assert '<span class="ov-help" tabindex="0">?<span class="ov-tip">' in body
     kf = op.key_figures_section_html(_metrics())
     assert 'title="' not in _body(kf) and ".ov-help:hover .ov-tip" in kf
+
+
+def test_key_figures_strip_per_group():
+    m = _metrics()
+    prof = op.key_figures_strip_html("profitability", m)
+    assert "GROSS MARGIN" in prof and "ov-strip" in prof
+    health = op.key_figures_strip_html("health", m)
+    assert "EBIT / INTEREST" in health and "CASH &amp; INVESTMENTS" in health
+    assert op.key_figures_strip_html("valuation", {}) == ""
+
+
+def test_each_financials_block_opens_with_its_figures():
+    src = open("streamlit_app.py", encoding="utf-8").read()
+    for name, kind in (("profitability", "profitability"), ("valuation", "valuation"),
+                       ("balance", "health")):
+        assert f'_fin_section("{name}", figures="{kind}")' in src
+    assert "overview_page.key_figures_section_html(" not in src

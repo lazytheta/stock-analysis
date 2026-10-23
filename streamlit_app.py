@@ -4016,18 +4016,17 @@ def _dcf_editor(ticker):
             _ocf = None
         # live_price is 0.0 when every price source failed; None keeps
         # P/E and the yields at a dash instead of 0.0x.
+        # Key figures are no longer a block of their own (2026-10-23): each
+        # Financials block below opens with its current figures as a strip
+        # of tiles (overview_page.key_figures_strip_html), then ten years of
+        # charts. Shareholder returns live on the Capital Return tab.
         try:
-            _ometrics_html = overview_page.key_figures_section_html(overview_metrics.compute(
-                fund, _oinc, _ocf, live_price if live_price > 0 else None))
+            _ometrics = overview_metrics.compute(
+                fund, _oinc, _ocf, live_price if live_price > 0 else None)
         except Exception as e:
             logger.warning("Overview key figures for %s failed: %s", ticker, e)
-            _ometrics_html = None
-        if _ometrics_html:
-            st.markdown(_ometrics_html, unsafe_allow_html=True)
-        else:
-            st.caption("Key figures unavailable right now.")
-        # The former Financials tab (2026-10-23): the same themes as Key
-        # figures, over ten years. Drawn further down (with _biz_financials)
+            _ometrics = None
+        # The former Financials tab, drawn further down (with _biz_financials)
         # so its long block keeps its place in the file.
         _biz_financials = st.container()
 
@@ -5288,13 +5287,17 @@ def _dcf_editor(ticker):
         def _fin_caption(text):
             st.markdown(financials_page.caption_html(text), unsafe_allow_html=True)
 
-        def _fin_section(name, n_cols=2):
-            """A themed white section: label, then its chart columns. The
+        def _fin_section(name, n_cols=2, figures=None):
+            """A themed white section: label, the current figures as a strip
+            of tiles (a Key figures group), then its chart columns. The
             columns keep their place in the container, so the metric blocks
             below fill them without nesting another level."""
             box = st.container(key=financials_page.section_key(name))
             with box:
                 st.markdown(financials_page.section_label_html(name), unsafe_allow_html=True)
+                _strip = overview_page.key_figures_strip_html(figures, _ometrics) if figures else ""
+                if _strip:
+                    st.markdown(_strip, unsafe_allow_html=True)
                 return st.columns(n_cols, gap="large") if n_cols > 1 else box
 
         st.markdown(financials_page.style_html(), unsafe_allow_html=True)
@@ -5616,7 +5619,7 @@ def _dcf_editor(ticker):
                 _fin_caption("Insufficient data for ROIC (need 3+ years)")
 
         # ── Profitability: margins and operating leverage ──
-        _fin_prof_l, _fin_prof_r = _fin_section("profitability")
+        _fin_prof_l, _fin_prof_r = _fin_section("profitability", figures="profitability")
 
         with _fin_prof_l:
             # ── Margins ──
@@ -5983,7 +5986,7 @@ def _dcf_editor(ticker):
                 _fin_caption("No revenue history available.")
 
         # ── Valuation yield: FCF yield and EBIT / EV ──
-        _fin_val_l, _fin_val_r = _fin_section("valuation")
+        _fin_val_l, _fin_val_r = _fin_section("valuation", figures="valuation")
 
         with _fin_val_l:
             # ── FCF Yield ──
@@ -6242,7 +6245,7 @@ def _dcf_editor(ticker):
                 _fin_caption("Insufficient data for EBIT/EV")
 
         # ── Balance sheet: net debt and net debt / FCF ──
-        _fin_bal_l, _fin_bal_r = _fin_section("balance")
+        _fin_bal_l, _fin_bal_r = _fin_section("balance", figures="health")
 
         with _fin_bal_l:
             # ── Net Debt ──

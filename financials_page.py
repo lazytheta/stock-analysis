@@ -22,7 +22,7 @@ SECTIONS = (
     ("returns", "Returns on capital"),
     ("profitability", "Profitability"),
     ("growth", "Growth"),
-    ("valuation", "Valuation yield"),
+    ("valuation", "Valuation"),
     ("balance", "Balance sheet"),
 )
 _LABELS = dict(SECTIONS)

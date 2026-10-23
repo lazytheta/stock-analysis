@@ -21,7 +21,7 @@ def test_business_tab_passes_the_phase_to_the_profile_card():
 
 def test_financials_growth_section_has_the_revenue_ocf_chart():
     start = SRC.index('_fin_growth = _fin_section("growth"')
-    block = SRC[start:SRC.index('_fin_section("valuation")', start)]
+    block = SRC[start:SRC.index('_fin_section("valuation"', start)]
     assert "phase_payouts.revenue_ocf_series(" in block
     assert "phase_page.revenue_ocf_figure(" in block
     assert 'key=f"fin_rocf_range_{ticker}"' in block
