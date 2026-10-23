@@ -3365,7 +3365,10 @@ def _watchlist_overview():
             'intrinsic': _wl_intrinsic,
             'buy_price': _wl_buy,
             'upside': upside,
-            'implied_return': (cfg_wl.get('valuation_summary') or {}).get('implied_return'),
+            # Against the price on this row (live unless stale), the same
+            # price the Upside column uses; the stored figure was for the
+            # valuation's price (MA: $486 in August, so 8.2% beside +30%).
+            'implied_return': dcf_calculator.implied_return(dict(cfg_wl, stock_price=live_price)),
             'roce_avg': roce_avg,
             'roce_metric': roce_metric,
             'cap_band': _rob_roce.get('band'),
@@ -3465,7 +3468,7 @@ def _watchlist_overview():
         idx = _idx["expected_return"]
         color = green if r >= idx else (red if r < idx - 0.01 else None)
         gap = (r - idx) * 100
-        help_text = (f"At the last valuation's price this share is priced to return "
+        help_text = (f"At today's price this share is priced to return "
                      f"{r * 100:.1f}% a year on the DCF's own assumptions. "
                      f"{index_return.label(_idx)} is what the index is priced to "
                      f"return from today; {'ahead by' if gap >= 0 else 'behind by'} "

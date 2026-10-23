@@ -81,3 +81,23 @@ def test_summary_line_compares_with_the_index():
     assert sp.return_vs_index_html(None, idx) == ""
     html = sp.verdict_section_html("", {}, 100.0, {}, implied=0.064, index=idx)
     assert "Priced to return 6.4% a year" in html
+
+
+def test_curve_gives_the_same_return_as_the_search_for_any_price():
+    cfg = _cfg(100.0)
+    curve = dc.implied_curve(cfg)
+    for price in (60.0, 100.0, 180.0):
+        exact = dc.implied_return(dict(cfg, stock_price=price))
+        if exact is not None:
+            assert dc.implied_from_curve(curve, price) == pytest.approx(exact, abs=0.002)
+    assert dc.implied_from_curve(curve, 1e9) is None and dc.implied_from_curve(None, 5) is None
+
+
+def test_live_price_updates_the_implied_return_on_a_watchlist_row():
+    import quotes
+    cfg = _cfg(100.0)
+    fair_at_9 = dc.compute_intrinsic_value(dict(cfg, hurdle_rate=0.09))["intrinsic_value"]
+    entry = {"ticker": "X", "stock_price": fair_at_9 * 1.3, "implied_return": 0.05,
+             "implied_curve": dc.implied_curve(cfg), "fv_mid": fair_at_9}
+    quotes.apply_live_prices([entry], primary=lambda ts: {"X": {"price": fair_at_9}})
+    assert entry["implied_return"] == pytest.approx(0.09, abs=0.002)

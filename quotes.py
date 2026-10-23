@@ -595,6 +595,13 @@ def apply_live_prices(entries: list, primary=None, frankfurt=None,
         entry["price_asof"] = (quote or {}).get("asof")
         entry["price_stale"] = False
 
+        # The return the LIVE price implies, from the valuation's stored
+        # curve; the stored implied_return was for the valuation's price.
+        curve = entry.get("implied_curve")
+        if curve:
+            from dcf_calculator import implied_from_curve
+            entry["implied_return"] = implied_from_curve(curve, price)
+
         fv_mid = entry.get("fv_mid")
         entry["current_vs_mid"] = (price / fv_mid - 1
                                    if isinstance(fv_mid, (int, float)) and fv_mid

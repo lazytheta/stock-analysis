@@ -925,7 +925,7 @@ def test_list_watchlist_enriched_shape():
         # Munt van alle bedragen op de rij, en van de ruwe koers (2026-10-22)
         "currency", "listing_currency",
         # Return priced in at the last valuation (2026-10-23)
-        "implied_return",
+        "implied_return", "implied_curve",
     }
     for row in out:
         assert set(row.keys()) == expected_keys

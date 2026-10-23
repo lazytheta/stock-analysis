@@ -476,6 +476,7 @@ def _get_watchlist_impl(user_id: str | None = None, live_prices: bool = True):
     import index_return
     idx = index_return.current()
     for e in entries:
+        e.pop("implied_curve", None)        # used for the live figure; not output
         e["index_return"] = idx["expected_return"]
         e["index_return_asof"] = idx["date"]
     return json.dumps(entries, default=str)

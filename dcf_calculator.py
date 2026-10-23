@@ -330,6 +330,41 @@ def implied_return(cfg, lo=None, hi=0.30, tol=1e-5):
     return round((lo + hi) / 2, 5)
 
 
+CURVE_RATES = [round(0.04 + 0.005 * i, 3) for i in range(33)]   # 4% .. 20%
+
+
+def implied_curve(cfg):
+    """[[rate, DCF value per share], ...] over CURVE_RATES, stored with the
+    valuation so a caller without the config (get_watchlist) can read the
+    return implied by ANY price, the live one included. Rates at or below
+    the terminal growth are skipped (the perpetuity is undefined there)."""
+    base = {k: v for k, v in cfg.items() if k not in ("wacc_per_year", "terminal_wacc")}
+    base["discount_mode"] = "hurdle"
+    tg = float(cfg.get("terminal_growth") or 0.0)
+    out = []
+    for r in CURVE_RATES:
+        if r <= tg + 0.004:
+            continue
+        try:
+            out.append([r, round(compute_intrinsic_value(dict(base, hurdle_rate=r))["intrinsic_value"], 4)])
+        except Exception:
+            continue
+    return out
+
+
+def implied_from_curve(curve, price):
+    """The implied return for `price` by linear interpolation on an
+    implied_curve; None outside the curve or without one."""
+    if not curve or not price or price <= 0:
+        return None
+    pts = sorted((float(r), float(v)) for r, v in curve)
+    from itertools import pairwise
+    for (r1, v1), (r2, v2) in pairwise(pts):
+        if (v1 - price) * (v2 - price) <= 0 and v1 != v2:
+            return round(r1 + (r2 - r1) * (v1 - price) / (v1 - v2), 5)
+    return None
+
+
 def compute_reverse_dcf(cfg, wacc=None, growth_range=None, margin_range=None):
     """Compute reverse DCF: implied metrics and sensitivity matrix.
 

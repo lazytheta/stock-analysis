@@ -476,4 +476,5 @@ def calculate_multi_lens_valuation(cfg, scenario_grid=False):
         # The return the price is priced to deliver on the DCF's own
         # assumptions; the watchlist sets it beside the index's (2026-10-23).
         "implied_return":   dcf_calculator.implied_return(cfg),
+        "implied_curve":    dcf_calculator.implied_curve(cfg),
     }
