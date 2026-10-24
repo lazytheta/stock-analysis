@@ -705,7 +705,7 @@ def _render_fv_cell(price: float, summary: dict | None,
             f'<span style="font-size:0.65rem;color:{muted};background:#33333355;'
             f'padding:1px 5px;border-radius:3px;margin-left:4px">single-lens</span>'
             f'<div style="font-size:0.72rem;color:{muted};margin-top:4px">'
-            f'DCF intrinsic only · run "Refresh all" to compute multi-lens</div>'
+            f'DCF intrinsic only · run "Refresh all" to compute the fair value</div>'
             f'</div>'
         )
 
@@ -3111,7 +3111,7 @@ def _watchlist_overview():
             width="stretch",
             type="primary",
             key="wl_refresh_button",
-            help="Recompute multi-lens fair value for all watchlist tickers.",
+            help="Recompute the fair value for all watchlist tickers.",
         )
 
     if wl_add and wl_ticker:
@@ -6835,8 +6835,8 @@ def _dcf_editor(ticker):
     save_config(_sb_client, ticker, cfg)
 
     # ── Fill hero card placeholder ──
-    # DCF FV / Buy / Upside pills removed in favour of multi-lens (richer
-    # signal) + Avg ROCE/ROE + FCF Yield (quality + cash-yield context).
+    # Fair value / Buy price / Upside / Return, then Avg ROCE/ROE + FCF Yield
+    # (quality + cash-yield context).
 
     # Multi-lens summary pills (only render if valuation_summary present)
     _ml = cfg.get('valuation_summary') or {}
@@ -6855,12 +6855,29 @@ def _dcf_editor(ticker):
                 f' <span style="color:{T["text_muted"]};font-size:0.78em">'
                 f'({_hs}{_ml_low:.0f}–{_hs}{_ml_high:.0f})</span>'
             )
+        # The fair value is the DCF alone since the other lenses went to
+        # weight 0; "Multi-lens" / "ML" no longer described it (2026-10-24).
         _ml_pills = (
-            f'<span class="stat-pill">Multi-lens FV <b>{_hs}{_ml_mid:.2f}</b>{_range_txt}</span>'
-            f'<span class="stat-pill">ML Buy <b>{_hs}{_ml_buy:.2f}</b></span>'
-            f'<span class="stat-pill">ML Upside <b style="color:{_ml_up_color}">'
+            f'<span class="stat-pill">Fair value <b>{_hs}{_ml_mid:.2f}</b>{_range_txt}</span>'
+            f'<span class="stat-pill">Buy price <b>{_hs}{_ml_buy:.2f}</b></span>'
+            f'<span class="stat-pill">Upside <b style="color:{_ml_up_color}">'
             f'{_ml_up_sign}{_ml_upside:.1%}</b></span>'
         )
+        # What today's price is priced to return, against the index's.
+        try:
+            _hr = dcf_calculator.implied_return(dict(cfg, stock_price=live_price))
+            _hidx = index_return.current()["expected_return"]
+        except Exception as e:
+            logger.debug("Implied return for %s unavailable: %s", ticker, e)
+            _hr = None
+        if _hr is not None:
+            _hr_color = (T['accent'] if _hr >= _hidx
+                         else T['red'] if _hr < _hidx - 0.01 else T['text'])
+            _ml_pills += (
+                f'<span class="stat-pill">Return <b style="color:{_hr_color}">{_hr:.1%}</b>'
+                f' <span style="color:{T["text_muted"]};font-size:0.78em">'
+                f'(index {_hidx:.1%})</span></span>'
+            )
 
 
     # Quality + cash-yield pills (Avg ROCE/ROE + FCF Yield). Re-uses
