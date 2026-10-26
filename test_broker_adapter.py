@@ -418,7 +418,9 @@ class TestFetchCurrentPricesLayering(unittest.TestCase):
                  broker_adapter.tastytrade_api, "fetch_current_prices",
                  return_value={"RMS.PA": {"price": 1613.5,
                                           "previousClose": 1600.0}}) as yahoo:
-            out = broker_adapter.fetch_current_prices(["MSFT", "RMS.PA"])
+            with patch.object(broker_adapter.quotes, "fetch_stockanalysis_quotes",
+                              return_value={}):
+                out = broker_adapter.fetch_current_prices(["MSFT", "RMS.PA"])
         yahoo.assert_called_once_with(["RMS.PA"])
         self.assertAlmostEqual(out["MSFT"]["price"], 451.0)
         self.assertAlmostEqual(out["RMS.PA"]["price"], 1613.5)

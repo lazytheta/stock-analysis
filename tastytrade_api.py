@@ -791,7 +791,8 @@ def fetch_current_prices(tickers):
 # How long to wait for the market data feed before giving up and letting the
 # caller fall back. The feed answers in well under a second when it answers at
 # all; this bound exists so a silent socket cannot hold a page load hostage.
-_BROKER_QUOTE_TIMEOUT = 10.0
+_BROKER_QUOTE_TIMEOUT = 5.0
+_SUMMARY_GRACE = 0.5   # seconds for yesterday's closes once the trades are in
 
 
 def fetch_quotes_via_broker(tickers, refresh_token=None,
@@ -843,14 +844,24 @@ def fetch_quotes_via_broker(tickers, refresh_token=None,
             # delisting — never completes, so the timeout is the normal exit,
             # not an error. Keep whatever arrived before the clock ran out
             # rather than throwing a good 80 quotes away over the other five.
+            #
+            # Done when every symbol has a TRADE. Waiting for every summary
+            # (yesterday's close) too meant the full timeout on nearly every
+            # load: the watchlist spent 48s on prices (2026-10-26). The
+            # summaries get a short grace after the trades, then stop.
+            trades = asyncio.create_task(_trades(streamer))
+            summaries = asyncio.create_task(_summaries(streamer))
             try:
-                await asyncio.wait_for(
-                    asyncio.gather(_trades(streamer), _summaries(streamer)),
-                    timeout=timeout,
-                )
+                await asyncio.wait_for(trades, timeout=timeout)
             except (TimeoutError, asyncio.TimeoutError):
                 logger.info("Broker feed timed out with %s/%s symbols in hand",
                             len(last), len(tickers))
+            try:
+                await asyncio.wait_for(asyncio.shield(summaries), timeout=_SUMMARY_GRACE)
+            except (TimeoutError, asyncio.TimeoutError):
+                pass
+            for task in (trades, summaries):
+                task.cancel()
         return last, prev
 
     _t0 = time.perf_counter()

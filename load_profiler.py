@@ -102,6 +102,15 @@ def panel():
                 ["endpoint", "calls", "429", "gewacht"],
             ))
 
+        import quotes
+        if quotes.LAST_RUN:
+            st.markdown("**Koersen per bron** (laatste echte ophaalronde)")
+            st.markdown(_table(
+                [(name, str(asked), str(hits), f"{secs:.1f}s")
+                 for name, asked, hits, secs in quotes.LAST_RUN],
+                ["bron", "gevraagd", "gevonden", "tijd"],
+            ))
+
         tt = tastytrade_api.CALL_STATS
         bits = []
         if tt.get("sessions"):

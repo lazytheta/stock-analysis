@@ -3210,7 +3210,10 @@ def _watchlist_overview():
         st.info("Your watchlist is empty. Add a ticker above or use 'Add to Watchlist' on the DCF page.")
         return
 
-    @st.cache_data(ttl=60)
+    # Three minutes, not one: a full fetch of 132 quotes cost 48s on
+    # Streamlit Cloud, paid again on every return to the page after a
+    # minute (2026-10-26).
+    @st.cache_data(ttl=180)
     def _fetch_prices_batch(tickers_tuple, isin_pairs=()):
         # Omit the symbols that came back empty rather than mapping them to
         # 0.0. A 0 here is indistinguishable from a real quote downstream, and

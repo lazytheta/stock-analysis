@@ -127,3 +127,15 @@ def test_frankfurt_is_not_asked_for_a_non_euro_line():
                              stockanalysis=Source(), frankfurt=frank,
                              isin_by_ticker={"3064.T": "JP3922950005"})
     assert frank.calls == [] and out["3064.T"] is None
+
+
+def test_stockanalysis_answers_before_yahoo_and_the_run_is_timed():
+    """Yahoo is blocked on the cloud hosts; it must not be asked for a
+    foreign line stockanalysis already answered (2026-10-26)."""
+    yahoo = Source()
+    out = quotes.live_quotes(["MSFT", "RMS.PA"], nasdaq=Source({"MSFT": q(451)}),
+                             stockanalysis=Source({"RMS.PA": q(1249)}), yahoo=yahoo,
+                             frankfurt=Source())
+    assert out["RMS.PA"]["price"] == 1249 and yahoo.calls == []
+    assert [step[0] for step in quotes.LAST_RUN] == ["nasdaq", "stockanalysis"]
+    assert quotes.LAST_RUN[1][1:3] == (1, 1)

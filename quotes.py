@@ -293,7 +293,7 @@ def _nasdaq_breaker_record(ok: bool) -> None:
             _nasdaq_breaker_opened_at = _nasdaq_clock()
 
 
-def fetch_nasdaq_quotes(tickers, fetch=None, max_workers: int = 8) -> dict:
+def fetch_nasdaq_quotes(tickers, fetch=None, max_workers: int = 16) -> dict:
     """{ticker: {"price","previousClose","asof","venue"} | None} per ticker.
 
     Waarom Nasdaq: Yahoo blokkeert op user-agent en bron-IP (2026-09-25: 429
@@ -456,6 +456,11 @@ def _broker_symbol_ok(ticker) -> bool:
     return isinstance(ticker, str) and not any(c in ticker for c in ".=^")
 
 
+# (source, asked, answered, seconds) per step of the last live_quotes call,
+# for the load profiler.
+LAST_RUN: list = []
+
+
 def live_quotes(tickers, broker=None, isin_by_ticker=None,
                 nasdaq=None, yahoo=None, frankfurt=None, stockanalysis=None) -> dict:
     """{ticker: quote | None}: de hele keten, elke bron alleen voor de gaten.
@@ -473,11 +478,15 @@ def live_quotes(tickers, broker=None, isin_by_ticker=None,
     if not tickers:
         return {}
     isin_by_ticker = isin_by_ticker or {}
+    # stockanalysis before Yahoo: Yahoo blocks the cloud hosts and was
+    # retried for the foreign lines it never answers (11s of a 48s load,
+    # 2026-10-26); it stays as the last resort for whatever is left.
     steps = [("broker", broker),
              ("nasdaq", nasdaq or fetch_nasdaq_quotes),
-             ("yahoo", yahoo or _default_yahoo),
-             ("stockanalysis", stockanalysis or fetch_stockanalysis_quotes)]
+             ("stockanalysis", stockanalysis or fetch_stockanalysis_quotes),
+             ("yahoo", yahoo or _default_yahoo)]
 
+    LAST_RUN.clear()
     out = dict.fromkeys(tickers)
     for name, source in steps:
         missing = [t for t in tickers if _live_price(out[t]) is None]
@@ -485,19 +494,27 @@ def live_quotes(tickers, broker=None, isin_by_ticker=None,
             missing = [t for t in missing if _broker_symbol_ok(t)]
         if not missing or source is None:
             continue
+        t0 = time.perf_counter()
         found = _ask(source, missing, name)
+        hits = 0
         for t in missing:
             if _live_price(found.get(t)) is not None:
                 out[t] = found[t]
+                hits += 1
+        LAST_RUN.append((name, len(missing), hits, time.perf_counter() - t0))
 
     gaps = {t: isin_by_ticker[t] for t in tickers
             if _live_price(out[t]) is None and isin_by_ticker.get(t)
             and frankfurt_ok(t)}
     if gaps:
+        t0 = time.perf_counter()
         found = _ask(frankfurt or fetch_frankfurt_quotes, gaps, "frankfurt")
+        hits = 0
         for t in gaps:
             if _live_price(found.get(t)) is not None:
                 out[t] = found[t]
+                hits += 1
+        LAST_RUN.append(("frankfurt", len(gaps), hits, time.perf_counter() - t0))
 
     return {t: (out[t] if _live_price(out[t]) is not None else None)
             for t in tickers}
