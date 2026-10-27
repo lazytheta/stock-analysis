@@ -823,10 +823,17 @@ def fetch_quotes_via_broker(tickers, refresh_token=None,
         ctx.verify_mode = ssl.CERT_NONE
         last, prev, closes = {}, {}, {}
 
-        # A symbol counts as answered with a trade OR a summary. Before the
-        # US open most symbols have no trade yet, so waiting for trades alone
-        # found 32 of 125 and sent the rest to Nasdaq (18s from Streamlit
-        # Cloud, 2026-10-27). Without a trade the last close IS the price.
+        # A symbol counts as answered with a trade OR a summary that carries
+        # a real session close (day_close_price). Before the US open most
+        # symbols have no trade yet, so waiting for trades alone found 32 of
+        # 125 and sent the rest to Nasdaq (18s from Streamlit Cloud,
+        # 2026-10-27).
+        #
+        # Never the previous close as the price: that is the yardstick the
+        # day change is measured against, so price == previousClose and every
+        # position read 0.0% today (2026-10-27, the same day). A symbol with
+        # only a previous close stays unanswered and the next source, which
+        # does carry the change, takes it.
         answered = set()
         done = asyncio.Event()
 
@@ -845,12 +852,12 @@ def fetch_quotes_via_broker(tickers, refresh_token=None,
         async def _summaries(streamer):
             await streamer.subscribe(SummaryEvent, tickers)
             async for ev in streamer.listen(SummaryEvent):
-                prev_close = getattr(ev, "prev_day_close_price", None)
+                prev_close = _positive(getattr(ev, "prev_day_close_price", None))
                 if prev_close:
-                    prev[ev.event_symbol] = float(prev_close)
-                close = getattr(ev, "day_close_price", None) or prev_close
-                if close:
-                    closes[ev.event_symbol] = float(close)
+                    prev[ev.event_symbol] = prev_close
+                close = _positive(getattr(ev, "day_close_price", None))
+                if close and prev_close:
+                    closes[ev.event_symbol] = close
                     _mark(ev.event_symbol)
 
         async with DXLinkStreamer(session, ssl_context=ctx) as streamer:
@@ -892,6 +899,16 @@ def fetch_quotes_via_broker(tickers, refresh_token=None,
            for t, p in last.items() if p and p > 0}
     logger.info("Broker feed answered on %s/%s symbols", len(out), len(tickers))
     return out
+
+
+def _positive(x):
+    """A feed number as a float when it is a real positive price; the feed
+    sends NaN (truthy!) for a field it has no value for yet."""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 and v == v else None
 
 
 def fetch_earnings_dates(tickers, refresh_token=None):

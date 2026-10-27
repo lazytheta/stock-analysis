@@ -1097,10 +1097,11 @@ class TestBrokerAnswersBeforeTheOpen(unittest.TestCase):
     the price then, so the feed answers for them instead of sending them to
     Nasdaq (2026-10-27)."""
 
-    def test_a_symbol_without_a_trade_gets_its_close(self):
+    def test_a_symbol_without_a_trade_gets_its_session_close(self):
         trades = [SimpleNamespace(event_symbol="MSFT", price=Decimal("451.10"))]
         summaries = [SimpleNamespace(event_symbol="MSFT", prev_day_close_price=Decimal("448.00")),
-                     SimpleNamespace(event_symbol="KO", prev_day_close_price=Decimal("70.25"))]
+                     SimpleNamespace(event_symbol="KO", day_close_price=Decimal("70.25"),
+                                     prev_day_close_price=Decimal("69.80"))]
         helper = TestFetchQuotesViaBroker()
         with patch("tastytrade_api._get_session", MagicMock()), \
              patch("tastytrade_api.DXLinkStreamer",
@@ -1108,3 +1109,15 @@ class TestBrokerAnswersBeforeTheOpen(unittest.TestCase):
             out = tastytrade_api.fetch_quotes_via_broker(["MSFT", "KO"], timeout=2.0)
         self.assertAlmostEqual(out["MSFT"]["price"], 451.10)     # the trade wins
         self.assertAlmostEqual(out["KO"]["price"], 70.25)        # the close stands in
+        self.assertAlmostEqual(out["KO"]["previousClose"], 69.80)
+
+    def test_previous_close_alone_is_never_the_price(self):
+        # price == previousClose put every position at 0.0% today.
+        summaries = [SimpleNamespace(event_symbol="KO", prev_day_close_price=Decimal("70.25"),
+                                     day_close_price=float("nan"))]
+        helper = TestFetchQuotesViaBroker()
+        with patch("tastytrade_api._get_session", MagicMock()), \
+             patch("tastytrade_api.DXLinkStreamer",
+                   return_value=helper._streamer([], summaries)):
+            out = tastytrade_api.fetch_quotes_via_broker(["KO"], timeout=0.3)
+        self.assertNotIn("KO", out)
