@@ -6931,21 +6931,22 @@ def _dcf_editor(ticker):
                 f'<span class="stat-pill">Avg {_h_metric_label} '
                 f'<b style="color:{_h_roce_color}">{_h_metric_val:.1f}%</b></span>'
             )
-        # FCF Yield (most recent year FCF / current market cap)
-        _h_fcf_list = [v for v in (_h_fund.get('fcf') or []) if v is not None]
-        if _h_fcf_list:
-            _h_fcf_latest = _h_fcf_list[-1]
-            _h_mc = cfg.get('equity_market_value', 0) or 0  # in $M
-            if _h_mc > 0:
-                _h_fcfy = _h_fcf_latest / _h_mc
-                _h_fcfy_color = (
-                    T['accent'] if _h_fcfy >= 0.05
-                    else (T['red'] if _h_fcfy < 0.02 else T['text'])
-                )
-                _quality_pills += (
-                    f'<span class="stat-pill">FCF Yield '
-                    f'<b style="color:{_h_fcfy_color}">{_h_fcfy:.1%}</b></span>'
-                )
+        # FCF Yield: the watchlist's own helper (latest FCF per share / live
+        # price). Until 2026-10-27 this divided by the config's stored
+        # equity_market_value, which under the hurdle nothing keeps current:
+        # MNST showed 2.1% here against 4.3% on the Business tab.
+        _h_fcfy = _latest_fcf_yield(
+            _h_fund, cfg.get('equity_market_value'), live_price,
+            ticker_currency.reporting_currency(ticker, cfg))
+        if _h_fcfy is not None:
+            _h_fcfy_color = (
+                T['accent'] if _h_fcfy >= 0.05
+                else (T['red'] if _h_fcfy < 0.02 else T['text'])
+            )
+            _quality_pills += (
+                f'<span class="stat-pill">FCF Yield '
+                f'<b style="color:{_h_fcfy_color}">{_h_fcfy:.1%}</b></span>'
+            )
 
     # Verdict pill (from scorecard JSON in ai_notes) — plain text, inherits pill style
     _sc_pills = ''

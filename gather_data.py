@@ -1278,11 +1278,17 @@ def fetch_cashflow_statement(ticker, n_years=11):
         "debt_issuance": ["ProceedsFromIssuanceOfLongTermDebt",
                           "ProceedsFromDebtNetOfIssuanceCosts",
                           "ProceedsFromConvertibleDebt",
-                          "ProceedsFromLinesOfCredit"],
+                          "ProceedsFromLinesOfCredit",
+                          "ProceedsFromLongTermLinesOfCredit"],
         "debt_repayment": ["RepaymentsOfLongTermDebt",
                            "RepaymentsOfDebt",
                            "RepaymentsOfConvertibleDebt",
-                           "RepaymentsOfLongTermCapitalLeaseObligations"],
+                           "RepaymentsOfLongTermCapitalLeaseObligations",
+                           # A term loan drawn under a credit facility (MNST
+                           # repaid $375M of its 2024 tender-offer loan in
+                           # 2025 under this tag only).
+                           "RepaymentsOfLongTermLinesOfCredit",
+                           "RepaymentsOfLinesOfCredit"],
         "stock_buybacks": ["PaymentsForRepurchaseOfCommonStock",
                            "PaymentsForRepurchaseOfEquity"],
         "dividends_paid": ["PaymentsOfDividendsCommonStock",
