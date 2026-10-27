@@ -63,7 +63,8 @@ STYLE = """<style>
   align-items:center;gap:12px;min-width:0}
 .ss-comp b{font-size:1.9rem;line-height:1}
 .ss-comp small{display:block;font-size:.62rem;font-weight:700;letter-spacing:.09em;opacity:.7}
-.ss-comp span{display:block;font-size:1rem;font-weight:700;letter-spacing:.03em}
+.ss-comp span{display:block;font-size:1rem;font-weight:700;letter-spacing:.03em;
+  color:#fff !important}  /* the app's markdown span colour otherwise wins: dark on dark */
 .ss-dim{background:var(--qc-inner, var(--bg-secondary));border-radius:14px;padding:12px 12px 10px;
   min-width:0;display:flex;flex-direction:column;gap:6px}
 .ss-name{font-size:.62rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
