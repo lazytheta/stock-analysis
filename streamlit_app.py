@@ -3835,6 +3835,7 @@ def _watchlist_overview():
 
 def _dcf_editor(ticker):
     """Full DCF editor page for a single ticker."""
+    load_profiler.start(f"Ticker {ticker}")
     # ── Reset editor widget state when switching tickers ──
     # The DCF-editor number_input widgets use fixed keys (ed_*, rdcf_*) that are
     # NOT ticker-scoped. Without this, Streamlit keeps the previously-viewed
@@ -3876,7 +3877,8 @@ def _dcf_editor(ticker):
 
     # In de rapportagemunt van de config: een pence-koers ging hier als
     # ponden de DCF in, een ADR-koers in dollars naast een euro-fair value.
-    _raw, _raw_ccy = _price(ticker, cfg.get("isin"))
+    with load_profiler.timed("price"):
+        _raw, _raw_ccy = _price(ticker, cfg.get("isin"))
     live_price = ticker_currency.to_reporting_price(_raw, ticker, cfg, _raw_ccy) or 0.0
     # Alle bedragen op deze pagina in de rapportagemunt: € voor ASML, ¥ voor 3064.T.
     _hs = ticker_currency.symbol(ticker_currency.reporting_currency(ticker, cfg))
@@ -3942,7 +3944,8 @@ def _dcf_editor(ticker):
 
     _fund_error = None
     try:
-        fund = _cached_fundamentals(ticker, gather_data.manual_source(cfg))
+        with load_profiler.timed("fundamentals"):
+            fund = _cached_fundamentals(ticker, gather_data.manual_source(cfg))
         # Apply per-year overrides silently so every section below uses
         # corrected values for tickers with broken EDGAR tagging.
         _fund_overrides = cfg.get('fundamentals_overrides') or {}
@@ -3965,6 +3968,7 @@ def _dcf_editor(ticker):
     # Business tab's overview and customer-profile panels repeated the
     # Company Explainer and were dropped. Read-only.
     with _tab_business:
+        load_profiler.lap("tab Business")
         _onotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
         _oprofile_raw = _onotes.get(company_profile.TITLE)
         try:
@@ -4099,6 +4103,7 @@ def _dcf_editor(ticker):
     # Moat: the Moat Analysis as two summary cards, then the five question cards
     # from the "Moat Cards" section. Read-only; sections are written through the MCP.
     with _tab_moat:
+        load_profiler.lap("tab Moat")
         _notes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
         _moat_text = _notes.get("Moat Analysis") or ""
         # One HTML row, not two st.columns: the size and direction cards must
@@ -4116,6 +4121,7 @@ def _dcf_editor(ticker):
     # revenue vs net income with the CAGR table, then the two growth question
     # cards. Read-only; every render path degrades to a caption.
     with _tab_growth:
+        load_profiler.lap("tab Growth")
         _gnotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
         _gcontent = _gnotes.get(growth_cards.TITLE)
         try:
@@ -4158,6 +4164,7 @@ def _dcf_editor(ticker):
     # changes (the "facts" of "Management Cards"), then its three question
     # cards. Read-only; every render path degrades to the notice or a caption.
     with _tab_management:
+        load_profiler.lap("tab Management")
         _mnotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
         _mcontent = _mnotes.get(management_cards.TITLE)
         # The CEO's photo from Wikipedia (only when the article names this
@@ -4184,6 +4191,7 @@ def _dcf_editor(ticker):
     # Risk: Risk Analysis and SaaSpocalypse Resistance as two summary cards, then
     # the four question cards from "Risk Cards". Read-only, like Moat.
     with _tab_risk:
+        load_profiler.lap("tab Risk")
         _rnotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
         _rsum = risk_cards.summary_row_html(
             _rnotes.get("Risk Analysis") or "",
@@ -4218,6 +4226,7 @@ def _dcf_editor(ticker):
     # Scorecard, Robustness and the pre-mortem. Read-only; everything here is
     # written through the MCP.
     with _tab_summary:
+        load_profiler.lap("tab Summary")
         _snotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
         # One-glance strip first (composite + a 1-5 score per tab), then the
         # verdict, the evidence, the flags and the action triggers.
@@ -4260,6 +4269,7 @@ def _dcf_editor(ticker):
     # loaded this session (never fetched from here: slow, and Trading 212
     # rate-limits), triggers, what is not a reason, dated updates.
     with _tab_premortem:
+        load_profiler.lap("tab Premortem")
         try:
             _pm_pos = premortem.position_from_portfolio(
                 ticker, st.session_state.get("portfolio_data"),
@@ -4279,6 +4289,7 @@ def _dcf_editor(ticker):
     # share count. Fully computed from EDGAR (capital_return), no AI text;
     # reuses the Overview's cash-flow loader. Every section degrades to a caption.
     with _tab_capital:
+        load_profiler.lap("tab Capital")
         try:
             _crcf = _overview_cashflow(ticker)
         except Exception as e:
@@ -4358,6 +4369,7 @@ def _dcf_editor(ticker):
     # the latest call said ("Earnings Brief"). A failed source degrades to an
     # empty list; every section degrades to a caption.
     with _tab_earnings:
+        load_profiler.lap("tab Earnings")
         try:
             _erhist = _earnings_history(ticker)
         except Exception as e:
@@ -4412,6 +4424,7 @@ def _dcf_editor(ticker):
             st.caption("Latest call unavailable right now.")
 
     with _tab_dcf:
+        load_profiler.lap("tab Dcf")
         with st.container(key="tabcard_dcf_1"):
             st.markdown("#### Discounting Cash Flows")
 
@@ -4980,6 +4993,7 @@ def _dcf_editor(ticker):
             _bridge_slot = st.container()
 
     with _tab_rdcf:
+        load_profiler.lap("tab Rdcf")
         with st.container(key="tabcard_rdcf"):
 
             st.markdown("#### Reverse DCF")
@@ -5118,6 +5132,7 @@ def _dcf_editor(ticker):
             )
 
     with _tab_peers:
+        load_profiler.lap("tab Peers")
         with st.container(key="tabcard_peers"):
             _base_margin_p = cfg.get('base_op_margin', 0)
             _rev_growth_p = growth[0] if growth else 0
@@ -5327,6 +5342,7 @@ def _dcf_editor(ticker):
                         st.warning("Could not fetch peer data. Check the ticker(s).")
 
     with _biz_financials:
+        load_profiler.lap("tab Financials (Business)")
         if _fund_error is not None:
             raise _fund_error
         _yrs = fund['years']
@@ -6587,6 +6603,7 @@ def _dcf_editor(ticker):
                 _fin_caption("Insufficient data for Net Debt / FCF (need 3+ years)")
 
     with _tab_dcf:
+        load_profiler.lap("tab Dcf")
         with _bridge_slot:
             # ── Valuation Bridge (rendered into the DCF card via _bridge_slot) ──
             _bridge_keys = "ed_cash,ed_sec,ed_eqi,ed_debt,ed_min,ed_pen,ed_shares,ed_mos"
@@ -6712,6 +6729,7 @@ def _dcf_editor(ticker):
                 st.markdown(_result_html, unsafe_allow_html=True)
 
     with _tab_history:
+        load_profiler.lap("tab History")
         with st.container(key="tabcard_history"):
             st.markdown("#### Thesis vs the business")
 
@@ -6963,6 +6981,8 @@ def _dcf_editor(ticker):
         f'</div>',
         unsafe_allow_html=True,
     )
+    load_profiler.lap(None)
+    load_profiler.panel()
 
 
 def run_analysis(ticker, peer_mode, manual_peers, margin_of_safety, terminal_growth):
@@ -7431,7 +7451,8 @@ def _load_portfolio_data():
                 # from Tastytrade to Trading 212 lives at both for a while, and
                 # a portfolio that shows one of them is wrong in the only way
                 # that matters.
-                cost_basis, acct, _failures = fetch_all_portfolio_data()
+                with load_profiler.timed("broker positions + trades"):
+                    cost_basis, acct, _failures = fetch_all_portfolio_data()
                 st.session_state.portfolio_data = cost_basis
                 st.session_state.portfolio_account = acct
                 st.session_state.portfolio_broker_failures = [
@@ -7485,8 +7506,9 @@ def _load_portfolio_data():
             with st.spinner("Fetching current prices..."):
                 # Met de ISIN-kaart: zonder die valt de tweede koersbron voor
                 # de Europese lijnen stil, en RMS en IEQU stonden op +0,00%.
-                st.session_state.portfolio_prices = fetch_current_prices(
-                    active_tickers, _portfolio_isins(cost_basis))
+                with load_profiler.timed(f"prices ({len(active_tickers)} tickers)"):
+                    st.session_state.portfolio_prices = fetch_current_prices(
+                        active_tickers, _portfolio_isins(cost_basis))
                 st.session_state["portfolio_prices_at"] = time.time()
         else:
             st.session_state.portfolio_prices = {}
@@ -8749,6 +8771,7 @@ if page == "Watchlist":
 # ══════════════════════════════════════════════════════
 
 elif page == "Portfolio":
+    load_profiler.start("Portfolio")
     if not has_active_broker():
         _render_welcome_page()
         st.stop()
@@ -9536,10 +9559,11 @@ elif page == "Portfolio":
 
     prewarm_logos([(d.get("symbol") or t) for t, d in held.items()
                    if not d.get("isin")])
-    _portfolio_cards()
+    with load_profiler.timed("position cards"):
+        _portfolio_cards()
 
     st.markdown("<br>", unsafe_allow_html=True)
-    with st.container(key="deployment_block"):
+    with st.container(key="deployment_block"), load_profiler.timed("deployment"):
         _deployment_overview()
 
     # ── Contribution & Relative performance ──
@@ -9811,8 +9835,10 @@ elif page == "Portfolio":
         except Exception as e:
             st.warning(f"Could not load portfolio exposure: {e}")
 
-    with st.container(key="allocation_block"):
+    with st.container(key="allocation_block"), load_profiler.timed("allocation"):
         _portfolio_exposure()
+
+    load_profiler.panel()
 
 
 
@@ -9821,6 +9847,7 @@ elif page == "Portfolio":
 # ══════════════════════════════════════════════════════
 
 elif page == "Holdings":
+    load_profiler.start("Holdings")
     if not has_active_broker():
         _render_connect_prompt()
 
@@ -10412,6 +10439,8 @@ elif page == "Holdings":
         """,
         height=0,
     )
+
+    load_profiler.panel()
 
 # ══════════════════════════════════════════════════════
 #  RESULTS PAGE — P/L performance overview

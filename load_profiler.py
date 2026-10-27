@@ -46,10 +46,26 @@ def start(page):
     st.session_state[_STEPS_KEY] = []
     st.session_state[_START_KEY] = time.perf_counter()
     st.session_state[_PAGE_KEY] = page
+    st.session_state[_LAP_KEY] = None
     t212_api.reset_call_stats()
     tastytrade_api.reset_call_stats()
     LOGOS.update({"calls": 0, "seconds": 0.0})
     gather_data.reset_daily_closes_stats()
+
+
+_LAP_KEY = "_lp_lap"
+
+
+def lap(label):
+    """Close the running lap (if any) as a step and start one named
+    `label`; lap(None) only closes. For long pages drawn block by block,
+    such as the ticker page's tabs, where wrapping each block would mean
+    rewriting its `with` line."""
+    now = time.perf_counter()
+    running = st.session_state.get(_LAP_KEY)
+    if running:
+        mark(running[0], now - running[1])
+    st.session_state[_LAP_KEY] = (label, now) if label else None
 
 
 def mark(label, seconds):
