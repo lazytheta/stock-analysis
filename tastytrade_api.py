@@ -821,23 +821,37 @@ def fetch_quotes_via_broker(tickers, refresh_token=None,
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        last, prev = {}, {}
+        last, prev, closes = {}, {}, {}
+
+        # A symbol counts as answered with a trade OR a summary. Before the
+        # US open most symbols have no trade yet, so waiting for trades alone
+        # found 32 of 125 and sent the rest to Nasdaq (18s from Streamlit
+        # Cloud, 2026-10-27). Without a trade the last close IS the price.
+        answered = set()
+        done = asyncio.Event()
+
+        def _mark(sym):
+            answered.add(sym)
+            if len(answered) >= len(tickers):
+                done.set()
 
         async def _trades(streamer):
             await streamer.subscribe(TradeEvent, tickers)
             async for ev in streamer.listen(TradeEvent):
                 if ev.price:
                     last[ev.event_symbol] = float(ev.price)
-                if len(last) >= len(tickers):
-                    return
+                    _mark(ev.event_symbol)
 
         async def _summaries(streamer):
             await streamer.subscribe(SummaryEvent, tickers)
             async for ev in streamer.listen(SummaryEvent):
-                if ev.prev_day_close_price:
-                    prev[ev.event_symbol] = float(ev.prev_day_close_price)
-                if len(prev) >= len(tickers):
-                    return
+                prev_close = getattr(ev, "prev_day_close_price", None)
+                if prev_close:
+                    prev[ev.event_symbol] = float(prev_close)
+                close = getattr(ev, "day_close_price", None) or prev_close
+                if close:
+                    closes[ev.event_symbol] = float(close)
+                    _mark(ev.event_symbol)
 
         async with DXLinkStreamer(session, ssl_context=ctx) as streamer:
             # A symbol the feed has no opinion on — a European line, a
@@ -852,17 +866,18 @@ def fetch_quotes_via_broker(tickers, refresh_token=None,
             trades = asyncio.create_task(_trades(streamer))
             summaries = asyncio.create_task(_summaries(streamer))
             try:
-                await asyncio.wait_for(trades, timeout=timeout)
+                await asyncio.wait_for(done.wait(), timeout=timeout)
+                # Everyone answered; a brief grace lets trades that are on
+                # their way replace a summary close.
+                await asyncio.sleep(_SUMMARY_GRACE)
             except (TimeoutError, asyncio.TimeoutError):
                 logger.info("Broker feed timed out with %s/%s symbols in hand",
-                            len(last), len(tickers))
-            try:
-                await asyncio.wait_for(asyncio.shield(summaries), timeout=_SUMMARY_GRACE)
-            except (TimeoutError, asyncio.TimeoutError):
-                pass
+                            len(answered), len(tickers))
             for task in (trades, summaries):
                 task.cancel()
-        return last, prev
+        # The trade where there is one, else the close from the summary.
+        merged = {t: last.get(t) or closes.get(t) for t in set(last) | set(closes)}
+        return merged, prev
 
     _t0 = time.perf_counter()
     try:

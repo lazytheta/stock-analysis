@@ -1090,3 +1090,21 @@ class TestFetchQuotesViaBroker(unittest.TestCase):
         with patch("tastytrade_api._get_session") as sess:
             self.assertEqual(tastytrade_api.fetch_quotes_via_broker([]), {})
         sess.assert_not_called()
+
+
+class TestBrokerAnswersBeforeTheOpen(unittest.TestCase):
+    """Before the US open most symbols have no trade; the summary's close is
+    the price then, so the feed answers for them instead of sending them to
+    Nasdaq (2026-10-27)."""
+
+    def test_a_symbol_without_a_trade_gets_its_close(self):
+        trades = [SimpleNamespace(event_symbol="MSFT", price=Decimal("451.10"))]
+        summaries = [SimpleNamespace(event_symbol="MSFT", prev_day_close_price=Decimal("448.00")),
+                     SimpleNamespace(event_symbol="KO", prev_day_close_price=Decimal("70.25"))]
+        helper = TestFetchQuotesViaBroker()
+        with patch("tastytrade_api._get_session", MagicMock()), \
+             patch("tastytrade_api.DXLinkStreamer",
+                   return_value=helper._streamer(trades, summaries)):
+            out = tastytrade_api.fetch_quotes_via_broker(["MSFT", "KO"], timeout=2.0)
+        self.assertAlmostEqual(out["MSFT"]["price"], 451.10)     # the trade wins
+        self.assertAlmostEqual(out["KO"]["price"], 70.25)        # the close stands in

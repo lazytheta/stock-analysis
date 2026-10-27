@@ -2883,10 +2883,19 @@ def _render_notifications_panel():
     import notifications as _notif
     from datetime import date
 
+    # Three independent queries, each over a second from Streamlit Cloud:
+    # side by side instead of one after another (4.8s, 2026-10-27).
+    # The user id is resolved here, on the script thread: the helpers
+    # otherwise read it from st.session_state, which worker threads cannot.
+    from concurrent.futures import ThreadPoolExecutor
     try:
-        items = _notif.list_notifications(_sb_client, limit=30)
-        reminders = _notif.list_custom_reminders(_sb_client)
-        connected = _notif.telegram_connected(_sb_client)
+        from config_store import _get_user_id
+        _uid = (st.session_state.get("user") or {}).get("id") or _get_user_id(_sb_client)
+        with ThreadPoolExecutor(max_workers=3) as _nx:
+            _f_items = _nx.submit(_notif.list_notifications, _sb_client, user_id=_uid, limit=30)
+            _f_rem = _nx.submit(_notif.list_custom_reminders, _sb_client, user_id=_uid)
+            _f_tg = _nx.submit(_notif.telegram_connected, _sb_client, user_id=_uid)
+            items, reminders, connected = _f_items.result(), _f_rem.result(), _f_tg.result()
     except Exception:
         return
 
