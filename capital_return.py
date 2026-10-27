@@ -136,6 +136,7 @@ def _year_flows(fund, cashflow, year):
         "issuance": issuance,
         "net_buybacks": buybacks - issuance,
         "debt_paydown": max(0.0, repay - debt_in),
+        "net_debt_repaid": repay - debt_in,
         "fcf": _fcf(fund, cashflow, year),
     }
 
@@ -215,6 +216,10 @@ def headline(fund, cashflow, price) -> dict:
 
     shareholder_yield: (dividends + repurchases - stock issuance) in the
         last fiscal year / market cap.
+    shareholder_yield_5y: the same, averaged per year over the last five
+        fiscal years the cash-flow statement covers, / today's market cap.
+        The headline since 2026-10-27: one year swings with lumpy buybacks
+        (MNST: a $3.8B tender in 2024, $104M in 2025, so FY2025 read -0.1%).
     dividend_yield: last fiscal year's dividends / market cap.
     share_cagr_5y: compound yearly change in shares over five years.
     fcf_returned_5y: (dividends + gross repurchases) / FCF, both summed over
@@ -230,7 +235,8 @@ def headline(fund, cashflow, price) -> dict:
     out = {"fy": fy, "market_cap_m": None, "shareholder_yield": None,
            "dividend_yield": None, "share_cagr_5y": _share_cagr(fund, fy),
            "fcf_returned_5y": None, "dividends_5y": None, "buybacks_5y": None,
-           "fcf_5y": None, "total_yield": None}
+           "fcf_5y": None, "total_yield": None,
+           "shareholder_yield_5y": None, "total_yield_5y": None, "yield_years": 0}
     price = _num(price)
     mcap = pp._mcap(fund, price) if price else None
     out["market_cap_m"] = mcap
@@ -248,6 +254,16 @@ def headline(fund, cashflow, price) -> dict:
             if r is not None]
     out["estimated_years"] = [y for y in ((cashflow or {}).get("estimated") or [])
                               if y in _window(fy, RETURN_YEARS)]
+    if rows and mcap:
+        n = len(rows)
+        out["yield_years"] = n
+        out["shareholder_yield_5y"] = sum(
+            r["dividends"] + r["net_buybacks"] for r in rows) / n / mcap
+        # Debt netted over the whole window, not floored per year: MNST
+        # borrowed $750M in 2024 and repaid it in 2024-25, which is no paydown.
+        net_debt = max(0.0, sum(r["net_debt_repaid"] for r in rows))
+        out["total_yield_5y"] = (sum(r["dividends"] + r["net_buybacks"] for r in rows)
+                                 + net_debt) / n / mcap
     if rows:
         out["dividends_5y"] = sum(r["dividends"] for r in rows)
         out["buybacks_5y"] = sum(r["buybacks"] for r in rows)
@@ -497,7 +513,9 @@ def verdict(h) -> tuple | None:
     Moderate: everything in between. Rule-based, no AI text."""
     h = h or {}
     ratio = _num(h.get("fcf_returned_5y"))
-    sy = _num(h.get("shareholder_yield"))
+    sy = _num(h.get("shareholder_yield_5y"))
+    if sy is None:
+        sy = _num(h.get("shareholder_yield"))
     cagr = _num(h.get("share_cagr_5y"))
     div5, buy5 = _num(h.get("dividends_5y")), _num(h.get("buybacks_5y"))
     if ratio is None and sy is None:
@@ -533,17 +551,29 @@ def headline_section_html(h) -> str:
         h = h if isinstance(h, dict) else {}
         fy = h.get("fy")
         fy_txt = f"FY{fy}" if isinstance(fy, int) else "last fiscal year"
+        n = h.get("yield_years") or 0
+        avg_txt = f"{n}-year average" if n > 1 else fy_txt
+
+        def _yield(key):
+            # The multi-year average when there is one, the last year beside it.
+            avg = h.get(f"{key}_5y")
+            if avg is None or n <= 1:
+                return _pct(h.get(key)), fy_txt
+            return _pct(avg), f"{avg_txt}; {fy_txt} {_pct(h.get(key))}"
+
+        sy_val, sy_when = _yield("shareholder_yield")
+        ty_val, ty_when = _yield("total_yield")
         tiles = [
-            _tile("Shareholder yield", _pct(h.get("shareholder_yield")),
-                  f"dividends + net buybacks, {fy_txt}, / market cap"),
+            _tile("Shareholder yield", sy_val,
+                  f"dividends + net buybacks / market cap, {sy_when}"),
             _tile("Dividend yield", _pct(h.get("dividend_yield")),
                   f"dividends paid in {fy_txt} / market cap"),
             _tile("Share count", _pct(h.get("share_cagr_5y"), signed=True),
                   "change per year over 5 years"),
             _tile("FCF returned", _pct(h.get("fcf_returned_5y")),
                   "dividends + buybacks / free cash flow, 5 years"),
-            _tile("Incl. debt paydown", _pct(h.get("total_yield")),
-                  f"shareholder yield + net debt repaid, {fy_txt}"),
+            _tile("Incl. debt paydown", ty_val,
+                  f"shareholder yield + net debt repaid, {ty_when}"),
         ]
         sentence = summary_sentence(h)
         v = verdict(h)

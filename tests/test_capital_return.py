@@ -324,3 +324,25 @@ def test_pure_functions_tolerate_none():
     assert cr.share_count_series(None) == ([], [])
     d = cr.dividend_stats(None, None)
     assert d["pays"] is None
+
+
+def test_lumpy_buybacks_headline_on_the_five_year_average():
+    # MNST-shaped: one big tender in FY2024 funded by a loan repaid over two
+    # years, almost nothing bought in FY2025.
+    fund = make_fund()
+    cf = make_cashflow(div0=0, buybacks=100.0, issuance=20.0, repay=0.0, debt_issue=0.0)
+    i24, i25 = YEARS.index(2024), YEARS.index(2025)
+    cf["stock_buybacks"][i24] = -3800.0
+    cf["stock_buybacks"][i25] = -10.0
+    cf["debt_issuance"][i24] = 750.0
+    cf["debt_repayment"][i24] = -375.0
+    cf["debt_repayment"][i25] = -375.0
+    h = cr.headline(fund, cf, 50.0)
+    mcap = h["market_cap_m"]
+    assert h["shareholder_yield"] == pytest.approx((10 - 20) / mcap)
+    assert h["yield_years"] == 5
+    assert h["shareholder_yield_5y"] == pytest.approx((3 * 80 + 3780 - 10) / 5 / mcap)
+    # The loan nets out over the window: no paydown on top.
+    assert h["total_yield_5y"] == pytest.approx(h["shareholder_yield_5y"])
+    html = cr.headline_section_html(h)
+    assert "5-year average; FY2025" in html

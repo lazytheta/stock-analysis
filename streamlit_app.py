@@ -3391,6 +3391,7 @@ def _watchlist_overview():
             'fcf_yield': fcf_yield_val,
             'fcf_unavailable': t in _fund_unavailable,
             'valuation_summary': cfg_wl.get('valuation_summary'),
+            'isin': cfg_wl.get('isin'),
         })
 
     rows.sort(key=lambda r: r['upside'], reverse=True)
@@ -3570,8 +3571,10 @@ def _watchlist_overview():
             if st.button("", key=f"wl_edit_{t}", icon=":material/edit:"):
                 st.query_params["edit"] = t
                 st.rerun()
+        # The ISIN when the config has one: parqet's symbol index misses some
+        # US names (MNST, TPL) that its ISIN index serves.
         _wl_logo = _logo_img(
-            t, None, "",
+            t, row.get('isin'), "",
             "width:24px;height:24px;border-radius:50%;object-fit:cover;"
             "vertical-align:middle;margin-right:6px")
         cols[1].markdown(
