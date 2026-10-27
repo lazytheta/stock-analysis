@@ -70,16 +70,13 @@ SUMMARY_STYLE = """<style>
   align-items:stretch;margin-bottom:6px}
 @media (max-width:760px){.ms-row{grid-template-columns:1fr}}
 .ms-card{background:var(--qc-inner, var(--bg-secondary));color:var(--text);border-radius:16px;
-  padding:18px 22px;display:flex;flex-direction:column;height:300px;box-sizing:border-box;
-  overflow:hidden}
+  padding:18px 22px;display:flex;flex-direction:column;min-height:300px;box-sizing:border-box}
 .ms-body{display:flex;gap:18px;align-items:flex-start;min-height:0;flex:1}
 .ms-box{background:#2b2b2f;border-radius:14px;width:124px;height:124px;flex:none;
   display:flex;flex-direction:column;align-items:center;justify-content:center}
-.ms-text{min-width:0;font-size:.86rem;line-height:1.45;overflow:hidden}
-.ms-lead{margin:0 0 8px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;
-  overflow:hidden}
-.ms-pt{margin:0 0 6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
-  overflow:hidden}
+.ms-text{min-width:0;font-size:.86rem;line-height:1.45}
+.ms-lead{margin:0 0 8px}
+.ms-pt{margin:0 0 6px}
 .tp-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;
   align-items:stretch;margin-bottom:6px}
 @media (max-width:760px){.tp-row{grid-template-columns:1fr}}
