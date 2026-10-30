@@ -1,4 +1,4 @@
-"""De koersketen: broker -> Nasdaq -> Yahoo -> Frankfurt, offline."""
+"""De koersketen: broker -> Nasdaq -> Frankfurt -> stockanalysis -> Yahoo, offline."""
 
 import sys
 from pathlib import Path
@@ -38,7 +38,7 @@ def test_each_step_only_gets_what_the_previous_missed():
     assert broker.calls == [["MSFT", "NFLX"]]
     assert nasdaq.calls == [["NFLX", "RMS.PA"]]
     assert yahoo.calls == [["RMS.PA"]]
-    assert frank.calls == []
+    assert frank.calls == [{"RMS.PA": "FR0000052292"}]
     assert [out[t]["price"] for t in ("MSFT", "NFLX", "RMS.PA")] == [451, 72, 1412]
 
 
@@ -139,3 +139,43 @@ def test_stockanalysis_answers_before_yahoo_and_the_run_is_timed():
     assert out["RMS.PA"]["price"] == 1249 and yahoo.calls == []
     assert [step[0] for step in quotes.LAST_RUN] == ["nasdaq", "stockanalysis"]
     assert quotes.LAST_RUN[1][1:3] == (1, 1)
+
+
+def test_frankfurt_answers_a_euro_line_before_stockanalysis():
+    """stockanalysis has no previous close and its Paris pages lag (RMS.PA
+    stood at 11:46 at 13:59 on 2026-10-30), so a T212 row read +0.00%."""
+    frank = Source({"RMS.PA": q(1297.5)})
+    sa = Source({"RMS.PA": q(1288)})
+    got = quotes.live_quotes(["RMS.PA"], nasdaq=Source(), yahoo=Source(),
+                             stockanalysis=sa, frankfurt=frank,
+                             isin_by_ticker={"RMS.PA": "FR0000052292"})
+    assert got["RMS.PA"]["price"] == 1297.5
+    assert sa.calls == []
+
+
+def test_watchlist_prefers_frankfurt_over_stockanalysis_for_a_euro_line():
+    entries = [{"ticker": "RMS.PA", "isin": "FR0000052292", "stock_price": 1250.5}]
+    sa = Source({"RMS.PA": q(1288)})
+    quotes.apply_live_prices(entries, primary=Source(), secondary=sa,
+                             frankfurt=Source({"RMS.PA": q(1297.5)}))
+    assert entries[0]["stock_price"] == 1297.5
+    assert sa.calls == []
+
+
+def test_a_bare_broker_symbol_with_an_isin_reaches_frankfurt():
+    """Trading 212 calls Hermes "RMS": no suffix, so it counted as USD and the
+    Portfolio page's Day % stood at +0.00%."""
+    frank = Source({"RMS": q(1297.5)})
+    got = quotes.live_quotes(["RMS"], nasdaq=Source(), yahoo=Source(),
+                             stockanalysis=Source(), frankfurt=frank,
+                             isin_by_ticker={"RMS": "FR0000052292"})
+    assert got["RMS"]["price"] == 1297.5
+
+
+def test_a_bare_us_isin_stays_away_from_frankfurt():
+    frank = Source({"TSM": q(150)})
+    got = quotes.live_quotes(["TSM"], nasdaq=Source(), yahoo=Source(),
+                             stockanalysis=Source(), frankfurt=frank,
+                             isin_by_ticker={"TSM": "US8740391003"})
+    assert got["TSM"] is None
+    assert frank.calls == []

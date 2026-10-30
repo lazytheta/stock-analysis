@@ -467,9 +467,9 @@ def live_quotes(tickers, broker=None, isin_by_ticker=None,
 
     Volgorde: broker-feed (alleen als meegegeven -- geauthenticeerd, dus niet
     aan een IP gebonden -- en alleen voor VS-stijl tickers) -> Nasdaq
-    (VS-tickers, zonder sleutel) -> Yahoo (vangt wat Nasdaq niet kent, zolang
-    hij ons nog bedient) -> Frankfurt (alleen tickers met een ISIN, in de
-    praktijk de Europese lijnen).
+    (VS-tickers, zonder sleutel) -> Frankfurt (alleen tickers met een ISIN, in
+    de praktijk de Europese lijnen) -> stockanalysis -> Yahoo (vangt wat de
+    rest niet kent, zolang hij ons nog bedient).
 
     Een bron die omvalt telt als "niets gevonden" en wordt gelogd; de keten
     zelf gooit nooit. Een koers van 0 telt niet als koers.
@@ -481,8 +481,11 @@ def live_quotes(tickers, broker=None, isin_by_ticker=None,
     # stockanalysis before Yahoo: Yahoo blocks the cloud hosts and was
     # retried for the foreign lines it never answers (11s of a 48s load,
     # 2026-10-26); it stays as the last resort for whatever is left.
+    # Frankfurt before stockanalysis: it carries the previous close the
+    # day-move needs, and stockanalysis' Paris pages lag by hours (2026-10-30).
     steps = [("broker", broker),
              ("nasdaq", nasdaq or fetch_nasdaq_quotes),
+             ("frankfurt", frankfurt or fetch_frankfurt_quotes),
              ("stockanalysis", stockanalysis or fetch_stockanalysis_quotes),
              ("yahoo", yahoo or _default_yahoo)]
 
@@ -492,29 +495,24 @@ def live_quotes(tickers, broker=None, isin_by_ticker=None,
         missing = [t for t in tickers if _live_price(out[t]) is None]
         if name == "broker":
             missing = [t for t in missing if _broker_symbol_ok(t)]
+        elif name == "frankfurt":
+            # A bare symbol with a non-US ISIN is a broker line (Trading
+            # 212's "RMS"): frankfurt_ok would read the missing suffix as
+            # USD, and Day % stood at +0.00% since 2026-10-22.
+            missing = [t for t in missing if isin_by_ticker.get(t)
+                       and (frankfurt_ok(t) or
+                            ("." not in t and not isin_by_ticker[t].startswith("US")))]
         if not missing or source is None:
             continue
         t0 = time.perf_counter()
-        found = _ask(source, missing, name)
+        found = _ask(source, ({t: isin_by_ticker[t] for t in missing}
+                              if name == "frankfurt" else missing), name)
         hits = 0
         for t in missing:
             if _live_price(found.get(t)) is not None:
                 out[t] = found[t]
                 hits += 1
         LAST_RUN.append((name, len(missing), hits, time.perf_counter() - t0))
-
-    gaps = {t: isin_by_ticker[t] for t in tickers
-            if _live_price(out[t]) is None and isin_by_ticker.get(t)
-            and frankfurt_ok(t)}
-    if gaps:
-        t0 = time.perf_counter()
-        found = _ask(frankfurt or fetch_frankfurt_quotes, gaps, "frankfurt")
-        hits = 0
-        for t in gaps:
-            if _live_price(found.get(t)) is not None:
-                out[t] = found[t]
-                hits += 1
-        LAST_RUN.append(("frankfurt", len(gaps), hits, time.perf_counter() - t0))
 
     return {t: (out[t] if _live_price(out[t]) is not None else None)
             for t in tickers}
@@ -575,17 +573,19 @@ def apply_live_prices(entries: list, primary=None, frankfurt=None,
 
     tickers = [e.get("ticker") for e in entries if e.get("ticker")]
     primary_quotes = _ask(primary, tickers, "primary")
-    missing = [t for t in tickers if _live_price(primary_quotes.get(t)) is None]
-    if secondary is not None and missing:
-        for t, q in _ask(secondary, missing, "secondary").items():
-            if _live_price(q) is not None:
-                primary_quotes[t] = q
-
     gaps = {e["ticker"]: e.get("isin") for e in entries
             if e.get("ticker") and e.get("isin")
             and _live_price(primary_quotes.get(e["ticker"])) is None
             and frankfurt_ok(e["ticker"], e)}
     frankfurt_quotes = _ask(frankfurt, gaps, "frankfurt") if gaps else {}
+
+    missing = [t for t in tickers
+               if _live_price(primary_quotes.get(t)) is None
+               and _live_price(frankfurt_quotes.get(t)) is None]
+    if secondary is not None and missing:
+        for t, q in _ask(secondary, missing, "secondary").items():
+            if _live_price(q) is not None:
+                primary_quotes[t] = q
 
     for entry in entries:
         ticker = entry.get("ticker")
