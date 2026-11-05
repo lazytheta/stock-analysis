@@ -74,6 +74,8 @@ def test_identity_implied_growth_is_rr_times_roiic():
 def test_six_years_falls_back_to_three_year_window():
     ce = capital_engine(_last(META, 6))
     assert ce["window_years"] == 3
+    assert ce["flags"]["short_window"] is True
+    assert capital_engine(META)["flags"]["short_window"] is False
     assert (ce["start_year"], ce["end_year"]) == (2022, 2025)
     assert (ce["capital_start_year"], ce["capital_end_year"]) == (2021, 2024)
 
@@ -90,6 +92,12 @@ def test_missing_input_is_never_estimated():
     fund["total_assets"][3] = None                  # IC FY2019 = capital start of the 5y window
     ce = capital_engine(fund)
     assert ce["window_years"] == 3                  # the 5y window is not guessed at
+
+
+def test_missing_cash_is_not_read_as_zero():
+    fund = {k: list(v) for k, v in META.items()}
+    fund["cash"][3] = None                          # FY2019, capital start of the 5y window
+    assert capital_engine(fund)["window_years"] == 3
 
 
 def test_shrinking_capital_nulls_roiic_but_keeps_the_rest():
@@ -195,3 +203,23 @@ def test_section_greys_out_noisy_roiic():
 def test_section_without_engine_shows_notice():
     html = growth_page.capital_engine_section_html(None, 40.0, "ROCE", THEME)
     assert growth_page.ENGINE_NOTICE in html
+
+
+def test_short_window_is_indicative_everywhere(monkeypatch):
+    mcp_server = _patch(monkeypatch, {"ticker": "META"}, _last(META, 6))
+    hl = json.loads(mcp_server._get_fundamentals_impl("META"))["headline"]
+    assert hl["capital_engine"]["roiic_pct"] is not None   # shown, never hidden
+    assert hl["incremental_roic_pct"] is None              # but not the headline
+    text = capital_engine_text(hl["capital_engine"])
+    assert "short_window" in text and "indicative" in text
+    html = growth_page.capital_engine_section_html(hl["capital_engine"], 40.0, "ROCE", THEME)
+    assert 'class="gr-dim"' in html and "Only three years" in html
+
+
+def test_glance_short_window_tile_is_greyed():
+    import overview_metrics
+    import overview_page as op
+    g = overview_metrics.glance(_last(META, 6), None)
+    assert g["roiic_short"] is True and g["engine_window"] == 3
+    body = op.company_section_html(None, None, g)
+    assert "3-year window — indicative" in body and "ov-gval ov-dim" in body

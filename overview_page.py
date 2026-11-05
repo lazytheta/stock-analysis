@@ -312,6 +312,7 @@ def _glance_body(glance):
     roiic = _num(g.get("roiic_pct"))
     reinv = _num(g.get("reinvestment_pct"))
     noisy = bool(g.get("roiic_noisy"))
+    short = bool(g.get("roiic_short"))
     win = g.get("engine_window")
     win_cap = f"{win}-year window" if win else "needs 5+ years"
 
@@ -325,7 +326,8 @@ def _glance_body(glance):
         _tile(metric, DASH if roce is None else f"{roce:.1f}%", "10-year average", raw=roce),
         _tile("ROIIC", _ppct(roiic),
               "noise: capital barely moved" if noisy and roiic is not None
-              else f"new capital, {win_cap}", raw=roiic, dim=noisy),
+              else "3-year window — indicative" if short and roiic is not None
+              else f"new capital, {win_cap}", raw=roiic, dim=noisy or short),
         _tile("Gross margin", _pct(g.get("gross_margin")), margin_cap,
               raw=_num(g.get("gross_margin"))),
         _tile("Operating margin", _pct(g.get("op_margin")), margin_cap,

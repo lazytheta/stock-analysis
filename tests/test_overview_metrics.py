@@ -343,7 +343,8 @@ def test_glance_empty_fund():
     assert set(g) == {"roce_metric", "roce_pct", "net_cash_m", "fcf_conversion",
                       "share_change_5y", "fy", "gross_margin", "op_margin",
                       "margin_years", "revenue_cagr_5y", "fcf_yield",
-                      "roiic_pct", "reinvestment_pct", "engine_window", "roiic_noisy"}
+                      "roiic_pct", "reinvestment_pct", "engine_window", "roiic_noisy",
+                      "roiic_short"}
     assert g["roiic_pct"] is None and g["roiic_noisy"] is False
     assert g["net_cash_m"] is None and g["fcf_conversion"] is None
     assert g["share_change_5y"] is None

@@ -729,8 +729,13 @@ def parse_financials(facts, n_years=6, ticker=None):
 
     # Balance sheet items (point-in-time, not duration-based)
     current_assets = _get_values(["AssetsCurrent"])
+    # Since ASU 2016-18 many filers tag cash only inclusive of restricted cash
+    # (PG, LULU, CPRT from FY2020): without that tag their recent cash read as
+    # missing and capital employed counted the pile as operating capital. Last
+    # in the list, so filers that still tag the plain figure keep it.
     cash = _get_values(["CashAndCashEquivalentsAtCarryingValue",
-                         "CashCashEquivalentsAndShortTermInvestments"])
+                         "CashCashEquivalentsAndShortTermInvestments",
+                         "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"])
     st_investments = _get_values(["ShortTermInvestments",
                                    "AvailableForSaleSecuritiesCurrent",
                                    "MarketableSecuritiesCurrent"])

@@ -240,8 +240,14 @@ def _value(fund, key, i):
 
 
 def _invested_capital(fund, i):
-    """capital_employed at year i, or None when TA or CL is missing."""
-    if _value(fund, "total_assets", i) is None or _value(fund, "current_liabilities", i) is None:
+    """capital_employed at year i, or None when TA, CL or cash is missing.
+
+    capital_employed reads a missing cash figure as 0, which overstates the
+    capital — APA's FY2019-2020 had no cash tag after its 2021 holding-company
+    reorganisation. Here that is an estimate, and the engine never estimates.
+    Short-term investments may be absent: most filers simply have none.
+    """
+    if any(_value(fund, k, i) is None for k in ("total_assets", "current_liabilities", "cash")):
         return None
     return capital_employed(fund, i)
 
@@ -300,7 +306,8 @@ def capital_engine(fund):
         reinvestment (latest)  = (IC_t − IC_t−1) / NOPAT_t
         implied growth         = reinvestment (window) × ROIIC
         actual growth          = NOPAT CAGR t−w → t
-    w = 5 when the inputs for it exist (7 years), else 3 (5 years), else None.
+    w = 5 when the inputs for it exist (7 years), else 3 (5 years, flagged
+    short_window: indicative only), else None.
     Callers apply fundamentals overrides before calling this.
     """
     n = len(fund.get("years") or fund.get("operating_income") or [])
@@ -362,6 +369,9 @@ def capital_engine(fund):
         "flags": {
             # IC(t−1) ≤ 0: no base to measure the change against → noise too
             "small_delta_capital": ic_prior <= 0 or d_ic / ic_prior < SMALL_DELTA_CAPITAL,
+            # 3 years is one cycle at most: a trough or peak at either end
+            # moves the ratio (META's 3y window read ~64% against 40% on 5y)
+            "short_window": w < CAPITAL_ENGINE_WINDOW,
             "negative_delta": win["negative_delta"],
             "external_funding": rr_latest is not None and rr_latest > EXTERNAL_FUNDING,
             "growth_mismatch": (implied is not None and actual is not None
@@ -380,6 +390,8 @@ _FLAG_TEXT = {
                         "cash or equity",
     "growth_mismatch": "implied and actual NOPAT growth differ by more than 5 points",
     "lag_hides_recent_capex": "a large latest-year investment is not in the window yet",
+    "short_window": "only a 3-year window — indicative; do not use it as evidence for a "
+                    "decade of reinvestment at high returns",
 }
 
 

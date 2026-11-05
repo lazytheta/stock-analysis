@@ -806,12 +806,15 @@ def _compute_fundamentals_headline(fund, cfg):
     headline.update(_phase_gate_metrics(fund))
 
     # Capital engine: ROIIC (capital lagged a year), reinvestment rate, flags.
-    # incremental_roic_pct is its ROIIC since 2026-11-05; the 3-delta unlagged
+    # incremental_roic_pct is its 5-year ROIIC since 2026-11-05; the 3-delta unlagged
     # figure the robustness gate was calibrated on lives on as
     # incremental_roic_unlagged_pct and the gate still reads that one.
     engine = capital_engine(fund)
     headline["capital_engine"] = engine
-    headline["incremental_roic_pct"] = engine["roiic_pct"] if engine else None
+    # A 3-year window is indicative only, so it never becomes the headline
+    # figure something else could lean on without reading the flags.
+    headline["incremental_roic_pct"] = (engine["roiic_pct"]
+                                        if engine and not engine["flags"]["short_window"] else None)
     return headline
 
 

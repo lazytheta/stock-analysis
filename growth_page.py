@@ -138,6 +138,7 @@ ENGINE_FLAG_TEXT = {
     "external_funding": "Last year it reinvested more than it earned — funded from outside.",
     "growth_mismatch": "Implied and actual profit growth differ by more than 5 points.",
     "lag_hides_recent_capex": "A big investment last year is not in the window yet.",
+    "short_window": "Only three years of data — indicative, not proof.",
 }
 
 
@@ -161,7 +162,8 @@ def capital_engine_section_html(engine, roce_pct, roce_metric, theme) -> str:
         return qc.section_html("Capital engine", f'{qc.css(GROWTH_STYLE)}{inner}')
 
     flags = engine["flags"]
-    noisy = flags["small_delta_capital"] or engine["roiic_pct"] is None
+    noisy = (flags["small_delta_capital"] or flags["short_window"]
+             or engine["roiic_pct"] is None)
     roiic = (f'<b class="gr-dim" title="{qc.esc(ENGINE_FLAG_TEXT["small_delta_capital"])}">'
              f'{qc.esc(_pct(engine["roiic_pct"]))}</b>' if noisy
              else f'<b>{qc.esc(_pct(engine["roiic_pct"]))}</b>')

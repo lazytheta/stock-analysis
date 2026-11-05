@@ -241,3 +241,27 @@ def test_primary_debt_tag_wins_over_the_named_fallback(monkeypatch):
     f = g.fetch_fundamentals("X", n_years=3)
     debt = [v for v in (f.get("total_debt") or []) if v is not None]
     assert debt[-1] == 3000
+
+
+# ── Cash after ASU 2016-18 ────────────────────────────────────────────────
+
+def test_cash_inclusive_of_restricted_cash_is_read(monkeypatch):
+    """Since ASU 2016-18 PG, LULU, CPRT and others tag cash only inclusive of
+    restricted cash. Unread, their cash went missing from FY2020 and capital
+    employed counted the whole pile as operating capital."""
+    monkeypatch.setattr(g, "get_cik", lambda t: 1)
+    monkeypatch.setattr(g, "fetch_company_facts", lambda cik: _facts(
+        Assets=10_000e6, Revenues=5_000e6,
+        CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents=1_234e6))
+    f = g.fetch_fundamentals("X", n_years=3)
+    assert [v for v in f["cash"] if v is not None][-1] == 1234
+
+
+def test_plain_cash_tag_still_wins_over_restricted_inclusive(monkeypatch):
+    monkeypatch.setattr(g, "get_cik", lambda t: 1)
+    monkeypatch.setattr(g, "fetch_company_facts", lambda cik: _facts(
+        Assets=10_000e6, Revenues=5_000e6,
+        CashAndCashEquivalentsAtCarryingValue=1_000e6,
+        CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents=1_234e6))
+    f = g.fetch_fundamentals("X", n_years=3)
+    assert [v for v in f["cash"] if v is not None][-1] == 1000

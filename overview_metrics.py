@@ -186,13 +186,14 @@ def glance(fund: dict, cfg: dict | None = None, market_cap_m=None) -> dict:
         negative = buybacks.
     roiic_pct / reinvestment_pct / engine_window / roiic_noisy: the capital
         engine's ROIIC and window reinvestment rate (percent), its window in
-        years, and whether small_delta_capital flagged the ROIIC as noise
+        years, whether small_delta_capital flagged the ROIIC as noise and
+        whether it rests on the short 3-year window
         (scorecard_utils.capital_engine — the Growth tab shows the detail).
     """
     fund = fund or {}
     out = {"roce_metric": None, "roce_pct": None, "net_cash_m": None,
            "roiic_pct": None, "reinvestment_pct": None, "engine_window": None,
-           "roiic_noisy": False,
+           "roiic_noisy": False, "roiic_short": False,
            "fcf_conversion": None, "share_change_5y": None, "fy": None,
            "gross_margin": None, "op_margin": None, "margin_years": None,
            "revenue_cagr_5y": None, "fcf_yield": None}
@@ -211,6 +212,7 @@ def glance(fund: dict, cfg: dict | None = None, market_cap_m=None) -> dict:
         out["reinvestment_pct"] = engine["reinvestment_rate_window_pct"]
         out["engine_window"] = engine["window_years"]
         out["roiic_noisy"] = bool(engine["flags"]["small_delta_capital"])
+        out["roiic_short"] = bool(engine["flags"]["short_window"])
     fy = _fiscal_year(fund)
     if fy is None:
         return out
