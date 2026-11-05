@@ -101,7 +101,7 @@ from portfolio_metrics import (compute_deployment, display_basis, has_option_leg
                                lots_cover,
                                average_buy_price, hindsight, position_start,
                                DEFAULT_TARGET_POS_PCT, track_record)
-from scorecard_utils import (compute_roce_metric, capital_employed, roce_for_year,
+from scorecard_utils import (compute_roce_metric, capital_employed, capital_engine, roce_for_year,
                              slim_fundamentals, slice_is_usable, window_start,
                              ROCE_WINDOW_YEARS, ROCE_CEILING)
 from scorecard_utils import parse_scorecard_json as _parse_scorecard_json
@@ -4132,6 +4132,16 @@ def _dcf_editor(ticker):
         except Exception as e:
             logger.warning("Growth section for %s failed: %s", ticker, e)
             st.caption("Growth analysis unavailable right now.")
+
+        # Capital engine: ROCE / ROIIC / reinvestment rate on the
+        # override-applied fund, next to the growth analysis it explains.
+        try:
+            _gmetric, _groce = compute_roce_metric(fund, cfg)
+            st.markdown(growth_page.capital_engine_section_html(
+                capital_engine(fund), _groce, _gmetric, T), unsafe_allow_html=True)
+        except Exception as e:
+            logger.warning("Capital engine for %s failed: %s", ticker, e)
+            st.caption("Capital engine unavailable right now.")
 
         with st.container(key="qc_growth_chart"):
             st.markdown('<div class="qc-label">Revenue &amp; net income</div>',

@@ -212,7 +212,7 @@ def test_render_robustness_table_leaves_an_unrated_axis_dark():
 def _hl(**kw):
     """Headline stub; avg_roce_pct defaults so non-phase fields are present."""
     base = {"avg_roce_pct": None, "roce_latest_pct": None, "roce_rising": None,
-            "rule_of_40_pct": None, "incremental_roic_pct": None}
+            "rule_of_40_pct": None, "incremental_roic_unlagged_pct": None}
     base.update(kw)
     return base
 
@@ -238,16 +238,16 @@ def test_phased_band_phase4_relaxed_to_15():
 def test_phased_band_phase3_roce_and_roic():
     # both strong -> robust
     assert robustness.phased_roce_band(
-        _hl(roce_latest_pct=12.0, roce_rising=True, incremental_roic_pct=25.0), 3) == "robust"
+        _hl(roce_latest_pct=12.0, roce_rising=True, incremental_roic_unlagged_pct=25.0), 3) == "robust"
     # only rising ROCE >=10 -> mid
     assert robustness.phased_roce_band(
-        _hl(roce_latest_pct=12.0, roce_rising=True, incremental_roic_pct=5.0), 3) == "mid"
+        _hl(roce_latest_pct=12.0, roce_rising=True, incremental_roic_unlagged_pct=5.0), 3) == "mid"
     # only incr ROIC >20 -> mid
     assert robustness.phased_roce_band(
-        _hl(roce_latest_pct=8.0, roce_rising=True, incremental_roic_pct=25.0), 3) == "mid"
+        _hl(roce_latest_pct=8.0, roce_rising=True, incremental_roic_unlagged_pct=25.0), 3) == "mid"
     # neither -> fragile
     assert robustness.phased_roce_band(
-        _hl(roce_latest_pct=8.0, roce_rising=False, incremental_roic_pct=5.0), 3) == "fragile"
+        _hl(roce_latest_pct=8.0, roce_rising=False, incremental_roic_unlagged_pct=5.0), 3) == "fragile"
     # both inputs missing -> strict gate fallback (anti-dodge)
     assert robustness.phased_roce_band(_hl(avg_roce_pct=25.0), 3) == "robust"
 
@@ -256,16 +256,16 @@ def test_phased_band_phase2_rule_of_40():
     # Rule of 40 met -> robust FOR ITS PHASE (named, not generic mid); the
     # verdict step caps it at conditional — see test_verdict_phase2_cap.
     assert robustness.phased_roce_band(
-        _hl(rule_of_40_pct=43.0, incremental_roic_pct=5.0), 2) == "robust"
+        _hl(rule_of_40_pct=43.0, incremental_roic_unlagged_pct=5.0), 2) == "robust"
     # Rule of 40 missed -> fragile
     assert robustness.phased_roce_band(
-        _hl(rule_of_40_pct=35.0, incremental_roic_pct=5.0), 2) == "fragile"
+        _hl(rule_of_40_pct=35.0, incremental_roic_unlagged_pct=5.0), 2) == "fragile"
     # incr ROIC measurably negative -> fragile even if R40 met
     assert robustness.phased_roce_band(
-        _hl(rule_of_40_pct=43.0, incremental_roic_pct=-1.0), 2) == "fragile"
+        _hl(rule_of_40_pct=43.0, incremental_roic_unlagged_pct=-1.0), 2) == "fragile"
     # incr ROIC unmeasurable (None) must NOT block a met Rule of 40 (NET case)
     assert robustness.phased_roce_band(
-        _hl(avg_roce_pct=-12.0, rule_of_40_pct=43.0, incremental_roic_pct=None), 2) == "robust"
+        _hl(avg_roce_pct=-12.0, rule_of_40_pct=43.0, incremental_roic_unlagged_pct=None), 2) == "robust"
     # Rule of 40 itself unmeasurable -> strict gate fallback
     assert robustness.phased_roce_band(_hl(avg_roce_pct=7.0, rule_of_40_pct=None), 2) == "fragile"
 
@@ -273,13 +273,13 @@ def test_phased_band_phase2_rule_of_40():
 def test_phased_axis_names_the_phase_metric():
     # phase 2: axis is labelled "Rule of 40" with the R40 value (not GAAP ROCE)
     ax = robustness.phased_roce_axis(_hl(avg_roce_pct=-12.0, rule_of_40_pct=43.8,
-                                         incremental_roic_pct=None), 2)
+                                         incremental_roic_unlagged_pct=None), 2)
     assert ax["band"] == "robust"
     assert ax["metric"] == "Rule of 40"
     assert round(ax["value"], 1) == 43.8
     # phase 3 carried by incremental ROIC names that metric
     ax3 = robustness.phased_roce_axis(_hl(roce_latest_pct=8.0, roce_rising=True,
-                                          incremental_roic_pct=25.0), 3)
+                                          incremental_roic_unlagged_pct=25.0), 3)
     assert ax3["metric"] == "Incr. ROIC"
 
 
@@ -314,7 +314,7 @@ def test_verdict_phase1_defers_not_pass():
 
 def test_build_table_phase2_conditional_revisit():
     # NET-like: phase 2 from Scorecard, Rule of 40 met + positive incr ROIC.
-    headline = _hl(avg_roce_pct=7.0, rule_of_40_pct=43.0, incremental_roic_pct=5.0,
+    headline = _hl(avg_roce_pct=7.0, rule_of_40_pct=43.0, incremental_roic_unlagged_pct=5.0,
                    roce_metric="ROCE", latest_net_debt_ebitda=-0.9,
                    latest_adjusted_net_debt_m=-2000.0)
     ai_notes = {

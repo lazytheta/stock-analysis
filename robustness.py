@@ -58,9 +58,13 @@ def phased_roce_axis(headline, phase):
     if phase == 6:
         return {"band": "fragile", "metric": metric, "value": avg,
                 "basis": "phase 6 — decline / avoid"}
+    # Incremental ROIC below is the unlagged 3-delta figure the gate was
+    # calibrated on. The headline's incremental_roic_pct became the lagged
+    # capital-engine ROIIC on 2026-11-05; moving the gate onto it is its own
+    # decision, because it would move phase 2/3 verdicts.
     if phase == 2:
         r40 = headline.get("rule_of_40_pct")
-        iroic = headline.get("incremental_roic_pct")
+        iroic = headline.get("incremental_roic_unlagged_pct")
         if r40 is None:  # primary signal unmeasurable → strict gate
             return {"band": band_for_roce(avg), "metric": metric, "value": avg,
                     "basis": "phase 2 — Rule of 40 unavailable → strict 20% gate"}
@@ -77,7 +81,7 @@ def phased_roce_axis(headline, phase):
                             else f", incr. ROIC {iroic:.0f}%")}
     if phase == 3:
         latest = headline.get("roce_latest_pct")
-        iroic = headline.get("incremental_roic_pct")
+        iroic = headline.get("incremental_roic_unlagged_pct")
         if latest is None and iroic is None:
             return {"band": band_for_roce(avg), "metric": metric, "value": avg,
                     "basis": "phase 3 — inputs unavailable → strict 20% gate"}

@@ -77,6 +77,7 @@ COMPANY_STYLE = f"""<style>
 .ov-gval{{font-size:22px;font-weight:700;color:var(--text);line-height:1.2;margin:2px 0 2px;
   white-space:nowrap}}
 .ov-gval.ov-pos{{color:var(--green, #2e7d32)}}
+.ov-gval.ov-dim{{color:var(--text-muted);font-weight:500}}
 .ov-gcap{{font-size:12px;color:var(--text-muted);line-height:1.35}}
 </style>"""
 
@@ -206,6 +207,15 @@ BENCHMARKS = {
              "companies average roughly 10–15%; above 15% for years is good, 20%+ excellent."),
     "ROE": (lambda v: v >= 15, "Profit per dollar of shareholders' equity. Roughly 10–15% is "
             "average; above 15% for years is good."),
+    "ROIIC": (lambda v: v >= 20, "Return on incremental invested capital: the extra "
+              "after-tax operating profit per extra dollar put into the business, with "
+              "capital counted a year earlier because new investment earns from the year "
+              "after. Above 20% means new money is spent as well as the old; greyed out "
+              "when capital barely moved and the ratio is noise."),
+    "Reinvestment rate": (lambda v: False, "Share of after-tax operating profit put back into "
+                          "the business as new capital. High with a high ROIIC is a "
+                          "compounder; near zero means growth needs little capital, or "
+                          "the cash goes back to shareholders."),
     "Gross margin": (lambda v: v >= 0.40, "Share of sales left after the direct cost of what is "
                      "sold. Around 40% is typical; software and brands reach 70%+, retailers "
                      "25–35%."),
@@ -268,9 +278,9 @@ def _good(label, value):
         return False
 
 
-def _tile(label, value, caption, positive=False, raw=None):
+def _tile(label, value, caption, positive=False, raw=None, dim=False):
     good = positive or _good(label, raw)
-    cls = "ov-gval ov-pos" if good else "ov-gval"
+    cls = "ov-gval ov-dim" if dim else "ov-gval ov-pos" if good else "ov-gval"
     return (f'<div><div class="ov-lbl">{qc.esc(label.upper())}{_help(label)}</div>'
             f'<div class="{cls}">{qc.esc(value)}</div>'
             f'<div class="ov-gcap">{qc.esc(caption)}</div></div>')
@@ -299,16 +309,30 @@ def _glance_body(glance):
         x = _num(x)
         return DASH if x is None else f"{x * 100:.1f}%"
 
+    roiic = _num(g.get("roiic_pct"))
+    reinv = _num(g.get("reinvestment_pct"))
+    noisy = bool(g.get("roiic_noisy"))
+    win = g.get("engine_window")
+    win_cap = f"{win}-year window" if win else "needs 5+ years"
+
+    def _ppct(x):
+        return DASH if x is None else f"{x:.1f}%"
+
     # Quality, growth, price, balance sheet, capital return -- in that order,
-    # two per row (owner, 2026-10-06).
+    # two per row (owner, 2026-10-06). ROIIC sits beside ROCE (old capital vs
+    # new) and the reinvestment rate beside revenue growth (2026-11-05).
     tiles = [
         _tile(metric, DASH if roce is None else f"{roce:.1f}%", "10-year average", raw=roce),
+        _tile("ROIIC", _ppct(roiic),
+              "noise: capital barely moved" if noisy and roiic is not None
+              else f"new capital, {win_cap}", raw=roiic, dim=noisy),
         _tile("Gross margin", _pct(g.get("gross_margin")), margin_cap,
               raw=_num(g.get("gross_margin"))),
         _tile("Operating margin", _pct(g.get("op_margin")), margin_cap,
               raw=_num(g.get("op_margin"))),
         _tile("Revenue growth", om.fmt_pct(_num(g.get("revenue_cagr_5y")), signed=True),
               "per year, last 5 years", raw=_num(g.get("revenue_cagr_5y"))),
+        _tile("Reinvestment rate", _ppct(reinv), f"of after-tax profit, {win_cap}", raw=reinv),
         _tile("FCF conversion", DASH if conv is None else f"{conv * 100:.0f}%",
               "free cash flow / net income", raw=conv),
         _tile("FCF yield", _pct(g.get("fcf_yield")), "free cash flow / market cap",
@@ -326,7 +350,7 @@ def company_section_html(profile, market_cap_m, glance: dict | None = None,
                          summary: str | None = None, phase: dict | None = None) -> str:
     """White "Company" section: a Profile card (label/value pairs, tags,
     mission; $M in for market cap) and, beside it, an "At a glance" card with
-    eight tiles from overview_metrics.glance. Without a profile the Profile
+    ten tiles from overview_metrics.glance. Without a profile the Profile
     card holds only Market cap and a muted note; the glance card always
     shows, with dashes for missing values."""
     cards = [_card("Profile", _profile_body(profile, market_cap_m, summary, phase)),

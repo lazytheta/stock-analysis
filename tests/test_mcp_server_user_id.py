@@ -176,6 +176,8 @@ def test_get_prescan_prompts_impl_uses_explicit_user_id(monkeypatch):
     monkeypatch.setattr(mcp_server, "get_supabase_client", lambda: MagicMock())
     monkeypatch.setattr(mcp_server.config_store, "load_config", fake_load)
     monkeypatch.setattr(mcp_server, "USER_ID", "env-fallback-uid")
+    monkeypatch.setattr(mcp_server.gather_data, "fetch_fundamentals",
+                        lambda ticker, n_years=10, manual_currency=None: {"years": []})
     monkeypatch.setattr(
         mcp_server, "_PRESCAN_PROMPTS",
         [{"title": "Test", "prompt": "Test {ticker}"}],

@@ -1,5 +1,6 @@
 """HTML and the chart for the Growth tab: the "Growth" section (Growth
-Analysis + Consensus cards), the Revenue & net income figure with year-on-year
+Analysis + Consensus cards), the "Capital engine" section (ROCE, ROIIC,
+reinvestment rate), the Revenue & net income figure with year-on-year
 labels, the CAGR table under it and the "Growth questions" flip cards.
 
 Pure builders, no Streamlit import; the tab in streamlit_app.py fetches the
@@ -41,6 +42,8 @@ GROWTH_STYLE = f"""<style>
 .gr-sub-gap{{margin-top:16px;padding-top:12px;border-top:1px solid {_HAIRLINE}}}
 .gr-cagr{{margin-top:6px}}
 .gr-wrap .ms-card{{height:auto;min-height:300px}}
+.gr-dim{{color:var(--text-muted);font-weight:400 !important}}
+.gr-flags{{margin:12px 0 0;padding:0 0 0 18px;font-size:.82rem;color:var(--text-muted);line-height:1.45}}
 </style>"""
 
 
@@ -124,6 +127,66 @@ def growth_section_html(content: str | None, theme) -> str:
                                                        parsed.get("guidance")))
                  + '</div>')
     return qc.section_html("Growth", f'{qc.css(GROWTH_STYLE)}{inner}')
+
+
+# ── Capital engine ─────────────────────────────────────────────────────────
+
+ENGINE_NOTICE = "Not enough EDGAR history for the capital engine (needs at least five years)."
+ENGINE_FLAG_TEXT = {
+    "small_delta_capital": "Capital barely moved over the window — ROIIC is noise.",
+    "negative_delta": "Capital shrank or starting profit was ≤ 0 — ROIIC is not defined.",
+    "external_funding": "Last year it reinvested more than it earned — funded from outside.",
+    "growth_mismatch": "Implied and actual profit growth differ by more than 5 points.",
+    "lag_hides_recent_capex": "A big investment last year is not in the window yet.",
+}
+
+
+def _pct(x):
+    return om.DASH if x is None else f"{x:.1f}%"
+
+
+def capital_engine_section_html(engine, roce_pct, roce_metric, theme) -> str:
+    """The "Capital engine" section: ROCE (quality of the capital already in),
+    ROIIC (quality of the new capital) and the reinvestment rate side by side,
+    the detail behind them, then the flags. A noisy ROIIC is shown greyed out,
+    never hidden. `engine` is scorecard_utils.capital_engine(fund)."""
+    muted = f'color:{theme["text_muted"]};margin-bottom:12px'
+
+    def _rows(pairs):
+        return "".join(f'<div class="gr-row"><span>{qc.esc(label)}</span>{value}</div>'
+                       for label, value in pairs)
+
+    if not engine:
+        inner = f'<div class="gr-note">{qc.esc(ENGINE_NOTICE)}</div>'
+        return qc.section_html("Capital engine", f'{qc.css(GROWTH_STYLE)}{inner}')
+
+    flags = engine["flags"]
+    noisy = flags["small_delta_capital"] or engine["roiic_pct"] is None
+    roiic = (f'<b class="gr-dim" title="{qc.esc(ENGINE_FLAG_TEXT["small_delta_capital"])}">'
+             f'{qc.esc(_pct(engine["roiic_pct"]))}</b>' if noisy
+             else f'<b>{qc.esc(_pct(engine["roiic_pct"]))}</b>')
+    left = (f'<div class="ms-card"><div class="mc-q" style="{muted}">RETURNS &amp; REINVESTMENT</div>'
+            + _rows([(f"{roce_metric or 'ROCE'} (existing capital)", f'<b>{qc.esc(_pct(roce_pct))}</b>'),
+                     ("ROIIC (new capital)", roiic),
+                     ("Reinvestment rate", f'<b>{qc.esc(_pct(engine["reinvestment_rate_window_pct"]))}</b>')])
+            + f'<div class="gr-src">{engine["window_years"]}-year window: profit '
+              f'FY{engine["start_year"]}→FY{engine["end_year"]}, capital '
+              f'FY{engine["capital_start_year"]}→FY{engine["capital_end_year"]} '
+              f'(one year behind). Tax rate {qc.esc(_pct(engine["tax_rate_pct"]))}'
+              f'{" (fallback)" if engine["tax_rate_fallback"] else ""}.</div></div>')
+    trend = " · ".join(f'FY{x["end_year"]} {_pct(x["roiic_pct"])}' for x in engine["trend"])
+    right = (f'<div class="ms-card"><div class="mc-q" style="{muted}">GROWTH IT EXPLAINS</div>'
+             + _rows([("Implied profit growth", f'<b>{qc.esc(_signed_pct(engine["implied_growth_pct"]))}</b>'),
+                      ("Actual profit growth", f'<b>{qc.esc(_signed_pct(engine["actual_growth_pct"]))}</b>'),
+                      ("Reinvested last year", f'<b>{qc.esc(_pct(engine["reinvestment_rate_latest_pct"]))}</b>'),
+                      ("ROIIC trend", f'<b>{qc.esc(trend or om.DASH)}</b>')])
+             + '<div class="gr-src">Implied = reinvestment rate × ROIIC; actual = '
+               'yearly growth of after-tax operating profit.</div></div>')
+    on = [ENGINE_FLAG_TEXT[k] for k, v in flags.items() if v]
+    notes = (f'<ul class="gr-flags">{"".join(f"<li>{qc.esc(t)}</li>" for t in on)}</ul>'
+             if on else "")
+    inner = f'<div class="gr-wrap">{qc.summary_row_html(left, right)}</div>{notes}'
+    return qc.section_html("Capital engine", f'{qc.css(GROWTH_STYLE)}{inner}')
 
 
 # ── revenue & net income ──────────────────────────────────────────────────

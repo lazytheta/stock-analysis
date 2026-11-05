@@ -66,7 +66,7 @@ import dcf_calculator
 import config_store
 import quotes
 import valuation_lenses
-from scorecard_utils import compute_roce_metric, capital_employed
+from scorecard_utils import capital_employed, capital_engine, capital_engine_text, compute_roce_metric
 import notifications
 import aspirant
 import moat_cards
@@ -629,16 +629,17 @@ INCR_ROIC_CEILING = 100.0            # clamp, both directions
 def _phase_gate_metrics(fund):
     """Extra metrics for the phase-aware ROCE gate (robustness engine, see
     specs/2026-06-16-phase-aware-roce-gate-design): Rule of 40 (3y revenue CAGR
-    + FCF margin), incremental ROIC (3-delta, on the same capital-employed
-    basis as the headline ROCE, so the two cannot disagree about what capital
-    is; None when capital shrank or barely moved), and latest-year
+    + FCF margin), the unlagged incremental ROIC (3-delta, on the same
+    capital-employed basis as the headline ROCE, so the two cannot disagree
+    about what capital is; None when capital shrank or barely moved — see
+    _compute_fundamentals_headline for the lagged one), and latest-year
     ROCE + rising trend on the same excess-liquidity-adjusted basis as the
     headline ROCE (scorecard_utils.roce_for_year — shared with
     compute_roce_metric so mean and latest/trend cannot diverge).
     Every key defaults to None when not computable."""
     out = {
         "revenue_cagr_3y_pct": None, "fcf_margin_pct": None, "rule_of_40_pct": None,
-        "incremental_roic_pct": None, "roce_latest_pct": None, "roce_rising": None,
+        "incremental_roic_unlagged_pct": None, "roce_latest_pct": None, "roce_rising": None,
     }
     rev = fund.get("revenue") or []
     fcf = fund.get("fcf") or []
@@ -708,7 +709,7 @@ def _phase_gate_metrics(fund):
         # −6,614%, a number about rounding, not about returns.
         if (d_inv > 0 and base > 0
                 and d_inv >= INCR_ROIC_MIN_CAPITAL_CHANGE * base):
-            out["incremental_roic_pct"] = max(
+            out["incremental_roic_unlagged_pct"] = max(
                 -INCR_ROIC_CEILING, min(INCR_ROIC_CEILING, d_nopat / d_inv * 100))
 
     # Latest-year ROCE + rising trend, excess-liquidity-adjusted (shared helper
@@ -803,6 +804,14 @@ def _compute_fundamentals_headline(fund, cfg):
 
     # Phase-aware ROCE-gate inputs (robustness engine reads these)
     headline.update(_phase_gate_metrics(fund))
+
+    # Capital engine: ROIIC (capital lagged a year), reinvestment rate, flags.
+    # incremental_roic_pct is its ROIIC since 2026-11-05; the 3-delta unlagged
+    # figure the robustness gate was calibrated on lives on as
+    # incremental_roic_unlagged_pct and the gate still reads that one.
+    engine = capital_engine(fund)
+    headline["capital_engine"] = engine
+    headline["incremental_roic_pct"] = engine["roiic_pct"] if engine else None
     return headline
 
 
@@ -1295,11 +1304,15 @@ def update_lens_weights(ticker: str, weights: dict) -> str:
 # Pre-scan / AI Research Sections
 # ---------------------------------------------------------------------------
 
-def _fill_prompt_template(prompt: str, ticker: str, company: str, prior_results: dict) -> str:
-    """Apply {ticker}, {company}, {prior:Section Title} substitutions.
+def _fill_prompt_template(prompt: str, ticker: str, company: str, prior_results: dict,
+                          capital_engine_block: str | None = None) -> str:
+    """Apply {ticker}, {company}, {prior:Section Title} and {capital_engine}
+    substitutions.
 
     Mirrors streamlit_app.py's _fill_prompt so the prompt Claude sees here is
-    identical to what ▶ Run would send via Groq/Gemini."""
+    identical to what ▶ Run would send via Groq/Gemini. {capital_engine} is the
+    ticker's computed capital engine as plain lines (capital_engine_text), or a
+    "not available" line when the caller had none."""
     import re
 
     ticker = ticker.upper()
@@ -1313,6 +1326,7 @@ def _fill_prompt_template(prompt: str, ticker: str, company: str, prior_results:
 
     filled = re.sub(r"\{prior:([^}]+)\}", _sub_prior, prompt)
     filled = filled.replace("{ticker}", ticker).replace("{company}", company)
+    filled = filled.replace("{capital_engine}", capital_engine_block or capital_engine_text(None))
     if "{ticker}" not in prompt and "{company}" not in prompt and "{prior:" not in prompt:
         filled = (
             f"**IMPORTANT OVERRIDE:** The company to analyze is "
@@ -1352,6 +1366,19 @@ def _get_prescan_prompts_impl(ticker, user_id: str | None = None):
     if not isinstance(ai_notes, dict):
         ai_notes = {}
 
+    # The capital engine needs an EDGAR fetch; only pay for it when a prompt
+    # asks for it. Overrides go in first, as everywhere else.
+    engine_block = None
+    if any("{capital_engine}" in (e.get("prompt") or "") for e in library if isinstance(e, dict)):
+        try:
+            fund = gather_data.apply_fundamentals_overrides(
+                gather_data.fetch_fundamentals(
+                    ticker, n_years=10, manual_currency=gather_data.manual_source(cfg)),
+                cfg.get("fundamentals_overrides") or {})
+            engine_block = capital_engine_text(capital_engine(fund))
+        except Exception as e:
+            logger.warning("capital engine for %s prompts failed: %s", ticker, e)
+
     out = []
     for entry in library:
         title = entry.get("title")
@@ -1360,7 +1387,8 @@ def _get_prescan_prompts_impl(ticker, user_id: str | None = None):
             continue
         out.append({
             "title": title,
-            "prompt": _fill_prompt_template(prompt_template, ticker, company, ai_notes),
+            "prompt": _fill_prompt_template(prompt_template, ticker, company, ai_notes,
+                                            engine_block),
         })
     return out
 

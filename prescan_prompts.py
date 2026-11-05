@@ -266,6 +266,17 @@ Rate each driver Strong (clear evidence and real investment), Moderate
 (mentioned, not emphasised), Weak (little evidence) or Not applicable.
 Evaluate only these seven drivers; do not add others.
 
+## CAPITAL ENGINE (computed from EDGAR — cite, do not recompute)
+{capital_engine}
+
+This is the evidence for "a decade of reinvestment at high returns": ROIIC is
+what the new capital earned, the reinvestment rate is how much of the profit
+went back in, and NOPAT growth ≈ reinvestment rate × ROIIC. Use these numbers
+as given. If small_delta_capital is flagged, the ROIIC is noise: judge the
+runway on growth that needs little capital and on how the cash was allocated
+instead. If lag_hides_recent_capex is flagged, say that the latest big
+investment has not been tested yet.
+
 You still do the full analysis above, but report only what decides the answer:
 EXACTLY three bullets, no tables, no subsections.
 
@@ -291,7 +302,9 @@ does not.]
 
 # RULES
 - 0-1 = the business grows with GDP at best. 4-5 = a decade of reinvestment at
-  high returns is visible in today's disclosures, not in management's ambition.
+  high returns is visible in today's disclosures, not in management's ambition,
+  and the capital engine backs it (a high ROIIC on capital that really moved,
+  or growth that needs little capital at all).
 - An untapped opportunity the company is not pursuing is not runway. Say so.
 """,
     },

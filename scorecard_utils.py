@@ -205,6 +205,212 @@ def compute_roce_metric(fund, cfg=None):
     return metric, avg_value
 
 
+# ── Capital engine: ROIIC + reinvestment rate ──────────────────────────────
+#
+# ROCE says what the capital already in the business earns. The capital engine
+# asks the two questions after it: what does the NEW capital earn (ROIIC), and
+# how much of the profit goes back in (reinvestment rate). Together they carry
+# the identity NOPAT growth ≈ reinvestment rate × ROIIC.
+#
+# Invested capital is capital_employed — the same TA − CL − cash − short-term
+# investments as ROCE, goodwill in — so the two cannot disagree about what
+# capital is.
+#
+# Capital lags profit by a year: ΔNOPAT over t−w → t is set against
+# ΔIC over t−w−1 → t−1, because a factory built in year t earns from t+1. The
+# unlagged version set META's NOPAT against its own FY2025 capex binge and read
+# 28%; the profit from that capex has not arrived yet.
+#
+# Numbers are flagged, never hidden: a noisy ROIIC is still shown, greyed out.
+CAPITAL_ENGINE_WINDOW = 5         # full window; needs 7 years of data
+CAPITAL_ENGINE_SHORT_WINDOW = 3   # fallback; needs 5
+CAPITAL_ENGINE_TREND_POINTS = 4   # rolling windows ending t, t−1, t−2, t−3
+CAPITAL_ENGINE_TAX_FALLBACK = 0.21
+CAPITAL_ENGINE_TAX_CAP = 0.35
+SMALL_DELTA_CAPITAL = 0.15        # ΔIC / IC(t−1) below this → ROIIC is noise
+EXTERNAL_FUNDING = 1.0            # latest-year reinvestment above 100% of NOPAT
+GROWTH_MISMATCH_PP = 5.0          # |implied − actual growth|, percentage points
+LAG_CAPEX_JUMP = 0.25             # IC(t) − IC(t−1) above this share of IC(t−1)
+
+
+def _value(fund, key, i):
+    """Series element at year i, or None — unlike _at, missing stays missing."""
+    seq = fund.get(key) or []
+    return seq[i] if 0 <= i < len(seq) else None
+
+
+def _invested_capital(fund, i):
+    """capital_employed at year i, or None when TA or CL is missing."""
+    if _value(fund, "total_assets", i) is None or _value(fund, "current_liabilities", i) is None:
+        return None
+    return capital_employed(fund, i)
+
+
+def window_tax_rate(fund, idxs):
+    """One normalised tax rate for a window: Σ tax / Σ pretax over the years
+    that report both, clamped to [0, 35%]. (rate, fell_back).
+
+    Single-year rates swing too much (a one-off charge, a deferred-tax release)
+    to normalise one year's NOPAT each. Years missing either side are left out
+    of both sums; with none left, or a pretax sum ≤ 0, the 21% fallback.
+    """
+    pairs = [(_value(fund, "tax_provision", i), _value(fund, "pretax_income", i)) for i in idxs]
+    pairs = [(t, p) for t, p in pairs if t is not None and p is not None]
+    pretax = sum(p for _, p in pairs)
+    if not pairs or pretax <= 0:
+        return CAPITAL_ENGINE_TAX_FALLBACK, True
+    rate = sum(t for t, _ in pairs) / pretax
+    return min(max(rate, 0.0), CAPITAL_ENGINE_TAX_CAP), False
+
+
+def _engine_window(fund, t, w):
+    """The raw window ending at index t over w years, or None when any input
+    is missing. Never estimates: a gap in the inputs means no answer."""
+    if t - w - 1 < 0:
+        return None
+    nopat_idx = list(range(t - w, t + 1))
+    oi = [_value(fund, "operating_income", i) for i in nopat_idx]
+    ic = {i: _invested_capital(fund, i) for i in (t - w - 1, t - 1, t)}
+    if any(v is None for v in oi) or any(v is None for v in ic.values()):
+        return None
+    tax, fell_back = window_tax_rate(fund, nopat_idx)
+    nopat = [v * (1 - tax) for v in oi]   # nopat[0] = t−w … nopat[-1] = t
+    d_nopat = nopat[-1] - nopat[0]
+    d_ic = ic[t - 1] - ic[t - w - 1]
+    negative = d_ic <= 0 or nopat[0] <= 0
+    return {
+        "t": t, "w": w, "tax": tax, "tax_fell_back": fell_back,
+        "nopat": nopat, "ic_start": ic[t - w - 1], "ic_prior": ic[t - 1], "ic_latest": ic[t],
+        "d_nopat": d_nopat, "d_ic": d_ic, "negative_delta": negative,
+        "roiic": None if negative else d_nopat / d_ic,
+    }
+
+
+def _r(x, nd=2):
+    return None if x is None else round(x, nd)
+
+
+def capital_engine(fund):
+    """ROIIC, reinvestment rate and their flags for the latest fiscal year.
+
+    Per year: IC = capital_employed; NOPAT = EBIT × (1 − window tax rate).
+    Window w ending at t, capital lagged one year:
+        ROIIC                  = (NOPAT_t − NOPAT_t−w) / (IC_t−1 − IC_t−w−1)
+        reinvestment (window)  = ΔIC / Σ NOPAT_t−w … NOPAT_t−1
+        reinvestment (latest)  = (IC_t − IC_t−1) / NOPAT_t
+        implied growth         = reinvestment (window) × ROIIC
+        actual growth          = NOPAT CAGR t−w → t
+    w = 5 when the inputs for it exist (7 years), else 3 (5 years), else None.
+    Callers apply fundamentals overrides before calling this.
+    """
+    n = len(fund.get("years") or fund.get("operating_income") or [])
+    if n == 0:
+        return None
+    t = n - 1
+    win = None
+    for w in (CAPITAL_ENGINE_WINDOW, CAPITAL_ENGINE_SHORT_WINDOW):
+        win = _engine_window(fund, t, w)
+        if win is not None:
+            break
+    if win is None:
+        return None
+    w = win["w"]
+    years = fund.get("years") or list(range(n))
+    nopat = win["nopat"]
+    ic_prior, ic_latest, d_ic = win["ic_prior"], win["ic_latest"], win["d_ic"]
+
+    base_sum = sum(nopat[:-1])
+    rr_window = d_ic / base_sum if base_sum > 0 else None
+    rr_latest = (ic_latest - ic_prior) / nopat[-1] if nopat[-1] > 0 else None
+    roiic = win["roiic"]
+    implied = rr_window * roiic if rr_window is not None and roiic is not None else None
+    actual = ((nopat[-1] / nopat[0]) ** (1 / w) - 1
+              if nopat[0] > 0 and nopat[-1] > 0 else None)
+
+    def _pct(x):
+        return _r(None if x is None else x * 100)
+
+    trend = []
+    for k in range(CAPITAL_ENGINE_TREND_POINTS):
+        tw = win if k == 0 else _engine_window(fund, t - k, w)
+        if tw is None:
+            break
+        trend.append({"end_year": years[t - k], "roiic_pct": _pct(tw["roiic"])})
+
+    return {
+        "window_years": w,
+        "start_year": years[t - w],
+        "end_year": years[t],
+        # the capital side of the window, one year behind the profit side
+        "capital_start_year": years[t - w - 1],
+        "capital_end_year": years[t - 1],
+        "tax_rate_pct": _pct(win["tax"]),
+        "tax_rate_fallback": win["tax_fell_back"],
+        "nopat_start_m": _r(nopat[0], 1),
+        "nopat_latest_m": _r(nopat[-1], 1),
+        "delta_nopat_m": _r(win["d_nopat"], 1),
+        "ic_capital_start_m": _r(win["ic_start"], 1),
+        "ic_prior_m": _r(ic_prior, 1),
+        "ic_latest_m": _r(ic_latest, 1),
+        "delta_ic_m": _r(d_ic, 1),
+        "roiic_pct": _pct(roiic),
+        "reinvestment_rate_window_pct": _pct(rr_window),
+        "reinvestment_rate_latest_pct": _pct(rr_latest),
+        "implied_growth_pct": _pct(implied),
+        "actual_growth_pct": _pct(actual),
+        "trend": trend,
+        "flags": {
+            # IC(t−1) ≤ 0: no base to measure the change against → noise too
+            "small_delta_capital": ic_prior <= 0 or d_ic / ic_prior < SMALL_DELTA_CAPITAL,
+            "negative_delta": win["negative_delta"],
+            "external_funding": rr_latest is not None and rr_latest > EXTERNAL_FUNDING,
+            "growth_mismatch": (implied is not None and actual is not None
+                                and abs(implied - actual) * 100 > GROWTH_MISMATCH_PP),
+            "lag_hides_recent_capex": (ic_prior > 0
+                                       and ic_latest - ic_prior > LAG_CAPEX_JUMP * ic_prior),
+        },
+    }
+
+
+_FLAG_TEXT = {
+    "small_delta_capital": "capital barely moved over the window, so ROIIC is noise — "
+                           "judge on growth without capital and on capital allocation",
+    "negative_delta": "capital shrank or the starting NOPAT was ≤ 0, so ROIIC is not defined",
+    "external_funding": "latest-year reinvestment exceeded NOPAT — funded with debt, "
+                        "cash or equity",
+    "growth_mismatch": "implied and actual NOPAT growth differ by more than 5 points",
+    "lag_hides_recent_capex": "a large latest-year investment is not in the window yet",
+}
+
+
+def capital_engine_text(ce):
+    """The capital engine as plain lines for a prompt. The model is meant to
+    cite these numbers, not recompute them."""
+    if not ce:
+        return ("(capital engine unavailable — fewer than 5 years of EDGAR data "
+                "or a missing input; do not estimate it)")
+
+    def p(x):
+        return "n/a" if x is None else f"{x:.1f}%"
+
+    lines = [
+        f"Capital engine ({ce['window_years']}-year window, NOPAT FY{ce['start_year']}"
+        f"→FY{ce['end_year']}, capital FY{ce['capital_start_year']}"
+        f"→FY{ce['capital_end_year']}; tax rate {p(ce['tax_rate_pct'])}"
+        f"{' (fallback)' if ce['tax_rate_fallback'] else ''}):",
+        f"- ROIIC (return on new capital): {p(ce['roiic_pct'])}",
+        f"- Reinvestment rate, window: {p(ce['reinvestment_rate_window_pct'])}; "
+        f"latest year: {p(ce['reinvestment_rate_latest_pct'])}",
+        f"- NOPAT growth: implied {p(ce['implied_growth_pct'])} vs actual "
+        f"{p(ce['actual_growth_pct'])} a year",
+        "- ROIIC trend (window ending): " + (", ".join(
+            f"FY{x['end_year']} {p(x['roiic_pct'])}" for x in ce["trend"]) or "n/a"),
+    ]
+    on = [k for k, v in ce["flags"].items() if v]
+    lines.append("- Flags: " + ("; ".join(f"{k} ({_FLAG_TEXT[k]})" for k in on) if on else "none"))
+    return "\n".join(lines)
+
+
 # Everything the watchlist row computes from EDGAR, and nothing else. The page
 # needs three numbers per ticker — FCF yield, the quality metric and its
 # average — and was downloading a ~5 MB companyfacts file per name to get

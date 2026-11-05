@@ -102,10 +102,11 @@ def test_company_section_glance_net_debt_and_dilution():
     assert "+1.2%" in body and "dilution" in body
 
 
-def test_glance_has_eight_tiles_in_order():
+def test_glance_has_ten_tiles_in_order():
     body = _body(op.company_section_html(GOOD_PROFILE, 1.0, GLANCE))
-    order = ["ROCE", "GROSS MARGIN", "OPERATING MARGIN", "REVENUE GROWTH",
-             "FCF CONVERSION", "FCF YIELD", "NET CASH", "SHARES PER YEAR"]
+    order = ["ROCE", "ROIIC", "GROSS MARGIN", "OPERATING MARGIN", "REVENUE GROWTH",
+             "REINVESTMENT RATE", "FCF CONVERSION", "FCF YIELD", "NET CASH",
+             "SHARES PER YEAR"]
     glance = body[body.index("At a glance"):]
     positions = [glance.index(label) for label in order]
     assert positions == sorted(positions)
@@ -119,7 +120,7 @@ def test_company_section_glance_missing_values_are_dashes():
         html = op.company_section_html(GOOD_PROFILE, 1.0, glance)
         body = _body(html)
         assert "At a glance" in body
-        assert body.count('class="ov-gval">—<') == 8, glance
+        assert body.count('class="ov-gval">—<') == 10, glance
 
 
 def test_company_section_complexity_meter():
@@ -314,7 +315,7 @@ def test_glance_figures_turn_green_above_the_market_reference():
 
 def test_every_tile_and_row_with_a_reference_has_a_help_mark():
     body = _body(op.company_section_html(GOOD_PROFILE, 1.0, GLANCE))
-    assert body.count('class="ov-help"') == 7   # all tiles except Net cash
+    assert body.count('class="ov-help"') == 9   # all tiles except Net cash
     assert "Market-wide reference, not adjusted for sector." in body
     kf = _body(op.key_figures_section_html(_metrics()))
     assert kf.count('class="ov-help"') >= 12
@@ -348,3 +349,24 @@ def test_each_financials_block_opens_with_its_figures():
                        ("balance", "health")):
         assert f'_fin_section("{name}", figures="{kind}")' in src
     assert "overview_page.key_figures_section_html(" not in src
+
+
+def test_glance_capital_engine_tiles():
+    g = dict(GLANCE, roiic_pct=40.5, reinvestment_pct=55.7, engine_window=5, roiic_noisy=False)
+    glance = _body(op.company_section_html(GOOD_PROFILE, 1.0, g))
+    glance = glance[glance.index("At a glance"):]
+    assert "40.5%" in glance and "new capital, 5-year window" in glance
+    assert '<div class="ov-gval ov-pos">40.5%</div>' in glance
+    assert "55.7%" in glance and "of after-tax profit, 5-year window" in glance
+
+
+def test_glance_noisy_roiic_is_greyed_not_hidden():
+    g = dict(GLANCE, roiic_pct=624.6, reinvestment_pct=3.2, engine_window=5, roiic_noisy=True)
+    glance = _body(op.company_section_html(GOOD_PROFILE, 1.0, g))
+    assert '<div class="ov-gval ov-dim">624.6%</div>' in glance
+    assert "noise: capital barely moved" in glance
+
+
+def test_glance_without_engine_is_dashes():
+    glance = _body(op.company_section_html(GOOD_PROFILE, 1.0, GLANCE))
+    assert "needs 5+ years" in glance

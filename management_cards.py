@@ -88,7 +88,15 @@ For each question, in exactly this order, pick an answer (0 = worst, 2 = best):
   what it earned: return on capital over time, acquisitions (paid off or
   written down), buybacks (shrinking the share count, bought at sensible
   prices), big new bets and how they turned out, debt taken on. Name the
-  largest use of cash and its result.
+  largest use of cash and its result. Use the capital engine below as the
+  evidence for how well NEW money was spent: the ROIIC trend (rising or
+  falling across the windows) and the reinvestment rate. Cite its numbers,
+  do not recompute them. If small_delta_capital is flagged, the ROIIC is
+  noise — lean on the uses of cash instead. If external_funding is flagged,
+  name the debt (or equity) taken on to fund the latest year.
+
+CAPITAL ENGINE (computed from EDGAR):
+{capital_engine}
 
 summary: ONE sentence for the front of the card, with the fact that decides the pick.
 points: EXACTLY three, each {"label": two to four words, "text": one line with the

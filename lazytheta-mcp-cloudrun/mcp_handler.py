@@ -441,7 +441,14 @@ TOOLS: list[dict] = [
             "computed metrics: avg_roce_pct (ROE-fallback for float "
             "businesses with avg CE/TA < 25%), current_fcf_yield_pct, "
             "current_ebit_ev_pct, latest_adjusted_net_debt_m (incl. leases "
-            "+ pension, Moody's/S&P style), latest_net_debt_ebitda. "
+            "+ pension, Moody's/S&P style), latest_net_debt_ebitda, and "
+            "capital_engine: ROIIC (capital lagged one year, 5y window or "
+            "3y fallback), reinvestment rate (window + latest year), implied "
+            "vs actual NOPAT growth, the window tax rate, a 4-window ROIIC "
+            "trend and flags (small_delta_capital, negative_delta, "
+            "external_funding, growth_mismatch, lag_hides_recent_capex); null "
+            "under 5 years of data. incremental_roic_pct = that lagged ROIIC; "
+            "the old unlagged 3-delta figure is incremental_roic_unlagged_pct. "
             "Read-only — call update_fundamentals to correct values."
         ),
         "inputSchema": {

@@ -1077,7 +1077,7 @@ def test_phase_gate_metrics_computes_rule_of_40_and_incr_roic():
     assert m["rule_of_40_pct"] == pytest.approx(40.06, abs=0.6)
     # ΔNOPAT 25 over ΔCE 120 (CE = TA−CL: 100 → 220). The old debt+equity−cash
     # proxy divided by ΔEquity 60 instead and said 41.67%.
-    assert m["incremental_roic_pct"] == pytest.approx(20.83, abs=0.5)
+    assert m["incremental_roic_unlagged_pct"] == pytest.approx(20.83, abs=0.5)
     assert m["roce_latest_pct"] == pytest.approx(18.18, abs=0.2)        # 40/220
     assert m["roce_rising"] is True
 
@@ -1091,7 +1091,7 @@ def test_phase_gate_metrics_guards_on_thin_data():
         "current_liabilities": [20, 20], "total_equity": [50, 60],
         "total_debt": [0, 0], "cash": [0, 0],
     })
-    assert m["incremental_roic_pct"] is None        # needs >=4 deltas
+    assert m["incremental_roic_unlagged_pct"] is None        # needs >=4 deltas
     assert m["fcf_margin_pct"] == pytest.approx(10.0, abs=0.1)
     assert m["roce_latest_pct"] == pytest.approx(15.0, abs=0.2)  # 15/(120-20)
 
@@ -1114,7 +1114,7 @@ def test_phase_gate_metrics_buybacks_are_not_shrinking_capital():
         "total_assets": [200, 200, 200, 200, 200],
         "current_liabilities": [50, 50, 50, 50, 50],
     })
-    assert m["incremental_roic_pct"] is None
+    assert m["incremental_roic_unlagged_pct"] is None
 
 
 def test_phase_gate_metrics_incr_roic_none_when_capital_shrinks():
@@ -1130,7 +1130,7 @@ def test_phase_gate_metrics_incr_roic_none_when_capital_shrinks():
         "total_assets": [300, 280, 260, 240, 220],
         "current_liabilities": [50, 50, 50, 50, 50],
     })
-    assert m["incremental_roic_pct"] is None
+    assert m["incremental_roic_unlagged_pct"] is None
 
 
 def test_phase_gate_metrics_incr_roic_none_on_immaterial_capital_change():
@@ -1148,7 +1148,7 @@ def test_phase_gate_metrics_incr_roic_none_on_immaterial_capital_change():
         "total_assets": [300, 300, 300, 300, 301],   # +1 on a base of 250
         "current_liabilities": [50, 50, 50, 50, 50],
     })
-    assert m["incremental_roic_pct"] is None
+    assert m["incremental_roic_unlagged_pct"] is None
 
 
 def test_phase_gate_metrics_incr_roic_is_clamped():
@@ -1165,7 +1165,7 @@ def test_phase_gate_metrics_incr_roic_is_clamped():
         "total_assets": [300, 300, 305, 310, 325],
         "current_liabilities": [50, 50, 50, 50, 50],
     })
-    assert m["incremental_roic_pct"] == pytest.approx(100.0)
+    assert m["incremental_roic_unlagged_pct"] == pytest.approx(100.0)
 
 
 def test_phase_gate_metrics_incr_roic_uses_roce_capital_base():
@@ -1188,7 +1188,7 @@ def test_phase_gate_metrics_incr_roic_uses_roce_capital_base():
     assert capital_employed(fund, 1) == 120.0   # 220−50−50 cash stripped
     assert capital_employed(fund, 4) == 240.0   # 340−50−50
     m = mcp_server._phase_gate_metrics(fund)
-    assert m["incremental_roic_pct"] == pytest.approx(15.0, abs=0.1)  # 18/120
+    assert m["incremental_roic_unlagged_pct"] == pytest.approx(15.0, abs=0.1)  # 18/120
 
 
 def test_premortem_dict_structured():

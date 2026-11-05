@@ -32,6 +32,9 @@ def mcp(monkeypatch):
     monkeypatch.setattr(mcp_server.config_store, "load_config", fake_load_config)
     monkeypatch.setattr(mcp_server.config_store, "load_user_prefs", fake_load_prefs)
     monkeypatch.setattr(mcp_server.config_store, "save_user_prefs", fake_save_prefs)
+    # {capital_engine} in the defaults triggers an EDGAR fetch; keep it offline
+    monkeypatch.setattr(mcp_server.gather_data, "fetch_fundamentals",
+                        lambda ticker, n_years=10, manual_currency=None: {"years": []})
     return mcp_server, state
 
 
