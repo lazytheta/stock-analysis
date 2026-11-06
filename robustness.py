@@ -58,45 +58,33 @@ def phased_roce_axis(headline, phase):
     if phase == 6:
         return {"band": "fragile", "metric": metric, "value": avg,
                 "basis": "phase 6 — decline / avoid"}
-    # Incremental ROIC below is the unlagged 3-delta figure the gate was
-    # calibrated on. The headline's incremental_roic_pct became the lagged
-    # capital-engine ROIIC on 2026-11-05; moving the gate onto it is its own
-    # decision, because it would move phase 2/3 verdicts.
+    # No incremental ROIC in this gate (removed 2026-11-06). It is a ratio of
+    # two differences — noisy, and on most names barely measurable — and the
+    # gate is a quality floor on the capital already employed. Returns on NEW
+    # capital live in the capital engine (scorecard_utils.capital_engine), as
+    # evidence for runway and capital allocation, not as a pass/fail leg.
     if phase == 2:
         r40 = headline.get("rule_of_40_pct")
-        iroic = headline.get("incremental_roic_unlagged_pct")
         if r40 is None:  # primary signal unmeasurable → strict gate
             return {"band": band_for_roce(avg), "metric": metric, "value": avg,
                     "basis": "phase 2 — Rule of 40 unavailable → strict 20% gate"}
-        # Rule of 40 is primary; incremental ROIC is a noisy secondary that
-        # only fails it when *measurably* ≤ 0. Pass → robust FOR ITS PHASE.
-        passed = r40 >= 40 and (iroic is None or iroic > 0)
-        # An unmeasurable incremental ROIC still counts as a pass, but say so.
-        # Silence read as "this leg was tested and cleared" when it was never
-        # run at all — the difference between passing a check and skipping it.
+        # Pass → robust FOR ITS PHASE.
+        passed = r40 >= 40
         return {"band": "robust" if passed else "fragile",
                 "metric": "Rule of 40", "value": r40,
-                "basis": f"phase 2 — Rule of 40 {'≥' if passed else '<'} 40"
-                         + (", incr. ROIC not measurable" if iroic is None
-                            else f", incr. ROIC {iroic:.0f}%")}
+                "basis": f"phase 2 — Rule of 40 {'≥' if passed else '<'} 40"}
     if phase == 3:
         latest = headline.get("roce_latest_pct")
-        iroic = headline.get("incremental_roic_unlagged_pct")
-        if latest is None and iroic is None:
+        if latest is None:
             return {"band": band_for_roce(avg), "metric": metric, "value": avg,
-                    "basis": "phase 3 — inputs unavailable → strict 20% gate"}
-        strong_roce = latest is not None and latest >= 10 and bool(headline.get("roce_rising"))
-        strong_roic = iroic is not None and iroic > 20
-        if strong_roce and strong_roic:
-            band = "robust"
-        elif strong_roce or strong_roic:
-            band = "mid"
+                    "basis": "phase 3 — latest ROCE unavailable → strict 20% gate"}
+        # ≥ 10% and rising clears the phase-3 bar; ≥ 10% but flat or falling
+        # is halfway; below 10% fails, rising or not — a loss shrinking is
+        # still a loss.
+        if latest >= 10:
+            band = "robust" if headline.get("roce_rising") else "mid"
         else:
             band = "fragile"
-        # Name the metric that carried it (incr. ROIC if that's the strong leg)
-        if strong_roic and not strong_roce:
-            return {"band": band, "metric": "Incr. ROIC", "value": iroic,
-                    "basis": "phase 3 — incremental ROIC > 20%"}
         return {"band": band, "metric": "ROCE (latest)", "value": latest,
                 "basis": "phase 3 — ROCE ≥ 10% and rising"}
     if phase == 4:

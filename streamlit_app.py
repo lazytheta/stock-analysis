@@ -3430,7 +3430,6 @@ def _watchlist_overview():
     # Per-phase definitions for the inline "?" tooltip on each Capital cell.
     _CAP_DEFS = {
         "Rule of 40": "Rule of 40 = 3-year revenue growth% + FCF margin%; ≥40 is the phase-2 hyper-growth bar",
-        "Incr. ROIC": "Incremental ROIC = ΔNOPAT / ΔInvested capital — the return on newly deployed capital",
         "ROCE (latest)": "Latest-year ROCE = EBIT / (Total Assets − Current Liabilities)",
         "ROCE": "ROCE = EBIT / (Total Assets − Current Liabilities); ≥20% is the mature Prasad quality gate",
         "ROE": "ROE = Net income / Total Equity — used for float businesses where capital employed is too small for a meaningful ROCE",

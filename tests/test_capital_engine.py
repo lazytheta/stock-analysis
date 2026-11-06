@@ -159,13 +159,6 @@ def test_short_history_headline_is_null(monkeypatch):
     assert hl["incremental_roic_pct"] is None
 
 
-def test_robustness_gate_still_reads_the_unlagged_figure():
-    import robustness
-    hl = {"avg_roce_pct": 15.0, "roce_latest_pct": 8.0, "roce_rising": False,
-          "incremental_roic_pct": 625.0, "incremental_roic_unlagged_pct": None}
-    assert robustness.phased_roce_axis(hl, 3)["band"] == "fragile"
-
-
 # ── prompts ───────────────────────────────────────────────────────────────
 
 def test_prompt_placeholder_is_filled():
