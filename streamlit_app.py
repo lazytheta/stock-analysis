@@ -7607,6 +7607,8 @@ def _render_revenue_section(brev, prefix, empty_note=None):
 # container's answer is every session's answer.
 _LOGO_OK_TTL = 86400.0
 _LOGO_OK: dict = {}
+_LOGO_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36")
 
 
 def _logo_head(url):
@@ -7621,12 +7623,17 @@ def _logo_head(url):
 
     On a network error assume it resolves: hiding every logo over one slow
     moment punishes the wrong thing.
+
+    Only a 404 means "no logo". Since Nov 2026 parqet's Cloudflare answers a
+    bare "Mozilla/5.0" with 403, which turned every logo into a monogram — so
+    send a full browser UA, and treat any other non-200 (403/429 = a block,
+    not an answer about the logo) like a network error.
     """
     import requests
     try:
         return requests.head(url, timeout=3, allow_redirects=True,
-                             headers={"User-Agent": "Mozilla/5.0"}
-                             ).status_code == 200
+                             headers={"User-Agent": _LOGO_UA}
+                             ).status_code != 404
     except Exception:
         return True
 
