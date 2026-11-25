@@ -126,3 +126,12 @@ def test_facts_scale_adr_and_missing_shares():
     assert f["eps"] == pytest.approx(10.0)
     assert f["pe_history"] == pytest.approx([20.0, 20.0])
     assert f["revenue_ps"] == pytest.approx(50.0)
+
+
+def test_share_gaps_are_filled_so_the_latest_eps_is_latest():
+    # RACE: EDGAR stops tagging the share count after 2020
+    cfg = {"hist_net_income": [1600.0], "shares_outstanding": 180.0}
+    fund = {"years": [2020, 2025], "net_income": [600.0, 1600.0],
+            "shares": [185e6, None]}
+    f = tv.facts_from(cfg, fund, [], 400)
+    assert f["eps"] == pytest.approx(1600 / 180, rel=0.03)

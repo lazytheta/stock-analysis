@@ -198,6 +198,21 @@ def facts_from(cfg, fund, closes=None, price=None):
     # little high and early P/Es a little low — a note, not a reason to stop.
     if so and not any(shares):
         shares = [so * 1e6] * len(years)
+    # Gaps (RACE has no count after 2020): carry the nearest known count
+    # forward, then backward. Without this the latest EPS silently became
+    # 2020's and the scale with it.
+    last = None
+    for i, s in enumerate(shares):
+        if s:
+            last = s
+        elif last:
+            shares[i] = last
+    nxt = None
+    for i in range(len(shares) - 1, -1, -1):
+        if shares[i]:
+            nxt = shares[i]
+        elif nxt:
+            shares[i] = nxt
     fund_eps = [n / s if n is not None and s else None for n, s in zip(ni, shares)]
     # Scale on the fund year whose net income IS the config's latest one: the
     # fundamentals may hold a newer fiscal year than the DCF was built on
