@@ -19,7 +19,8 @@ COPY mcp_auth.py mcp_server.py valuation_lenses.py \
      management_cards.py earnings_brief.py \
      prompt_style.py prescan_prompts.py prescan_render.py \
      portfolio_metrics.py trade_utils.py reporting_currency.py t212_history.py \
-     ticker_currency.py premortem.py index_return.py /app/
+     ticker_currency.py premortem.py index_return.py \
+     type_valuation.py price_history.py /app/
 
 EXPOSE 8080
 ENV PORT=8080

@@ -46,6 +46,8 @@ import financials_page
 import quarterly_results
 import question_cards
 import price_history
+import type_valuation
+import valuation_page
 import strategy_attribution
 import summary_page
 from prescan_prompts import DEFAULT_AI_PROMPTS  # noqa: F401  (re-exported; tests use it)
@@ -964,19 +966,34 @@ def _refresh_stale_valuations(client, cfgs: dict, user_id: str | None = None,
         # this config. Without it the page falls back to a 5 MB companyfacts
         # download per ticker on the next cold load. A failure here must not
         # cost the valuation that just succeeded, so the old slice stays.
+        _fund = None
         try:
             _manual = gather_data.manual_source(cfg)
             if _manual:
                 # Hand-entered fundamentals: the slice comes from the overrides.
-                _sl = slim_fundamentals(gather_data.manual_fundamentals(
-                    cfg.get("fundamentals_overrides") or {}, _manual))
+                _fund = gather_data.manual_fundamentals(
+                    cfg.get("fundamentals_overrides") or {}, _manual)
             else:
-                _sl = slim_fundamentals(fetch_fundamentals(ticker, n_years=10))
+                _fund = apply_fundamentals_overrides(
+                    fetch_fundamentals(ticker, n_years=11),
+                    cfg.get("fundamentals_overrides") or {})
+            _sl = slim_fundamentals(_fund)
             if _sl:
                 cfg["fund_slice"] = _sl
         except Exception as _e:
             logger.warning("Slice refresh failed for %s (keeping previous): %s",
                            ticker, _e)
+        # Buy price per company type (Notion v0.2). Only configs with a
+        # valuation_type change; the rest keep the DCF buy price.
+        _closes = []
+        if isinstance(cfg.get("valuation_type"), dict):
+            try:
+                _closes = price_history.load_series(
+                    client, [ticker], date.today() - timedelta(days=365 * 11)
+                ).get(ticker, [])
+            except Exception as _e:
+                logger.info("Price history for %s failed: %s", ticker, _e)
+        type_valuation.attach(summary, cfg, _fund or cfg.get("fund_slice"), _closes)
         save_config(client, ticker, cfg, user_id=user_id)
         return ticker
 
@@ -3392,9 +3409,17 @@ def _watchlist_overview():
             'fcf_unavailable': t in _fund_unavailable,
             'valuation_summary': cfg_wl.get('valuation_summary'),
             'isin': cfg_wl.get('isin'),
+            # Buy price per company type (Notion v0.2): which test set the buy
+            # price, and whether its control test agrees.
+            'buy_basis': (summary or {}).get('buy_basis', 'dcf'),
+            'by_type': (summary or {}).get('by_type'),
         })
 
-    rows.sort(key=lambda r: r['upside'], reverse=True)
+    # Most buyable first: price furthest under the buy price. For a DCF row
+    # the buy price is FV × (1 − MoS), so this is the old Upside order; a
+    # per-type buy price now sorts on the same scale.
+    rows.sort(key=lambda r: (r['buy_price'] / r['price']) if r['price'] and r['buy_price']
+              else r['upside'], reverse=True)
 
     # Say it out loud. This failure mode was invisible for as long as it was:
     # the quotes just quietly became $0.00 and every metric derived from them
@@ -3562,6 +3587,33 @@ def _watchlist_overview():
             else:
                 col.markdown(f"**{label}**")
 
+    def _buy_cell_md(row):
+        """Buy price, green at or above the price (= buyable). Under it the
+        test that set it: the company type with ✓/⚠ for its control test, or
+        "DCF". A type whose inputs are missing says so instead of pretending."""
+        _sym = row.get('symbol', '$')
+        bp, px = row.get('buy_price'), row.get('price')
+        if bp is None:
+            return "—"
+        _buyable = bool(px) and px <= bp
+        _col = T['accent'] if _buyable else T['text']
+        _bt = row.get('by_type') or {}
+        if row.get('buy_basis') == 'type':
+            _agree = (_bt.get('control') or {}).get('agrees')
+            _mark = {True: ' ✓', False: ' ⚠'}.get(_agree, '')
+            _tip = question_cards.esc((_bt.get('control') or {}).get('text') or '')
+            _sub = f'<span title="{_tip}">{question_cards.esc(_bt.get("label") or "")}{_mark}</span>'
+        elif _bt.get('label'):
+            _why = question_cards.esc("; ".join(_bt.get('missing') or [])
+                                      or (_bt.get('note') or ''))
+            _sub = (f'<span title="{_why}">DCF · {question_cards.esc(_bt["label"])}'
+                    f' inputs missing</span>')
+        else:
+            _sub = 'DCF'
+        return (f'<div style="line-height:1.15"><span style="color:{_col};'
+                f'font-weight:{700 if _buyable else 400}">{_sym}{bp:.2f}</span><br>'
+                f'<span style="font-size:0.7rem;color:{T["text_muted"]}">{_sub}</span></div>')
+
     def _render_wl_row(row):
         t = row['ticker']
         up_color = "green" if row['upside'] > 0 else "red"
@@ -3605,7 +3657,7 @@ def _watchlist_overview():
             ),
             unsafe_allow_html=True,
         )
-        cols[5].markdown(f"{row.get('symbol', '$')}{row['buy_price']:.2f}")
+        cols[5].markdown(_buy_cell_md(row), unsafe_allow_html=True)
         cols[6].markdown(f":{up_color}[{row['upside']:+.1%}]")
         cols[7].markdown(
             f'<div style="text-align:center;white-space:nowrap">{_return_cell_md(row)}</div>',
@@ -3958,11 +4010,50 @@ def _dcf_editor(ticker):
         _fund_error, fund = e, {}
 
     # Pre-mortem first, then Summary: the two the owner opens most (2026-10-23).
+    # Valuation (2026-11-25, Notion "Waarderingsmethode per type bedrijf" v0.2)
+    # takes the buy price per company type; Reverse DCF, Peer Comparison and
+    # History moved inside it as sub-tabs. DCF keeps its own tab.
     (_tab_premortem, _tab_summary, _tab_business, _tab_moat,
      _tab_growth, _tab_management, _tab_risk, _tab_capital,
-     _tab_earnings,
-     _tab_dcf, _tab_rdcf, _tab_peers, _tab_history) = st.tabs(
-        ["Pre-mortem", "Summary", "Business", "Moat", "Growth", "Management", "Risk", "Capital Return", "Earnings", "DCF", "Reverse DCF", "Peer Comparison", "History"])
+     _tab_earnings, _tab_valuation, _tab_dcf) = st.tabs(
+        ["Pre-mortem", "Summary", "Business", "Moat", "Growth", "Management", "Risk", "Capital Return", "Earnings", "Valuation", "DCF"])
+
+    with _tab_valuation:
+        load_profiler.lap("tab Valuation")
+        _vt = cfg.get("valuation_type") if isinstance(cfg.get("valuation_type"), dict) else None
+        _vsum = cfg.get("valuation_summary") or {}
+        _vres = None
+        if _vt:
+            try:
+                _vcloses = (_overview_prices(
+                    ticker, (date.today() - timedelta(days=365 * 11)).isoformat())
+                    .get(ticker, []))
+            except Exception as e:
+                logger.info("Valuation tab price history for %s failed: %s", ticker, e)
+                _vcloses = []
+            try:
+                _vcfg = dict(cfg, stock_price=live_price) if live_price and live_price > 0 else cfg
+                _vfacts = type_valuation.facts_from(_vcfg, fund, _vcloses, _vcfg.get("stock_price"))
+                _vres = type_valuation.evaluate(
+                    _vt, _vcfg.get("stock_price"), _vfacts,
+                    dcf_value=(type_valuation.dcf_value_fn(_vcfg)
+                               if _vcfg.get("revenue_growth") else None),
+                    implied_return=dcf_calculator.implied_return(_vcfg))
+            except Exception as e:
+                logger.warning("Valuation tab for %s failed: %s", ticker, e)
+        st.markdown(valuation_page.page_html(_vres, _vt, _vsum, _hs.strip()),
+                    unsafe_allow_html=True)
+        # The watchlist reads the buy price stored at the last refresh; say so
+        # when today's live figure has moved away from it.
+        _vstored = (_vsum.get("by_type") or {}).get("buy_price")
+        _vlive = (_vres or {}).get("buy_price")
+        if _vlive and (not _vstored or abs(_vlive / _vstored - 1) > 0.01):
+            st.caption(
+                "The watchlist still shows the buy price from the last valuation refresh"
+                + (f" ({_hs.strip()}{_vstored:,.2f})" if _vstored else "")
+                + "; refresh to bring it in line.")
+        _tab_rdcf, _tab_peers, _tab_history = st.tabs(
+            ["Reverse DCF", "Peer Comparison", "History"])
 
     # Business (the former Overview and Business tabs, merged 2026-10-06):
     # Company (profile + at a glance), What the company does, Revenue

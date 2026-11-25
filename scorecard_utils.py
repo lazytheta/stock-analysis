@@ -449,6 +449,8 @@ WATCHLIST_FUND_KEYS = (
     # recent filing — the one on the same basis as the price, and the only one
     # that survives a split between annual reports.
     "fcf", "shares", "shares_latest",
+    # type_valuation: margins, tangible book, dividends (2026-11-25)
+    "revenue", "goodwill", "intangibles", "dividends_paid",
 )
 
 

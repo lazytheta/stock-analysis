@@ -66,6 +66,7 @@ import dcf_calculator
 import config_store
 import quotes
 import valuation_lenses
+import type_valuation
 from scorecard_utils import capital_employed, capital_engine, capital_engine_text, compute_roce_metric
 import notifications
 import aspirant
@@ -220,6 +221,37 @@ def _calculate_valuation_impl(cfg, user_id: str | None = None):
     return json.dumps(result)
 
 
+
+def _attach_type_valuation(client, ticker, cfg, summary):
+    """Per-type buy price into the summary (type_valuation.attach). Only for
+    configs with a valuation_type; the rest stay exactly as before. Live
+    EDGAR first, the stored slice when that fails; price history from the
+    shared price_history table. Never raises."""
+    if not isinstance(cfg.get("valuation_type"), dict):
+        return type_valuation.attach(summary, cfg, None, None)
+    from datetime import date, timedelta
+
+    import price_history
+    from scorecard_utils import slice_is_usable
+    fund = None
+    try:
+        fund = gather_data.apply_fundamentals_overrides(
+            gather_data.fetch_fundamentals(
+                ticker, n_years=11, manual_currency=gather_data.manual_source(cfg)),
+            cfg.get("fundamentals_overrides") or {})
+    except Exception as e:
+        logger.info("type valuation %s: live fundamentals failed (%s)", ticker, e)
+        sl = cfg.get("fund_slice")
+        fund = sl if slice_is_usable(sl) else None
+    closes = []
+    try:
+        since = date.today() - timedelta(days=365 * 11)
+        closes = price_history.load_series(client, [ticker], since).get(ticker, [])
+    except Exception as e:
+        logger.info("type valuation %s: price history failed (%s)", ticker, e)
+    return type_valuation.attach(summary, cfg, fund, closes)
+
+
 def _calculate_multi_lens_valuation_impl(ticker, scenario_grid=False,
                                           user_id: str | None = None):
     """Core logic for calculate_multi_lens_valuation: load cfg, run all
@@ -239,6 +271,7 @@ def _calculate_multi_lens_valuation_impl(ticker, scenario_grid=False,
     summary = valuation_lenses.calculate_multi_lens_valuation(
         cfg, scenario_grid=scenario_grid
     )
+    _attach_type_valuation(client, ticker, cfg, summary)
     cfg["valuation_summary"] = summary
     config_store.save_config(client, ticker, cfg, user_id=user_id)
     return json.dumps(summary, default=str)
@@ -298,6 +331,7 @@ def _refresh_all_valuations_impl(force: bool = False,
         cfg = dict(loaded[ticker])
         cfg.setdefault("ticker", ticker)
         summary = valuation_lenses.calculate_multi_lens_valuation(cfg, scenario_grid=False)
+        _attach_type_valuation(client, ticker, cfg, summary)
         cfg["valuation_summary"] = summary
         config_store.save_config(client, ticker, cfg, user_id=user_id)
         return ticker
@@ -1697,6 +1731,60 @@ def _set_category_impl(ticker, category, user_id: str | None = None):
     return f"{ticker} → {category}."
 
 
+_VT_NUMERIC = ("achievable_growth", "eps_override", "normalised_margin",
+               "roe", "book_growth", "asset_value_per_share")
+
+
+def _set_valuation_type_impl(ticker, valuation_type, user_id: str | None = None):
+    """Store cfg["valuation_type"] and recompute the valuation so the new buy
+    price is on the watchlist at once (Notion: Waarderingsmethode per type
+    bedrijf, v0.2). Replaces the whole dict: what is omitted is cleared."""
+    from datetime import date
+    user_id = user_id or USER_ID
+    ticker = ticker.upper()
+    vt = dict(valuation_type or {})
+    kind = vt.get("type")
+    if kind not in type_valuation.TYPES:
+        return json.dumps({"error": f"type must be one of {', '.join(type_valuation.TYPES)}"})
+    for k in _VT_NUMERIC:
+        if vt.get(k) is not None:
+            try:
+                vt[k] = float(vt[k])
+            except (TypeError, ValueError):
+                return json.dumps({"error": f"{k} must be a number"})
+    for k in ("achievable_growth", "normalised_margin", "roe", "book_growth"):
+        if vt.get(k) is not None and not -0.5 < vt[k] < 1.0:
+            return json.dumps({"error": f"{k} is a fraction (0.11 = 11%), got {vt[k]}"})
+    if vt.get("eps_override") is not None and not vt.get("eps_override_reason"):
+        return json.dumps({"error": "eps_override needs eps_override_reason (which one-off, how much)"})
+    if not vt.get("rationale"):
+        return json.dumps({"error": "rationale is required: the stap-1 answers with their numbers"})
+    allowed = set(_VT_NUMERIC) | {"type", "rationale", "growth_basis",
+                                  "eps_override_reason", "notes"}
+    unknown = sorted(set(vt) - allowed)
+    if unknown:
+        return json.dumps({"error": f"unknown keys: {unknown}"})
+    vt["set_at"] = date.today().isoformat()
+
+    client = get_supabase_client()
+    cfg = config_store.load_config(client, ticker, user_id=user_id)
+    if cfg is None:
+        return json.dumps({"error": f"{ticker} not on watchlist"})
+    config_store.save_config(client, ticker, {**cfg, "valuation_type": vt},
+                             user_id=user_id)
+    if aspirant.is_placeholder(cfg):
+        return json.dumps({"saved": vt, "note": "placeholder DCF: no valuation yet"})
+    summary = json.loads(_calculate_multi_lens_valuation_impl(ticker, user_id=user_id))
+    bt = summary.get("by_type") or {}
+    return json.dumps({"saved": vt, "buy_price": summary.get("buy_price"),
+                       "buy_basis": summary.get("buy_basis"),
+                       "dcf_buy_price": summary.get("dcf_buy_price"),
+                       "by_type": {k: bt.get(k) for k in
+                                   ("label", "buy_price", "distance", "main",
+                                    "control", "missing", "note")}},
+                      default=str)
+
+
 def _set_robustness_impl(ticker, axes, user_id: str | None = None):
     """Store the 4 qualitative robustness axes (band + note each) as the
     'Robustness' ai_notes section, recompute the data axes (ROCE/net debt) from
@@ -1882,6 +1970,30 @@ def set_category(ticker: str, category: str) -> str:
     """
     try:
         return _set_category_impl(ticker, category)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def set_valuation_type(ticker: str, valuation_type: dict) -> str:
+    """Set the company type and its authored inputs, then recompute the
+    valuation. The buy price on the watchlist becomes the type's buy price.
+
+    valuation_type keys:
+      type: capital_light | capital_heavy | cyclical | financial | asset
+      rationale (required): the four stap-1 answers with their numbers
+      achievable_growth: EPS growth the company can deliver itself, fraction
+        (capital_light, capital_heavy). Built from parts, checked against
+        reinvestment × ROIIC and base rates — never the past extrapolated.
+      growth_basis: how achievable_growth was built
+      eps_override + eps_override_reason: clean EPS when the latest year
+        holds one-offs
+      normalised_margin: cyclical, overrides the 10-year average net margin
+      roe, book_growth: financial (sustainable return on tangible equity)
+      asset_value_per_share: asset
+    """
+    try:
+        return _set_valuation_type_impl(ticker, valuation_type)
     except Exception as e:
         return json.dumps({"error": str(e)})
 

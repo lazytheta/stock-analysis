@@ -56,10 +56,10 @@ def test_the_slice_reproduces_per_year_roce():
 
 
 def test_the_slice_drops_what_the_page_never_reads():
-    """The whole point is size. Revenue and the rest are 80% of the payload
-    and nothing on the row uses them."""
+    """The whole point is size. Capex and the rest are most of the payload and
+    nothing on the row uses them. Revenue stays since 2026-11-25: the per-type
+    buy price normalises margins on it."""
     sl = su.slim_fundamentals(_fund())
-    assert "revenue" not in sl
     assert "capex" not in sl
     assert set(sl) <= set(su.WATCHLIST_FUND_KEYS)
 

@@ -244,6 +244,11 @@ async def _tool_promote_aspirant(user_id: str, args: dict) -> Any:
     return mcp_server._promote_aspirant_impl(args["ticker"], user_id=user_id)
 
 
+async def _tool_set_valuation_type(user_id: str, args: dict) -> Any:
+    return mcp_server._set_valuation_type_impl(args["ticker"], args["valuation_type"],
+                                               user_id=user_id)
+
+
 async def _tool_set_category(user_id: str, args: dict) -> Any:
     return mcp_server._set_category_impl(args["ticker"], args["category"], user_id=user_id)
 
@@ -833,6 +838,21 @@ TOOLS: list[dict] = [
                         "required": ["ticker"]},
     },
     {
+        "name": "set_valuation_type",
+        "description": ("Set the company type (capital_light, capital_heavy, cyclical, "
+                        "financial, asset) and its authored inputs, then recompute the "
+                        "valuation; the watchlist buy price becomes the type's buy price. "
+                        "Keys: type, rationale (required: the four type questions with "
+                        "numbers), achievable_growth (fraction; light/heavy), growth_basis, "
+                        "eps_override + eps_override_reason (clean EPS), normalised_margin "
+                        "(cyclical override), roe + book_growth (financial), "
+                        "asset_value_per_share (asset). Replaces the whole dict."),
+        "inputSchema": {"type": "object",
+                        "properties": {"ticker": {"type": "string"},
+                                       "valuation_type": {"type": "object"}},
+                        "required": ["ticker", "valuation_type"]},
+    },
+    {
         "name": "set_category",
         "description": ("Set a watchlist category: Yes, Maybe, Watch Later, No or "
                         "Uncategorized. 'No' rejects an Aspirant. An Aspirant may only "
@@ -883,6 +903,7 @@ TOOL_HANDLERS: dict[str, Callable[[str, dict], Awaitable[Any]]] = {
     "add_manual_aspirant": _tool_add_manual_aspirant,
     "promote_aspirant": _tool_promote_aspirant,
     "set_category": _tool_set_category,
+    "set_valuation_type": _tool_set_valuation_type,
 }
 
 
