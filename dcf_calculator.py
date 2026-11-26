@@ -419,6 +419,35 @@ def implied_growth_at_margin(cfg, wacc, margin, target_price, lo=-0.10, hi=0.50)
     return (lo + hi) / 2
 
 
+def reverse_dcf_ranges(cfg, wacc):
+    """Matrix axes centred between your base case and what the price needs,
+    so the base-case cell and the market-price line both sit inside the grid
+    instead of the line hugging a corner. Each axis spans both points plus
+    2pp either side, at least ±5pp; 0.5pp steps, 1pp once it gets wide.
+    Returns ((g_min, g_max, g_step), (m_min, m_max, m_step))."""
+    base_g = sum(cfg['revenue_growth']) / len(cfg['revenue_growth'])
+    base_m = sum(cfg['op_margins']) / len(cfg['op_margins'])
+    price = cfg.get('stock_price')
+    ig = im = None
+    if price and price > 0:
+        try:
+            ig = find_implied_value(cfg, wacc, 'growth', -0.10, 0.50, price)
+            im = find_implied_value(cfg, wacc, 'margin', 0.01, 0.80, price)
+        except Exception:
+            ig = im = None
+
+    def axis(base, implied, floor):
+        a, b = base, implied if implied is not None else base
+        half = max(0.05, abs(a - b) / 2 + 0.02)
+        step = 0.005 if half <= 0.06 else 0.01
+        centre = (a + b) / 2
+        lo = max(floor, round((centre - half) / step) * step)
+        hi = round((centre + half) / step) * step
+        return (round(lo, 4), round(hi, 4), step)
+
+    return axis(base_g, ig, -0.10), axis(base_m, im, 0.01)
+
+
 def compute_reverse_dcf(cfg, wacc=None, growth_range=None, margin_range=None):
     """Compute reverse DCF: implied metrics and sensitivity matrix.
 
@@ -449,16 +478,14 @@ def compute_reverse_dcf(cfg, wacc=None, growth_range=None, margin_range=None):
     base_margin = sum(base_margins) / len(base_margins)
 
     # Find implied values via binary search
-    implied_growth = find_implied_value(cfg, wacc, 'growth', -0.05, 0.50, mkt_price)
+    implied_growth = find_implied_value(cfg, wacc, 'growth', -0.10, 0.50, mkt_price)
     implied_margin = find_implied_value(cfg, wacc, 'margin', 0.01, 0.80, mkt_price)
 
     # Build test ranges — centered on base case, +/- 10 percentage points, 0.5% steps
     if growth_range:
         g_min, g_max, g_step = growth_range
     else:
-        g_step = 0.005
-        g_min = max(0.0, round(base_cagr - 0.05, 3))
-        g_max = round(base_cagr + 0.05, 3)
+        g_min, g_max, g_step = reverse_dcf_ranges(cfg, wacc)[0]
     growth_tests = []
     g = g_min
     while g <= g_max + 1e-9:
@@ -468,9 +495,7 @@ def compute_reverse_dcf(cfg, wacc=None, growth_range=None, margin_range=None):
     if margin_range:
         m_min, m_max, m_step = margin_range
     else:
-        m_step = 0.005
-        m_min = max(0.01, round(base_margin - 0.05, 3))
-        m_max = round(base_margin + 0.05, 3)
+        m_min, m_max, m_step = reverse_dcf_ranges(cfg, wacc)[1]
     margin_tests = []
     m = m_min
     while m <= m_max + 1e-9:

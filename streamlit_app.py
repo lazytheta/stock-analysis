@@ -53,7 +53,7 @@ import summary_page
 from prescan_prompts import DEFAULT_AI_PROMPTS  # noqa: F401  (re-exported; tests use it)
 from error_logger import log_error, log_error_with_trace
 import dcf_calculator
-from dcf_calculator import (compute_wacc, compute_intrinsic_value, compute_reverse_dcf, own_history, implied_growth_at_margin,
+from dcf_calculator import (compute_wacc, compute_intrinsic_value, compute_reverse_dcf, own_history, reverse_dcf_ranges, implied_growth_at_margin,
                             DEFAULT_DISCOUNT_MODE, DEFAULT_HURDLE_RATE)
 from valuation_lenses import FORWARD_LENSES
 from thesis import thesis_vs_history, HEROIC_RATIO
@@ -5106,20 +5106,25 @@ def _dcf_editor(ticker):
             _rdcf_m_range = None
             with st.expander("Adjust ranges"):
                 _rc1, _rc2, _rc3 = st.columns(3)
+                # Defaults centred between your base case and what the price
+                # needs (reverse_dcf_ranges); keys per ticker so one ticker's
+                # ranges never carry over to the next.
+                try:
+                    _dg, _dm = reverse_dcf_ranges(cfg, val['wacc'])
+                except Exception:
+                    _dg, _dm = (0.0, 0.10, 0.005), (0.10, 0.30, 0.005)
                 with _rc1:
                     st.markdown("**Revenue growth / yr**")
-                    _g_base = sum(cfg.get('revenue_growth', [0])) / max(len(cfg.get('revenue_growth', [0])), 1) * 100
-                    _rg_min = st.number_input("Min %", value=max(0.0, float(round(_g_base - 5))), step=1.0, format="%.0f", key="rdcf_gmin") / 100
-                    _rg_max = st.number_input("Max %", value=float(round(_g_base + 5)), step=1.0, format="%.0f", key="rdcf_gmax") / 100
-                    _rg_step = st.number_input("Step %", value=0.5, step=0.5, format="%.1f", key="rdcf_gstep") / 100
+                    _rg_min = st.number_input("Min %", value=round(_dg[0] * 100, 1), step=0.5, format="%.1f", key=f"rdcf_gmin_{ticker}") / 100
+                    _rg_max = st.number_input("Max %", value=round(_dg[1] * 100, 1), step=0.5, format="%.1f", key=f"rdcf_gmax_{ticker}") / 100
+                    _rg_step = st.number_input("Step %", value=round(_dg[2] * 100, 1), step=0.5, format="%.1f", key=f"rdcf_gstep_{ticker}") / 100
                     if _rg_step > 0 and _rg_max > _rg_min:
                         _rdcf_g_range = (_rg_min, _rg_max, _rg_step)
                 with _rc2:
                     st.markdown("**Operating Margin**")
-                    _m_base = sum(cfg.get('op_margins', [0])) / max(len(cfg.get('op_margins', [0])), 1) * 100
-                    _rm_min = st.number_input("Min %", value=max(1.0, float(round(_m_base - 5))), step=1.0, format="%.0f", key="rdcf_mmin") / 100
-                    _rm_max = st.number_input("Max %", value=float(round(_m_base + 5)), step=1.0, format="%.0f", key="rdcf_mmax") / 100
-                    _rm_step = st.number_input("Step %", value=0.5, step=0.5, format="%.1f", key="rdcf_mstep") / 100
+                    _rm_min = st.number_input("Min %", value=round(_dm[0] * 100, 1), step=0.5, format="%.1f", key=f"rdcf_mmin_{ticker}") / 100
+                    _rm_max = st.number_input("Max %", value=round(_dm[1] * 100, 1), step=0.5, format="%.1f", key=f"rdcf_mmax_{ticker}") / 100
+                    _rm_step = st.number_input("Step %", value=round(_dm[2] * 100, 1), step=0.5, format="%.1f", key=f"rdcf_mstep_{ticker}") / 100
                     if _rm_step > 0 and _rm_max > _rm_min:
                         _rdcf_m_range = (_rm_min, _rm_max, _rm_step)
                 with _rc3:
