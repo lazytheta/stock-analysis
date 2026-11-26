@@ -261,8 +261,15 @@ def _dcf_price_with_overrides(cfg, wacc, growth_rate=None, margin=None):
     if growth_rate is not None:
         override_cfg['revenue_growth'] = [growth_rate] * n_p
     if margin is not None:
+        # Keep the config's own step from the explicit years to the terminal
+        # margin (DECK: 21% → 17%). Setting the terminal margin to `margin`
+        # made every matrix cell more generous than the base-case DCF, so the
+        # base case's own cell did not even show the DCF value.
+        base_m = cfg.get('op_margins') or [margin]
+        step = (cfg['terminal_margin'] - sum(base_m) / len(base_m)
+                if cfg.get('terminal_margin') is not None else 0.0)
         override_cfg['op_margins'] = [margin] * n_p
-        override_cfg['terminal_margin'] = margin
+        override_cfg['terminal_margin'] = margin + step
     return compute_intrinsic_value(override_cfg, wacc=wacc)['intrinsic_value']
 
 
@@ -365,6 +372,53 @@ def implied_from_curve(curve, price):
     return None
 
 
+ISO_BAND = 0.03
+
+
+def own_history(fund, years=10):
+    """The company's own record as a yardstick for the reverse DCF: revenue
+    CAGR over the last five years and the operating margin's low, median and
+    high over the last `years`. None for any figure the filings lack."""
+    import statistics as _st
+    out = {"rev_cagr_5y": None, "margin_low": None, "margin_median": None,
+           "margin_high": None, "n_years": 0, "first_year": None, "last_year": None}
+    if not isinstance(fund, dict):
+        return out
+    rev = list(fund.get("revenue") or [])
+    oi = list(fund.get("operating_income") or [])
+    yrs = list(fund.get("years") or [])
+    pairs = [(y, r, o) for y, r, o in zip(yrs, rev, oi) if r and o is not None and r > 0]
+    pairs = pairs[-years:]
+    if pairs:
+        ms = [o / r for _, r, o in pairs]
+        out.update(margin_low=min(ms), margin_median=_st.median(ms), margin_high=max(ms),
+                   n_years=len(pairs), first_year=pairs[0][0], last_year=pairs[-1][0])
+    revs = [r for r in rev if r and r > 0]
+    if len(revs) >= 6:
+        out["rev_cagr_5y"] = (revs[-1] / revs[-6]) ** (1 / 5) - 1
+    return out
+
+
+def implied_growth_at_margin(cfg, wacc, margin, target_price, lo=-0.10, hi=0.50):
+    """The flat revenue growth that matches target_price with the margin held
+    at `margin` (the terminal margin keeps the config's own step). None when
+    the price lies outside what lo..hi can reach."""
+    def v(g):
+        return _dcf_price_with_overrides(cfg, wacc, growth_rate=g, margin=margin)
+    try:
+        if (v(lo) - target_price) * (v(hi) - target_price) > 0:
+            return None
+    except Exception:
+        return None
+    for _ in range(50):
+        mid = (lo + hi) / 2
+        if v(mid) > target_price:
+            hi = mid
+        else:
+            lo = mid
+    return (lo + hi) / 2
+
+
 def compute_reverse_dcf(cfg, wacc=None, growth_range=None, margin_range=None):
     """Compute reverse DCF: implied metrics and sensitivity matrix.
 
@@ -443,7 +497,13 @@ def compute_reverse_dcf(cfg, wacc=None, growth_range=None, margin_range=None):
             best_score = score
             closest = (m['growth'], m['margin'])
 
+    # The market price is matched by a whole line of (growth, margin) pairs,
+    # not one point: the cells within ISO_BAND of the price trace it.
+    iso = [(m['growth'], m['margin']) for m in matrix
+           if mkt_price and abs(m['price'] / mkt_price - 1) <= ISO_BAND]
+
     return {
+        'iso': iso,
         'implied_growth': implied_growth,
         'implied_margin': implied_margin,
         'base_cagr': base_cagr,

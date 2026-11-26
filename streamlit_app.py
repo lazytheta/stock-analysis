@@ -53,7 +53,7 @@ import summary_page
 from prescan_prompts import DEFAULT_AI_PROMPTS  # noqa: F401  (re-exported; tests use it)
 from error_logger import log_error, log_error_with_trace
 import dcf_calculator
-from dcf_calculator import (compute_wacc, compute_intrinsic_value, compute_reverse_dcf,
+from dcf_calculator import (compute_wacc, compute_intrinsic_value, compute_reverse_dcf, own_history, implied_growth_at_margin,
                             DEFAULT_DISCOUNT_MODE, DEFAULT_HURDLE_RATE)
 from valuation_lenses import FORWARD_LENSES
 from thesis import thesis_vs_history, HEROIC_RATIO
@@ -5134,102 +5134,129 @@ def _dcf_editor(ticker):
                                          growth_range=_rdcf_g_range,
                                          margin_range=_rdcf_m_range)
 
-            # ── Market vs Your Base Case comparison ──
+            # ── What the price asks, one lever at a time ──
+            # A price is matched by a whole line of (growth, margin) pairs, so
+            # one "market implies" point is arbitrary (it used to land on the
+            # grid's corner: 1% growth with 16% margin). Hold one lever at
+            # your base case and solve the other, and set both against the
+            # company's own record.
             _bc = _rdcf['base_cagr']
             _bm = _rdcf['base_margin']
-            _closest = _rdcf['closest']
-            _impl_g, _impl_m = _closest if _closest else (_bc, _bm)
+            _mkt = _rdcf['market_price']
+            _ig = _rdcf['implied_growth']
+            _im = _rdcf['implied_margin']
+            _hist = own_history(fund) if fund else {}
+            _h_med = _hist.get('margin_median')
+            _ig_hist = (implied_growth_at_margin(cfg, _rdcf['wacc'], _h_med, _mkt)
+                        if _h_med and _h_med > 0 else None)
+            _h_cagr = _hist.get('rev_cagr_5y')
 
-            _card_border = f'border-top:1px solid {T["border_medium"]};border-right:1px solid {T["border_medium"]};border-bottom:1px solid {T["border_medium"]};border-left:3px solid {T["accent"]}'
-            _mc1, _mc2 = st.columns(2)
-            with _mc1:
-                st.markdown(
-                    f'<div style="{_card_border};border-radius:12px;padding:20px;text-align:center;background:{T["card"]};box-shadow:{T["shadow"]}">'
-                    f'<div style="color:{T["text_muted"]};font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Market implies</div>'
-                    f'<div style="font-size:1.8rem;font-weight:700;margin:8px 0;color:{T["text"]}">{_impl_g:.1%} CAGR &nbsp;+&nbsp; {_impl_m:.1%} Margin</div>'
-                    f'<div style="color:{T["text_muted"]};font-size:0.85rem">to justify {_hs}{_rdcf["market_price"]:.2f}</div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-            with _mc2:
-                st.markdown(
-                    f'<div style="{_card_border};border-radius:12px;padding:20px;text-align:center;background:{T["card"]};box-shadow:{T["shadow"]}">'
-                    f'<div style="color:{T["text_muted"]};font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Your base case</div>'
-                    f'<div style="font-size:1.8rem;font-weight:700;margin:8px 0;color:{T["text"]}">{_bc:.1%} CAGR &nbsp;+&nbsp; {_bm:.1%} Margin</div>'
-                    f'<div style="color:{T["text_muted"]};font-size:0.85rem">DCF value {_hs}{val["intrinsic_value"]:.2f}</div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
+            def _rd_tile(label, value, cap):
+                return (f'<div style="background:{T["card"]};border:1px solid {T["border_medium"]};'
+                        f'border-radius:14px;padding:14px 18px;min-width:0">'
+                        f'<div style="color:{T["text_muted"]};font-size:0.7rem;font-weight:700;'
+                        f'letter-spacing:.07em;text-transform:uppercase">{label}</div>'
+                        f'<div style="font-size:1.4rem;font-weight:700;margin:4px 0 2px;color:{T["text"]}">{value}</div>'
+                        f'<div style="color:{T["text_muted"]};font-size:0.8rem;line-height:1.35">{cap}</div></div>')
+
+            _tiles = [
+                _rd_tile("Growth the price needs", f"{_ig:.1%}",
+                         f"a year, at your {_bm:.1%} margin · you assume {_bc:.1%}"),
+                _rd_tile("Margin the price needs", f"{_im:.1%}",
+                         f"at your {_bc:.1%} growth · you assume {_bm:.1%}"),
+            ]
+            if _ig_hist is not None:
+                _tiles.append(_rd_tile(
+                    "Growth at its own margin", f"{_ig_hist:.1%}",
+                    f"a year, at its {_hist['n_years']}-year median margin of {_h_med:.1%}"))
+            if _h_cagr is not None or _h_med is not None:
+                _parts = []
+                if _h_cagr is not None:
+                    _parts.append(f"revenue {_h_cagr:.1%} a year over 5 years")
+                if _h_med is not None:
+                    _parts.append(f"margin {_hist['margin_low']:.1%} to {_hist['margin_high']:.1%}")
+                _tiles.append(_rd_tile(
+                    "Its own record", f"{_h_cagr:.1%}" if _h_cagr is not None else f"{_h_med:.1%}",
+                    (f"{_hist['first_year']}–{_hist['last_year']}: " if _hist.get('first_year') else "")
+                    + "; ".join(_parts)))
+            st.markdown(
+                f'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));'
+                f'gap:12px;margin:4px 0 6px">{"".join(_tiles)}</div>',
+                unsafe_allow_html=True)
 
             # ── Conclusion ──
-            if _impl_g > _bc * 1.1 or _impl_m > _bm * 1.1:
-                _conclusion = (f"Market is more optimistic — it prices in "
-                               f"{_impl_g:.1%} CAGR / {_impl_m:.1%} margin "
-                               f"vs your {_bc:.1%} / {_bm:.1%}.")
-            elif _impl_g < _bc * 0.9 or _impl_m < _bm * 0.9:
-                _conclusion = (f"Potential undervaluation — market only requires "
-                               f"{_impl_g:.1%} CAGR / {_impl_m:.1%} margin, "
-                               f"below your {_bc:.1%} / {_bm:.1%} base case.")
+            _gap_g = _bc - _ig
+            _gap_m = _bm - _im
+            if _gap_g > 0.01 and _gap_m > 0.01:
+                _conclusion = (f"The price asks less than your base case on either lever: "
+                               f"{_ig:.1%} growth instead of {_bc:.1%}, or a {_im:.1%} margin "
+                               f"instead of {_bm:.1%}.")
+            elif _gap_g < -0.01 and _gap_m < -0.01:
+                _conclusion = (f"The price asks more than your base case: {_ig:.1%} growth "
+                               f"(you {_bc:.1%}) or a {_im:.1%} margin (you {_bm:.1%}).")
             else:
-                _conclusion = (f"Fairly priced — market-implied assumptions "
-                               f"({_impl_g:.1%} CAGR / {_impl_m:.1%} margin) "
-                               f"are close to your base case ({_bc:.1%} / {_bm:.1%}).")
+                _conclusion = (f"The price is close to your base case: {_ig:.1%} growth or a "
+                               f"{_im:.1%} margin, against your {_bc:.1%} / {_bm:.1%}.")
+            if _ig_hist is not None and _h_cagr is not None:
+                _conclusion += (f" Against its own record ({_h_cagr:.1%} growth, "
+                                f"{_h_med:.1%} median margin) it needs {_ig_hist:.1%} growth.")
             st.markdown(
-                f'<div style="color:{T["text_muted"]};font-size:0.85rem;text-align:center;margin:12px 0 16px">{_conclusion}</div>',
+                f'<div style="color:{T["text_muted"]};font-size:0.85rem;margin:10px 0 16px">{_conclusion}</div>',
                 unsafe_allow_html=True,
             )
 
             # ── Sensitivity matrix ──
-            st.markdown(f"**Sensitivity Matrix** — Hurdle rate: {_rdcf['wacc']:.2%} | Market: {_hs}{_rdcf['market_price']:.2f}")
+            st.markdown(f"**Sensitivity Matrix** — Hurdle rate: {_rdcf['wacc']:.2%} | Market: {_hs}{_mkt:.2f}")
 
             _g_tests = _rdcf['growth_tests']
             _m_tests = _rdcf['margin_tests']
-            _closest = _rdcf['closest']
-            _mkt = _rdcf['market_price']
+            _iso = set(_rdcf.get('iso') or [])
+            # The base case's own cell: the test values nearest your averages.
+            _base_cell = (min(_g_tests, key=lambda g: abs(g - _bc)),
+                          min(_m_tests, key=lambda m: abs(m - _bm)))
+            _h_band = ((_hist.get('margin_low'), _hist.get('margin_high'))
+                       if _h_med is not None else (None, None))
 
-            # Build pivot lookup
             _matrix_data = {}
             for entry in _rdcf['matrix']:
                 _matrix_data[(entry['growth'], entry['margin'])] = entry['price']
 
-            # Render as HTML table for full dark-mode support
             _hdr_style = f'background:{T["card"]};color:{T["text_muted"]};font-size:0.7rem;font-weight:600;padding:6px 8px;text-align:center;position:sticky;top:0;z-index:1'
             _row_hdr = f'background:{T["card"]};color:{T["text"]};font-size:0.75rem;font-weight:600;padding:6px 8px;text-align:left;position:sticky;left:0;z-index:1'
             _html = f'<div style="overflow-x:auto;border:1px solid {T["border_medium"]};border-radius:12px;background:{T["card"]}">'
             _html += '<table style="border-collapse:collapse;width:100%;font-size:0.75rem">'
-            # Header row
             _html += f'<thead><tr><th style="{_hdr_style};text-align:left">CAGR \\ Margin</th>'
             for mg in _m_tests:
-                _html += f'<th style="{_hdr_style}">{mg:.1%}</th>'
+                _in_hist = (_h_band[0] is not None and _h_band[0] <= mg <= _h_band[1])
+                _hs_mark = f';border-bottom:3px solid {T["accent"]}' if _in_hist else ''
+                _html += f'<th style="{_hdr_style}{_hs_mark}">{mg:.1%}</th>'
             _html += '</tr></thead><tbody>'
-            # Data rows
             for g in _g_tests:
                 _html += f'<tr><td style="{_row_hdr}">{g:.1%}</td>'
                 for mg in _m_tests:
                     price = _matrix_data.get((g, mg), 0)
-                    if (g, mg) == _closest:
-                        _bg = T["accent"]
-                        _fg = '#fff'
-                        _fw = 'bold'
+                    _bd = ''
+                    if (g, mg) in _iso:
+                        _bg, _fg, _fw = T["accent"], '#fff', 'bold'
                     elif price >= _mkt:
-                        _bg = T["accent_fill"]
-                        _fg = T["text"]
-                        _fw = 'normal'
+                        _bg, _fg, _fw = T["accent_fill"], T["text"], 'normal'
                     else:
-                        _bg = T["red_light"]
-                        _fg = T["text"]
-                        _fw = 'normal'
-                    _html += f'<td style="background:{_bg};color:{_fg};font-weight:{_fw};padding:6px 8px;text-align:center">{_hs}{price:,.0f}</td>'
+                        _bg, _fg, _fw = T["red_light"], T["text"], 'normal'
+                    if (g, mg) == _base_cell:
+                        _bd = f';outline:2px solid {T["text"]};outline-offset:-2px;font-weight:bold'
+                    _html += f'<td style="background:{_bg};color:{_fg};font-weight:{_fw};padding:6px 8px;text-align:center{_bd}">{_hs}{price:,.0f}</td>'
                 _html += '</tr>'
             _html += '</tbody></table></div>'
             st.markdown(_html, unsafe_allow_html=True)
 
             # ── Legend ──
             st.markdown(
-                f'<div style="display:flex;gap:20px;font-size:0.8rem;color:{T["text_muted"]};margin-top:4px">'
-                f'<span><span style="display:inline-block;width:12px;height:12px;background:{T["accent"]};border-radius:2px;vertical-align:middle;margin-right:4px"></span>Market-implied</span>'
-                f'<span><span style="display:inline-block;width:12px;height:12px;background:{T["accent_fill"]};border:1px solid {T["accent"]};border-radius:2px;vertical-align:middle;margin-right:4px"></span>Undervalued</span>'
-                f'<span><span style="display:inline-block;width:12px;height:12px;background:{T["red_light"]};border:1px solid {T["red"]};border-radius:2px;vertical-align:middle;margin-right:4px"></span>Overvalued</span>'
+                f'<div style="display:flex;flex-wrap:wrap;gap:20px;font-size:0.8rem;color:{T["text_muted"]};margin-top:4px">'
+                f'<span><span style="display:inline-block;width:12px;height:12px;background:{T["accent"]};border-radius:2px;vertical-align:middle;margin-right:4px"></span>At the market price (±3%)</span>'
+                f'<span><span style="display:inline-block;width:12px;height:12px;border:2px solid {T["text"]};border-radius:2px;vertical-align:middle;margin-right:4px"></span>Your base case</span>'
+                f'<span><span style="display:inline-block;width:12px;height:3px;background:{T["accent"]};vertical-align:middle;margin-right:4px"></span>Margins it has reached ({_hist.get("n_years") or 0} years)</span>'
+                f'<span><span style="display:inline-block;width:12px;height:12px;background:{T["accent_fill"]};border:1px solid {T["accent"]};border-radius:2px;vertical-align:middle;margin-right:4px"></span>Above the price</span>'
+                f'<span><span style="display:inline-block;width:12px;height:12px;background:{T["red_light"]};border:1px solid {T["red"]};border-radius:2px;vertical-align:middle;margin-right:4px"></span>Below the price</span>'
                 '</div>',
                 unsafe_allow_html=True,
             )
