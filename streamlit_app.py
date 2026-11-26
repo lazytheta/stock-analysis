@@ -5107,7 +5107,7 @@ def _dcf_editor(ticker):
             with st.expander("Adjust ranges"):
                 _rc1, _rc2, _rc3 = st.columns(3)
                 with _rc1:
-                    st.markdown("**Revenue CAGR**")
+                    st.markdown("**Revenue growth / yr**")
                     _g_base = sum(cfg.get('revenue_growth', [0])) / max(len(cfg.get('revenue_growth', [0])), 1) * 100
                     _rg_min = st.number_input("Min %", value=max(0.0, float(round(_g_base - 5))), step=1.0, format="%.0f", key="rdcf_gmin") / 100
                     _rg_max = st.number_input("Max %", value=float(round(_g_base + 5)), step=1.0, format="%.0f", key="rdcf_gmax") / 100
@@ -5225,7 +5225,7 @@ def _dcf_editor(ticker):
             _row_hdr = f'background:{T["card"]};color:{T["text"]};font-size:0.75rem;font-weight:600;padding:6px 8px;text-align:left;position:sticky;left:0;z-index:1'
             _html = f'<div style="overflow-x:auto;border:1px solid {T["border_medium"]};border-radius:12px;background:{T["card"]}">'
             _html += '<table style="border-collapse:collapse;width:100%;font-size:0.75rem">'
-            _html += f'<thead><tr><th style="{_hdr_style};text-align:left">CAGR \\ Margin</th>'
+            _html += f'<thead><tr><th style="{_hdr_style};text-align:left">Revenue growth / yr ↓ · Margin →</th>'
             for mg in _m_tests:
                 _in_hist = (_h_band[0] is not None and _h_band[0] <= mg <= _h_band[1])
                 _hs_mark = f';border-bottom:3px solid {T["accent"]}' if _in_hist else ''
