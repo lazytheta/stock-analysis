@@ -187,6 +187,11 @@ def facts_from(cfg, fund, closes=None, price=None):
     eq, gw, intang = col("total_equity"), col("goodwill"), col("intangibles")
     fcf, divs = col("fcf"), col("dividends_paid")
 
+    # Overrides carry shares in millions (ASML: 394.1), EDGAR a raw count
+    # (428,000,000): mixed in one series, the early years' EPS came out a
+    # million times too small. No listed company has under 100k shares.
+    shares = [s * 1e6 if s and 0 < s < 1e5 else s for s in shares]
+
     so = _num(cfg.get("shares_outstanding"))
     eps_cfg = None
     hist_ni = cfg.get("hist_net_income") or []

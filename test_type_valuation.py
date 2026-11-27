@@ -136,6 +136,16 @@ def test_facts_scale_adr_and_missing_shares():
     assert f["revenue_ps"] == pytest.approx(50.0)
 
 
+def test_override_shares_in_millions_mix_with_raw_counts():
+    # ASML: overrides hold 2023+ shares in millions, EDGAR the raw count before
+    cfg = {"hist_net_income": [9609.0], "shares_outstanding": 388.0}
+    fund = {"years": [2016, 2025], "net_income": [1558.0, 9609.0],
+            "shares": [428e6, 388.9]}
+    f = tv.facts_from(cfg, fund, [("2016-12-30", 112.2), ("2025-12-31", 1069.86)], 1422)
+    assert f["pe_history"][0] == pytest.approx(112.2 / (1558 / 428 * 388.9 / 388), rel=0.01)
+    assert all(10 < pe < 100 for pe in f["pe_history"])
+
+
 def test_share_gaps_are_filled_so_the_latest_eps_is_latest():
     # RACE: EDGAR stops tagging the share count after 2020
     cfg = {"hist_net_income": [1600.0], "shares_outstanding": 180.0}
