@@ -370,13 +370,17 @@ def evaluate(vt, price, facts, dcf_value=None, implied_return=None,
         nm_auto, n_years = normalised_margin(facts.get("net_income"), facts.get("revenue"))
         nm = _num(vt.get("normalised_margin"))
         nm_used = nm if nm is not None else nm_auto
-        rps = _num(facts.get("revenue_ps"))
+        # Authored revenue per share (NVDA: trailing 12 months instead of the
+        # last fiscal year, which lagged a year of +60% growth). With reason.
+        rps_override = _num(vt.get("revenue_ps_override"))
+        rps = rps_override if rps_override is not None else _num(facts.get("revenue_ps"))
         if rps is None:
             rev, shares = _last(facts.get("revenue")), _last(facts.get("shares"))
             rps = rev / shares if rev and shares else None
         norm_eps = rps * nm_used if rps and nm_used is not None else None
         m.update(normalised_margin=nm_used, normalised_margin_auto=nm_auto,
                  margin_overridden=nm is not None, window_years=n_years,
+                 revenue_ps_overridden=rps_override is not None,
                  revenue_per_share=rps, normalised_eps=norm_eps,
                  target_pe=CYCLICAL_PE)
         if nm_used is None:

@@ -283,7 +283,8 @@ def main_test_html(res, sym="$"):
         margin_cap = ("authored" if m.get("margin_overridden")
                       else f"average over {m.get('window_years')} years")
         tiles = [_tile("Net margin", _pct(m.get("normalised_margin")), margin_cap),
-                 _tile("Revenue per share", _money(m.get("revenue_per_share"), sym)),
+                 _tile("Revenue per share", _money(m.get("revenue_per_share"), sym),
+                       "authored" if m.get("revenue_ps_overridden") else None),
                  _tile("Normalised EPS", _money(m.get("normalised_eps"), sym)),
                  _tile("P/E applied", _mult(m.get("target_pe")), "no-growth anchor")]
         if m.get("margin_overridden") and m.get("normalised_margin_auto") is not None:
@@ -348,6 +349,9 @@ def details_html(vt, summary, sym="$"):
         if vt.get("eps_override_reason"):
             paras.append(f'<p><span class="k">Clean EPS.</span> '
                          f'{qc.esc(vt["eps_override_reason"])}</p>')
+        if vt.get("revenue_ps_override_reason"):
+            paras.append(f'<p><span class="k">Revenue per share.</span> '
+                         f'{qc.esc(vt["revenue_ps_override_reason"])}</p>')
         stamp = f'<span>set {qc.esc(vt["set_at"])}</span>' if vt.get("set_at") else ""
         parts.append(f'<details class="vp-details"><summary>Why this type{stamp}</summary>'
                      f'<div class="vp-body">{"".join(paras)}</div></details>')

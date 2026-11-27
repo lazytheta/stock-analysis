@@ -169,3 +169,11 @@ def test_share_gaps_are_filled_so_the_latest_eps_is_latest():
             "shares": [185e6, None]}
     f = tv.facts_from(cfg, fund, [], 400)
     assert f["eps"] == pytest.approx(1600 / 180, rel=0.03)
+
+
+def test_cyclical_revenue_ps_override_replaces_the_fiscal_year():
+    r = tv.evaluate({"type": "cyclical", "revenue_ps_override": 14.9}, 149,
+                    {"revenue": [100] * 10, "net_income": [35.5] * 10,
+                     "shares": [10] * 10, "revenue_ps": 8.81})
+    assert r["main"]["revenue_ps_overridden"] is True
+    assert r["buy_price"] == pytest.approx(14.9 * 0.355 * 11)
