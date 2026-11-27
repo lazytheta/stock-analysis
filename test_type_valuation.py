@@ -100,6 +100,22 @@ def test_capital_heavy_uses_dcf_with_buffer():
     assert r["control"]["agrees"] is not None
 
 
+def test_capital_heavy_control_is_the_dcf_implied_return():
+    r = tv.evaluate({"type": "capital_heavy", "achievable_growth": 0.175}, 244,
+                    {"eps": 7.45, "pe_history": [80] * 10},
+                    dcf_value=lambda s: 192.0, implied_return=0.075)
+    assert r["control"]["text"].startswith("DCF implied return 7.5%")
+    assert r["control"]["agrees"] is True          # both say: not now
+    assert r["main"]["required_growth"] is not None
+
+
+def test_dps_falls_back_to_declared_dividend_per_share():
+    cfg = {"hist_net_income": [100.0], "shares_outstanding": 10.0}
+    fund = {"years": [2025], "net_income": [100.0], "shares": [10e6],
+            "dividends_paid": [None], "dividends_per_share": [3.0]}
+    assert tv.facts_from(cfg, fund, [], 200)["dps"] == pytest.approx(3.0)
+
+
 def test_financial():
     r = tv.evaluate({"type": "financial", "roe": 0.15, "book_growth": 0.03}, 50,
                     {"tangible_book_ps": 30, "pb_history": [1.5] * 10})

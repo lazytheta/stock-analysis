@@ -249,6 +249,11 @@ def facts_from(cfg, fund, closes=None, price=None):
                if b and b > 0 and close_by_year.get(y)]
     fcf_ps = _last(per_share(fcf))
     div_ps = _last(per_share([-d if d is not None and d < 0 else d for d in divs]))
+    if not div_ps and scale:
+        # EDGAR often has no dividends-paid tag (MSFT) but does carry the
+        # declared dividend per share: same per-share units as fund_eps × 1e6.
+        dps_rep = _last(col("dividends_per_share"))
+        div_ps = dps_rep * scale / 1e6 if dps_rep and dps_rep > 0 else div_ps
     rps = _last(per_share(rev))
     if rps is None:
         base_rev = _num(cfg.get("base_revenue"))
@@ -348,7 +353,15 @@ def evaluate(vt, price, facts, dcf_value=None, implied_return=None,
                     out["buy_price"] = _num(dcf_value(-BUFFER))
                 except Exception:
                     out["note"] = "DCF failed"
-        if req is not None and g is not None:
+        # Control: the DCF's implied return at the live price. The growth
+        # test used end P/E = min(own median, 25), which for TSM/GOOGL/AMZN
+        # came from another growth phase and contradicted the DCF. The
+        # growth numbers stay in `main` for the page.
+        ir = _num(implied_return)
+        if ir is not None:
+            out["control"]["text"] = f"DCF implied return {ir:.1%} vs hurdle {hurdle:.0%}"
+            out["control"]["_says_buy"] = ir >= hurdle
+        elif req is not None and g is not None:
             out["control"]["text"] = (f"Price asks {req:.1%} EPS growth; "
                                       f"achievable {g:.1%} − {BUFFER:.0%} buffer")
             out["control"]["_says_buy"] = req <= g - BUFFER
