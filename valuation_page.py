@@ -268,7 +268,8 @@ def main_test_html(res, sym="$"):
                  _tile("P/E now", _mult(m.get("pe_now"))),
                  _tile("10-year median P/E", _mult(m.get("pe_median")), "own history"),
                  _tile("End P/E", _mult(m.get("pe_end")),
-                       f"lower of median and {tv.PE_CAP:.0f}")]
+                       "authored" if m.get("pe_end_overridden")
+                       else f"lower of median and {tv.PE_CAP:.0f}")]
         if kind == "capital_light":
             top = growth_bars_html(m.get("required_growth"), m.get("achievable_growth"),
                                    m.get("buffer", tv.BUFFER))
@@ -341,6 +342,9 @@ def details_html(vt, summary, sym="$"):
         if vt.get("growth_basis"):
             paras.append(f'<p><span class="k">Achievable growth.</span> '
                          f'{qc.esc(vt["growth_basis"])}</p>')
+        if vt.get("pe_end_override_reason"):
+            paras.append(f'<p><span class="k">End P/E.</span> '
+                         f'{qc.esc(vt["pe_end_override_reason"])}</p>')
         if vt.get("eps_override_reason"):
             paras.append(f'<p><span class="k">Clean EPS.</span> '
                          f'{qc.esc(vt["eps_override_reason"])}</p>')

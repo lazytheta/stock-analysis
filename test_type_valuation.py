@@ -118,6 +118,14 @@ def test_eps_override_for_one_offs():
     assert r["buy_price"] == pytest.approx(15 * 25, rel=1e-4)
 
 
+def test_pe_end_override_replaces_the_rule():
+    r = tv.evaluate({"type": "capital_light", "achievable_growth": 0.11,
+                     "pe_end_override": 18}, 480, {"eps": 15.0, "pe_history": [30] * 10})
+    assert r["main"]["pe_end"] == 18 and r["main"]["pe_end_overridden"]
+    assert r["main"]["pe_median"] == 30
+    assert r["buy_price"] == pytest.approx(15 * 18, rel=1e-4)
+
+
 def test_facts_scale_adr_and_missing_shares():
     cfg = {"hist_net_income": [100.0], "shares_outstanding": 10.0}    # $M, M shares
     fund = {"years": [2024, 2025], "net_income": [80.0, 100.0],

@@ -844,7 +844,8 @@ TOOLS: list[dict] = [
                         "valuation; the watchlist buy price becomes the type's buy price. "
                         "Keys: type, rationale (required: the four type questions with "
                         "numbers), achievable_growth (fraction; light/heavy), growth_basis, "
-                        "eps_override + eps_override_reason (clean EPS), normalised_margin "
+                        "eps_override + eps_override_reason (clean EPS), pe_end_override + "
+                        "pe_end_override_reason (end P/E, light/heavy), normalised_margin "
                         "(cyclical override), roe + book_growth (financial), "
                         "asset_value_per_share (asset). Replaces the whole dict."),
         "inputSchema": {"type": "object",

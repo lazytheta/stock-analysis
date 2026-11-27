@@ -1731,7 +1731,7 @@ def _set_category_impl(ticker, category, user_id: str | None = None):
     return f"{ticker} → {category}."
 
 
-_VT_NUMERIC = ("achievable_growth", "eps_override", "normalised_margin",
+_VT_NUMERIC = ("achievable_growth", "eps_override", "pe_end_override", "normalised_margin",
                "roe", "book_growth", "asset_value_per_share")
 
 
@@ -1757,10 +1757,16 @@ def _set_valuation_type_impl(ticker, valuation_type, user_id: str | None = None)
             return json.dumps({"error": f"{k} is a fraction (0.11 = 11%), got {vt[k]}"})
     if vt.get("eps_override") is not None and not vt.get("eps_override_reason"):
         return json.dumps({"error": "eps_override needs eps_override_reason (which one-off, how much)"})
+    if vt.get("pe_end_override") is not None:
+        if not vt.get("pe_end_override_reason"):
+            return json.dumps({"error": "pe_end_override needs pe_end_override_reason"})
+        if not 3 <= vt["pe_end_override"] <= 60:
+            return json.dumps({"error": f"pe_end_override is a multiple (18 = 18x), got {vt['pe_end_override']}"})
     if not vt.get("rationale"):
         return json.dumps({"error": "rationale is required: the stap-1 answers with their numbers"})
     allowed = set(_VT_NUMERIC) | {"type", "rationale", "growth_basis",
-                                  "eps_override_reason", "notes"}
+                                  "eps_override_reason", "pe_end_override_reason",
+                                  "notes"}
     unknown = sorted(set(vt) - allowed)
     if unknown:
         return json.dumps({"error": f"unknown keys: {unknown}"})
@@ -1988,6 +1994,8 @@ def set_valuation_type(ticker: str, valuation_type: dict) -> str:
       growth_basis: how achievable_growth was built
       eps_override + eps_override_reason: clean EPS when the latest year
         holds one-offs
+      pe_end_override + pe_end_override_reason: end P/E when the own median
+        comes from a different growth phase (light/heavy)
       normalised_margin: cyclical, overrides the 10-year average net margin
       roe, book_growth: financial (sustainable return on tangible equity)
       asset_value_per_share: asset

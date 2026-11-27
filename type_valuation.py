@@ -303,12 +303,18 @@ def evaluate(vt, price, facts, dcf_value=None, implied_return=None,
     dps = _num(facts.get("dps")) or 0.0
     pe_now = price / eps if price and eps and eps > 0 else None
     pe_end, pe_med = end_pe(facts.get("pe_history"))
+    # An authored end P/E replaces the rule when the median comes from a
+    # different growth phase (DECK: HOKA years). Only with a reason.
+    pe_end_overridden = _num(vt.get("pe_end_override")) is not None
+    if pe_end_overridden:
+        pe_end = _num(vt.get("pe_end_override"))
     m = out["main"]
 
     if kind == "capital_light":
         g = _num(vt.get("achievable_growth"))
         m.update(eps=eps, eps_overridden=eps_overridden,
                  pe_now=pe_now, pe_end=pe_end, pe_median=pe_med,
+                 pe_end_overridden=pe_end_overridden,
                  achievable_growth=g, buffer=BUFFER,
                  required_growth=required_growth(
                      pe_now, pe_end, hurdle, div_yield=(dps / price if price else 0)))
@@ -327,7 +333,8 @@ def evaluate(vt, price, facts, dcf_value=None, implied_return=None,
                               div_yield=(dps / price if price else 0))
         m.update(eps=eps, eps_overridden=eps_overridden,
                  achievable_growth=g, buffer=BUFFER, pe_now=pe_now,
-                 pe_end=pe_end, pe_median=pe_med, required_growth=req)
+                 pe_end=pe_end, pe_median=pe_med, required_growth=req,
+                 pe_end_overridden=pe_end_overridden)
         if not out["missing"]:
             if dcf_value is None:
                 out["note"] = "No DCF to price on"
