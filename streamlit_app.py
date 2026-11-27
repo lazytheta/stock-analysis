@@ -531,6 +531,32 @@ def _merge_track_rows(rows: list) -> list:
     return out
 
 
+def _index_ytd_return(closes: dict, today) -> float | None:
+    """SPY price return this calendar year in %: last close of the previous
+    year → latest close. None when either end is missing (Yahoo throttled)."""
+    if not closes:
+        return None
+    prev = [d for d in closes if d.year < today.year]
+    cur = [d for d in closes if d.year == today.year and d <= today]
+    if not prev or not cur:
+        return None
+    start, end = closes[max(prev)], closes[max(cur)]
+    return (end / start - 1) * 100 if start else None
+
+
+def _ytd_vs_index_pill_html(ytd_ret: float | None, idx_ret: float | None,
+                            theme: dict, label: str = "YTD vs SPY") -> str:
+    """Your YTD return minus SPY's, in points, with SPY's own YTD alongside."""
+    if ytd_ret is None or idx_ret is None:
+        return ""
+    gap = ytd_ret - idx_ret
+    color = theme["accent"] if gap >= 0 else theme["red"]
+    return (f'<span class="stat-pill" title="Your YTD return (money-weighted per month, '
+            f'deposits removed) minus SPY price return since Jan 1" style="cursor:help">'
+            f'{label} <b style="color:{color}">{gap:+.1f} pts</b> '
+            f'<span style="color:{color}">(SPY {idx_ret:+.1f}%)</span></span>')
+
+
 def _track_record_pill_html(rows: list, theme: dict, label: str = "vs SPY") -> str:
     """De ene stat-pil die zegt wat je had kunnen hebben: "vs SPY -$25,661".
 
@@ -10728,11 +10754,14 @@ elif page == "Results":
     portfolio_val_pill = ""
     total_dep_pill = ""
     ytd_pill = ""
+    ytd_vs_spy_pill = ""
+    _spy_ytd = None
     _strat = _strategy_start()
     try:
         _spy_closes_now = _cached_spy_closes()
         if _res_eur:
             _spy_closes_now = reporting_currency.closes_to_eur(_spy_closes_now, _res_hist, _res_rate)
+        _spy_ytd = _index_ytd_return(_spy_closes_now, date.today())
         vs_spy_pill = _track_record_pill_html(
             _track_record_rows(cost_basis, _spy_closes_now, date.today()), T)
         if _strat:
@@ -10791,6 +10820,7 @@ elif page == "Results":
         if ytd_ret is not None and abs(ytd_ret) > 0.01:
             ytd_sign = "+" if ytd_ret >= 0 else ""
             ytd_pill = f'<span class="stat-pill">YTD <b>{ytd_sign}{ytd_ret:.1f}%</b></span>'
+            ytd_vs_spy_pill = _ytd_vs_index_pill_html(ytd_ret, _spy_ytd, T)
 
     hero_pl = true_pl if nl_all_early else total_pl_real
     hero_pl_class = true_pl_class if nl_all_early else pl_color_class
@@ -10807,6 +10837,7 @@ elif page == "Results":
         f'{total_dep_pill}'
         f'{cagr_pill}'
         f'{ytd_pill}'
+        f'{ytd_vs_spy_pill}'
         f'{vs_spy_pill}'
         f'</div>'
         f'</div>',

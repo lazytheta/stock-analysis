@@ -184,3 +184,21 @@ def test_position_start_of_a_closed_position_is_its_last_opening():
     trades = [_buy(date(2026, 8, 20), 5, 70.0), _sell(date(2026, 9, 10), 5, 75.0)]
     assert position_start(trades) == (date(2026, 8, 20), 1)
     assert position_start([]) == (None, 0)
+
+
+def test_index_ytd_return_from_last_close_of_previous_year():
+    import streamlit_app
+    closes = {date(2025, 12, 30): 90.0, date(2025, 12, 31): 100.0,
+              date(2026, 1, 2): 101.0, date(2026, 11, 25): 110.0}
+    assert streamlit_app._index_ytd_return(closes, date(2026, 11, 27)) == pytest.approx(10.0)
+    assert streamlit_app._index_ytd_return({}, date(2026, 11, 27)) is None
+    assert streamlit_app._index_ytd_return({date(2026, 3, 1): 5.0}, date(2026, 11, 27)) is None
+
+
+def test_ytd_vs_index_pill_shows_gap_in_points():
+    import streamlit_app
+    theme = {"accent": "#0a0", "red": "#a00"}
+    html = streamlit_app._ytd_vs_index_pill_html(4.0, 16.5, theme)
+    assert "YTD vs SPY" in html and "-12.5 pts" in html and "SPY +16.5%" in html
+    assert "#a00" in html
+    assert streamlit_app._ytd_vs_index_pill_html(None, 16.5, theme) == ""
