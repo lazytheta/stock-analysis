@@ -436,25 +436,26 @@ STYLE = """<style>
 .th-deb{background:var(--qc-inner);border-radius:16px;padding:18px 22px;margin:0 0 14px}
 .th-deb:last-child{margin-bottom:0}
 .th-q{font-size:1rem;font-weight:700;color:var(--text);line-height:1.4;margin:0}
+.th-deb div,.th-chk div{box-sizing:border-box}
 .th-meta{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:.78rem;font-weight:600;margin:6px 0 12px}
 .th-meta span{display:inline-flex;align-items:center;gap:6px}
 .th-meta .th-muted{color:var(--text-muted)}
-.th-why{font-size:.86rem;line-height:1.5;color:var(--text);margin:0 0 12px}
+.th-why{font-size:.9rem;line-height:1.55;color:var(--text);margin:0 0 14px}
 .th-sides{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
 @media (min-width:760px){.th-sides{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.th-side{background:var(--card);border-radius:12px;padding:10px 14px;font-size:.84rem;line-height:1.45;color:var(--text);border-top:3px solid}
+.th-side{background:var(--card);border-radius:12px;padding:10px 14px;font-size:.9rem;line-height:1.45;color:var(--text);border-top:3px solid}
 .th-k{display:block;font-size:.66rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;margin:0 0 3px}
-.th-settle{margin:12px 0 0;font-size:.86rem;line-height:1.5;color:var(--text)}
+.th-settle{margin:16px 0 0;font-size:.9rem;line-height:1.55;color:var(--text)}
 .th-settle .th-k{color:var(--text-muted)}
-.th-more{margin-top:10px;font-size:.82rem;color:var(--text)}
+.th-more{margin-top:12px;font-size:.88rem;color:var(--text)}
 .th-more summary{cursor:pointer;color:var(--text-muted);font-weight:600;font-size:.78rem;list-style:none}
 .th-more summary::-webkit-details-marker{display:none}
 .th-more summary::before{content:"+ ";}
 .th-more[open] summary::before{content:"− ";}
-.th-more p{margin:8px 0 0;line-height:1.5}
-.th-more p .th-k{color:var(--text-muted)}
-.th-list{margin:0;padding:0;list-style:none}
-.th-list li{font-size:.86rem;line-height:1.5;color:var(--text);padding:8px 0;border-bottom:1px solid var(--border-light, rgba(0,0,0,.06))}
+.th-more div{margin:8px 0 0;line-height:1.5}
+.th-more div .th-k{color:var(--text-muted)}
+.th-list{margin:0!important;padding:0!important;list-style:none}
+.th-list li{font-size:.9rem;line-height:1.55;color:var(--text);margin:0!important;padding:8px 0;border-bottom:1px solid var(--border-light, rgba(0,0,0,.06))}
 .th-list li:last-child{border-bottom:none;padding-bottom:0}
 .th-list li:first-child{padding-top:0}
 .th-chks{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
@@ -464,9 +465,9 @@ STYLE = """<style>
 .th-chk summary{display:flex;align-items:center;gap:9px;cursor:pointer;list-style:none;font-size:.88rem;font-weight:600;color:var(--text)}
 .th-chk summary::-webkit-details-marker{display:none}
 .th-chk summary em{margin-left:auto;font-style:normal;font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
-.th-chk .th-body{font-size:.84rem;line-height:1.5;color:var(--text);margin:6px 0 0 19px}
+.th-chk .th-body{font-size:.9rem;line-height:1.5;color:var(--text);margin:6px 0 0 19px}
 .th-chk .th-ev{font-size:.76rem;color:var(--text-muted);margin:6px 0 0 19px;line-height:1.45}
-.th-foot{font-size:.8rem;color:var(--text-muted);margin:14px 0 0;line-height:1.5}
+.th-foot{font-size:.82rem;color:var(--text-muted);margin:14px 0 0;line-height:1.5}
 .th-warn{font-size:.86rem;color:var(--text-muted);padding:10px 2px}
 </style>"""
 
@@ -489,7 +490,7 @@ def _debate_html(d):
     tone = _LEAN_TONE[d["lean"]]
     meta = (f'<div class="th-meta"><span style="color:{tone}">{_dot(tone)}Leans {esc(d["lean"])}</span>'
             f'<span class="th-muted">{_ANSWERABLE[d["answerable"]]}</span></div>')
-    why = f'<p class="th-why">{esc(d["why_it_matters"])}</p>' if d["why_it_matters"] else ""
+    why = f'<div class="th-why">{esc(d["why_it_matters"])}</div>' if d["why_it_matters"] else ""
     sides = ""
     if d["bull"] or d["bear"]:
         sides = (f'<div class="th-sides">'
@@ -497,16 +498,16 @@ def _debate_html(d):
                  f'<span class="th-k" style="color:{_GREEN}">Bull</span>{esc(d["bull"])}</div>'
                  f'<div class="th-side" style="border-top-color:{_RED}">'
                  f'<span class="th-k" style="color:{_RED}">Bear</span>{esc(d["bear"])}</div></div>')
-    settle = (f'<p class="th-settle"><span class="th-k">What settles it</span>{esc(d["settles_it"])}</p>'
+    settle = (f'<div class="th-settle"><span class="th-k">What settles it</span>{esc(d["settles_it"])}</div>'
               if d["settles_it"] else "")
     more = []
     if d["precedent"]:
-        more.append(f'<p><span class="th-k">Precedent</span>{esc(d["precedent"])}</p>')
+        more.append(f'<div><span class="th-k">Precedent</span>{esc(d["precedent"])}</div>')
     if d["next_research"] and d["answerable"] != "no":
-        more.append(f'<p><span class="th-k">Cheapest next check</span>{esc(d["next_research"])}</p>')
+        more.append(f'<div><span class="th-k">Cheapest next check</span>{esc(d["next_research"])}</div>')
     more_html = (f'<details class="th-more"><summary>Precedent and next check</summary>{"".join(more)}</details>'
                  if more else "")
-    return (f'<div class="th-deb"><p class="th-q">{esc(d["question"])}</p>{meta}{why}{sides}'
+    return (f'<div class="th-deb"><div class="th-q">{esc(d["question"])}</div>{meta}{why}{sides}'
             f'{settle}{more_html}</div>')
 
 
@@ -581,8 +582,8 @@ def tab_html(debates_raw, flags_raw, theme) -> str:
         checks = sorted(flg["checks"], key=lambda c: _STATUS_ORDER[c["status"]])
         inner = f'<div class="th-chks">{"".join(_check_html(c) for c in checks)}</div>'
         if flg["could_not_check"]:
-            inner += ('<p class="th-foot"><b>Could not check:</b> '
-                      + " · ".join(esc(x) for x in flg["could_not_check"]) + "</p>")
+            inner += ('<div class="th-foot"><b>Could not check:</b> '
+                      + " · ".join(esc(x) for x in flg["could_not_check"]) + "</div>")
         parts.append(qc.section_html("Red-flag checks", inner))
     else:
         parts.append(problem(FLAGS_TITLE, flg_err))
