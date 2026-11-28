@@ -12,6 +12,7 @@ is the DCF-vs-history grade.
 import json
 import re
 
+import premortem
 import prompt_style
 
 DEBATES_TITLE = "Key Debates"
@@ -343,3 +344,64 @@ def parse_red_flags(content) -> dict:
         "premortem": _premortem_block(data.get("premortem")),
         "sources": _strings(data.get("sources")),
     }
+
+
+# ── into the pre-mortem ───────────────────────────────────────────────
+
+def premortem_blocks(debates, flags) -> list:
+    """The premortem blocks of the parsed sections that exist."""
+    return [s["premortem"] for s in (debates, flags) if isinstance(s, dict)]
+
+
+def _trim(text, limit):
+    """`text` cut at a word to at most `limit` characters, with an ellipsis."""
+    text = _s(text)
+    if len(text) <= limit:
+        return text
+    cut = text.rfind(" ", 0, limit - 1)
+    cut = cut if cut > limit // 2 else limit - 1
+    return text[:cut].rstrip(" ,;") + "…"
+
+
+def _key(text):
+    return " ".join(_s(text).lower().split())
+
+
+def merge_into_premortem(pm, blocks, today) -> tuple:
+    """(new pre-mortem, what was added) after adding the blocks' triggers.
+
+    Only sell/add triggers and ignore strings are added; a trigger whose
+    label or condition is already on either list is skipped. Status, action,
+    discipline and existing triggers are untouched. One log line records the
+    addition when anything was added, so a second press adds nothing.
+    """
+    base = premortem.normalize(pm) or {
+        "status": None, "status_note": "", "action": None, "sell": [], "add": [],
+        "ignore": [], "discipline": [], "log": []}
+    new = {k: list(v) if isinstance(v, list) else v for k, v in base.items()}
+    seen = {_key(t[f]) for side in ("sell", "add") for t in new[side]
+            for f in ("label", "when") if _key(t[f])}
+    seen_ignore = {_key(i) for i in new["ignore"]}
+    added = {"sell": [], "add": [], "ignore": []}
+    for block in blocks or []:
+        for side in ("sell", "add"):
+            for t in block.get(side) or []:
+                label = _trim(t.get("label"), premortem.MAX_LABEL)
+                when = _trim(t.get("when"), premortem.MAX_WHEN)
+                if not when or _key(label) in seen or _key(when) in seen:
+                    continue
+                trig = {"label": label, "when": when, "detail": "", "state": "watch",
+                        "date": ""}
+                new[side].append(trig)
+                added[side].append(trig)
+                seen.update({_key(label), _key(when)} - {""})
+        for item in block.get("ignore") or []:
+            item = _trim(item, premortem.MAX_ITEM)
+            if item and _key(item) not in seen_ignore:
+                new["ignore"].append(item)
+                added["ignore"].append(item)
+                seen_ignore.add(_key(item))
+    n = sum(len(v) for v in added.values())
+    if n:
+        new["log"].insert(0, {"date": today, "text": f"{n} items from Thesis added"})
+    return new, added

@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+import premortem
 import prescan_prompts
 import prompt_style
 import thesis_cards as tc
@@ -101,3 +102,52 @@ def test_parse_red_flags_status_and_unknown_check():
     bad = dict(FLAGS, checks=FLAGS["checks"] + [{"check": "vibes", "status": "green"}])
     with pytest.raises(ValueError):
         tc.parse_red_flags(fenced(bad))
+
+
+# ── Task 2: merge into the pre-mortem ────────────────────────────────
+
+BLOCKS = [{"sell": [{"label": "Churn", "when": "Churn above 5% a year"}],
+           "add": [{"label": "Share gain", "when": "Share above 65%"}],
+           "ignore": ["Capex noise"]}]
+
+
+def test_merge_adds_only_new_and_keeps_the_rest():
+    pm = {"status": "intact", "action": "hold", "discipline": ["max 5%"],
+          "sell": [{"label": "Take rate", "when": "x", "state": "near"}], "log": []}
+    blocks = [{"sell": [{"label": "take rate", "when": "y"}, {"label": "Churn", "when": "z"}],
+               "add": [], "ignore": ["capex noise"]}]
+    new, added = tc.merge_into_premortem(pm, blocks, "2026-11-28")
+    assert [t["label"] for t in new["sell"]] == ["Take rate", "Churn"]
+    assert new["sell"][0]["state"] == "near"
+    assert new["status"] == "intact" and new["action"] == "hold"
+    assert new["discipline"] == ["max 5%"] and new["ignore"] == ["capex noise"]
+    assert added == {"sell": [{"label": "Churn", "when": "z", "detail": "", "state": "watch",
+                               "date": ""}], "add": [], "ignore": ["capex noise"]}
+    assert new["log"][0] == {"date": "2026-11-28", "text": "2 items from Thesis added"}
+
+
+def test_merge_skips_same_condition_under_another_label():
+    pm = {"sell": [{"label": "A", "when": "Churn above 5% a year"}]}
+    _, added = tc.merge_into_premortem(pm, BLOCKS, "2026-11-28")
+    assert added["sell"] == []
+
+
+def test_merge_twice_adds_nothing():
+    new, _ = tc.merge_into_premortem(None, BLOCKS, "2026-11-28")
+    again, added = tc.merge_into_premortem(new, BLOCKS, "2026-11-29")
+    assert added == {"sell": [], "add": [], "ignore": []}
+    assert len(again["log"]) == 1
+
+
+def test_merge_trims_to_limits_and_validates():
+    long = [{"sell": [{"label": "L" * 60, "when": "word " * 60}], "add": [],
+             "ignore": ["i" * 200]}]
+    new, _ = tc.merge_into_premortem("legacy note", long, "2026-11-28")
+    assert premortem.validation_errors(new) == []
+    assert any(e["text"] == "legacy note" for e in new["log"])
+
+
+def test_premortem_blocks_from_parsed_sections():
+    blocks = tc.premortem_blocks(tc.parse_debates(SAMPLE_DEBATES), None)
+    assert len(blocks) == 1 and blocks[0]["sell"][0]["label"] == "Take rate"
+    assert tc.premortem_blocks(None, None) == []
