@@ -7,7 +7,7 @@ SRC = (Path(__file__).resolve().parent.parent / "streamlit_app.py").read_text(en
 
 def test_there_is_no_phase_tab():
     assert "_tab_phase" not in SRC
-    assert ('["Pre-mortem", "Summary", "Business", "Moat", '
+    assert ('["Pre-mortem", "Thesis", "Summary", "Business", "Moat", '
             '"Growth", "Management", "Risk", "Capital Return", "Earnings", "Valuation", "DCF"]') in SRC
 
 

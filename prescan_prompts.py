@@ -626,8 +626,14 @@ if nothing plausible exists, say what you looked for.]
         "prompt": management_cards.PROMPT,
     },
     {
+        # What the latest earnings call said and the next quarter's consensus,
+        # for the Earnings tab's "Latest call" section (two SEC calls).
+        "title": earnings_brief.TITLE,
+        "prompt": earnings_brief.PROMPT,
+    },
+    {
         # Hidden problems (accounting, footnotes, moved definitions) for the
-        # Thesis tab; reads Management Cards, so it runs after them.
+        # Thesis tab; reads Management Cards, so it runs after them (and after Earnings Brief, pinned right behind Management Cards).
         "title": thesis_cards.FLAGS_TITLE,
         "prompt": thesis_cards.FLAGS_PROMPT,
     },
@@ -636,12 +642,6 @@ if nothing plausible exists, say what you looked for.]
         # Thesis tab; reads Red Flags, and feeds the Investment Summary.
         "title": thesis_cards.DEBATES_TITLE,
         "prompt": thesis_cards.DEBATES_PROMPT,
-    },
-    {
-        # What the latest earnings call said and the next quarter's consensus,
-        # for the Earnings tab's "Latest call" section (two SEC calls).
-        "title": earnings_brief.TITLE,
-        "prompt": earnings_brief.PROMPT,
     },
     {
         "title": "Investment Summary",

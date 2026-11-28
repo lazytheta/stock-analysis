@@ -24,6 +24,7 @@ import moat_cards
 import risk_cards
 import risk_page
 import premortem
+import thesis_cards
 import index_return
 import business_cards
 import company_profile
@@ -3109,6 +3110,34 @@ def _reject_aspirant(sb_client, ticker):
         save_config(sb_client, ticker, cfg_no)
 
 
+def _thesis_blocks(notes):
+    """The Thesis sections' premortem blocks; an unreadable half is skipped."""
+    parsed = []
+    for title, parser in ((thesis_cards.DEBATES_TITLE, thesis_cards.parse_debates),
+                          (thesis_cards.FLAGS_TITLE, thesis_cards.parse_red_flags)):
+        try:
+            parsed.append(parser(notes.get(title)) if (notes.get(title) or "").strip() else None)
+        except ValueError:
+            parsed.append(None)
+    return thesis_cards.premortem_blocks(*parsed)
+
+
+def _add_thesis_to_premortem(sb_client, ticker):
+    """Merge the Thesis triggers into the stored pre-mortem; returns what was
+    added. Loads the full config first (a partial config handed to
+    save_config once wiped prescan sections), merges on that, then saves."""
+    fresh = load_config(sb_client, ticker)
+    if fresh is None:
+        return None
+    notes = fresh.get("ai_notes") if isinstance(fresh.get("ai_notes"), dict) else {}
+    new_pm, added = thesis_cards.merge_into_premortem(
+        fresh.get("premortem"), _thesis_blocks(notes), date.today().isoformat())
+    if any(added.values()):
+        fresh["premortem"] = new_pm
+        save_config(sb_client, ticker, fresh)
+    return added
+
+
 def _watchlist_overview():
     # Temporary (2026-10-08): the owner reports a very slow Watchlist load;
     # measure each step on Streamlit Cloud before changing anything.
@@ -4039,10 +4068,12 @@ def _dcf_editor(ticker):
     # Valuation (2026-11-25, Notion "Waarderingsmethode per type bedrijf" v0.2)
     # takes the buy price per company type; Reverse DCF, Peer Comparison and
     # History moved inside it as sub-tabs. DCF keeps its own tab.
-    (_tab_premortem, _tab_summary, _tab_business, _tab_moat,
+    # Thesis (2026-11-28): Key Debates + Red Flags, between the prescan and
+    # the Pre-mortem; its button adds their triggers to the Pre-mortem.
+    (_tab_premortem, _tab_thesis, _tab_summary, _tab_business, _tab_moat,
      _tab_growth, _tab_management, _tab_risk, _tab_capital,
      _tab_earnings, _tab_valuation, _tab_dcf) = st.tabs(
-        ["Pre-mortem", "Summary", "Business", "Moat", "Growth", "Management", "Risk", "Capital Return", "Earnings", "Valuation", "DCF"])
+        ["Pre-mortem", "Thesis", "Summary", "Business", "Moat", "Growth", "Management", "Risk", "Capital Return", "Earnings", "Valuation", "DCF"])
 
     with _tab_valuation:
         load_profiler.lap("tab Valuation")
@@ -4350,6 +4381,29 @@ def _dcf_editor(ticker):
             st.caption("Risk figures unavailable right now.")
         st.markdown(risk_cards.cards_section_html(_rnotes.get(risk_cards.TITLE), T),
                     unsafe_allow_html=True)
+
+    # Thesis: what decides the investment (Key Debates) and what could blow
+    # it up (Red Flags), read-only, plus one button that adds their triggers
+    # to the Pre-mortem without touching status, action or discipline.
+    with _tab_thesis:
+        load_profiler.lap("tab Thesis")
+        _tnotes = cfg.get('ai_notes') if isinstance(cfg.get('ai_notes'), dict) else {}
+        try:
+            st.markdown(thesis_cards.tab_html(
+                _tnotes.get(thesis_cards.DEBATES_TITLE), _tnotes.get(thesis_cards.FLAGS_TITLE), T),
+                unsafe_allow_html=True)
+            _, _tadd = thesis_cards.merge_into_premortem(
+                cfg.get("premortem"), _thesis_blocks(_tnotes), date.today().isoformat())
+            _tnew = [t["label"] or t["when"] for t in _tadd["sell"] + _tadd["add"]] + _tadd["ignore"]
+            if _tnew:
+                st.caption("New for the Pre-mortem: " + " · ".join(_tnew))
+            if st.button("Add to Pre-mortem", key=f"thesis_pm_{ticker}", disabled=not _tnew):
+                _tdone = _add_thesis_to_premortem(_sb_client, ticker)
+                if _tdone is not None:
+                    st.rerun()       # cfg is loaded uncached, so this shows it
+        except Exception as e:
+            logger.warning("Thesis tab for %s failed: %s", ticker, e)
+            st.caption("Thesis unavailable right now.")
 
     # Summary: the Investment Summary verdict beside price vs fair value, the
     # Scorecard, Robustness and the pre-mortem. Read-only; everything here is
