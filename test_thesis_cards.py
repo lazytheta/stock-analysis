@@ -151,3 +151,38 @@ def test_premortem_blocks_from_parsed_sections():
     blocks = tc.premortem_blocks(tc.parse_debates(SAMPLE_DEBATES), None)
     assert len(blocks) == 1 and blocks[0]["sell"][0]["label"] == "Take rate"
     assert tc.premortem_blocks(None, None) == []
+
+
+# ── Task 3: tab html ─────────────────────────────────────────────────
+
+THEME = {"text_muted": "#888"}
+
+
+def test_tab_both_missing():
+    html = tc.tab_html(None, None, THEME)
+    assert "No Key Debates" in html and "No Red Flags" in html
+
+
+def test_tab_bad_half_still_shows_the_other():
+    html = tc.tab_html(SAMPLE_DEBATES, "Just prose", THEME)
+    assert "Can a rival close the spread?" in html
+    assert "Red Flags could not be read" in html
+
+
+def test_tab_escapes_ai_text():
+    raw = SAMPLE_DEBATES.replace("Can a rival close the spread?", "<script>x</script>")
+    html = tc.tab_html(raw, None, THEME)
+    assert "<script>" not in html and "&lt;script&gt;" in html
+
+
+def test_tab_lists_ten_checks_with_status():
+    html = tc.tab_html(None, SAMPLE_FLAGS, THEME)
+    assert html.count('class="th-chk ') == 10
+    assert 'class="th-chk th-yellow"' in html
+    assert "Watch" in html and "Segment margins" in html
+
+
+def test_tab_shows_ceiling_and_downside():
+    html = tc.tab_html(SAMPLE_DEBATES, SAMPLE_FLAGS, THEME)
+    assert "Starter" in html and "Core segment still earns" in html
+    assert "Capex on new segment" in html
