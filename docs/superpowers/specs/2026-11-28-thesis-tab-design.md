@@ -28,7 +28,7 @@ Pre-mortem through a button on the Thesis tab (not automatic, not manual MCP).
 - Merge: adds sell/add triggers and ignore strings only; skips a trigger whose
   label or `when` (case-insensitive) already exists; status, action,
   discipline and existing triggers untouched; one log entry
-  "N triggers from Thesis added". Button shows what is new first; disabled when
+  "N items from Thesis added". Button shows what is new first; disabled when
   nothing is new. Saves via full `load_config` → `save_config`.
 
 ## Non-goals

@@ -79,6 +79,7 @@ import earnings_brief
 import growth_cards
 import management_cards
 import prescan_prompts
+import thesis_cards
 
 # Structured pre-scan sections: a malformed block would render as a broken
 # tab, so it is refused in _save_prescan_section_impl with the reason rather
@@ -90,7 +91,9 @@ _CARD_PARSERS = {moat_cards.TITLE: moat_cards.parse_moat_cards,
                   company_explainer.TITLE: company_explainer.parse_company_explainer,
                   growth_cards.TITLE: growth_cards.parse_growth_cards,
                   management_cards.TITLE: management_cards.parse_management_cards,
-                  earnings_brief.TITLE: earnings_brief.parse_earnings_brief}
+                  earnings_brief.TITLE: earnings_brief.parse_earnings_brief,
+                  thesis_cards.DEBATES_TITLE: thesis_cards.parse_debates,
+                  thesis_cards.FLAGS_TITLE: thesis_cards.parse_red_flags}
 
 
 # ---------------------------------------------------------------------------

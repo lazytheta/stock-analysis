@@ -186,3 +186,25 @@ def test_tab_shows_ceiling_and_downside():
     html = tc.tab_html(SAMPLE_DEBATES, SAMPLE_FLAGS, THEME)
     assert "Starter" in html and "Core segment still earns" in html
     assert "Capex on new segment" in html
+
+
+# ── Final review fixes ───────────────────────────────────────────────
+
+def test_ignore_as_a_string_is_one_item_not_letters():
+    d = tc.parse_debates(fenced(dict(DEBATES, premortem={"sell": [], "ignore": "Capex noise"})))
+    assert d["premortem"]["ignore"] == []
+
+
+def test_bulleted_items_are_not_added_again_after_reload():
+    blocks = [{"sell": [{"label": "- Churn", "when": "• churn above 5%"}], "add": [],
+               "ignore": ["- capex noise"]}]
+    first, _ = tc.merge_into_premortem(None, blocks, "2026-11-28")
+    reloaded = premortem.normalize(first)
+    again, added = tc.merge_into_premortem(reloaded, blocks, "2026-11-29")
+    assert added == {"sell": [], "add": [], "ignore": []} and len(again["log"]) == 1
+
+
+def test_mcp_refuses_malformed_thesis_sections():
+    import mcp_server
+    assert mcp_server._CARD_PARSERS[tc.DEBATES_TITLE] is tc.parse_debates
+    assert mcp_server._CARD_PARSERS[tc.FLAGS_TITLE] is tc.parse_red_flags

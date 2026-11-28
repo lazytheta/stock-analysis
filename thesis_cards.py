@@ -275,7 +275,7 @@ def _premortem_block(raw):
                 if isinstance(t, dict) and (_s(t.get("label")) or _s(t.get("when")))]
 
     return {"sell": triggers("sell"), "add": triggers("add"),
-            "ignore": [_s(i) for i in (raw.get("ignore") or []) if _s(i)]}
+            "ignore": _strings(raw.get("ignore"))}
 
 
 def _strings(raw):
@@ -354,9 +354,15 @@ def premortem_blocks(debates, flags) -> list:
     return [s["premortem"] for s in (debates, flags) if isinstance(s, dict)]
 
 
+def _clean(text):
+    """Whitespace and list bullets off, as premortem.normalize strips them on
+    reload, so an item added once matches itself after a save."""
+    return _s(text).strip(" -•\t").strip()
+
+
 def _trim(text, limit):
     """`text` cut at a word to at most `limit` characters, with an ellipsis."""
-    text = _s(text)
+    text = _clean(text)
     if len(text) <= limit:
         return text
     cut = text.rfind(" ", 0, limit - 1)
@@ -365,7 +371,7 @@ def _trim(text, limit):
 
 
 def _key(text):
-    return " ".join(_s(text).lower().split())
+    return " ".join(_clean(text).lower().split())
 
 
 def merge_into_premortem(pm, blocks, today) -> tuple:
